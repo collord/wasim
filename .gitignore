@@ -1,0 +1,26 @@
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+wasim-prospectus-v03.md
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+.claude/
+
+# ── Rust ──────────────────────────────────────────────────────────────────────
+engine/target/
+
+# ── WASM build output (reproducible via build-wasm.sh) ────────────────────────
+# Keep engine/pkg in git so consumers don't need wasm-pack installed.
+# Uncomment the line below to exclude it:
+# engine/pkg/
+
+# ── Node / frontend ───────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Schema examples (large generated corpus) ──────────────────────────────────
+schema_examples/

@@ -1,0 +1,181 @@
+import { create } from 'zustand'
+import type { MainToWorker, WorkerToMain } from './worker/protocol'
+import type { ModelJson, ModelSummary, SimulationResults } from './types'
+
+// ── Worker singleton ──────────────────────────────────────────────────────────
+
+let _worker: Worker | null = null
+
+function getWorker(): Worker {
+  if (!_worker) {
+    _worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), {
+      type: 'module',
+    })
+    _worker.onmessage = (e: MessageEvent<WorkerToMain>) => {
+      useStore.getState()._onWorkerMessage(e.data)
+    }
+    _worker.onerror = (e) => {
+      useStore.getState()._onWorkerMessage({
+        type: 'error',
+        message: e.message ?? 'worker error',
+      })
+    }
+  }
+  return _worker
+}
+
+function postToWorker(msg: MainToWorker) {
+  getWorker().postMessage(msg)
+}
+
+// ── Store shape ───────────────────────────────────────────────────────────────
+
+export type Tab = 'model' | 'dashboard' | 'results'
+export type SimStatus = 'idle' | 'running' | 'done' | 'error'
+
+interface State {
+  // Model
+  modelJson: string | null
+  parsedModel: ModelJson | null
+  modelSummary: ModelSummary | null
+
+  // Active tab
+  activeTab: Tab
+
+  // Simulation
+  status: SimStatus
+  errorMessage: string | null
+
+  // Results
+  results: SimulationResults | null
+  selectedResultId: string | null
+
+  // Run config (user-controlled)
+  nRealizations: number
+  seed: number | null
+
+  // Internal
+  _onWorkerMessage: (msg: WorkerToMain) => void
+}
+
+interface Actions {
+  loadModel: (json: string) => void
+  setActiveTab: (tab: Tab) => void
+  setConstant: (id: string, value: number) => void
+  setRvParam: (id: string, param: string, value: number) => void
+  run: () => void
+  setNRealizations: (n: number) => void
+  setSeed: (s: number | null) => void
+  setSelectedResultId: (id: string) => void
+}
+
+// ── Store ─────────────────────────────────────────────────────────────────────
+
+export const useStore = create<State & Actions>((set, get) => ({
+  modelJson: null,
+  parsedModel: null,
+  modelSummary: null,
+  activeTab: 'dashboard',
+  status: 'idle',
+  errorMessage: null,
+  results: null,
+  selectedResultId: null,
+  nRealizations: 1000,
+  seed: 42,
+
+  loadModel(json) {
+    let parsed: ModelJson | null = null
+    try {
+      parsed = JSON.parse(json) as ModelJson
+    } catch {
+      set({ status: 'error', errorMessage: 'Invalid JSON' })
+      return
+    }
+    set({
+      modelJson: json,
+      parsedModel: parsed,
+      modelSummary: null,
+      status: 'idle',
+      results: null,
+      selectedResultId: null,
+      errorMessage: null,
+    })
+    postToWorker({ type: 'load_model', payload: json })
+  },
+
+  setActiveTab: (tab) => set({ activeTab: tab }),
+
+  setConstant(id, value) {
+    // Update local parsedModel so the form reflects the edit immediately
+    const pm = get().parsedModel
+    if (!pm) return
+    const elements = pm.elements.map((e) => {
+      if (e.id === id && e.type === 'constant') {
+        const c = e as import('./types').ConstantElement
+        return { ...c, value: { ...c.value, value } }
+      }
+      return e
+    })
+    set({ parsedModel: { ...pm, elements } })
+    postToWorker({ type: 'set_constant', element_id: id, value })
+  },
+
+  setRvParam(id, param, value) {
+    // Update local parsedModel distribution parameter
+    const pm = get().parsedModel
+    if (!pm) return
+    const elements = pm.elements.map((e) => {
+      if (e.id !== id || e.type !== 'random_variable') return e
+      const rv = e as import('./types').RandomVariableElement
+      const oldParam = rv.distribution.parameters[param]
+      const updatedParam =
+        typeof oldParam === 'object' && oldParam !== null
+          ? { ...oldParam, value }
+          : value
+      return {
+        ...rv,
+        distribution: {
+          ...rv.distribution,
+          parameters: { ...rv.distribution.parameters, [param]: updatedParam },
+        },
+      }
+    })
+    set({ parsedModel: { ...pm, elements } })
+    postToWorker({ type: 'set_rv_param', element_id: id, param_name: param, value })
+  },
+
+  run() {
+    const { nRealizations, seed } = get()
+    set({ status: 'running', errorMessage: null })
+    postToWorker({
+      type: 'run',
+      config: { n_realizations: nRealizations, seed: seed ?? undefined },
+    })
+  },
+
+  setNRealizations: (n) => set({ nRealizations: n }),
+  setSeed: (s) => set({ seed: s }),
+  setSelectedResultId: (id) => set({ selectedResultId: id }),
+
+  _onWorkerMessage(msg) {
+    switch (msg.type) {
+      case 'model_loaded':
+        set({ modelSummary: msg.summary, activeTab: 'dashboard' })
+        break
+
+      case 'complete': {
+        set({
+          status: 'done',
+          results: msg.results,
+          selectedResultId: msg.results.output_ids[0] ?? null,
+          activeTab: 'results',
+        })
+        break
+      }
+
+      case 'error':
+        set({ status: 'error', errorMessage: msg.message })
+        break
+    }
+  },
+}))
