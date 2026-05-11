@@ -3,6 +3,183 @@ use std::path::{Path, PathBuf};
 
 use wasim_engine::{run, ModelGraph, RunConfig, WasimModel};
 
+// ── Rank-correlation (Gaussian copula) ───────────────────────────────────────
+
+/// Spearman rank correlation of two equal-length samples.
+fn spearman(xs: &[f64], ys: &[f64]) -> f64 {
+    let n = xs.len();
+    assert_eq!(n, ys.len());
+    let ranks = |vals: &[f64]| -> Vec<f64> {
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.sort_by(|&a, &b| vals[a].partial_cmp(&vals[b]).unwrap());
+        let mut r = vec![0.0f64; n];
+        for (rank, &i) in idx.iter().enumerate() { r[i] = (rank + 1) as f64; }
+        r
+    };
+    let rx = ranks(xs);
+    let ry = ranks(ys);
+    let mx: f64 = rx.iter().sum::<f64>() / n as f64;
+    let my: f64 = ry.iter().sum::<f64>() / n as f64;
+    let num: f64 = (0..n).map(|i| (rx[i] - mx) * (ry[i] - my)).sum();
+    let den: f64 = ((0..n).map(|i| (rx[i] - mx).powi(2)).sum::<f64>()
+                  * (0..n).map(|i| (ry[i] - my).powi(2)).sum::<f64>()).sqrt();
+    if den < 1e-12 { 0.0 } else { num / den }
+}
+
+#[test]
+fn rank_correlation_recovers_spearman_rho() {
+    // Two normal variables with a declared Spearman ρ = 0.7.
+    // Over 5000 realizations the sample Spearman ρ should land within 0.05.
+    // Y specifies no correlations field; X lists Y — asymmetric is fine.
+    let json = r#"{
+      "wasim_version": "0.1.0",
+      "simulation_settings": {
+        "duration": {"value": 1, "unit": "yr"},
+        "timestep": {"value": 1, "unit": "yr"},
+        "n_realizations": 5000,
+        "seed": 99
+      },
+      "elements": [
+        {
+          "id": "X", "name": "X", "type": "random_variable",
+          "distribution": {
+            "family": "normal",
+            "parameters": {"mean": {"value": 0, "unit": "1"}, "stddev": {"value": 1, "unit": "1"}}
+          },
+          "correlations": [{"partner": "Y", "coefficient": 0.7}],
+          "save_results": {"final_value": true}
+        },
+        {
+          "id": "Y", "name": "Y", "type": "random_variable",
+          "distribution": {
+            "family": "normal",
+            "parameters": {"mean": {"value": 5, "unit": "1"}, "stddev": {"value": 2, "unit": "1"}}
+          },
+          "save_results": {"final_value": true}
+        }
+      ]
+    }"#;
+
+    let model = load(json);
+    let graph = ModelGraph::build(&model).unwrap();
+    let r = run(&model, &graph, &RunConfig::default()).unwrap();
+    let xs = &r.elements["X"].final_values;
+    let ys = &r.elements["Y"].final_values;
+    let rho = spearman(xs, ys);
+    eprintln!("rank_correlation: Spearman ρ̂ = {rho:.4} (target 0.7)");
+    assert!((rho - 0.7).abs() < 0.05, "expected ρ̂ ≈ 0.7, got {rho:.4}");
+}
+
+#[test]
+fn rank_correlation_marginals_preserved() {
+    // Correlated lognormal variable: marginal mean and stddev should still match
+    // the specified distribution regardless of the copula structure.
+    // lognormal_moments: mean=100, stddev=30 → E[X] = 100.
+    let json = r#"{
+      "wasim_version": "0.1.0",
+      "simulation_settings": {
+        "duration": {"value": 1, "unit": "yr"},
+        "timestep": {"value": 1, "unit": "yr"},
+        "n_realizations": 4000,
+        "seed": 7
+      },
+      "elements": [
+        {
+          "id": "A", "name": "A", "type": "random_variable",
+          "distribution": {
+            "family": "lognormal_moments",
+            "parameters": {"mean": {"value": 100, "unit": "1"}, "stddev": {"value": 30, "unit": "1"}}
+          },
+          "correlations": [{"partner": "B", "coefficient": 0.8}],
+          "save_results": {"final_value": true}
+        },
+        {
+          "id": "B", "name": "B", "type": "random_variable",
+          "distribution": {
+            "family": "normal",
+            "parameters": {"mean": {"value": 50, "unit": "1"}, "stddev": {"value": 10, "unit": "1"}}
+          },
+          "save_results": {"final_value": true}
+        }
+      ]
+    }"#;
+
+    let model = load(json);
+    let graph = ModelGraph::build(&model).unwrap();
+    let r = run(&model, &graph, &RunConfig::default()).unwrap();
+
+    let a_vals = &r.elements["A"].final_values;
+    let b_vals = &r.elements["B"].final_values;
+    let n = a_vals.len() as f64;
+
+    let a_mean = a_vals.iter().sum::<f64>() / n;
+    let b_mean = b_vals.iter().sum::<f64>() / n;
+    eprintln!("marginals: A mean={a_mean:.2} (target 100), B mean={b_mean:.2} (target 50)");
+
+    assert!((a_mean - 100.0).abs() / 100.0 < 0.05, "A marginal mean off: {a_mean:.2}");
+    assert!((b_mean -  50.0).abs() /  50.0 < 0.05, "B marginal mean off: {b_mean:.2}");
+
+    // Spearman ρ should also be near 0.8
+    let rho = spearman(a_vals, b_vals);
+    eprintln!("marginals: Spearman ρ̂ = {rho:.4} (target 0.8)");
+    assert!((rho - 0.8).abs() < 0.05, "expected ρ̂ ≈ 0.8, got {rho:.4}");
+}
+
+#[test]
+fn rank_correlation_non_psd_matrix_rejected() {
+    // Three variables with mutually inconsistent correlations (det < 0 → not PSD).
+    // ρ(A,B)=0.9, ρ(B,C)=0.9, ρ(A,C)=-0.9 → det ≈ -2.9.
+    // run() should return InvalidModel before any sampling occurs.
+    let json = r#"{
+      "wasim_version": "0.1.0",
+      "simulation_settings": {
+        "duration": {"value": 1, "unit": "yr"},
+        "timestep": {"value": 1, "unit": "yr"},
+        "n_realizations": 10
+      },
+      "elements": [
+        {
+          "id": "A", "name": "A", "type": "random_variable",
+          "distribution": {
+            "family": "normal",
+            "parameters": {"mean": {"value": 0, "unit": "1"}, "stddev": {"value": 1, "unit": "1"}}
+          },
+          "correlations": [
+            {"partner": "B", "coefficient": 0.9},
+            {"partner": "C", "coefficient": -0.9}
+          ],
+          "save_results": {"final_value": true}
+        },
+        {
+          "id": "B", "name": "B", "type": "random_variable",
+          "distribution": {
+            "family": "normal",
+            "parameters": {"mean": {"value": 0, "unit": "1"}, "stddev": {"value": 1, "unit": "1"}}
+          },
+          "correlations": [{"partner": "C", "coefficient": 0.9}],
+          "save_results": {"final_value": true}
+        },
+        {
+          "id": "C", "name": "C", "type": "random_variable",
+          "distribution": {
+            "family": "normal",
+            "parameters": {"mean": {"value": 0, "unit": "1"}, "stddev": {"value": 1, "unit": "1"}}
+          },
+          "save_results": {"final_value": true}
+        }
+      ]
+    }"#;
+
+    let model = load(json);
+    let graph = ModelGraph::build(&model).unwrap();
+    let err = run(&model, &graph, &RunConfig::default())
+        .err()
+        .expect("expected InvalidModel for non-PSD correlation matrix");
+    let msg = err.to_string();
+    eprintln!("non-PSD error: {msg}");
+    assert!(msg.contains("positive semi-definite"), "unexpected error: {msg}");
+}
+
 fn load(json: &str) -> WasimModel {
     serde_json::from_str(json).expect("parse failed")
 }

@@ -62,6 +62,144 @@ pub struct TimeHistoryStats {
     pub p95: Vec<f64>,
 }
 
+// ── Rank-correlation (Gaussian copula) ───────────────────────────────────────
+
+struct CorrGroup {
+    /// Element IDs ordered by their position in model.elements.
+    ids: Vec<String>,
+    /// Lower-triangular Cholesky factor of the group's correlation matrix (n × n).
+    chol_l: Vec<Vec<f64>>,
+}
+
+/// Parse all `correlations` entries from RandomVariable elements, find connected
+/// components, build a correlation matrix per component, and Cholesky-decompose it.
+fn build_corr_groups(model: &WasimModel) -> Result<Vec<CorrGroup>, EngineError> {
+    let elem_pos: HashMap<&str, usize> = model.elements.iter()
+        .enumerate()
+        .map(|(i, e)| (e.id.as_str(), i))
+        .collect();
+
+    let rv_set: std::collections::HashSet<&str> = model.elements.iter()
+        .filter(|e| matches!(e.kind, ElementKind::RandomVariable { .. }))
+        .map(|e| e.id.as_str())
+        .collect();
+
+    // Canonical edge map: key = (model-order-first id, model-order-second id) → Spearman ρ.
+    // If both directions are specified, the first one encountered (by model order) wins.
+    let mut edge_map: HashMap<(String, String), f64> = HashMap::new();
+    for elem in &model.elements {
+        if let ElementKind::RandomVariable { correlations, .. } = &elem.kind {
+            for pair in correlations {
+                if !rv_set.contains(pair.partner.as_str()) {
+                    return Err(EngineError::ElementNotFound(pair.partner.clone()));
+                }
+                let a_pos = elem_pos[elem.id.as_str()];
+                let b_pos = elem_pos[pair.partner.as_str()];
+                let (lo, hi) = if a_pos < b_pos {
+                    (elem.id.clone(), pair.partner.clone())
+                } else {
+                    (pair.partner.clone(), elem.id.clone())
+                };
+                edge_map.entry((lo, hi)).or_insert(pair.coefficient);
+            }
+        }
+    }
+
+    if edge_map.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // BFS to find connected components; seed order follows model element order.
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    for ((a, b), _) in &edge_map {
+        adj.entry(a.clone()).or_default().push(b.clone());
+        adj.entry(b.clone()).or_default().push(a.clone());
+    }
+
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut components: Vec<Vec<String>> = Vec::new();
+
+    for elem in &model.elements {
+        let id = &elem.id;
+        if !adj.contains_key(id.as_str()) || visited.contains(id) { continue; }
+        let mut component = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(id.clone());
+        visited.insert(id.clone());
+        while let Some(cur) = queue.pop_front() {
+            component.push(cur.clone());
+            if let Some(neighbors) = adj.get(&cur) {
+                for nb in neighbors {
+                    if !visited.contains(nb) {
+                        visited.insert(nb.clone());
+                        queue.push_back(nb.clone());
+                    }
+                }
+            }
+        }
+        component.sort_by_key(|cid| elem_pos.get(cid.as_str()).copied().unwrap_or(usize::MAX));
+        components.push(component);
+    }
+
+    let mut groups = Vec::new();
+    for ids in components {
+        let n = ids.len();
+        let id_idx: HashMap<&str, usize> = ids.iter()
+            .enumerate()
+            .map(|(i, id)| (id.as_str(), i))
+            .collect();
+
+        let mut matrix = vec![vec![0.0f64; n]; n];
+        for i in 0..n { matrix[i][i] = 1.0; }
+        for ((a, b), &rho) in &edge_map {
+            if let (Some(&i), Some(&j)) = (id_idx.get(a.as_str()), id_idx.get(b.as_str())) {
+                matrix[i][j] = rho;
+                matrix[j][i] = rho;
+            }
+        }
+
+        let chol_l = cholesky(&matrix).map_err(|_| EngineError::InvalidModel(format!(
+            "rank-correlation matrix for [{}] is not positive semi-definite \
+             (check that coefficients are mutually consistent)",
+            ids.join(", ")
+        )))?;
+        groups.push(CorrGroup { ids, chol_l });
+    }
+    Ok(groups)
+}
+
+/// Cholesky–Banachiewicz decomposition: returns lower-triangular L such that A = L Lᵀ.
+/// Returns Err if A is not positive semi-definite.
+fn cholesky(matrix: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, ()> {
+    let n = matrix.len();
+    let mut l = vec![vec![0.0f64; n]; n];
+    for i in 0..n {
+        for j in 0..=i {
+            let sum: f64 = (0..j).map(|k| l[i][k] * l[j][k]).sum();
+            if i == j {
+                let d = matrix[i][i] - sum;
+                if d < -1e-10 { return Err(()); }
+                l[i][j] = d.max(0.0).sqrt();
+            } else if l[j][j].abs() > 1e-12 {
+                l[i][j] = (matrix[i][j] - sum) / l[j][j];
+            }
+        }
+    }
+    Ok(l)
+}
+
+/// Multiply lower-triangular L by vector z: out = L z.
+fn cholesky_matvec(l: &[Vec<f64>], z: &[f64]) -> Vec<f64> {
+    let n = l.len();
+    let mut out = vec![0.0f64; n];
+    for i in 0..n {
+        for j in 0..=i {
+            out[i] += l[i][j] * z[j];
+        }
+    }
+    out
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 pub fn run(
@@ -133,17 +271,54 @@ pub fn run(
         .map(|&id| (id.to_string(), vec![Vec::new(); n_steps]))
         .collect();
 
+    // Build rank-correlation groups once; IDs in these groups bypass independent sampling.
+    let corr_groups = build_corr_groups(model)?;
+    let corr_rv_ids: std::collections::HashSet<String> = corr_groups.iter()
+        .flat_map(|g| g.ids.iter().cloned())
+        .collect();
+
     // ── Realization loop ──────────────────────────────────────────────────────
     for real_idx in 0..n_real {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         rng.set_stream(real_idx as u64);
 
-        // Sample all random variables once per realization (f64 scalars from sampling)
+        // Sample independent random variables once per realization.
+        // Correlated variables are handled below via the Gaussian copula.
         let mut rv_samples: HashMap<String, f64> = HashMap::new();
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                let v = sampling::sample(&distribution.kind, &distribution.truncation, &mut rng)?;
-                rv_samples.insert(elem.id.clone(), v);
+                if !corr_rv_ids.contains(&elem.id) {
+                    let v = sampling::sample(&distribution.kind, &distribution.truncation, &mut rng)?;
+                    rv_samples.insert(elem.id.clone(), v);
+                }
+            }
+        }
+
+        // Gaussian copula for rank-correlated groups:
+        //   1. Draw z_iid ~ N(0, I);  2. z_corr = L z_iid;
+        //   3. u_i = Φ(z_corr[i]);   4. x_i = F_i⁻¹(u_i).
+        // Distributions without a closed-form inverse CDF fall back to iid for that variable.
+        for group in &corr_groups {
+            let n = group.ids.len();
+            let std_normal = rand_distr::Normal::new(0.0_f64, 1.0_f64)
+                .map_err(|e| EngineError::Sampling(e.to_string()))?;
+            let z_iid: Vec<f64> = (0..n).map(|_| rng.sample(std_normal)).collect();
+            let z_corr = cholesky_matvec(&group.chol_l, &z_iid);
+            for (i, id) in group.ids.iter().enumerate() {
+                let elem = &model.elements[elem_idx[id.as_str()]];
+                if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
+                    let u = sampling::standard_normal_cdf(z_corr[i]);
+                    let v = match sampling::icdf(&distribution.kind, u) {
+                        Some(raw) => {
+                            let lo = distribution.truncation.as_ref().and_then(|t| t.min);
+                            let hi = distribution.truncation.as_ref().and_then(|t| t.max);
+                            raw.max(lo.unwrap_or(f64::NEG_INFINITY))
+                               .min(hi.unwrap_or(f64::INFINITY))
+                        }
+                        None => sampling::sample(&distribution.kind, &distribution.truncation, &mut rng)?,
+                    };
+                    rv_samples.insert(id.clone(), v);
+                }
             }
         }
 
@@ -242,7 +417,7 @@ pub fn run(
             // Re-draw random_variable elements that opted into per-timestep sampling.
             for &id in &per_step_rv_ids {
                 let elem = &model.elements[elem_idx[id]];
-                if let ElementKind::RandomVariable { distribution, autocorrelation } = &elem.kind {
+                if let ElementKind::RandomVariable { distribution, autocorrelation, .. } = &elem.kind {
                     let rho = autocorrelation.unwrap_or(0.0).clamp(0.0, 1.0);
                     let z_prev = z_state.get(id).copied().unwrap_or(0.0);
                     let (v, z_new) = sampling::sample_autocorr_step(
@@ -298,8 +473,17 @@ pub fn run(
                         eval_ast(&expression.ast, &ctx)?
                     }
 
-                    ElementKind::Script { .. } => {
-                        return Err(EngineError::Unsupported("script".into()));
+                    ElementKind::Script { expressions, .. } => {
+                        match expressions.first() {
+                            None => Value::Scalar(0.0),
+                            Some(ef) => {
+                                if expressions.len() > 1 {
+                                    eprintln!("warn: {elem_id} has {} expressions, only [0] evaluated", expressions.len());
+                                }
+                                let ctx = EvalCtx { model, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                eval_ast(&ef.ast, &ctx)?
+                            }
+                        }
                     }
 
                     ElementKind::Array { expressions, .. } => {

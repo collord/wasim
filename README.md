@@ -47,13 +47,30 @@ A `model.json` file contains simulation settings and a flat list of typed elemen
 | `stochastic_process` | GBM resampled every timestep (drift + volatility) |
 | `delay` | Time-lagged signal |
 | `array` | Named vector of scalar expressions |
-| `script` | Reserved (not yet executed) |
+| `script` | Single-formula evaluation from transpiler-parsed GoldSim script (Tier 1; control flow deferred) |
 
 ### Distributions
 
 Supported by `random_variable`: `uniform`, `normal`, `lognormal`, `lognormal_moments`, `triangular`, `exponential`, `gamma`, `beta`, `weibull`, `pearson_v`, `pearson_iii`, `discrete_uniform`, `bernoulli`, `discrete`.
 
-All distributions support optional truncation (`min`, `max`). The `correlation_group` field is present in the schema for rank-correlation grouping but is not yet implemented in the engine.
+All distributions support optional truncation (`min`, `max`). Setting `autocorrelation` (ρ ∈ [0, 1]) on a `random_variable` causes it to resample each timestep via AR(1) in normal-copula space. Distributions with a closed-form inverse CDF (Normal, Lognormal, Uniform, Triangular, Exponential, Bernoulli) use correlated draws; others (Gamma, Beta, Weibull, Pearson) fall back to iid each step.
+
+**Cross-variable rank correlations** are specified via the `correlations` field on `random_variable`:
+
+```json
+{
+  "type": "random_variable",
+  "id": "ore_grade",
+  "distribution": { "family": "lognormal_moments", ... },
+  "correlations": [
+    { "partner": "ore_tonnage", "coefficient": 0.7 }
+  ]
+}
+```
+
+The engine implements this via a Gaussian copula: it finds all connected components of correlated variables, Cholesky-decomposes each group's correlation matrix, draws correlated standard normals, and maps each through its marginal inverse CDF. Distributions without a closed-form inverse CDF fall back to independent sampling for that variable. Returns `InvalidModel` at startup if the correlation matrix is not positive semi-definite.
+
+The `correlation_group` field on `Distribution` is stored for provenance but is not used in the engine (it predates the `correlations` field).
 
 ### Expression language
 
@@ -95,9 +112,7 @@ engine.run_json('{"n_realizations":1000,"seed":42}');  // → SimulationResults 
 ```
 
 **Not yet implemented in the engine:**
-- Autocorrelated random variables (parsed, treated as iid at runtime)
-- Rank-correlation sampling (`correlation_group`)
-- `script` element execution
+- `script` elements with control flow (FOR/DO loops, IF/ELSE branches); multi-expression scripts evaluate only `expressions[0]`
 
 ## Frontend
 

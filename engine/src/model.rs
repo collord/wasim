@@ -156,12 +156,14 @@ pub enum ElementKind {
     },
     RandomVariable {
         distribution: Distribution,
-        /// Presence of this field switches to per-timestep resampling.
-        /// `Some(0.0)` = iid draws each tick. `Some(ρ)` with 0 < ρ ≤ 1 would be AR(1)
-        /// in standard-normal driver space; not yet implemented (treated as iid for now).
-        /// `None` = single draw per realization (default).
+        /// `None` = single draw per realization. `Some(ρ)` enables per-timestep AR(1)
+        /// resampling in standard-normal driver space.
         #[serde(default)]
         autocorrelation: Option<f64>,
+        /// Pairwise Spearman rank-correlations with other random_variable elements.
+        /// Implemented via Gaussian copula (Cholesky factor applied per realization).
+        #[serde(default)]
+        correlations: Vec<CorrelationPair>,
     },
     Expression {
         expression: ExpressionField,
@@ -216,6 +218,10 @@ pub enum ElementKind {
     Script {
         language: String,
         source: String,
+        #[serde(default)]
+        expressions: Vec<ExpressionField>,
+        #[serde(default)]
+        variables: Vec<String>,
         #[serde(default)]
         inputs: Vec<String>,
     },
@@ -450,6 +456,14 @@ pub enum ProcessMeanType {
     Geometric,
     Arithmetic,
     LogDrift,
+}
+
+// ── Correlation ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CorrelationPair {
+    pub partner: String,
+    pub coefficient: f64,
 }
 
 // ── Distributions ─────────────────────────────────────────────────────────────
