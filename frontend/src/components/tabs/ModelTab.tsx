@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import { useStore } from '../../store'
 
 const TYPE_COLOR: Record<string, string> = {
@@ -11,9 +12,34 @@ const TYPE_COLOR: Record<string, string> = {
   script: 'bg-rose-100 text-rose-700',
 }
 
+function elementInputIds(raw: Record<string, unknown>): string[] {
+  const ids: string[] = []
+  const inputs = raw['inputs']
+  if (Array.isArray(inputs)) ids.push(...(inputs as string[]))
+  const input = raw['input']
+  if (typeof input === 'string') ids.push(input)
+  return ids
+}
+
 export function ModelTab() {
   const summary = useStore((s) => s.modelSummary)
   const parsedModel = useStore((s) => s.parsedModel)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const { deps, rdeps } = useMemo(() => {
+    if (!parsedModel) return { deps: new Map<string, string[]>(), rdeps: new Map<string, string[]>() }
+    const deps = new Map<string, string[]>()
+    const rdeps = new Map<string, string[]>()
+    for (const e of parsedModel.elements) {
+      const inputs = elementInputIds(e as unknown as Record<string, unknown>)
+      deps.set(e.id, inputs)
+      for (const dep of inputs) {
+        if (!rdeps.has(dep)) rdeps.set(dep, [])
+        rdeps.get(dep)!.push(e.id)
+      }
+    }
+    return { deps, rdeps }
+  }, [parsedModel])
 
   if (!summary || !parsedModel) {
     return (
@@ -27,6 +53,15 @@ export function ModelTab() {
   const containerNames = Object.fromEntries(
     summary.containers.map((c) => [c.id, c.name]),
   )
+  const nameById = Object.fromEntries(summary.elements.map((e) => [e.id, e.name]))
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   // Group elements by container
   const groups = new Map<string, typeof summary.elements>()
@@ -87,20 +122,72 @@ export function ModelTab() {
                 </tr>
               </thead>
               <tbody>
-                {elems.map((e) => (
-                  <tr key={e.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
-                    <td className="px-4 py-2 font-medium text-slate-800">{e.name}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-500">{e.id}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-400">
-                      {e.unit !== '1' ? e.unit : ''}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${TYPE_COLOR[e.type] ?? 'bg-slate-100 text-slate-600'}`}>
-                        {e.type}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {elems.map((e) => {
+                  const isOpen = expanded.has(e.id)
+                  const myDeps = deps.get(e.id) ?? []
+                  const myRdeps = rdeps.get(e.id) ?? []
+                  const hasDeps = myDeps.length > 0 || myRdeps.length > 0
+                  return (
+                    <>
+                      <tr
+                        key={e.id}
+                        title={e.description ?? undefined}
+                        className={`border-b border-slate-50 ${isOpen ? '' : 'last:border-0'} ${hasDeps ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                        onClick={() => hasDeps && toggle(e.id)}
+                      >
+                        <td className="px-4 py-2 font-medium text-slate-800">
+                          <span className="flex items-center gap-1.5">
+                            {hasDeps && (
+                              <span className="text-slate-400 text-xs select-none">
+                                {isOpen ? '▾' : '▸'}
+                              </span>
+                            )}
+                            {e.name}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 font-mono text-xs text-slate-500">{e.id}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-slate-400">
+                          {e.unit !== '1' ? e.unit : ''}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${TYPE_COLOR[e.type] ?? 'bg-slate-100 text-slate-600'}`}>
+                            {e.type}
+                          </span>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr key={`${e.id}-deps`} className="border-b border-slate-50 bg-slate-50">
+                          <td colSpan={4} className="px-8 py-3">
+                            <div className="flex gap-8 text-xs">
+                              <div>
+                                <p className="mb-1 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Depends on</p>
+                                {myDeps.length === 0
+                                  ? <p className="text-slate-400 italic">none</p>
+                                  : <ul className="space-y-0.5">
+                                      {myDeps.map((id) => (
+                                        <li key={id} className="text-slate-700">{nameById[id] ?? id}</li>
+                                      ))}
+                                    </ul>
+                                }
+                              </div>
+                              <div>
+                                <p className="mb-1 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Used by</p>
+                                {myRdeps.length === 0
+                                  ? <p className="text-slate-400 italic">none</p>
+                                  : <ul className="space-y-0.5">
+                                      {myRdeps.map((id) => (
+                                        <li key={id} className="text-slate-700">{nameById[id] ?? id}</li>
+                                      ))}
+                                    </ul>
+                                }
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )
+                })}
               </tbody>
             </table>
           </div>

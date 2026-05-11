@@ -30,7 +30,7 @@ function postToWorker(msg: MainToWorker) {
 
 // ── Store shape ───────────────────────────────────────────────────────────────
 
-export type Tab = 'model' | 'dashboard' | 'results'
+export type Tab = 'graph' | 'model' | 'dashboard' | 'results'
 export type SimStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface State {
@@ -53,6 +53,10 @@ interface State {
   // Run config (user-controlled)
   nRealizations: number
   seed: number | null
+  simDuration: number | null
+  simDurationUnit: string
+  simTimestep: number | null
+  simTimestepUnit: string
 
   // Internal
   _onWorkerMessage: (msg: WorkerToMain) => void
@@ -66,6 +70,8 @@ interface Actions {
   run: () => void
   setNRealizations: (n: number) => void
   setSeed: (s: number | null) => void
+  setSimDuration: (v: number) => void
+  setSimTimestep: (v: number) => void
   setSelectedResultId: (id: string) => void
 }
 
@@ -82,6 +88,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   selectedResultId: null,
   nRealizations: 1000,
   seed: 42,
+  simDuration: null,
+  simDurationUnit: 'yr',
+  simTimestep: null,
+  simTimestepUnit: 'yr',
 
   loadModel(json) {
     let parsed: ModelJson | null = null
@@ -91,6 +101,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       set({ status: 'error', errorMessage: 'Invalid JSON' })
       return
     }
+    const ss = parsed.simulation_settings
     set({
       modelJson: json,
       parsedModel: parsed,
@@ -99,6 +110,10 @@ export const useStore = create<State & Actions>((set, get) => ({
       results: null,
       selectedResultId: null,
       errorMessage: null,
+      simDuration: ss.duration.value,
+      simDurationUnit: ss.duration.unit,
+      simTimestep: ss.timestep.value,
+      simTimestepUnit: ss.timestep.unit,
     })
     postToWorker({ type: 'load_model', payload: json })
   },
@@ -145,22 +160,29 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   run() {
-    const { nRealizations, seed } = get()
+    const { nRealizations, seed, simDuration, simTimestep } = get()
     set({ status: 'running', errorMessage: null })
     postToWorker({
       type: 'run',
-      config: { n_realizations: nRealizations, seed: seed ?? undefined },
+      config: {
+        n_realizations: nRealizations,
+        seed: seed ?? undefined,
+        duration_override: simDuration ?? undefined,
+        timestep_override: simTimestep ?? undefined,
+      },
     })
   },
 
   setNRealizations: (n) => set({ nRealizations: n }),
   setSeed: (s) => set({ seed: s }),
+  setSimDuration: (v) => set({ simDuration: v }),
+  setSimTimestep: (v) => set({ simTimestep: v }),
   setSelectedResultId: (id) => set({ selectedResultId: id }),
 
   _onWorkerMessage(msg) {
     switch (msg.type) {
       case 'model_loaded':
-        set({ modelSummary: msg.summary, activeTab: 'dashboard' })
+        set({ modelSummary: msg.summary, activeTab: 'graph' })
         break
 
       case 'complete': {

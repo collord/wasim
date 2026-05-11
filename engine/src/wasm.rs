@@ -22,6 +22,8 @@ use crate::model::{DistributionKind, ElementKind, WasimModel};
 struct JsRunConfig {
     n_realizations: Option<u32>,
     seed: Option<u64>,
+    duration_override: Option<f64>,
+    timestep_override: Option<f64>,
 }
 
 // ── WasmEngine ────────────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ impl WasmEngine {
             container: Option<&'a str>,
             editable: bool,
             unit: &'a str,
+            description: Option<&'a str>,
         }
 
         let elements: Vec<ElemSummary> = self
@@ -95,6 +98,8 @@ impl WasmEngine {
                     ElementKind::Lookup { .. } => ("lookup", false),
                     ElementKind::Delay { .. } => ("delay", false),
                     ElementKind::Script { .. } => ("script", false),
+                    ElementKind::Array { .. } => ("array", false),
+                    ElementKind::StochasticProcess { .. } => ("stochastic_process", false),
                 };
                 ElemSummary {
                     id: &e.id,
@@ -103,6 +108,7 @@ impl WasmEngine {
                     container: e.container.as_deref(),
                     editable,
                     unit: e.primary_unit(),
+                    description: e.description.as_deref(),
                 }
             })
             .collect();
@@ -128,6 +134,8 @@ impl WasmEngine {
         let config = RunConfig {
             n_realizations: js_config.n_realizations,
             seed: js_config.seed,
+            duration_override: js_config.duration_override,
+            timestep_override: js_config.timestep_override,
         };
         let results = run(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;
@@ -168,7 +176,7 @@ impl WasmEngine {
                 continue;
             }
             return match &mut elem.kind {
-                ElementKind::RandomVariable { distribution } => {
+                ElementKind::RandomVariable { distribution, .. } => {
                     set_dist_param(&mut distribution.kind, param_name, value)
                         .map_err(|msg| JsError::new(&msg))
                 }
@@ -189,11 +197,20 @@ impl WasmEngine {
 
 fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Result<(), String> {
     match kind {
-        DistributionKind::Normal { mean, stddev }
-        | DistributionKind::Lognormal { mean, stddev }
-        | DistributionKind::LognormalMoments { mean, stddev } => match param {
+        DistributionKind::Normal { mean, stddev } => match param {
             "mean" => mean.value = value,
             "stddev" => stddev.value = value,
+            _ => return Err(format!("unknown parameter '{param}'")),
+        },
+
+        DistributionKind::Lognormal { mean, stddev }
+        | DistributionKind::LognormalMoments { mean, stddev } => match param {
+            "mean" => *mean = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
+                value, unit: mean.unit().to_string(), display_unit: None,
+            }),
+            "stddev" => *stddev = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
+                value, unit: stddev.unit().to_string(), display_unit: None,
+            }),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
@@ -241,6 +258,15 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
             "max" => *max = value as i64,
             _ => return Err(format!("unknown parameter '{param}'")),
         },
+
+        DistributionKind::Bernoulli { prob } => match param {
+            "prob" => prob.value = value,
+            _ => return Err(format!("unknown parameter '{param}'")),
+        },
+
+        DistributionKind::Discrete { .. } => {
+            return Err("parameter editing not supported for discrete distributions".into());
+        }
     }
     Ok(())
 }

@@ -33,6 +33,8 @@ export type ModelElement =
   | RandomVariableElement
   | ExpressionElement
   | AccumulatorElement
+  | LookupElement
+  | ArrayElement
   | OtherElement
 
 export interface ConstantElement {
@@ -75,6 +77,28 @@ export interface AccumulatorElement {
   save_results?: { final_value: boolean; time_history: boolean }
 }
 
+export interface LookupElement {
+  id: string
+  name: string
+  type: 'lookup'
+  container: string | null
+  x_unit: string
+  y_unit: string
+  x: number[]
+  y: number[]
+  columns: number[][]
+  extrapolation: 'clamp' | 'linear' | 'error'
+}
+
+export interface ArrayElement {
+  id: string
+  name: string
+  type: 'array'
+  container: string | null
+  values_unit: string
+  inputs: string[]
+}
+
 export interface OtherElement {
   id: string
   name: string
@@ -102,6 +126,7 @@ export interface ElementSummary {
   container: string | null
   editable: boolean
   unit: string
+  description: string | null
 }
 
 export interface ModelSummary {

@@ -1,0 +1,427 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Monte Carlo retirement accumulation model. Three parallel account types — traditional 401k (pre-tax, ordinary income at withdrawal), Roth IRA (post-tax, tax-free growth and withdrawal), and taxable brokerage (post-tax contributions, annual dividend drag, LTCG at withdrawal). Returns are modelled as lognormal random variables sampled once per realization, so the Monte Carlo distribution reflects uncertainty about long-run average returns, not year-to-year sequence risk. Use n_realizations ≥ 1000 and examine the p05/p95 fan on total_post_tax. Duration = years until retirement; change via the dashboard."
+  },
+  "simulation_settings": {
+    "duration": { "value": 30.0, "unit": "yr" },
+    "timestep":  { "value": 1.0,  "unit": "yr" },
+    "n_realizations": 1000,
+    "seed": 42
+  },
+  "containers": [
+    {
+      "id": "account_inputs",
+      "name": "Account Setup",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "tax_settings",
+      "name": "Tax Assumptions",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "return_assumptions",
+      "name": "Return Assumptions",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+
+    {
+      "id": "balance_401k_now",
+      "name": "Current 401k Balance",
+      "type": "constant",
+      "container": "account_inputs",
+      "description": "Current pre-tax 401k / traditional IRA balance in dollars.",
+      "value": { "value": 50000.0, "unit": "USD" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": null }
+    },
+
+    {
+      "id": "balance_roth_now",
+      "name": "Current Roth Balance",
+      "type": "constant",
+      "container": "account_inputs",
+      "description": "Current Roth IRA balance in dollars. Contributions already taxed; growth and qualified withdrawals are tax-free.",
+      "value": { "value": 15000.0, "unit": "USD" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": null }
+    },
+
+    {
+      "id": "balance_taxable_now",
+      "name": "Current Taxable Balance",
+      "type": "constant",
+      "container": "account_inputs",
+      "description": "Current taxable brokerage balance in dollars. Assumed to be fully cost-basis at time zero (no embedded unrealized gains) for simplicity.",
+      "value": { "value": 30000.0, "unit": "USD" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": null }
+    },
+
+    {
+      "id": "contribution_401k",
+      "name": "Annual 401k Contribution",
+      "type": "constant",
+      "container": "account_inputs",
+      "description": "Annual employee 401k contribution in dollars. 2024 employee limit is $23,000 ($30,500 if 50+). Employer match should be added here if included in projections.",
+      "value": { "value": 23000.0, "unit": "USD/yr" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 70000.0 }
+    },
+
+    {
+      "id": "contribution_roth",
+      "name": "Annual Roth Contribution",
+      "type": "constant",
+      "container": "account_inputs",
+      "description": "Annual Roth IRA contribution in dollars. 2024 limit is $7,000 ($8,000 if 50+), subject to income phase-outs. Set to 0 if using backdoor Roth or if income-ineligible.",
+      "value": { "value": 7000.0, "unit": "USD/yr" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 8000.0 }
+    },
+
+    {
+      "id": "contribution_taxable",
+      "name": "Annual Taxable Contribution",
+      "type": "constant",
+      "container": "account_inputs",
+      "description": "Annual after-tax contributions to the taxable brokerage account in dollars. No limit. Also acts as the annual addition to cost basis.",
+      "value": { "value": 15000.0, "unit": "USD/yr" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": null }
+    },
+
+    {
+      "id": "tax_rate_now",
+      "name": "Current Marginal Tax Rate",
+      "type": "constant",
+      "container": "tax_settings",
+      "description": "Current combined federal + state marginal income tax rate (decimal). Used to compute the annual dividend tax drag on the taxable account. The 401k contribution itself reduces taxable income, but that benefit is not modelled here — it is implicit in the pre-tax nature of the account.",
+      "value": { "value": 0.24, "unit": "1" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 0.60 }
+    },
+
+    {
+      "id": "tax_rate_retirement",
+      "name": "Expected Retirement Tax Rate",
+      "type": "constant",
+      "container": "tax_settings",
+      "description": "Expected effective (not marginal) income tax rate on 401k withdrawals in retirement. Ordinary income. Includes federal + state. Key sensitivity — try 0.15–0.30.",
+      "value": { "value": 0.22, "unit": "1" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 0.50 }
+    },
+
+    {
+      "id": "ltcg_rate",
+      "name": "Long-Term Capital Gains Rate",
+      "type": "constant",
+      "container": "tax_settings",
+      "description": "Federal LTCG rate applied to unrealised gains in the taxable account at notional liquidation. Typically 0% / 15% / 20% depending on income; most middle-income retirees face 15%. Does not model state LTCG taxes.",
+      "value": { "value": 0.15, "unit": "1" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 0.238 }
+    },
+
+    {
+      "id": "dividend_yield",
+      "name": "Taxable Dividend Yield",
+      "type": "constant",
+      "container": "tax_settings",
+      "description": "Annual dividend + interest yield on the taxable account as a fraction of balance. Dividends are taxed at tax_rate_now each year, creating a return drag unique to the taxable account. Broad index: ~1.5–2%. Bond-heavy: ~3–4%.",
+      "value": { "value": 0.018, "unit": "1" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 0.08 }
+    },
+
+    {
+      "id": "return_401k",
+      "name": "401k Annual Return",
+      "type": "random_variable",
+      "container": "return_assumptions",
+      "description": "Sampled long-run average annual return for the 401k. Lognormal in real-space so returns cannot go below zero. Standard deviation here represents uncertainty about what the long-run average will be (parameter uncertainty), NOT year-to-year volatility. For bond-tilted / moderate allocation. Typical range: 4–8%.",
+      "distribution": {
+        "family": "lognormal_moments",
+        "parameters": {
+          "mean":   { "value": 0.060, "unit": "1" },
+          "stddev": { "value": 0.020, "unit": "1" }
+        }
+      },
+      "save_results": { "final_value": true, "time_history": false }
+    },
+
+    {
+      "id": "return_roth",
+      "name": "Roth Annual Return",
+      "type": "random_variable",
+      "container": "return_assumptions",
+      "description": "Sampled long-run average annual return for the Roth IRA. Higher mean and vol than 401k reflecting aggressive equity growth allocation — the right asset-location strategy since gains are tax-free. Typical range: 6–12%.",
+      "distribution": {
+        "family": "lognormal_moments",
+        "parameters": {
+          "mean":   { "value": 0.090, "unit": "1" },
+          "stddev": { "value": 0.030, "unit": "1" }
+        }
+      },
+      "save_results": { "final_value": true, "time_history": false }
+    },
+
+    {
+      "id": "return_taxable",
+      "name": "Taxable Account Return",
+      "type": "random_variable",
+      "container": "return_assumptions",
+      "description": "Sampled long-run average annual TOTAL return (price appreciation + dividends) for the taxable brokerage. The dividend portion is taxed annually via dividend_drag; the rest compounds and is taxed at LTCG rates only at withdrawal. Balanced/blended allocation. Typical range: 5–9%.",
+      "distribution": {
+        "family": "lognormal_moments",
+        "parameters": {
+          "mean":   { "value": 0.070, "unit": "1" },
+          "stddev": { "value": 0.025, "unit": "1" }
+        }
+      },
+      "save_results": { "final_value": true, "time_history": false }
+    },
+
+    {
+      "id": "dividend_drag",
+      "name": "Dividend Tax Drag",
+      "type": "expression",
+      "description": "Annual fraction of taxable balance lost to dividend income tax: dividend_yield × tax_rate_now. Subtracted from the gross return to get the net compound rate.",
+      "inputs": ["dividend_yield", "tax_rate_now"],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left":  { "op": "ref", "element_id": "dividend_yield" },
+          "right": { "op": "ref", "element_id": "tax_rate_now" }
+        },
+        "display": "dividend_yield × tax_rate_now"
+      }
+    },
+
+    {
+      "id": "taxable_net_return",
+      "name": "Taxable Net Return",
+      "type": "expression",
+      "description": "Effective annual compound rate for the taxable account after annual dividend tax drag: return_taxable − dividend_drag. The LTCG tax on unrealised appreciation is deferred and applied only at notional retirement liquidation.",
+      "inputs": ["return_taxable", "dividend_drag"],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left":  { "op": "ref", "element_id": "return_taxable" },
+          "right": { "op": "ref", "element_id": "dividend_drag" }
+        },
+        "display": "return_taxable − dividend_drag"
+      }
+    },
+
+    {
+      "id": "taxable_gains",
+      "name": "Taxable Unrealised Gains",
+      "type": "expression",
+      "description": "Estimated unrealised capital gains in the taxable account: max(0, balance_taxable − cost_basis_taxable). Cost basis = starting balance + cumulative contributions. These gains will be taxed at ltcg_rate on notional liquidation at retirement.",
+      "inputs": ["balance_taxable", "cost_basis_taxable"],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gt",
+            "left":  { "op": "ref", "element_id": "balance_taxable" },
+            "right": { "op": "ref", "element_id": "cost_basis_taxable" }
+          },
+          "then": {
+            "op": "subtract",
+            "left":  { "op": "ref", "element_id": "balance_taxable" },
+            "right": { "op": "ref", "element_id": "cost_basis_taxable" }
+          },
+          "else": { "op": "literal", "value": 0.0 }
+        },
+        "display": "max(0, balance_taxable − cost_basis_taxable)"
+      }
+    },
+
+    {
+      "id": "ltcg_tax",
+      "name": "LTCG Tax at Retirement",
+      "type": "expression",
+      "description": "Dollar amount of capital gains tax owed on notional liquidation of the taxable account at retirement: taxable_gains × ltcg_rate.",
+      "inputs": ["taxable_gains", "ltcg_rate"],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left":  { "op": "ref", "element_id": "taxable_gains" },
+          "right": { "op": "ref", "element_id": "ltcg_rate" }
+        },
+        "display": "taxable_gains × ltcg_rate"
+      }
+    },
+
+    {
+      "id": "post_tax_401k",
+      "name": "Post-Tax 401k Value",
+      "type": "expression",
+      "description": "Effective after-tax value of the 401k: balance × (1 − tax_rate_retirement). Simplified: assumes all withdrawals are taxed as ordinary income at a flat effective rate. Does not model RMDs, bracket stacking, or Roth conversions.",
+      "inputs": ["balance_401k", "tax_rate_retirement"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": { "op": "ref", "element_id": "balance_401k" },
+          "right": {
+            "op": "subtract",
+            "left":  { "op": "literal", "value": 1.0 },
+            "right": { "op": "ref", "element_id": "tax_rate_retirement" }
+          }
+        },
+        "display": "balance_401k × (1 − tax_rate_retirement)"
+      }
+    },
+
+    {
+      "id": "post_tax_roth",
+      "name": "Post-Tax Roth Value",
+      "type": "expression",
+      "description": "After-tax value of the Roth IRA: equal to the raw balance since qualified Roth withdrawals are entirely tax-free.",
+      "inputs": ["balance_roth"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": { "op": "ref", "element_id": "balance_roth" },
+        "display": "balance_roth"
+      }
+    },
+
+    {
+      "id": "post_tax_taxable",
+      "name": "Post-Tax Taxable Value",
+      "type": "expression",
+      "description": "After-tax value of the taxable brokerage on notional liquidation: balance minus the LTCG tax on unrealised gains. Dividend tax drag was already paid annually and is embedded in the balance.",
+      "inputs": ["balance_taxable", "ltcg_tax"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left":  { "op": "ref", "element_id": "balance_taxable" },
+          "right": { "op": "ref", "element_id": "ltcg_tax" }
+        },
+        "display": "balance_taxable − ltcg_tax"
+      }
+    },
+
+    {
+      "id": "total_post_tax",
+      "name": "Total Post-Tax Portfolio",
+      "type": "expression",
+      "description": "Sum of after-tax values across all three accounts. Primary output for Monte Carlo analysis. The p05 / p95 fan chart shows the range of outcomes driven by uncertainty in long-run average returns. Compare this to a scenario with different account mix, contribution split, or tax rate assumptions.",
+      "inputs": ["post_tax_401k", "post_tax_roth", "post_tax_taxable"],
+      "save_results": { "final_value": true, "time_history": true },
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "add",
+            "left":  { "op": "ref", "element_id": "post_tax_401k" },
+            "right": { "op": "ref", "element_id": "post_tax_roth" }
+          },
+          "right": { "op": "ref", "element_id": "post_tax_taxable" }
+        },
+        "display": "post_tax_401k + post_tax_roth + post_tax_taxable"
+      }
+    },
+
+    {
+      "id": "balance_401k",
+      "name": "401k Balance",
+      "type": "accumulator",
+      "description": "Pre-tax 401k balance over time. Grows at return_401k (no annual tax drag — tax is fully deferred). Contributions are added each year. No capacity — unlimited growth. At retirement, apply tax_rate_retirement to convert to after-tax equivalent.",
+      "inputs": ["return_401k", "contribution_401k"],
+      "initial_value": { "value": 50000.0, "unit": "USD" },
+      "rate": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "multiply",
+            "left":  { "op": "ref", "element_id": "balance_401k" },
+            "right": { "op": "ref", "element_id": "return_401k" }
+          },
+          "right": { "op": "ref", "element_id": "contribution_401k" }
+        },
+        "display": "balance_401k × return_401k + contribution_401k"
+      },
+      "min_value": 0.0,
+      "capacity": null,
+      "save_results": { "final_value": true, "time_history": true }
+    },
+
+    {
+      "id": "balance_roth",
+      "name": "Roth Balance",
+      "type": "accumulator",
+      "description": "Roth IRA balance over time. Grows at return_roth with no tax drag of any kind — no annual dividend tax, no tax at withdrawal. Highest effective return of the three accounts. Contributions are after-tax dollars already paid.",
+      "inputs": ["return_roth", "contribution_roth"],
+      "initial_value": { "value": 15000.0, "unit": "USD" },
+      "rate": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "multiply",
+            "left":  { "op": "ref", "element_id": "balance_roth" },
+            "right": { "op": "ref", "element_id": "return_roth" }
+          },
+          "right": { "op": "ref", "element_id": "contribution_roth" }
+        },
+        "display": "balance_roth × return_roth + contribution_roth"
+      },
+      "min_value": 0.0,
+      "capacity": null,
+      "save_results": { "final_value": true, "time_history": true }
+    },
+
+    {
+      "id": "balance_taxable",
+      "name": "Taxable Balance",
+      "type": "accumulator",
+      "description": "Taxable brokerage balance over time. Grows at taxable_net_return (gross return minus annual dividend tax drag). Capital gains on price appreciation compound untaxed until withdrawal; LTCG tax is applied at retirement in post_tax_taxable.",
+      "inputs": ["taxable_net_return", "contribution_taxable"],
+      "initial_value": { "value": 30000.0, "unit": "USD" },
+      "rate": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "multiply",
+            "left":  { "op": "ref", "element_id": "balance_taxable" },
+            "right": { "op": "ref", "element_id": "taxable_net_return" }
+          },
+          "right": { "op": "ref", "element_id": "contribution_taxable" }
+        },
+        "display": "balance_taxable × taxable_net_return + contribution_taxable"
+      },
+      "min_value": 0.0,
+      "capacity": null,
+      "save_results": { "final_value": true, "time_history": true }
+    },
+
+    {
+      "id": "cost_basis_taxable",
+      "name": "Taxable Cost Basis",
+      "type": "accumulator",
+      "description": "Running cost basis of the taxable account: starting balance (assumed fully cost-basis) plus cumulative annual contributions. Used to compute unrealised gains for the LTCG tax estimate at retirement.",
+      "inputs": ["contribution_taxable"],
+      "initial_value": { "value": 30000.0, "unit": "USD" },
+      "rate": {
+        "ast": { "op": "ref", "element_id": "contribution_taxable" },
+        "display": "contribution_taxable"
+      },
+      "min_value": 0.0,
+      "capacity": null,
+      "save_results": { "final_value": false, "time_history": false }
+    }
+
+  ]
+}

@@ -1,10 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::error::EngineError;
-use crate::eval::{eval_ast, EvalCtx};
+use crate::eval::{eval_ast, eval_ast_scalar, EvalCtx, Value};
 use crate::graph::ModelGraph;
 use crate::model::{ElementKind, InterpolationMethod, WasimModel};
 use crate::sampling;
@@ -16,11 +16,15 @@ pub struct RunConfig {
     pub n_realizations: Option<u32>,
     /// Override model's seed. If neither is set, defaults to 0.
     pub seed: Option<u64>,
+    /// Override model's simulation duration (in the model's declared duration unit).
+    pub duration_override: Option<f64>,
+    /// Override model's timestep (in the model's declared timestep unit).
+    pub timestep_override: Option<f64>,
 }
 
 impl Default for RunConfig {
     fn default() -> Self {
-        RunConfig { n_realizations: None, seed: None }
+        RunConfig { n_realizations: None, seed: None, duration_override: None, timestep_override: None }
     }
 }
 
@@ -70,8 +74,8 @@ pub fn run(
         .or(model.simulation_settings.seed)
         .unwrap_or(0);
 
-    let dt = model.simulation_settings.timestep.value;
-    let duration = model.simulation_settings.duration.value;
+    let dt = config.timestep_override.unwrap_or(model.simulation_settings.timestep.value);
+    let duration = config.duration_override.unwrap_or(model.simulation_settings.duration.value);
     let n_steps = (duration / dt).round() as usize;
 
     // Build lookup from id → element index for fast access
@@ -104,6 +108,19 @@ pub fn run(
         .map(|e| e.id.as_str())
         .collect();
 
+    // Stochastic process elements (re-sampled every timestep)
+    let sp_ids: Vec<&str> = model.elements.iter()
+        .filter(|e| matches!(e.kind, ElementKind::StochasticProcess { .. }))
+        .map(|e| e.id.as_str())
+        .collect();
+
+    // Random variables with autocorrelation set are re-sampled every timestep
+    // (one-shot RVs are sampled once at the start of each realization).
+    let per_step_rv_ids: Vec<&str> = model.elements.iter()
+        .filter(|e| matches!(&e.kind, ElementKind::RandomVariable { autocorrelation: Some(_), .. }))
+        .map(|e| e.id.as_str())
+        .collect();
+
     // Storage: final_values[element_id][realization]
     let mut final_store: HashMap<String, Vec<f64>> = save_final
         .iter()
@@ -121,24 +138,51 @@ pub fn run(
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         rng.set_stream(real_idx as u64);
 
-        // Sample all random variables once per realization
+        // Sample all random variables once per realization (f64 scalars from sampling)
         let mut rv_samples: HashMap<String, f64> = HashMap::new();
         for elem in &model.elements {
-            if let ElementKind::RandomVariable { distribution } = &elem.kind {
+            if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 let v = sampling::sample(&distribution.kind, &distribution.truncation, &mut rng)?;
                 rv_samples.insert(elem.id.clone(), v);
             }
         }
 
+        // Initial draw for stochastic process elements (step 0 value).
+        let mut sp_state: HashMap<String, f64> = HashMap::new();
+        for &id in &sp_ids {
+            let elem = &model.elements[elem_idx[id]];
+            if let ElementKind::StochasticProcess { process, lower_bound } = &elem.kind {
+                let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &model.simulation_settings.timestep.unit, &mut rng)?;
+                sp_state.insert(id.to_string(), v);
+            }
+        }
+
+        // AR(1) standard-normal driver state for per-step random_variable elements.
+        let mut z_state: HashMap<String, f64> = HashMap::new();
+        for &id in &per_step_rv_ids {
+            let z0: f64 = rng.sample(rand_distr::Normal::new(0.0_f64, 1.0_f64)
+                .map_err(|e| crate::error::EngineError::Sampling(e.to_string()))?);
+            z_state.insert(id.to_string(), z0);
+        }
+
         // Build a t=0 snapshot for initial_expression evaluation:
         // seed with constants and RV samples, then evaluate expressions in topo order.
-        let empty_map: HashMap<String, f64> = HashMap::new();
-        let mut init_ctx_outputs: HashMap<String, f64> = HashMap::new();
+        let empty_map: HashMap<String, Value> = HashMap::new();
+        let mut init_ctx_outputs: HashMap<String, Value> = HashMap::new();
         for elem in &model.elements {
             match &elem.kind {
-                ElementKind::Constant { value, .. } => { init_ctx_outputs.insert(elem.id.clone(), value.value); }
-                ElementKind::RandomVariable { .. } => { init_ctx_outputs.insert(elem.id.clone(), rv_samples[&elem.id]); }
-                ElementKind::Accumulator { initial_value, .. } => { init_ctx_outputs.insert(elem.id.clone(), initial_value.value); }
+                ElementKind::Constant { value, .. } => {
+                    init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(value.value));
+                }
+                ElementKind::RandomVariable { .. } => {
+                    init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(rv_samples[&elem.id]));
+                }
+                ElementKind::StochasticProcess { .. } => {
+                    init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(sp_state.get(&elem.id).copied().unwrap_or(0.0)));
+                }
+                ElementKind::Accumulator { initial_value, .. } => {
+                    init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(initial_value.value));
+                }
                 _ => {}
             }
         }
@@ -153,7 +197,7 @@ pub fn run(
         }
 
         // Initialize accumulator states (use initial_expression if present, else scalar initial_value)
-        let mut acc_state: HashMap<String, f64> = HashMap::new();
+        let mut acc_state: HashMap<String, Value> = HashMap::new();
         for &id in &acc_ids {
             let elem = &model.elements[elem_idx[id]];
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
@@ -162,13 +206,13 @@ pub fn run(
                         let ctx = EvalCtx { model, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
-                    None => initial_value.value,
+                    None => Value::Scalar(initial_value.value),
                 };
                 acc_state.insert(id.to_string(), init);
             }
         }
 
-        // Initialize delay buffers: delay_buf[id] = ring of past values, front = most recent
+        // Initialize delay buffers
         let mut delay_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
         for &id in &delay_ids {
             let elem = &model.elements[elem_idx[id]];
@@ -180,41 +224,66 @@ pub fn run(
             }
         }
 
-        let mut prev_outputs: HashMap<String, f64> = HashMap::new();
+        let mut prev_outputs: HashMap<String, Value> = HashMap::new();
 
         // ── Timestep loop ─────────────────────────────────────────────────────
         for step_idx in 0..n_steps {
             let elapsed = step_idx as f64 * dt;
-            let mut outputs: HashMap<String, f64> = HashMap::new();
+
+            // Re-draw stochastic process elements for this timestep.
+            for &id in &sp_ids {
+                let elem = &model.elements[elem_idx[id]];
+                if let ElementKind::StochasticProcess { process, lower_bound } = &elem.kind {
+                    let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &model.simulation_settings.timestep.unit, &mut rng)?;
+                    sp_state.insert(id.to_string(), v);
+                }
+            }
+
+            // Re-draw random_variable elements that opted into per-timestep sampling.
+            for &id in &per_step_rv_ids {
+                let elem = &model.elements[elem_idx[id]];
+                if let ElementKind::RandomVariable { distribution, autocorrelation } = &elem.kind {
+                    let rho = autocorrelation.unwrap_or(0.0).clamp(0.0, 1.0);
+                    let z_prev = z_state.get(id).copied().unwrap_or(0.0);
+                    let (v, z_new) = sampling::sample_autocorr_step(
+                        &distribution.kind, &distribution.truncation, rho, z_prev, &mut rng,
+                    )?;
+                    rv_samples.insert(id.to_string(), v);
+                    z_state.insert(id.to_string(), z_new);
+                }
+            }
+
+            let mut outputs: HashMap<String, Value> = HashMap::new();
 
             // Evaluate elements in topological order
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
 
-                let value = match &elem.kind {
-                    ElementKind::Constant { value, .. } => value.value,
+                let value: Value = match &elem.kind {
+                    ElementKind::Constant { value, .. } => Value::Scalar(value.value),
 
-                    ElementKind::RandomVariable { .. } => rv_samples[elem_id],
+                    ElementKind::RandomVariable { .. } => Value::Scalar(rv_samples[elem_id]),
+
+                    ElementKind::StochasticProcess { .. } => Value::Scalar(sp_state[elem_id]),
 
                     ElementKind::Accumulator { .. } => {
-                        // Provide stored state as current output
-                        acc_state[elem_id]
+                        acc_state[elem_id].clone()
                     }
 
                     ElementKind::Timeseries { times, values, interpolation, .. } => {
-                        eval_timeseries(times, values, interpolation, elapsed)?
+                        Value::Scalar(eval_timeseries(times, values, interpolation, elapsed)?)
                     }
 
                     ElementKind::Lookup { .. } => {
-                        // Lookup elements are not directly evaluated; accessed via lookup_call.
-                        0.0
+                        // Lookup elements are accessed via LookupCall or Ref (which reads
+                        // elem.kind directly in eval_ast). Placeholder value only.
+                        Value::Scalar(0.0)
                     }
 
                     ElementKind::Delay { .. } => {
-                        // Return the oldest value in the delay buffer (= lag steps ago)
-                        delay_buf.get(elem_id)
+                        Value::Scalar(delay_buf.get(elem_id)
                             .and_then(|buf| buf.back().copied())
-                            .unwrap_or(0.0)
+                            .unwrap_or(0.0))
                     }
 
                     ElementKind::Expression { expression, .. } => {
@@ -231,6 +300,21 @@ pub fn run(
 
                     ElementKind::Script { .. } => {
                         return Err(EngineError::Unsupported("script".into()));
+                    }
+
+                    ElementKind::Array { expressions, .. } => {
+                        let ctx = EvalCtx {
+                            model,
+                            outputs: &outputs,
+                            prev_outputs: &prev_outputs,
+                            elapsed,
+                            dt,
+                            step_index: step_idx,
+                        };
+                        let vals: Result<Vec<f64>, _> = expressions.iter()
+                            .map(|expr| eval_ast_scalar(&expr.ast, &ctx))
+                            .collect();
+                        Value::Vector(vals?)
                     }
                 };
 
@@ -250,14 +334,16 @@ pub fn run(
                         step_index: step_idx,
                     };
                     let rate_val = eval_ast(&rate.ast, &ctx)?;
-                    let current = acc_state[id];
-                    // NaN rate (e.g. 0/0 from transpiler unit-label refs) → no change this step.
-                    let mut next = if rate_val.is_nan() { current } else { current + rate_val * dt };
+                    let current = acc_state[id].clone();
+                    // NaN rate → no change this step; otherwise euler step.
+                    let mut next = current.zip_with(rate_val, |c, r| if r.is_nan() { c } else { c + r * dt });
                     if let Some(lo) = min_value {
-                        next = next.max(*lo);
+                        let lo = *lo;
+                        next = next.map(|v| v.max(lo));
                     }
                     if let Some(cap) = capacity {
-                        next = next.min(cap.value);
+                        let cap_val = cap.value;
+                        next = next.map(|v| v.min(cap_val));
                     }
                     acc_state.insert(id.to_string(), next);
                 }
@@ -266,8 +352,8 @@ pub fn run(
             // Propagate updated accumulator states back into outputs so that recorded
             // values reflect the post-update state (end-of-step semantics).
             for &id in &acc_ids {
-                if let Some(&v) = acc_state.get(id) {
-                    outputs.insert(id.to_string(), v);
+                if let Some(v) = acc_state.get(id) {
+                    outputs.insert(id.to_string(), v.clone());
                 }
             }
 
@@ -275,7 +361,7 @@ pub fn run(
             for &id in &delay_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Delay { input, lag, .. } = &elem.kind {
-                    let v = outputs.get(input.as_str()).copied().unwrap_or(0.0);
+                    let v = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
                     let buf = delay_buf.entry(id.to_string()).or_default();
                     buf.push_front(v);
                     let lag_steps = (lag.value / dt).round() as usize;
@@ -285,10 +371,10 @@ pub fn run(
                 }
             }
 
-            // Record time histories (post-update)
+            // Record time histories (post-update); collapse vectors to scalar.
             for &id in &save_hist {
                 if let Some(v) = outputs.get(id) {
-                    hist_store.get_mut(id).unwrap()[step_idx].push(*v);
+                    hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
                 }
             }
 
@@ -296,7 +382,7 @@ pub fn run(
             if step_idx == n_steps - 1 {
                 for &id in &save_final {
                     if let Some(v) = outputs.get(id) {
-                        final_store.get_mut(id).unwrap().push(*v);
+                        final_store.get_mut(id).unwrap().push(v.as_scalar());
                     }
                 }
             }

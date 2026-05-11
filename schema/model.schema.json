@@ -44,6 +44,26 @@
       "type": "array",
       "items": { "$ref": "#/$defs/element" },
       "description": "Flat list of all model elements. Hierarchy is expressed via container references."
+    },
+    "time_history_displays": {
+      "type": "array",
+      "description": "Display-only expressions from TimeHistoryResult plots in the source model. Not part of the simulation graph; preserved for inspection. Accepts the same provenance fields as element_base (source_type, goldsim_object_id, path, input_ports).",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "expression"],
+        "additionalProperties": true,
+        "properties": {
+          "id":                 { "type": "string" },
+          "name":               { "type": "string" },
+          "expression":         { "$ref": "#/$defs/expression_field" },
+          "inputs":             { "type": "array", "items": { "type": "string" }, "default": [] },
+          "source_type":        { "type": ["string", "null"] },
+          "goldsim_object_id":  { "type": ["integer", "null"] },
+          "path":               { "type": ["string", "null"] },
+          "input_ports":        { "type": "array", "items": { "$ref": "#/$defs/input_port_ref" }, "default": [] }
+        }
+      },
+      "default": []
     }
   },
 
@@ -72,6 +92,14 @@
       ]
     },
 
+    "quantity_or_formula": {
+      "description": "A distribution parameter that may be a fixed quantity or a formula string referencing other model elements.",
+      "oneOf": [
+        { "$ref": "#/$defs/quantity" },
+        { "type": "string", "description": "Formula expression referencing other model elements (e.g. 'Mean_Ore / 5')." }
+      ]
+    },
+
     "output_spec": {
       "type": "object",
       "required": ["name", "unit"],
@@ -95,12 +123,17 @@
     "container_def": {
       "type": "object",
       "required": ["id", "name"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "id":       { "type": "string" },
-        "name":     { "type": "string" },
-        "parent":   { "type": ["string", "null"], "description": "ID of parent container, or null for top-level." },
-        "children": { "type": "array", "items": { "type": "string" }, "description": "IDs of child containers.", "default": [] }
+        "id":                { "type": "string" },
+        "name":               { "type": "string" },
+        "description":        { "type": ["string", "null"] },
+        "parent":             { "type": ["string", "null"], "description": "ID of parent container, or null for top-level." },
+        "children":           { "type": "array", "items": { "type": "string" }, "description": "IDs of child containers.", "default": [] },
+        "source_type":        { "type": ["string", "null"], "description": "Original element kind in the source modelling tool (e.g. 'Container', 'Group'). Engine ignores." },
+        "goldsim_object_id":  { "type": ["integer", "null"], "description": "Original GoldSim object ID for round-tripping. Engine ignores." },
+        "path":               { "type": ["string", "null"], "description": "Full container path in the source model. Engine ignores." },
+        "input_ports":        { "type": "array", "items": { "$ref": "#/$defs/input_port_ref" }, "default": [] }
       }
     },
 
@@ -227,8 +260,47 @@
       "properties": {
         "ast":     { "$ref": "#/$defs/ast_node" },
         "display": { "type": ["string", "null"], "description": "Human-readable expression string. Not consumed by the engine." },
-        "source":  { "type": "string", "enum": ["explicit", "inferred"], "default": "explicit",
-                     "description": "Whether this expression was recovered directly from the source file or inferred by the transpiler." }
+        "source":  {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "inferred",
+            "inferred_path",
+            "inferred_passthrough",
+            "inferred_container",
+            "inferred_ts",
+            "inferred_pool_rate"
+          ],
+          "default": "explicit",
+          "description": "How the expression was recovered. 'explicit' = decoded directly from the source binary (formula text or token table). 'inferred' = legacy generic inference (kept for backward compatibility). 'inferred_path' = port-path reference like '\\Container\\Element' resolved to a passthrough. 'inferred_passthrough' = single-incoming-connection passthrough. 'inferred_container' = container-boundary passthrough. 'inferred_ts' = name-convention TimeSeries passthrough (e.g. Precip → Precip_TS). 'inferred_pool_rate' = pool rate AST built from inflow/request port bindings rather than inline formula."
+        }
+      }
+    },
+
+    "process_spec": {
+      "description": "Parameters for a stochastic process element. Values are in user-chosen units; the engine scales drift linearly with dt and stddev by √(dt/T_ref) at each timestep.",
+      "type": "object",
+      "required": ["family", "mean_type", "mean", "stddev"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["gbm"],
+          "description": "'gbm' = geometric Brownian motion: lognormal per-step increments, no memory between steps."
+        },
+        "mean_type": {
+          "type": "string",
+          "enum": ["geometric", "arithmetic", "log_drift"],
+          "description": "Interpretation of the 'mean' parameter. 'geometric': mean is the per-period CAGR as a fraction (e.g. 0.07 for 7%/yr); engine derives log_drift = ln(1 + mean). 'arithmetic': mean is the arithmetic expected return; engine applies Itô correction (log_drift = ln(1+mean) - σ²/2). 'log_drift': mean is the log-space drift directly, no transformation."
+        },
+        "mean": {
+          "$ref": "#/$defs/quantity",
+          "description": "Central tendency of the process. Interpreted according to mean_type. Use the same unit as the intended output (e.g. '1/yr' for an annual return rate)."
+        },
+        "stddev": {
+          "$ref": "#/$defs/quantity",
+          "description": "Per-reference-period volatility. Engine scales to per-step diffusion as σ_step = stddev.value × √(dt / T_ref) where T_ref is the period implied by stddev.unit. Annual volatility of 15% → stddev = {value: 0.15, unit: '1/yr'}."
+        }
       }
     },
 
@@ -280,8 +352,8 @@
             "parameters": {
               "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
               "properties": {
-                "mean":   { "$ref": "#/$defs/quantity" },
-                "stddev": { "$ref": "#/$defs/quantity" }
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
               }
             }
           }
@@ -305,8 +377,8 @@
             "parameters": {
               "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
               "properties": {
-                "mean":   { "$ref": "#/$defs/quantity" },
-                "stddev": { "$ref": "#/$defs/quantity" }
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
               }
             }
           }
@@ -412,8 +484,13 @@
           "properties": {
             "family": { "const": "discrete" },
             "parameters": {
-              "type": "object", "additionalProperties": true,
-              "properties": {}
+              "type": "object", "required": ["outcomes", "probabilities"], "additionalProperties": false,
+              "properties": {
+                "outcomes":      { "type": "array", "items": { "type": "number" },
+                                   "description": "Outcome values (e.g. 1.0, 2.0, … 6.0 for a six-sided die)." },
+                "probabilities": { "type": "array", "items": { "type": "number", "minimum": 0 },
+                                   "description": "Probability of each outcome. Must be same length as outcomes and sum to 1." }
+              }
             }
           }
         }
@@ -431,7 +508,36 @@
         "container":   { "type": ["string", "null"], "description": "ID of the containing container, or null for top-level." },
         "description": { "type": ["string", "null"] },
         "outputs":     { "type": "array", "items": { "$ref": "#/$defs/output_spec" }, "default": [] },
-        "save_results":{ "$ref": "#/$defs/save_spec" }
+        "save_results":{ "$ref": "#/$defs/save_spec" },
+        "source_type": {
+          "type": ["string", "null"],
+          "description": "Original element type from the source modelling tool (e.g. 'Pool', 'Integrator', 'Reservoir', 'Stochastic'). Preserves source-side semantics that may collapse to the same wasim type. Engine ignores."
+        },
+        "goldsim_object_id": {
+          "type": ["integer", "null"],
+          "description": "Original GoldSim object ID for round-tripping to .gsm. Engine ignores."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Full container path in the source model (e.g. '\\System_Model\\Tailings\\Reclaim_from_Tailings'). Engine ignores; preserved for diagram rendering and cross-referencing port-path passthroughs."
+        },
+        "input_ports": {
+          "type": "array",
+          "description": "Richer connection metadata alongside 'inputs[]'. Each entry names a source element and, when known, the specific output port on the source and input port on this element. Engine consumes 'inputs[]'; this field is provenance for renderers/round-tripping.",
+          "items": { "$ref": "#/$defs/input_port_ref" },
+          "default": []
+        }
+      }
+    },
+
+    "input_port_ref": {
+      "type": "object",
+      "required": ["element_id"],
+      "additionalProperties": false,
+      "properties": {
+        "element_id": { "type": "string", "description": "ID of the upstream element." },
+        "output":     { "type": ["string", "null"], "description": "Name of the upstream element's output port that feeds this connection, if known." },
+        "input":      { "type": ["string", "null"], "description": "Name of this element's input port that the connection terminates on, if known." }
       }
     },
 
@@ -475,7 +581,56 @@
               "additionalProperties": true,
               "properties": {
                 "type":         { "const": "random_variable" },
-                "distribution": { "$ref": "#/$defs/distribution" }
+                "distribution": { "$ref": "#/$defs/distribution" },
+                "autocorrelation": {
+                  "type": ["number", "null"],
+                  "description": "Lag-1 autocorrelation coefficient (0–1). Applied across simulation time steps within a realization."
+                },
+                "trigger": {
+                  "type": ["object", "null"],
+                  "description": "When the random variable resamples per-timestep on a specific trigger (e.g. GoldSim Resample='On Changed', Trigger=EDay), this captures the trigger source. Engine treats per-step resampling identically regardless of trigger; this is provenance only.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": { "type": "string", "description": "Name or kind of the trigger that fires resampling. Common values: 'EDay' (elapsed-day index), 'Timestep'." }
+                  }
+                },
+                "correlations": {
+                  "type": "array",
+                  "description": "Cross-correlations with other random variables in the model.",
+                  "items": {
+                    "type": "object",
+                    "required": ["partner", "coefficient"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "partner":     { "type": "string", "description": "ID of the correlated element." },
+                      "coefficient": { "type": "number", "minimum": -1, "maximum": 1, "description": "Spearman rank correlation coefficient." }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Re-draws from a stochastic process at every timestep. Each MC path gets independent draws at each step, modeling sequence-of-returns risk. Unlike random_variable (which draws once per path), variance of cumulative outcomes grows with horizon. Engine scales stddev by √(dt/T_ref) automatically; drift scales linearly.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "process"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "stochastic_process" },
+                "process": { "$ref": "#/$defs/process_spec" },
+                "lower_bound": {
+                  "description": "Optional floor clamped on the per-step drawn value, expressed as a quantity in the same unit as process.mean. null = no bound. For GBM, lognormal increments are naturally bounded below by -1 (total loss); set lower_bound only to impose a tighter floor or when using a non-lognormal family.",
+                  "oneOf": [
+                    { "$ref": "#/$defs/quantity" },
+                    { "type": "null" }
+                  ],
+                  "default": null
+                }
               }
             }
           ]
@@ -537,6 +692,16 @@
                   "type": "array", "items": { "type": "string" },
                   "description": "Element IDs referenced by the rate expression.",
                   "default": []
+                },
+                "inflows": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs that contribute mass/value to this accumulator (additive). Source-semantic decomposition of the rate; redundant with rate.ast but preserves GoldSim Pool semantics for tools that need them. Engine consumes rate.ast.",
+                  "default": []
+                },
+                "requests": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs that draw mass/value from this accumulator subject to availability (subtractive). Pool-specific source semantic — paired with 'inflows[]'. Engine consumes rate.ast.",
+                  "default": []
                 }
               }
             }
@@ -576,14 +741,15 @@
             { "$ref": "#/$defs/element_base" },
             {
               "type": "object",
-              "required": ["type", "x_unit", "y_unit", "x", "y"],
+              "required": ["type", "x_unit", "y_unit", "x"],
               "additionalProperties": true,
               "properties": {
                 "type":          { "const": "lookup" },
                 "x_unit":        { "type": "string" },
                 "y_unit":        { "type": "string" },
                 "x":             { "type": "array", "items": { "type": "number" }, "description": "Independent variable values, strictly increasing." },
-                "y":             { "type": "array", "items": { "type": "number" }, "description": "Dependent variable values. Same length as x." },
+                "y":             { "type": "array", "items": { "type": "number" }, "description": "Dependent variable values (1-D lookup). Same length as x." },
+                "columns":       { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "Output columns for a 2-D lookup table. Each inner array has the same length as x. Use input2 to select the column (1-indexed)." },
                 "extrapolation": { "type": "string", "enum": ["clamp", "linear", "error"], "default": "clamp",
                                    "description": "Behavior when input is outside the x range." },
                 "display_unit":  { "type": ["string", "null"] }

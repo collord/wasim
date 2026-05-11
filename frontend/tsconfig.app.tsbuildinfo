@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/engine.d.ts","./src/main.tsx","./src/store.ts","./src/types.ts","./src/components/filedropzone.tsx","./src/components/tabs/dashboardtab.tsx","./src/components/tabs/graphtab.tsx","./src/components/tabs/modeltab.tsx","./src/components/tabs/resultstab.tsx","./src/worker/protocol.ts","./src/worker/sim.worker.ts"],"version":"5.9.3"}

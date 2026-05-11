@@ -1,0 +1,522 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Two-tank hydraulic system with bistable pipe-flow hysteresis (relaxation oscillator). Tank 1 (5-ft diameter, 24-inch height) fills at a configurable inflow rate. The outlet port is a pipe whose geometry is modelled explicitly: part-full (open-channel, air-entrained) vs pressurized (primed, full elevation head). The pipe primes when submergence above its crown exceeds S_crit × D, and breaks when the crown is exposed. For 2.5-inch diameter pipe and 5 L/s inflow this produces a relaxation oscillation: Tank 1 level rises slowly on part-full flow, jumps to primed flow that drains it faster than it fills, then collapses back when the crown is exposed — period ≈ 8 min (steady-state with Tank 2 full)."
+  },
+  "simulation_settings": {
+    "duration": { "value": 3600.0, "unit": "s" },
+    "timestep":  { "value": 5.0,   "unit": "s" },
+    "n_realizations": 1,
+    "seed": null
+  },
+  "containers": [],
+  "elements": [
+
+    {
+      "id": "Q_in_lps",
+      "name": "Inflow Rate (L/s)",
+      "type": "constant",
+      "description": "Constant inflow rate to Tank 1 in litres per second. Editable.",
+      "value": { "value": 5.0, "unit": "L/s" },
+      "editable": true,
+      "bounds": { "min": 0.0, "max": 100.0 }
+    },
+
+    {
+      "id": "d_hose_in",
+      "name": "Pipe Diameter (in)",
+      "type": "constant",
+      "description": "Inner diameter of the connecting pipe in inches. At 2.5 in and 5 L/s inflow, the part-full capacity is below Q_in but the pressurized capacity exceeds it, satisfying the relaxation-oscillator condition. Editable.",
+      "value": { "value": 2.5, "unit": "in" },
+      "editable": true,
+      "bounds": { "min": 0.25, "max": 6.0 }
+    },
+
+    {
+      "id": "A_tank",
+      "name": "A_tank",
+      "type": "constant",
+      "description": "Cross-sectional area of each cylindrical tank. Diameter = 5 ft, A = π × 2.5² = 19.635 ft².",
+      "value": { "value": 19.635, "unit": "ft2" }
+    },
+
+    {
+      "id": "h_outlet",
+      "name": "h_outlet",
+      "type": "constant",
+      "description": "Height of the pipe invert (bottom of pipe opening) above Tank 1's base: 12 in = 1 ft.",
+      "value": { "value": 1.0, "unit": "ft" }
+    },
+
+    {
+      "id": "delta_z",
+      "name": "delta_z",
+      "type": "constant",
+      "description": "Elevation drop from Tank 1's base to Tank 2's base: 2 ft. When the pipe is primed this full head drives flow.",
+      "value": { "value": 2.0, "unit": "ft" }
+    },
+
+    {
+      "id": "f_darcy",
+      "name": "f_darcy",
+      "type": "constant",
+      "description": "Darcy-Weisbach friction factor for smooth PVC pipe: f ≈ 0.025.",
+      "value": { "value": 0.025, "unit": "1" }
+    },
+
+    {
+      "id": "L_hose",
+      "name": "L_hose",
+      "type": "constant",
+      "description": "Length of the connecting pipe: 10 ft.",
+      "value": { "value": 10.0, "unit": "ft" }
+    },
+
+    {
+      "id": "g_gravity",
+      "name": "g_gravity",
+      "type": "constant",
+      "description": "Standard gravitational acceleration: 32.174 ft/s².",
+      "value": { "value": 32.174, "unit": "ft/s2" }
+    },
+
+    {
+      "id": "pi_const",
+      "name": "pi",
+      "type": "constant",
+      "description": "Mathematical constant π.",
+      "value": { "value": 3.14159265358979, "unit": "1" }
+    },
+
+    {
+      "id": "S_crit",
+      "name": "S_crit",
+      "type": "constant",
+      "description": "Critical submergence ratio (Gordon/Knauss type). The pipe primes when the depth of water above the pipe crown exceeds S_crit × D. Typical range 1.0–1.5.",
+      "value": { "value": 1.5, "unit": "1" }
+    },
+
+    {
+      "id": "C_d_partial",
+      "name": "C_d_partial",
+      "type": "constant",
+      "description": "Discharge coefficient for the pipe inlet in the part-full (unprimed, air-entrained) regime. Treated as a submerged orifice at the pipe entrance: C_d ≈ 0.61.",
+      "value": { "value": 0.61, "unit": "1" }
+    },
+
+    {
+      "id": "K_switch",
+      "name": "K_switch",
+      "type": "constant",
+      "description": "Rate at which the pipe_prime state variable is driven toward 0 or 1 once a threshold is crossed (s⁻¹). At dt=5s a value of 0.5 transitions pipe_prime across [0,1] in one step — effectively instantaneous.",
+      "value": { "value": 0.5, "unit": "1" }
+    },
+
+    {
+      "id": "break_sub",
+      "name": "break_sub",
+      "type": "constant",
+      "description": "Submergence above crown (ft) at which prime breaks: crown just exposed (0 ft). In practice vortex break can occur at small positive submergence; raise to e.g. 0.1×D to widen the hysteresis zone.",
+      "value": { "value": 0.0, "unit": "ft" }
+    },
+
+    {
+      "id": "Q_in",
+      "name": "Q_in",
+      "type": "expression",
+      "description": "Inflow rate in ft³/s. Converted from L/s: 1 ft³ = 28.3168 L.",
+      "inputs": ["Q_in_lps"],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left":  { "op": "ref", "element_id": "Q_in_lps" },
+          "right": { "op": "literal", "value": 0.035315 }
+        },
+        "display": "Q_in_lps × 0.035315"
+      }
+    },
+
+    {
+      "id": "d_hose_ft",
+      "name": "d_hose_ft",
+      "type": "expression",
+      "description": "Pipe inner diameter in feet.",
+      "inputs": ["d_hose_in"],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left":  { "op": "ref", "element_id": "d_hose_in" },
+          "right": { "op": "literal", "value": 12.0 }
+        },
+        "display": "d_hose_in / 12"
+      }
+    },
+
+    {
+      "id": "A_hose",
+      "name": "A_hose",
+      "type": "expression",
+      "description": "Pipe bore cross-sectional area: π × (D/2)² = π × D² / 4 [ft²].",
+      "inputs": ["pi_const", "d_hose_ft"],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": { "op": "ref", "element_id": "pi_const" },
+            "right": {
+              "op": "multiply",
+              "left": { "op": "ref", "element_id": "d_hose_ft" },
+              "right": { "op": "ref", "element_id": "d_hose_ft" }
+            }
+          },
+          "right": { "op": "literal", "value": 4.0 }
+        },
+        "display": "π × d_hose_ft² / 4"
+      }
+    },
+
+    {
+      "id": "LD_ratio",
+      "name": "LD_ratio",
+      "type": "expression",
+      "description": "Pipe length-to-diameter ratio: L / D. Drives the Darcy friction head-loss term.",
+      "inputs": ["L_hose", "d_hose_ft"],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left":  { "op": "ref", "element_id": "L_hose" },
+          "right": { "op": "ref", "element_id": "d_hose_ft" }
+        },
+        "display": "L_hose / d_hose_ft"
+      }
+    },
+
+    {
+      "id": "K_hose",
+      "name": "K_hose",
+      "type": "expression",
+      "description": "Total pipe loss coefficient (pressurized regime): K_entry(0.5) + f×L/D + K_exit(1.0). At 2.5\": 1.5 + 0.025×48 = 2.7.",
+      "inputs": ["f_darcy", "LD_ratio"],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": { "op": "literal", "value": 1.5 },
+          "right": {
+            "op": "multiply",
+            "left": { "op": "ref", "element_id": "f_darcy" },
+            "right": { "op": "ref", "element_id": "LD_ratio" }
+          }
+        },
+        "display": "1.5 + f_darcy × LD_ratio"
+      }
+    },
+
+    {
+      "id": "C_hose",
+      "name": "C_hose",
+      "type": "expression",
+      "description": "Pressurized-regime discharge coefficient: C = A_pipe × √(2g / K_hose) [ft^2.5/s]. Q_primed = C_hose × √H_eff.",
+      "inputs": ["A_hose", "g_gravity", "K_hose"],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": { "op": "ref", "element_id": "A_hose" },
+          "right": {
+            "op": "call",
+            "fn": "sqrt",
+            "args": [{
+              "op": "divide",
+              "left": {
+                "op": "multiply",
+                "left":  { "op": "literal", "value": 2.0 },
+                "right": { "op": "ref", "element_id": "g_gravity" }
+              },
+              "right": { "op": "ref", "element_id": "K_hose" }
+            }]
+          }
+        },
+        "display": "A_hose × √(2g / K_hose)"
+      }
+    },
+
+    {
+      "id": "h_port_crown",
+      "name": "h_port_crown",
+      "type": "expression",
+      "description": "Height of the pipe crown (top of pipe opening) above Tank 1's base: h_outlet + D. The priming threshold and break threshold are both referenced to this level.",
+      "inputs": ["h_outlet", "d_hose_ft"],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left":  { "op": "ref", "element_id": "h_outlet" },
+          "right": { "op": "ref", "element_id": "d_hose_ft" }
+        },
+        "display": "h_outlet + d_hose_ft"
+      }
+    },
+
+    {
+      "id": "h_above_crown",
+      "name": "h_above_crown",
+      "type": "expression",
+      "description": "Current submergence of the pipe crown: h1 − h_port_crown [ft]. Negative when crown is exposed (definitely unprimed). Positive drives toward priming.",
+      "inputs": ["h1", "h_port_crown"],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left":  { "op": "ref", "element_id": "h1" },
+          "right": { "op": "ref", "element_id": "h_port_crown" }
+        },
+        "display": "h1 − h_port_crown"
+      }
+    },
+
+    {
+      "id": "prime_threshold",
+      "name": "prime_threshold",
+      "type": "expression",
+      "description": "Submergence above the crown required to suppress air entrainment and prime the pipe: S_crit × D [ft].",
+      "inputs": ["S_crit", "d_hose_ft"],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left":  { "op": "ref", "element_id": "S_crit" },
+          "right": { "op": "ref", "element_id": "d_hose_ft" }
+        },
+        "display": "S_crit × d_hose_ft"
+      }
+    },
+
+    {
+      "id": "prime_rate",
+      "name": "prime_rate",
+      "type": "expression",
+      "description": "Rate of change of pipe_prime state [s⁻¹]: +K_switch when priming condition met (h_above_crown > prime_threshold), −K_switch when breaking condition met (crown exposed), 0 in hysteresis zone. The zero in the hysteresis zone is what makes pipe_prime bistable.",
+      "inputs": ["h_above_crown", "prime_threshold", "K_switch", "break_sub"],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gt",
+            "left":  { "op": "ref", "element_id": "h_above_crown" },
+            "right": { "op": "ref", "element_id": "prime_threshold" }
+          },
+          "then": { "op": "ref", "element_id": "K_switch" },
+          "else": {
+            "op": "if",
+            "cond": {
+              "op": "gt",
+              "left":  { "op": "ref", "element_id": "break_sub" },
+              "right": { "op": "ref", "element_id": "h_above_crown" }
+            },
+            "then": {
+              "op": "multiply",
+              "left":  { "op": "literal", "value": -1.0 },
+              "right": { "op": "ref", "element_id": "K_switch" }
+            },
+            "else": { "op": "literal", "value": 0.0 }
+          }
+        },
+        "display": "if(h_above_crown > prime_threshold, K_switch, if(break_sub > h_above_crown, -K_switch, 0))"
+      }
+    },
+
+    {
+      "id": "h_eff_unprimed",
+      "name": "h_eff_unprimed",
+      "type": "expression",
+      "description": "Driving head for the unprimed (air-entrained) regime [ft]. This is only the static head above the pipe invert — the pipe cannot 'see' the 2-ft elevation drop while air-entrained.",
+      "inputs": ["h1", "h_outlet"],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gt",
+            "left":  { "op": "ref", "element_id": "h1" },
+            "right": { "op": "ref", "element_id": "h_outlet" }
+          },
+          "then": {
+            "op": "subtract",
+            "left":  { "op": "ref", "element_id": "h1" },
+            "right": { "op": "ref", "element_id": "h_outlet" }
+          },
+          "else": { "op": "literal", "value": 0.0 }
+        },
+        "display": "if(h1 > h_outlet, h1 − h_outlet, 0)"
+      }
+    },
+
+    {
+      "id": "H_eff_primed",
+      "name": "H_eff_primed",
+      "type": "expression",
+      "description": "Driving head for the pressurized (primed) regime [ft]. Full elevation difference: (h1 − h2) + delta_z. Once primed the pipe 'sees' the entire 2-ft drop plus the level difference.",
+      "inputs": ["h1", "h2", "h_outlet", "delta_z"],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gt",
+            "left":  { "op": "ref", "element_id": "h1" },
+            "right": { "op": "ref", "element_id": "h_outlet" }
+          },
+          "then": {
+            "op": "add",
+            "left": {
+              "op": "subtract",
+              "left":  { "op": "ref", "element_id": "h1" },
+              "right": { "op": "ref", "element_id": "h2" }
+            },
+            "right": { "op": "ref", "element_id": "delta_z" }
+          },
+          "else": { "op": "literal", "value": 0.0 }
+        },
+        "display": "if(h1 > h_outlet, (h1 − h2) + delta_z, 0)"
+      }
+    },
+
+    {
+      "id": "Q_unprimed",
+      "name": "Q_unprimed",
+      "type": "expression",
+      "description": "Flow in the part-full, air-entrained regime [ft³/s]. Orifice formula with the shallow head only: Q = C_d_partial × A_pipe × √(2g × h_eff_unprimed). Much less than Q_in once the level stalls in the hysteresis zone.",
+      "inputs": ["C_d_partial", "A_hose", "g_gravity", "h_eff_unprimed"],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "multiply",
+            "left":  { "op": "ref", "element_id": "C_d_partial" },
+            "right": { "op": "ref", "element_id": "A_hose" }
+          },
+          "right": {
+            "op": "call",
+            "fn": "sqrt",
+            "args": [{
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left":  { "op": "literal", "value": 2.0 },
+                "right": { "op": "ref", "element_id": "g_gravity" }
+              },
+              "right": { "op": "ref", "element_id": "h_eff_unprimed" }
+            }]
+          }
+        },
+        "display": "C_d_partial × A_hose × √(2g × h_eff_unprimed)"
+      }
+    },
+
+    {
+      "id": "Q_primed",
+      "name": "Q_primed",
+      "type": "expression",
+      "description": "Flow in the pressurized (primed) regime [ft³/s]. Darcy-Weisbach full-pipe formula: Q = C_hose × √H_eff_primed. Substantially exceeds Q_in, draining Tank 1 faster than it fills.",
+      "inputs": ["C_hose", "H_eff_primed"],
+      "save_results": { "time_history": true, "final_value": false },
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": { "op": "ref", "element_id": "C_hose" },
+          "right": {
+            "op": "call",
+            "fn": "sqrt",
+            "args": [{ "op": "ref", "element_id": "H_eff_primed" }]
+          }
+        },
+        "display": "C_hose × √H_eff_primed"
+      }
+    },
+
+    {
+      "id": "Q_hose",
+      "name": "Q_hose",
+      "type": "expression",
+      "description": "Actual flow through the pipe [ft³/s]. Weighted blend of the two regimes by pipe_prime ∈ [0, 1]: Q = pipe_prime × Q_primed + (1 − pipe_prime) × Q_unprimed. Because pipe_prime transitions in one timestep the blend is effectively a hard switch.",
+      "inputs": ["pipe_prime", "Q_primed", "Q_unprimed"],
+      "save_results": { "time_history": true, "final_value": false },
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "multiply",
+            "left":  { "op": "ref", "element_id": "pipe_prime" },
+            "right": { "op": "ref", "element_id": "Q_primed" }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "subtract",
+              "left":  { "op": "literal", "value": 1.0 },
+              "right": { "op": "ref", "element_id": "pipe_prime" }
+            },
+            "right": { "op": "ref", "element_id": "Q_unprimed" }
+          }
+        },
+        "display": "pipe_prime × Q_primed + (1 − pipe_prime) × Q_unprimed"
+      }
+    },
+
+    {
+      "id": "pipe_prime",
+      "name": "pipe_prime",
+      "type": "accumulator",
+      "description": "Pipe flow-regime state variable ∈ [0, 1]. 0 = part-full (air-entrained); 1 = pressurized (primed). Driven toward 1 when h_above_crown > prime_threshold, toward 0 when crown is exposed (h_above_crown < break_sub), and frozen at its current value inside the hysteresis zone — this frozen-state is what makes it bistable and produces the relaxation oscillation.",
+      "inputs": ["prime_rate"],
+      "initial_value": { "value": 0.0, "unit": "1" },
+      "rate": {
+        "ast": { "op": "ref", "element_id": "prime_rate" }
+      },
+      "min_value": 0.0,
+      "capacity": { "value": 1.0, "unit": "1" },
+      "save_results": { "time_history": true, "final_value": false }
+    },
+
+    {
+      "id": "h1",
+      "name": "h1",
+      "type": "accumulator",
+      "description": "Water depth in Tank 1 above its base [ft]. Net rate = (Q_in − Q_hose) / A_tank. Oscillates: rises on part-full flow (Q_hose < Q_in), falls once primed (Q_hose > Q_in), bounded [0, 2 ft].",
+      "inputs": ["Q_in", "Q_hose", "A_tank"],
+      "initial_value": { "value": 0.0, "unit": "ft" },
+      "rate": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "subtract",
+            "left":  { "op": "ref", "element_id": "Q_in" },
+            "right": { "op": "ref", "element_id": "Q_hose" }
+          },
+          "right": { "op": "ref", "element_id": "A_tank" }
+        },
+        "display": "(Q_in − Q_hose) / A_tank"
+      },
+      "min_value": 0.0,
+      "capacity": { "value": 2.0, "unit": "ft" },
+      "save_results": { "time_history": true, "final_value": true }
+    },
+
+    {
+      "id": "h2",
+      "name": "h2",
+      "type": "accumulator",
+      "description": "Water depth in Tank 2 above its base [ft]. Receives Q_hose; overflows to ground when full. Base sits 2 ft lower than Tank 1.",
+      "inputs": ["Q_hose", "A_tank"],
+      "initial_value": { "value": 0.0, "unit": "ft" },
+      "rate": {
+        "ast": {
+          "op": "divide",
+          "left":  { "op": "ref", "element_id": "Q_hose" },
+          "right": { "op": "ref", "element_id": "A_tank" }
+        },
+        "display": "Q_hose / A_tank"
+      },
+      "min_value": 0.0,
+      "capacity": { "value": 2.0, "unit": "ft" },
+      "save_results": { "time_history": true, "final_value": true }
+    }
+
+  ]
+}

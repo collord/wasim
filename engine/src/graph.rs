@@ -72,6 +72,8 @@ fn element_deps(kind: &ElementKind) -> Vec<&str> {
         ElementKind::Accumulator { .. } => vec![],
         ElementKind::Expression { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
         ElementKind::Script { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
+        ElementKind::Array { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
+        ElementKind::StochasticProcess { .. } => vec![],
         ElementKind::Delay { input, .. } => vec![input.as_str()],
     }
 }

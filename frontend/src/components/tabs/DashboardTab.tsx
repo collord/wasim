@@ -25,7 +25,8 @@ function ConstantInput({ elem }: { elem: ConstantElement }) {
   const pm = useStore((s) => s.parsedModel)
   // Read live value from parsedModel (reflects edits)
   const liveElem = pm?.elements.find((e) => e.id === elem.id) as ConstantElement | undefined
-  const current = liveElem?.value.value ?? elem.value.value
+  const raw = liveElem?.value.value ?? elem.value.value
+  const current = Number.isFinite(raw) ? raw : ''
   const unit = elem.value.unit !== '1' ? elem.value.unit : ''
 
   return (
@@ -40,7 +41,10 @@ function ConstantInput({ elem }: { elem: ConstantElement }) {
         <input
           type="number"
           value={current}
-          onChange={(e) => setConstant(elem.id, parseFloat(e.target.value))}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value)
+            if (Number.isFinite(v)) setConstant(elem.id, v)
+          }}
           min={elem.bounds?.min ?? undefined}
           max={elem.bounds?.max ?? undefined}
           step="any"
@@ -106,37 +110,75 @@ function RunControls() {
   const status = useStore((s) => s.status)
   const nRealizations = useStore((s) => s.nRealizations)
   const seed = useStore((s) => s.seed)
+  const simDuration = useStore((s) => s.simDuration)
+  const simDurationUnit = useStore((s) => s.simDurationUnit)
+  const simTimestep = useStore((s) => s.simTimestep)
+  const simTimestepUnit = useStore((s) => s.simTimestepUnit)
   const setNRealizations = useStore((s) => s.setNRealizations)
   const setSeed = useStore((s) => s.setSeed)
+  const setSimDuration = useStore((s) => s.setSimDuration)
+  const setSimTimestep = useStore((s) => s.setSimTimestep)
   const run = useStore((s) => s.run)
   const errorMessage = useStore((s) => s.errorMessage)
 
   const isRunning = status === 'running'
 
+  const inputCls = "rounded border border-slate-300 px-2 py-1 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+
   return (
     <div className="sticky bottom-0 rounded-b-lg border-t border-slate-200 bg-white px-4 py-3">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-600">Realizations</label>
+      <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-slate-500">Duration</label>
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              value={simDuration ?? ''}
+              onChange={(e) => setSimDuration(parseFloat(e.target.value))}
+              min={0}
+              step="any"
+              className={`w-full ${inputCls}`}
+            />
+            <span className="text-xs text-slate-400 whitespace-nowrap">{simDurationUnit}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-slate-500">Timestep</label>
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              value={simTimestep ?? ''}
+              onChange={(e) => setSimTimestep(parseFloat(e.target.value))}
+              min={0}
+              step="any"
+              className={`w-full ${inputCls}`}
+            />
+            <span className="text-xs text-slate-400 whitespace-nowrap">{simTimestepUnit}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-slate-500">Realizations</label>
           <input
             type="number"
             value={nRealizations}
             onChange={(e) => setNRealizations(parseInt(e.target.value, 10) || 1)}
             min={1}
             max={100000}
-            className="w-24 rounded border border-slate-300 px-2 py-1 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className={inputCls}
           />
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-600">Seed</label>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-slate-500">Seed</label>
           <input
             type="number"
             value={seed ?? ''}
             placeholder="random"
             onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value, 10) : null)}
-            className="w-24 rounded border border-slate-300 px-2 py-1 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className={inputCls}
           />
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-4">
         <button
           onClick={run}
           disabled={isRunning}
@@ -184,7 +226,7 @@ export function DashboardTab() {
   // Group editable elements by container
   const editableElems = parsedModel.elements.filter(
     (e) => e.type === 'constant'
-      ? (e as ConstantElement).editable !== false
+      ? (e as ConstantElement).editable === true
       : e.type === 'random_variable',
   )
 

@@ -52,6 +52,31 @@ pub struct Quantity {
     pub display_unit: Option<String>,
 }
 
+/// A distribution parameter that is either a fixed Quantity or a formula string
+/// referencing another element (e.g. `"Mean_Ore / 5"`).
+/// Formula strings are stored but currently evaluated as 0.0 at runtime.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum QuantityOrFormula {
+    Quantity(Quantity),
+    Formula(String),
+}
+
+impl QuantityOrFormula {
+    pub fn value(&self) -> f64 {
+        match self {
+            QuantityOrFormula::Quantity(q) => q.value,
+            QuantityOrFormula::Formula(_) => 0.0,
+        }
+    }
+    pub fn unit(&self) -> &str {
+        match self {
+            QuantityOrFormula::Quantity(q) => q.unit.as_str(),
+            QuantityOrFormula::Formula(_) => "1",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ContainerDef {
     pub id: String,
@@ -113,6 +138,9 @@ impl Element {
         if let ElementKind::Constant { value, .. } = &self.kind {
             return value.unit.as_str();
         }
+        if let ElementKind::Array { values_unit, .. } = &self.kind {
+            return values_unit.as_str();
+        }
         self.outputs.first().map(|o| o.unit.as_str()).unwrap_or("1")
     }
 }
@@ -128,6 +156,12 @@ pub enum ElementKind {
     },
     RandomVariable {
         distribution: Distribution,
+        /// Presence of this field switches to per-timestep resampling.
+        /// `Some(0.0)` = iid draws each tick. `Some(ρ)` with 0 < ρ ≤ 1 would be AR(1)
+        /// in standard-normal driver space; not yet implemented (treated as iid for now).
+        /// `None` = single draw per realization (default).
+        #[serde(default)]
+        autocorrelation: Option<f64>,
     },
     Expression {
         expression: ExpressionField,
@@ -157,11 +191,22 @@ pub enum ElementKind {
     Lookup {
         x_unit: String,
         y_unit: String,
+        #[serde(default)]
         x: Vec<f64>,
+        #[serde(default)]
         y: Vec<f64>,
+        /// Multi-column table: each inner Vec is one column, parallel to `x`.
+        /// When present, `y` is ignored and column index is supplied via `lookup_call input2`.
+        #[serde(default)]
+        columns: Vec<Vec<f64>>,
         #[serde(default)]
         extrapolation: ExtrapolationMethod,
         display_unit: Option<String>,
+    },
+    StochasticProcess {
+        process: ProcessSpec,
+        #[serde(default)]
+        lower_bound: Option<Quantity>,
     },
     Delay {
         input: String,
@@ -171,6 +216,14 @@ pub enum ElementKind {
     Script {
         language: String,
         source: String,
+        #[serde(default)]
+        inputs: Vec<String>,
+    },
+    Array {
+        values_unit: String,
+        expressions: Vec<ExpressionField>,
+        #[serde(default)]
+        labels: Vec<String>,
         #[serde(default)]
         inputs: Vec<String>,
     },
@@ -214,6 +267,11 @@ pub enum ExpressionSource {
     #[default]
     Explicit,
     Inferred,
+    InferredPath,
+    InferredPassthrough,
+    InferredContainer,
+    InferredTs,
+    InferredPoolRate,
 }
 
 /// AST node discriminated by the "op" field.
@@ -370,6 +428,30 @@ pub enum BuiltinFn {
     DotProduct,
 }
 
+// ── Stochastic process ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProcessSpec {
+    pub family: ProcessFamily,
+    pub mean_type: ProcessMeanType,
+    pub mean: Quantity,
+    pub stddev: Quantity,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessFamily {
+    Gbm,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessMeanType {
+    Geometric,
+    Arithmetic,
+    LogDrift,
+}
+
 // ── Distributions ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -392,8 +474,8 @@ pub enum DistributionKind {
         stddev: Quantity,
     },
     Lognormal {
-        mean: Quantity,
-        stddev: Quantity,
+        mean: QuantityOrFormula,
+        stddev: QuantityOrFormula,
     },
     Triangular {
         min: Quantity,
@@ -401,8 +483,8 @@ pub enum DistributionKind {
         max: Quantity,
     },
     LognormalMoments {
-        mean: Quantity,
-        stddev: Quantity,
+        mean: QuantityOrFormula,
+        stddev: QuantityOrFormula,
     },
     Exponential {
         mean: Quantity,
@@ -431,6 +513,13 @@ pub enum DistributionKind {
     DiscreteUniform {
         min: i64,
         max: i64,
+    },
+    Bernoulli {
+        prob: Quantity,
+    },
+    Discrete {
+        outcomes: Vec<f64>,
+        probabilities: Vec<f64>,
     },
 }
 

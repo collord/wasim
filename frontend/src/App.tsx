@@ -1,10 +1,12 @@
 import { useStore, type Tab } from './store'
 import { FileDropZone } from './components/FileDropZone'
+import { GraphTab } from './components/tabs/GraphTab'
 import { ModelTab } from './components/tabs/ModelTab'
 import { DashboardTab } from './components/tabs/DashboardTab'
 import { ResultsTab } from './components/tabs/ResultsTab'
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'graph', label: 'Graph' },
   { id: 'model', label: 'Model' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'results', label: 'Results' },
@@ -75,9 +77,10 @@ export function App() {
             </div>
 
             {/* Tab content */}
-            {activeTab === 'model' && <ModelTab />}
+            {activeTab === 'graph'     && <GraphTab />}
+            {activeTab === 'model'     && <ModelTab />}
             {activeTab === 'dashboard' && <DashboardTab />}
-            {activeTab === 'results' && <ResultsTab />}
+            {activeTab === 'results'   && <ResultsTab />}
           </>
         )}
       </main>
