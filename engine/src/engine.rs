@@ -4,7 +4,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::error::EngineError;
-use crate::eval::{eval_ast, eval_ast_scalar, EvalCtx, Value};
+use crate::eval::{eval_ast, eval_ast_scalar, resolve_distribution, EvalCtx, Value};
 use crate::graph::ModelGraph;
 use crate::model::{ElementKind, InterpolationMethod, WasimModel};
 use crate::sampling;
@@ -214,6 +214,12 @@ pub fn run(
 
     let dt = config.timestep_override.unwrap_or(model.simulation_settings.timestep.value);
     let duration = config.duration_override.unwrap_or(model.simulation_settings.duration.value);
+    if !dt.is_finite() || dt <= 0.0 {
+        return Err(EngineError::InvalidModel(format!("timestep must be > 0, got {dt}")));
+    }
+    if !duration.is_finite() || duration <= 0.0 {
+        return Err(EngineError::InvalidModel(format!("duration must be > 0, got {duration}")));
+    }
     let n_steps = (duration / dt).round() as usize;
 
     // Build lookup from id → element index for fast access
@@ -271,6 +277,12 @@ pub fn run(
         .map(|&id| (id.to_string(), vec![Vec::new(); n_steps]))
         .collect();
 
+    // time_history_displays piggyback on the same stores (always saved as full history).
+    for d in &model.time_history_displays {
+        final_store.insert(d.id.clone(), Vec::with_capacity(n_real as usize));
+        hist_store.insert(d.id.clone(), vec![Vec::new(); n_steps]);
+    }
+
     // Build rank-correlation groups once; IDs in these groups bypass independent sampling.
     let corr_groups = build_corr_groups(model)?;
     let corr_rv_ids: std::collections::HashSet<String> = corr_groups.iter()
@@ -284,12 +296,26 @@ pub fn run(
 
         // Sample independent random variables once per realization.
         // Correlated variables are handled below via the Gaussian copula.
+        // `dist_ctx` accumulates scalar values visible to distribution-parameter ASTs:
+        // constants up front, plus each RV's draw as soon as it's available, so later
+        // RV params can reference earlier ones (document order).
         let mut rv_samples: HashMap<String, f64> = HashMap::new();
+        let mut dist_ctx: HashMap<String, Value> = HashMap::new();
+        for elem in &model.elements {
+            if let ElementKind::Constant { value, .. } = &elem.kind {
+                dist_ctx.insert(elem.id.clone(), Value::Scalar(value.value));
+            }
+        }
+        let empty_prev: HashMap<String, Value> = HashMap::new();
+
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let v = sampling::sample(&distribution.kind, &distribution.truncation, &mut rng)?;
+                    let ctx = EvalCtx { model, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let resolved = resolve_distribution(distribution, &ctx)?;
+                    let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
+                    dist_ctx.insert(elem.id.clone(), Value::Scalar(v));
                 }
             }
         }
@@ -307,17 +333,20 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
+                    let ctx = EvalCtx { model, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
-                    let v = match sampling::icdf(&distribution.kind, u) {
+                    let v = match sampling::icdf(&resolved.kind, u) {
                         Some(raw) => {
-                            let lo = distribution.truncation.as_ref().and_then(|t| t.min);
-                            let hi = distribution.truncation.as_ref().and_then(|t| t.max);
+                            let lo = resolved.truncation.as_ref().and_then(|t| t.min);
+                            let hi = resolved.truncation.as_ref().and_then(|t| t.max);
                             raw.max(lo.unwrap_or(f64::NEG_INFINITY))
                                .min(hi.unwrap_or(f64::INFINITY))
                         }
-                        None => sampling::sample(&distribution.kind, &distribution.truncation, &mut rng)?,
+                        None => sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?,
                     };
                     rv_samples.insert(id.clone(), v);
+                    dist_ctx.insert(id.clone(), Value::Scalar(v));
                 }
             }
         }
@@ -473,12 +502,12 @@ pub fn run(
                         eval_ast(&expression.ast, &ctx)?
                     }
 
-                    ElementKind::Script { expressions, .. } => {
+                    ElementKind::Script { expressions, procedural, .. } => {
                         match expressions.first() {
                             None => Value::Scalar(0.0),
                             Some(ef) => {
-                                if expressions.len() > 1 {
-                                    eprintln!("warn: {elem_id} has {} expressions, only [0] evaluated", expressions.len());
+                                if *procedural {
+                                    eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
                                 let ctx = EvalCtx { model, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
@@ -486,19 +515,31 @@ pub fn run(
                         }
                     }
 
-                    ElementKind::Array { expressions, .. } => {
-                        let ctx = EvalCtx {
-                            model,
-                            outputs: &outputs,
-                            prev_outputs: &prev_outputs,
-                            elapsed,
-                            dt,
-                            step_index: step_idx,
+                    ElementKind::Array { mode, expressions, values, .. } => {
+                        // Branch on the 0.2.0 sub-discriminator; fall back to a field-presence
+                        // heuristic for pre-0.2.0 models that lack `mode`.
+                        let is_expression = match mode {
+                            Some(crate::model::ArrayMode::Expression) => true,
+                            Some(crate::model::ArrayMode::Constant) => false,
+                            None => !expressions.is_empty(),
                         };
-                        let vals: Result<Vec<f64>, _> = expressions.iter()
-                            .map(|expr| eval_ast_scalar(&expr.ast, &ctx))
-                            .collect();
-                        Value::Vector(vals?)
+                        if is_expression {
+                            let ctx = EvalCtx {
+                                model,
+                                outputs: &outputs,
+                                prev_outputs: &prev_outputs,
+                                elapsed,
+                                dt,
+                                step_index: step_idx,
+                            };
+                            let vals: Result<Vec<f64>, _> = expressions.iter()
+                                .map(|expr| eval_ast_scalar(&expr.ast, &ctx))
+                                .collect();
+                            Value::Vector(vals?)
+                        } else {
+                            // Constant-values form (or extraction_pending — empty vec is fine).
+                            Value::Vector(values.clone())
+                        }
                     }
                 };
 
@@ -552,6 +593,16 @@ pub fn run(
                     while buf.len() > lag_steps + 1 {
                         buf.pop_back();
                     }
+                }
+            }
+
+            // Evaluate time_history_displays against the finalized step outputs.
+            for d in &model.time_history_displays {
+                let ctx = EvalCtx { model, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
+                hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
+                if step_idx == n_steps - 1 {
+                    final_store.get_mut(&d.id).unwrap().push(v);
                 }
             }
 
@@ -611,6 +662,26 @@ pub fn run(
         });
     }
 
+    // Surface time_history_displays as result entries (full history + final values).
+    for d in &model.time_history_displays {
+        let final_values = final_store.get(&d.id).cloned().unwrap_or_default();
+        let per_step = &hist_store[&d.id];
+        let time_history = Some(TimeHistoryStats {
+            mean: per_step.iter().map(|vs| mean(vs)).collect(),
+            p05: per_step.iter().map(|vs| percentile(vs, 5.0)).collect(),
+            p25: per_step.iter().map(|vs| percentile(vs, 25.0)).collect(),
+            p50: per_step.iter().map(|vs| percentile(vs, 50.0)).collect(),
+            p75: per_step.iter().map(|vs| percentile(vs, 75.0)).collect(),
+            p95: per_step.iter().map(|vs| percentile(vs, 95.0)).collect(),
+        });
+        results_map.insert(d.id.clone(), ElementResults {
+            label: d.name.clone(),
+            unit: "1".to_string(),
+            final_values,
+            time_history,
+        });
+    }
+
     // Compute display order: sinks (unreferenced by anyone) first, then the rest,
     // all in topo order, restricted to elements that actually have results.
     let referenced: std::collections::HashSet<&str> = model.elements.iter()
@@ -627,8 +698,10 @@ pub fn run(
         .filter(|id| results_map.contains_key(*id))
         .partition(|id| !referenced.contains(id));
 
-    let output_ids: Vec<String> = sinks.iter().chain(intermediates.iter())
-        .map(|&s| s.to_string())
+    // time_history_displays come first (primary user-visible outputs), then sinks, then intermediates.
+    let display_ids: Vec<String> = model.time_history_displays.iter().map(|d| d.id.clone()).collect();
+    let output_ids: Vec<String> = display_ids.into_iter()
+        .chain(sinks.iter().chain(intermediates.iter()).map(|&s| s.to_string()))
         .collect();
 
     Ok(SimulationResults {
@@ -683,7 +756,9 @@ fn mean(vs: &[f64]) -> f64 {
 fn percentile(vs: &[f64], p: f64) -> f64 {
     if vs.is_empty() { return 0.0; }
     let mut sorted = vs.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // total_cmp gives a total order over all f64 (including NaN), so a diverging
+    // realization that produced NaN can't panic the sort.
+    sorted.sort_by(f64::total_cmp);
     let idx = ((p / 100.0) * (sorted.len() - 1) as f64).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }

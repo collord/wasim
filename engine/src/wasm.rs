@@ -198,8 +198,12 @@ impl WasmEngine {
 fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Result<(), String> {
     match kind {
         DistributionKind::Normal { mean, stddev } => match param {
-            "mean" => mean.value = value,
-            "stddev" => stddev.value = value,
+            "mean" => *mean = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
+                value, unit: mean.unit().to_string(), display_unit: None,
+            }),
+            "stddev" => *stddev = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
+                value, unit: stddev.unit().to_string(), display_unit: None,
+            }),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
@@ -228,7 +232,9 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
         },
 
         DistributionKind::Exponential { mean } => match param {
-            "mean" => mean.value = value,
+            "mean" => *mean = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
+                value, unit: mean.unit().to_string(), display_unit: None,
+            }),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 

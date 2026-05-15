@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::error::EngineError;
-use crate::model::{AstNode, BuiltinFn, ElementKind, TimeProperty, WasimModel};
+use crate::model::{
+    AstNode, BuiltinFn, Distribution, DistributionKind, ElementKind, Quantity, QuantityOrFormula,
+    TimeProperty, WasimModel,
+};
 
 // ── Value ─────────────────────────────────────────────────────────────────────
 
@@ -236,6 +239,50 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
 /// Evaluate and collapse to f64. Vectors return their first element.
 pub fn eval_ast_scalar(node: &AstNode, ctx: &EvalCtx) -> Result<f64, EngineError> {
     eval_ast(node, ctx).map(|v| v.as_scalar())
+}
+
+/// Return a copy of `dist` with any `QuantityOrFormula::Expression` parameters replaced by
+/// the evaluated scalar (wrapped as `QuantityOrFormula::Quantity`). `Quantity` and `Formula`
+/// variants pass through unchanged — `Formula` strings still degrade to 0.0 at `.value()`.
+pub fn resolve_distribution(dist: &Distribution, ctx: &EvalCtx) -> Result<Distribution, EngineError> {
+    let kind = match &dist.kind {
+        DistributionKind::Normal { mean, stddev } => DistributionKind::Normal {
+            mean: resolve_qof(mean, ctx)?,
+            stddev: resolve_qof(stddev, ctx)?,
+        },
+        DistributionKind::Lognormal { mean, stddev } => DistributionKind::Lognormal {
+            mean: resolve_qof(mean, ctx)?,
+            stddev: resolve_qof(stddev, ctx)?,
+        },
+        DistributionKind::LognormalMoments { mean, stddev } => DistributionKind::LognormalMoments {
+            mean: resolve_qof(mean, ctx)?,
+            stddev: resolve_qof(stddev, ctx)?,
+        },
+        DistributionKind::Exponential { mean } => DistributionKind::Exponential {
+            mean: resolve_qof(mean, ctx)?,
+        },
+        other => other.clone(),
+    };
+    Ok(Distribution {
+        kind,
+        truncation: dist.truncation.clone(),
+        correlation_group: dist.correlation_group.clone(),
+    })
+}
+
+fn resolve_qof(qof: &QuantityOrFormula, ctx: &EvalCtx) -> Result<QuantityOrFormula, EngineError> {
+    match qof {
+        QuantityOrFormula::Expression(ef) => {
+            let val = eval_ast(&ef.ast, ctx)?.as_scalar();
+            Ok(QuantityOrFormula::Quantity(Quantity {
+                value: val,
+                unit: "1".to_string(),
+                display_unit: None,
+            }))
+        }
+        // Quantity and Formula pass through. Formula remains a no-op (0.0 at .value()).
+        _ => Ok(qof.clone()),
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

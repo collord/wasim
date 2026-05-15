@@ -1,0 +1,841 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://wasim.dev/schema/model/0.1.0",
+  "title": "WASiM Model",
+  "description": "Canonical model definition for a WASiM probabilistic dynamic simulation.",
+  "type": "object",
+  "required": ["wasim_version", "simulation_settings", "elements"],
+  "additionalProperties": false,
+  "properties": {
+    "wasim_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "WASiM schema version this file conforms to (semver)."
+    },
+    "source": {
+      "type": "object",
+      "description": "Provenance metadata. Not consumed by the engine.",
+      "additionalProperties": false,
+      "properties": {
+        "generator":         { "type": ["string", "null"] },
+        "generator_version": { "type": ["string", "null"] },
+        "created":           { "type": ["string", "null"], "format": "date-time" },
+        "notes":             { "type": ["string", "null"] }
+      }
+    },
+    "simulation_settings": {
+      "type": "object",
+      "required": ["duration", "timestep"],
+      "additionalProperties": false,
+      "properties": {
+        "duration":          { "$ref": "#/$defs/quantity", "description": "Total simulation duration." },
+        "timestep":          { "$ref": "#/$defs/quantity", "description": "Fixed timestep size." },
+        "n_realizations":    { "type": "integer", "minimum": 1, "default": 1 },
+        "sampling_method":   { "type": "string", "enum": ["monte_carlo", "lhs"], "default": "monte_carlo" },
+        "seed":              { "type": ["integer", "null"], "description": "RNG seed for reproducibility. Null for random." }
+      }
+    },
+    "containers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/container_def" },
+      "default": []
+    },
+    "elements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" },
+      "description": "Flat list of all model elements. Hierarchy is expressed via container references."
+    },
+    "time_history_displays": {
+      "type": "array",
+      "description": "Display-only expressions from TimeHistoryResult plots in the source model. Not part of the simulation graph; preserved for inspection. Accepts the same provenance fields as element_base (source_type, goldsim_object_id, path, input_ports).",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "expression"],
+        "additionalProperties": true,
+        "properties": {
+          "id":                 { "type": "string" },
+          "name":               { "type": "string" },
+          "expression":         { "$ref": "#/$defs/expression_field" },
+          "inputs":             { "type": "array", "items": { "type": "string" }, "default": [] },
+          "source_type":        { "type": ["string", "null"] },
+          "goldsim_object_id":  { "type": ["integer", "null"] },
+          "path":               { "type": ["string", "null"] },
+          "input_ports":        { "type": "array", "items": { "$ref": "#/$defs/input_port_ref" }, "default": [] }
+        }
+      },
+      "default": []
+    }
+  },
+
+  "$defs": {
+
+    "quantity": {
+      "type": "object",
+      "required": ["value", "unit"],
+      "additionalProperties": false,
+      "description": "A numeric value with explicit unit declaration. The value is expressed in the declared unit — not necessarily SI base units. The engine converts to SI at load time for internal computation. display_unit controls how the value is presented to users in the frontend (defaults to unit if absent).",
+      "properties": {
+        "value":        { "type": "number",
+                          "description": "Numeric magnitude in the declared unit." },
+        "unit":         { "type": "string",
+                          "description": "Unit of value (e.g. 'mm/yr', 'kg/m3', 'd', '1' for dimensionless). May be any physically meaningful unit string; the engine is responsible for normalising to SI at load time." },
+        "display_unit": { "type": ["string", "null"],
+                          "description": "Preferred unit for frontend display and user input. If null, defaults to unit. The engine ignores this field." }
+      }
+    },
+
+    "quantity_expr": {
+      "description": "A value that may be either a fixed quantity or an expression AST.",
+      "oneOf": [
+        { "$ref": "#/$defs/quantity" },
+        { "$ref": "#/$defs/ast_node" }
+      ]
+    },
+
+    "quantity_or_formula": {
+      "description": "A distribution parameter that may be a fixed quantity or a formula string referencing other model elements.",
+      "oneOf": [
+        { "$ref": "#/$defs/quantity" },
+        { "type": "string", "description": "Formula expression referencing other model elements (e.g. 'Mean_Ore / 5')." }
+      ]
+    },
+
+    "output_spec": {
+      "type": "object",
+      "required": ["name", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "name":         { "type": "string" },
+        "unit":         { "type": "string" },
+        "display_unit": { "type": ["string", "null"] }
+      }
+    },
+
+    "save_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "final_value":   { "type": "boolean", "default": false },
+        "time_history":  { "type": "boolean", "default": false }
+      }
+    },
+
+    "container_def": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": true,
+      "properties": {
+        "id":                { "type": "string" },
+        "name":               { "type": "string" },
+        "description":        { "type": ["string", "null"] },
+        "parent":             { "type": ["string", "null"], "description": "ID of parent container, or null for top-level." },
+        "children":           { "type": "array", "items": { "type": "string" }, "description": "IDs of child containers.", "default": [] },
+        "source_type":        { "type": ["string", "null"], "description": "Original element kind in the source modelling tool (e.g. 'Container', 'Group'). Engine ignores." },
+        "goldsim_object_id":  { "type": ["integer", "null"], "description": "Original GoldSim object ID for round-tripping. Engine ignores." },
+        "path":               { "type": ["string", "null"], "description": "Full container path in the source model. Engine ignores." },
+        "input_ports":        { "type": "array", "items": { "$ref": "#/$defs/input_port_ref" }, "default": [] }
+      }
+    },
+
+    "ast_node": {
+      "description": "A single node in a WASiM expression AST. Discriminated by 'op'.",
+      "type": "object",
+      "required": ["op"],
+      "oneOf": [
+
+        {
+          "description": "Numeric literal with optional unit.",
+          "properties": {
+            "op":    { "const": "literal" },
+            "value": { "type": "number" },
+            "unit":  { "type": ["string", "null"] }
+          },
+          "required": ["op", "value"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Reference to another element's output.",
+          "properties": {
+            "op":         { "const": "ref" },
+            "element_id": { "type": "string" },
+            "output":     { "type": "string", "default": "value" }
+          },
+          "required": ["op", "element_id"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Reference to a simulation time property.",
+          "properties": {
+            "op":       { "const": "time_ref" },
+            "property": {
+              "type": "string",
+              "enum": ["elapsed", "timestep", "year", "month", "day_of_year", "day_of_month", "days_in_month"]
+            }
+          },
+          "required": ["op", "property"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Binary arithmetic or logical operation.",
+          "properties": {
+            "op":    { "type": "string", "enum": ["add", "subtract", "multiply", "divide", "power", "lt", "gt", "lte", "gte", "eq", "neq", "and", "or"] },
+            "left":  { "$ref": "#/$defs/ast_node" },
+            "right": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "left", "right"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Unary operation.",
+          "properties": {
+            "op":      { "type": "string", "enum": ["neg", "not"] },
+            "operand": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "operand"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Built-in scalar function call.",
+          "properties": {
+            "op":   { "const": "call" },
+            "fn":   {
+              "type": "string",
+              "enum": ["min", "max", "abs", "sqrt", "exp", "ln", "log", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "floor", "ceil", "round", "mod", "sign", "int", "step",
+                       "sum_array", "mean_array", "min_array", "max_array", "size_array",
+                       "get_element", "dot_product", "interp_array"]
+            },
+            "args": { "type": "array", "items": { "$ref": "#/$defs/ast_node" }, "minItems": 1 }
+          },
+          "required": ["op", "fn", "args"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Inline ordered array constructed from scalar expressions. Used for vector/array operations. Equivalent to a GoldSim 'vector(a, b, c)' call.",
+          "properties": {
+            "op":       { "const": "array" },
+            "elements": { "type": "array", "items": { "$ref": "#/$defs/ast_node" }, "minItems": 1 }
+          },
+          "required": ["op", "elements"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "If/then/else conditional.",
+          "properties": {
+            "op":   { "const": "if" },
+            "cond": { "$ref": "#/$defs/ast_node" },
+            "then": { "$ref": "#/$defs/ast_node" },
+            "else": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "cond", "then", "else"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Evaluate a lookup-table element at a given input. The element_id must refer to an element of type 'lookup'. The engine interpolates into that table using the evaluated input.",
+          "properties": {
+            "op":         { "const": "lookup_call" },
+            "element_id": { "type": "string", "description": "ID of the lookup element to evaluate." },
+            "input":      { "$ref": "#/$defs/ast_node", "description": "Expression for the lookup's independent variable." },
+            "input2":     { "$ref": "#/$defs/ast_node", "description": "Second independent variable for 2D lookup tables (optional)." }
+          },
+          "required": ["op", "element_id", "input"],
+          "additionalProperties": false
+        }
+
+      ]
+    },
+
+    "expression_field": {
+      "description": "Reusable bundle of AST + optional display string.",
+      "type": "object",
+      "required": ["ast"],
+      "additionalProperties": false,
+      "properties": {
+        "ast":     { "$ref": "#/$defs/ast_node" },
+        "display": { "type": ["string", "null"], "description": "Human-readable expression string. Not consumed by the engine." },
+        "source":  {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "inferred",
+            "inferred_path",
+            "inferred_passthrough",
+            "inferred_container",
+            "inferred_ts",
+            "inferred_pool_rate"
+          ],
+          "default": "explicit",
+          "description": "How the expression was recovered. 'explicit' = decoded directly from the source binary (formula text or token table). 'inferred' = legacy generic inference (kept for backward compatibility). 'inferred_path' = port-path reference like '\\Container\\Element' resolved to a passthrough. 'inferred_passthrough' = single-incoming-connection passthrough. 'inferred_container' = container-boundary passthrough. 'inferred_ts' = name-convention TimeSeries passthrough (e.g. Precip → Precip_TS). 'inferred_pool_rate' = pool rate AST built from inflow/request port bindings rather than inline formula."
+        }
+      }
+    },
+
+    "process_spec": {
+      "description": "Parameters for a stochastic process element. Values are in user-chosen units; the engine scales drift linearly with dt and stddev by √(dt/T_ref) at each timestep.",
+      "type": "object",
+      "required": ["family", "mean_type", "mean", "stddev"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["gbm"],
+          "description": "'gbm' = geometric Brownian motion: lognormal per-step increments, no memory between steps."
+        },
+        "mean_type": {
+          "type": "string",
+          "enum": ["geometric", "arithmetic", "log_drift"],
+          "description": "Interpretation of the 'mean' parameter. 'geometric': mean is the per-period CAGR as a fraction (e.g. 0.07 for 7%/yr); engine derives log_drift = ln(1 + mean). 'arithmetic': mean is the arithmetic expected return; engine applies Itô correction (log_drift = ln(1+mean) - σ²/2). 'log_drift': mean is the log-space drift directly, no transformation."
+        },
+        "mean": {
+          "$ref": "#/$defs/quantity",
+          "description": "Central tendency of the process. Interpreted according to mean_type. Use the same unit as the intended output (e.g. '1/yr' for an annual return rate)."
+        },
+        "stddev": {
+          "$ref": "#/$defs/quantity",
+          "description": "Per-reference-period volatility. Engine scales to per-step diffusion as σ_step = stddev.value × √(dt / T_ref) where T_ref is the period implied by stddev.unit. Annual volatility of 15% → stddev = {value: 0.15, unit: '1/yr'}."
+        }
+      }
+    },
+
+    "distribution": {
+      "description": "Probability distribution specification. Discriminated by 'family'.",
+      "type": "object",
+      "required": ["family", "parameters"],
+      "properties": {
+        "family": { "type": "string" },
+        "parameters": { "type": "object" },
+        "truncation": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": ["number", "null"] },
+            "max": { "type": ["number", "null"] }
+          }
+        },
+        "correlation_group": { "type": ["string", "null"], "description": "Named correlation group for rank-correlation sampling." }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "family": { "const": "uniform" },
+            "parameters": {
+              "type": "object", "required": ["min", "max"], "additionalProperties": false,
+              "properties": {
+                "min": { "$ref": "#/$defs/quantity" },
+                "max": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "normal" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
+              "properties": {
+                "mean":   { "$ref": "#/$defs/quantity" },
+                "stddev": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "lognormal" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
+              "properties": {
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "triangular" },
+            "parameters": {
+              "type": "object", "required": ["min", "mode", "max"], "additionalProperties": false,
+              "properties": {
+                "min":  { "$ref": "#/$defs/quantity" },
+                "mode": { "$ref": "#/$defs/quantity" },
+                "max":  { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "lognormal_moments" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
+              "properties": {
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "exponential" },
+            "parameters": {
+              "type": "object", "required": ["mean"], "additionalProperties": false,
+              "properties": {
+                "mean": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "gamma" },
+            "parameters": {
+              "type": "object", "required": ["shape", "scale"], "additionalProperties": false,
+              "properties": {
+                "shape": { "$ref": "#/$defs/quantity" },
+                "scale": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "beta" },
+            "parameters": {
+              "type": "object", "required": ["alpha", "beta"], "additionalProperties": false,
+              "properties": {
+                "alpha": { "$ref": "#/$defs/quantity" },
+                "beta":  { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "weibull" },
+            "parameters": {
+              "type": "object", "required": ["shape", "scale"], "additionalProperties": false,
+              "properties": {
+                "shape": { "$ref": "#/$defs/quantity" },
+                "scale": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "pearson_v" },
+            "parameters": {
+              "type": "object", "required": ["shape", "scale"], "additionalProperties": false,
+              "properties": {
+                "shape": { "$ref": "#/$defs/quantity" },
+                "scale": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "pearson_iii" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev", "skewness"], "additionalProperties": false,
+              "properties": {
+                "mean":     { "$ref": "#/$defs/quantity" },
+                "stddev":   { "$ref": "#/$defs/quantity" },
+                "skewness": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "discrete_uniform" },
+            "parameters": {
+              "type": "object", "required": ["min", "max"], "additionalProperties": false,
+              "properties": {
+                "min": { "type": "integer" },
+                "max": { "type": "integer" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Bernoulli distribution (GoldSim 'Boolean'): 1 with probability p, 0 otherwise.",
+          "properties": {
+            "family": { "const": "bernoulli" },
+            "parameters": {
+              "type": "object", "required": ["prob"], "additionalProperties": false,
+              "properties": {
+                "prob": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "General discrete distribution with explicit probability table.",
+          "properties": {
+            "family": { "const": "discrete" },
+            "parameters": {
+              "type": "object", "required": ["outcomes", "probabilities"], "additionalProperties": false,
+              "properties": {
+                "outcomes":      { "type": "array", "items": { "type": "number" },
+                                   "description": "Outcome values (e.g. 1.0, 2.0, … 6.0 for a six-sided die)." },
+                "probabilities": { "type": "array", "items": { "type": "number", "minimum": 0 },
+                                   "description": "Probability of each outcome. Must be same length as outcomes and sum to 1." }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "element_base": {
+      "description": "Fields common to all element types.",
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id":          { "type": "string", "description": "Unique identifier within the model. Used for cross-references." },
+        "name":        { "type": "string", "description": "Human-readable display name." },
+        "type":        { "type": "string" },
+        "container":   { "type": ["string", "null"], "description": "ID of the containing container, or null for top-level." },
+        "description": { "type": ["string", "null"] },
+        "outputs":     { "type": "array", "items": { "$ref": "#/$defs/output_spec" }, "default": [] },
+        "save_results":{ "$ref": "#/$defs/save_spec" },
+        "source_type": {
+          "type": ["string", "null"],
+          "description": "Original element type from the source modelling tool (e.g. 'Pool', 'Integrator', 'Reservoir', 'Stochastic'). Preserves source-side semantics that may collapse to the same wasim type. Engine ignores."
+        },
+        "goldsim_object_id": {
+          "type": ["integer", "null"],
+          "description": "Original GoldSim object ID for round-tripping to .gsm. Engine ignores."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Full container path in the source model (e.g. '\\System_Model\\Tailings\\Reclaim_from_Tailings'). Engine ignores; preserved for diagram rendering and cross-referencing port-path passthroughs."
+        },
+        "input_ports": {
+          "type": "array",
+          "description": "Richer connection metadata alongside 'inputs[]'. Each entry names a source element and, when known, the specific output port on the source and input port on this element. Engine consumes 'inputs[]'; this field is provenance for renderers/round-tripping.",
+          "items": { "$ref": "#/$defs/input_port_ref" },
+          "default": []
+        }
+      }
+    },
+
+    "input_port_ref": {
+      "type": "object",
+      "required": ["element_id"],
+      "additionalProperties": false,
+      "properties": {
+        "element_id": { "type": "string", "description": "ID of the upstream element." },
+        "output":     { "type": ["string", "null"], "description": "Name of the upstream element's output port that feeds this connection, if known." },
+        "input":      { "type": ["string", "null"], "description": "Name of this element's input port that the connection terminates on, if known." }
+      }
+    },
+
+    "element": {
+      "description": "Any model element. Discriminated by 'type'.",
+      "oneOf": [
+
+        {
+          "description": "Fixed scalar value, optionally editable at runtime.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "value"],
+              "additionalProperties": true,
+              "properties": {
+                "type":     { "const": "constant" },
+                "value":    { "$ref": "#/$defs/quantity" },
+                "editable": { "type": "boolean", "default": false,
+                              "description": "If true, value can be adjusted by the user at runtime without editing model.json." },
+                "bounds": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "min": { "type": ["number", "null"] },
+                    "max": { "type": ["number", "null"] }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Samples from a probability distribution each realization. Value is constant within a realization.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "distribution"],
+              "additionalProperties": true,
+              "properties": {
+                "type":         { "const": "random_variable" },
+                "distribution": { "$ref": "#/$defs/distribution" },
+                "autocorrelation": {
+                  "type": ["number", "null"],
+                  "description": "Lag-1 autocorrelation coefficient (0–1). Applied across simulation time steps within a realization."
+                },
+                "trigger": {
+                  "type": ["object", "null"],
+                  "description": "When the random variable resamples per-timestep on a specific trigger (e.g. GoldSim Resample='On Changed', Trigger=EDay), this captures the trigger source. Engine treats per-step resampling identically regardless of trigger; this is provenance only.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": { "type": "string", "description": "Name or kind of the trigger that fires resampling. Common values: 'EDay' (elapsed-day index), 'Timestep'." }
+                  }
+                },
+                "correlations": {
+                  "type": "array",
+                  "description": "Cross-correlations with other random variables in the model.",
+                  "items": {
+                    "type": "object",
+                    "required": ["partner", "coefficient"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "partner":     { "type": "string", "description": "ID of the correlated element." },
+                      "coefficient": { "type": "number", "minimum": -1, "maximum": 1, "description": "Spearman rank correlation coefficient." }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Re-draws from a stochastic process at every timestep. Each MC path gets independent draws at each step, modeling sequence-of-returns risk. Unlike random_variable (which draws once per path), variance of cumulative outcomes grows with horizon. Engine scales stddev by √(dt/T_ref) automatically; drift scales linearly.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "process"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "stochastic_process" },
+                "process": { "$ref": "#/$defs/process_spec" },
+                "lower_bound": {
+                  "description": "Optional floor clamped on the per-step drawn value, expressed as a quantity in the same unit as process.mean. null = no bound. For GBM, lognormal increments are naturally bounded below by -1 (total loss); set lower_bound only to impose a tighter floor or when using a non-lognormal family.",
+                  "oneOf": [
+                    { "$ref": "#/$defs/quantity" },
+                    { "type": "null" }
+                  ],
+                  "default": null
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Computes a value from other elements via a mathematical expression.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "expression"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "expression" },
+                "expression": { "$ref": "#/$defs/expression_field" },
+                "inputs":     {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs referenced by this expression. Redundant with the AST; used for fast dependency graph construction.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Integrates a net rate over time. State variable with initial condition.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "initial_value", "rate"],
+              "additionalProperties": true,
+              "properties": {
+                "type":          { "const": "accumulator" },
+                "initial_value": { "$ref": "#/$defs/quantity" },
+                "initial_expression": {
+                  "$ref": "#/$defs/expression_field",
+                  "description": "Expression evaluated at t=0 to compute the initial state. When present, overrides initial_value. Used when the initial condition is computed from other elements (e.g. Init_* elements in GoldSim models)."
+                },
+                "rate":          {
+                  "$ref": "#/$defs/expression_field",
+                  "description": "Net rate of change per timestep (d/dt of state). The transpiler is responsible for encoding pool inflows minus loss formulas as a single rate expression."
+                },
+                "min_value": {
+                  "type": ["number", "null"],
+                  "default": 0,
+                  "description": "Lower bound enforced after each timestep. Default 0 (pools cannot go negative)."
+                },
+                "capacity": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/quantity" },
+                    { "type": "null" }
+                  ],
+                  "description": "Upper bound on state value. Null for unbounded."
+                },
+                "inputs": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs referenced by the rate expression.",
+                  "default": []
+                },
+                "inflows": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs that contribute mass/value to this accumulator (additive). Source-semantic decomposition of the rate; redundant with rate.ast but preserves GoldSim Pool semantics for tools that need them. Engine consumes rate.ast.",
+                  "default": []
+                },
+                "requests": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs that draw mass/value from this accumulator subject to availability (subtractive). Pool-specific source semantic — paired with 'inflows[]'. Engine consumes rate.ast.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Externally supplied time-varying input, interpolated between data points.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "interpolation", "values_unit"],
+              "additionalProperties": true,
+              "properties": {
+                "type":          { "const": "timeseries" },
+                "interpolation": { "type": "string", "enum": ["linear", "step", "cubic"], "default": "linear" },
+                "times_unit":    { "type": "string", "description": "Unit of the time axis (e.g. 'd', 'yr')." },
+                "values_unit":   { "type": "string", "description": "Unit of the value axis." },
+                "times":         {
+                  "type": "array", "items": { "type": "number" },
+                  "description": "Time coordinates, monotonically increasing, in times_unit."
+                },
+                "values": {
+                  "type": "array", "items": { "type": "number" },
+                  "description": "Values at each time coordinate, in values_unit. Must be same length as times."
+                },
+                "display_unit":  { "type": ["string", "null"] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "1D table-based interpolation mapping an input to an output.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "x_unit", "y_unit", "x"],
+              "additionalProperties": true,
+              "properties": {
+                "type":          { "const": "lookup" },
+                "x_unit":        { "type": "string" },
+                "y_unit":        { "type": "string" },
+                "x":             { "type": "array", "items": { "type": "number" }, "description": "Independent variable values, strictly increasing." },
+                "y":             { "type": "array", "items": { "type": "number" }, "description": "Dependent variable values (1-D lookup). Same length as x." },
+                "columns":       { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "Output columns for a 2-D lookup table. Each inner array has the same length as x. Use input2 to select the column (1-indexed)." },
+                "extrapolation": { "type": "string", "enum": ["clamp", "linear", "error"], "default": "clamp",
+                                   "description": "Behavior when input is outside the x range." },
+                "display_unit":  { "type": ["string", "null"] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Outputs a time-lagged version of an input signal.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "input", "lag"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "delay" },
+                "input":   { "type": "string", "description": "Element ID of the signal to delay." },
+                "lag":     { "$ref": "#/$defs/quantity", "description": "Lag duration." },
+                "initial": { "$ref": "#/$defs/quantity", "description": "Value to return before the lag duration has elapsed." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Procedural computation block for expressions requiring iteration or local variables.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "language", "source"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "script" },
+                "language":   { "type": "string", "enum": ["wasim_script"], "description": "Reserved for future extension." },
+                "source":     { "type": "string", "description": "Raw script source text (human-readable; engine uses expressions)." },
+                "expressions": {
+                  "type": "array",
+                  "description": "Transpiler-parsed AstNode expressions, one per evaluable output formula. Index 0 is the primary output. Log-message formulas are excluded. Absent when no formulas could be parsed.",
+                  "items": { "$ref": "#/$defs/expression_field" },
+                  "default": []
+                },
+                "variables":  { "type": "array", "items": { "type": "string" }, "default": [], "description": "Local variable names in declaration order. Index 0 is the implicit result variable (self-reference). Absent for scripts using the alternate binary format." },
+                "inputs":     { "type": "array", "items": { "type": "string" }, "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Named ordered array of scalar values, each computed from an expression. Supports GoldSim vector patterns where multiple related quantities are grouped and operated on together (sum, mean, indexing).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "values_unit", "expressions"],
+              "additionalProperties": true,
+              "properties": {
+                "type":        { "const": "array" },
+                "values_unit": { "type": "string", "description": "Unit shared by all elements of the array. Use '1' for dimensionless." },
+                "expressions": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/expression_field" },
+                  "minItems": 1,
+                  "description": "Ordered list of scalar expressions that constitute the array elements."
+                },
+                "labels": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Optional human-readable label for each element. Must match length of expressions if present."
+                },
+                "inputs": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Element IDs referenced across all expressions.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        }
+
+      ]
+    }
+
+  }
+}

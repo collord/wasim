@@ -21,7 +21,7 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
         }
 
         DistributionKind::Normal { mean, stddev } => {
-            let dist = Normal::new(mean.value, stddev.value)
+            let dist = Normal::new(mean.value(), stddev.value())
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             rng.sample(dist)
         }
@@ -52,7 +52,7 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
         }
 
         DistributionKind::Exponential { mean } => {
-            let lambda = 1.0 / mean.value;
+            let lambda = 1.0 / mean.value();
             let dist = Exp::new(lambda)
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             rng.sample(dist)
@@ -285,7 +285,7 @@ pub(crate) fn standard_normal_quantile(p: f64) -> f64 {
 pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
     let raw = match kind {
         DistributionKind::Normal { mean, stddev } => {
-            mean.value + stddev.value * standard_normal_quantile(u)
+            mean.value() + stddev.value() * standard_normal_quantile(u)
         }
         DistributionKind::Lognormal { mean, stddev } => {
             (mean.value() + stddev.value() * standard_normal_quantile(u)).exp()
@@ -313,7 +313,7 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
             }
         }
         DistributionKind::Exponential { mean } => {
-            -mean.value * (1.0 - u).ln()
+            -mean.value() * (1.0 - u).ln()
         }
         DistributionKind::Bernoulli { prob } => {
             if u < prob.value { 1.0 } else { 0.0 }

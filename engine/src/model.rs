@@ -10,6 +10,20 @@ pub struct WasimModel {
     #[serde(default)]
     pub containers: Vec<ContainerDef>,
     pub elements: Vec<Element>,
+    /// Display-only expressions from source-model TimeHistoryResult plots. Not part of the
+    /// simulation graph, but evaluated at each timestep against finalized element outputs
+    /// and surfaced in `SimulationResults.elements` so user-visible outputs aren't lost.
+    #[serde(default)]
+    pub time_history_displays: Vec<TimeHistoryDisplay>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TimeHistoryDisplay {
+    pub id: String,
+    pub name: String,
+    pub expression: ExpressionField,
+    #[serde(default)]
+    pub inputs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -52,13 +66,14 @@ pub struct Quantity {
     pub display_unit: Option<String>,
 }
 
-/// A distribution parameter that is either a fixed Quantity or a formula string
-/// referencing another element (e.g. `"Mean_Ore / 5"`).
-/// Formula strings are stored but currently evaluated as 0.0 at runtime.
+/// A distribution parameter that is either a fixed Quantity, a parsed expression AST,
+/// or a raw formula string referencing another element (e.g. `"Mean_Ore / 5"`).
+/// Expression ASTs and formula strings are stored but currently evaluated as 0.0 at runtime.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum QuantityOrFormula {
     Quantity(Quantity),
+    Expression(ExpressionField),
     Formula(String),
 }
 
@@ -66,12 +81,14 @@ impl QuantityOrFormula {
     pub fn value(&self) -> f64 {
         match self {
             QuantityOrFormula::Quantity(q) => q.value,
+            QuantityOrFormula::Expression(_) => 0.0,
             QuantityOrFormula::Formula(_) => 0.0,
         }
     }
     pub fn unit(&self) -> &str {
         match self {
             QuantityOrFormula::Quantity(q) => q.unit.as_str(),
+            QuantityOrFormula::Expression(_) => "1",
             QuantityOrFormula::Formula(_) => "1",
         }
     }
@@ -138,8 +155,8 @@ impl Element {
         if let ElementKind::Constant { value, .. } = &self.kind {
             return value.unit.as_str();
         }
-        if let ElementKind::Array { values_unit, .. } = &self.kind {
-            return values_unit.as_str();
+        if let ElementKind::Array { values_unit, unit, .. } = &self.kind {
+            return values_unit.as_deref().or(unit.as_deref()).unwrap_or("1");
         }
         self.outputs.first().map(|o| o.unit.as_str()).unwrap_or("1")
     }
@@ -223,15 +240,36 @@ pub enum ElementKind {
         #[serde(default)]
         variables: Vec<String>,
         #[serde(default)]
+        procedural: bool,
+        #[serde(default)]
         inputs: Vec<String>,
     },
     Array {
-        values_unit: String,
+        /// Sub-discriminator (schema 0.2.0+). `None` for pre-0.2.0 models without it;
+        /// the engine falls back to `expressions.is_empty()` in that case.
+        #[serde(default)]
+        mode: Option<ArrayMode>,
+        /// Unit for expression-based arrays (legacy). Optional so the constant-values
+        /// form (which uses `unit`) can deserialize without it.
+        #[serde(default)]
+        values_unit: Option<String>,
+        /// Unit for constant-values arrays. Either `values_unit` or `unit` must be set.
+        #[serde(default)]
+        unit: Option<String>,
+        /// Expression-based form: each element is computed from its expression each step.
+        #[serde(default)]
         expressions: Vec<ExpressionField>,
+        /// Constant form: fixed numeric values, emitted as-is.
+        #[serde(default)]
+        values: Vec<f64>,
         #[serde(default)]
         labels: Vec<String>,
         #[serde(default)]
         inputs: Vec<String>,
+        #[serde(default)]
+        display_unit: Option<String>,
+        #[serde(default)]
+        provenance: ArrayProvenance,
     },
 }
 
@@ -246,6 +284,23 @@ pub enum InterpolationMethod {
     Linear,
     Step,
     Cubic,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ArrayProvenance {
+    #[default]
+    Extracted,
+    ExtractionPending,
+    Inferred,
+}
+
+/// Sub-discriminator for the overloaded `type: "array"` element (schema 0.2.0+).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ArrayMode {
+    Constant,
+    Expression,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -278,6 +333,11 @@ pub enum ExpressionSource {
     InferredContainer,
     InferredTs,
     InferredPoolRate,
+    /// Compiled-AST node graph decoded into structured AST (no formula text).
+    InferredAst,
+    /// Formula extraction failed in the transpiler; placeholder `Literal(0.0)` emitted
+    /// with connection-derived inputs to preserve graph topology. Treat as known-incorrect.
+    InferredStub,
 }
 
 /// AST node discriminated by the "op" field.
@@ -484,8 +544,8 @@ pub enum DistributionKind {
         max: Quantity,
     },
     Normal {
-        mean: Quantity,
-        stddev: Quantity,
+        mean: QuantityOrFormula,
+        stddev: QuantityOrFormula,
     },
     Lognormal {
         mean: QuantityOrFormula,
@@ -501,7 +561,7 @@ pub enum DistributionKind {
         stddev: QuantityOrFormula,
     },
     Exponential {
-        mean: Quantity,
+        mean: QuantityOrFormula,
     },
     Gamma {
         shape: Quantity,
