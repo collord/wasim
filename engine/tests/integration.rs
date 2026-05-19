@@ -235,14 +235,11 @@ fn parse_all_schema_examples() {
 
 #[test]
 fn build_graph_for_all_examples() {
-    // True graph cycles in the source models — these are model-level issues, not
-    // engine bugs. They typically use an `expression` that self-references where
-    // an `accumulator` (which carries prev-step state) was intended.
-    let known_cycles: &[&str] = &[
-        "portfolio.json",
-        "loopingcontainer.json",
+    // Models known to contain genuine expression cycles. The graph builder now
+    // warns and skips cyclic elements rather than returning an error, so all of
+    // these should build successfully with a non-empty skipped_cycle_ids.
+    let known_cycle_models: &[&str] = &[
         "wgen_par.json",
-        "previousvalue.json",
     ];
 
     let examples_dir = openvsim_examples_dir();
@@ -261,9 +258,15 @@ fn build_graph_for_all_examples() {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let json = fs::read_to_string(&path).unwrap();
         let model: WasimModel = serde_json::from_str(&json).unwrap();
-        if let Err(e) = ModelGraph::build(&model) {
-            if !known_cycles.contains(&name.as_str()) {
-                failures.push(format!("{name}: {e}"));
+        match ModelGraph::build(&model) {
+            Err(e) => failures.push(format!("{name}: {e}")),
+            Ok(g) => {
+                if known_cycle_models.contains(&name.as_str()) {
+                    assert!(
+                        !g.skipped_cycle_ids.is_empty(),
+                        "{name}: expected skipped_cycle_ids to be non-empty"
+                    );
+                }
             }
         }
     }
