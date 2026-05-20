@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wasim_engine::{run, ModelGraph, RunConfig, WasimModel};
+use wasim_engine::{run, ModelGraph, ModelParams, RunConfig, WasimModel};
 
 // ── Rank-correlation (Gaussian copula) ───────────────────────────────────────
 
@@ -273,6 +273,63 @@ fn build_graph_for_all_examples() {
 
     if !failures.is_empty() {
         panic!("Graph build failures:\n{}", failures.join("\n"));
+    }
+}
+
+// ── Parameterised run ─────────────────────────────────────────────────────────
+
+/// Run a model with an optional params file applied.
+///
+/// Usage:
+///   WASIM_MODEL=/path/to/model.json WASIM_PARAMS=/path/to/model.params.json \
+///     cargo test run_with_params -- --nocapture
+///
+/// If WASIM_MODEL is not set the test skips.  WASIM_PARAMS is optional.
+#[test]
+fn run_with_params() {
+    let model_path = match std::env::var("WASIM_MODEL") {
+        Ok(p) => PathBuf::from(p),
+        Err(_) => {
+            eprintln!("skipping run_with_params: WASIM_MODEL not set");
+            return;
+        }
+    };
+
+    let model_json = fs::read_to_string(&model_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", model_path.display()));
+    let mut model = load(&model_json);
+
+    let mut run_config = RunConfig::default();
+
+    if let Ok(params_path) = std::env::var("WASIM_PARAMS") {
+        let params_json = fs::read_to_string(&params_path)
+            .unwrap_or_else(|e| panic!("cannot read {params_path}: {e}"));
+        let params = ModelParams::from_json(&params_json)
+            .unwrap_or_else(|e| panic!("cannot parse params: {e}"));
+        params.apply(&mut model);
+        run_config = params.merge_run_config(run_config);
+        eprintln!("applied params from {params_path}");
+    }
+
+    let graph = ModelGraph::build(&model).expect("graph build failed");
+    if !graph.skipped_cycle_ids.is_empty() {
+        eprintln!("skipped cyclic elements: {}", graph.skipped_cycle_ids.join(", "));
+    }
+
+    let results = run(&model, &graph, &run_config).expect("simulation failed");
+
+    eprintln!(
+        "model: {}  |  {} elements  |  {} steps  |  {} realizations",
+        model_path.display(),
+        results.elements.len(),
+        results.n_steps,
+        results.n_realizations,
+    );
+    for id in &results.output_ids {
+        if let Some(el) = results.elements.get(id) {
+            let final_mean = el.final_values.iter().sum::<f64>() / el.final_values.len().max(1) as f64;
+            eprintln!("  {id} ({}) final mean = {final_mean:.6}", el.unit);
+        }
     }
 }
 

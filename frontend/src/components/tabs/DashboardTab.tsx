@@ -1,6 +1,18 @@
 import { useStore } from '../../store'
 import type { ConstantElement, RandomVariableElement } from '../../types'
 
+function SaveParamsButton() {
+  const saveParameters = useStore((s) => s.saveParameters)
+  return (
+    <button
+      onClick={saveParameters}
+      className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 active:bg-slate-100"
+    >
+      Save parameters
+    </button>
+  )
+}
+
 // ── Distribution parameter label map ─────────────────────────────────────────
 
 const PARAM_LABELS: Record<string, Record<string, string>> = {
@@ -247,6 +259,7 @@ export function DashboardTab() {
     <div className="flex flex-col">
       <div className="mb-4 flex items-center justify-between">
         <p className="text-xs text-slate-400">{loadedLabel}</p>
+        <SaveParamsButton />
       </div>
 
       <div className="space-y-6">

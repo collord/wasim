@@ -36,6 +36,7 @@ export type SimStatus = 'idle' | 'running' | 'done' | 'error'
 interface State {
   // Model
   modelJson: string | null
+  modelFilename: string | null
   parsedModel: ModelJson | null
   modelSummary: ModelSummary | null
 
@@ -63,7 +64,7 @@ interface State {
 }
 
 interface Actions {
-  loadModel: (json: string) => void
+  loadModel: (json: string, filename?: string) => void
   setActiveTab: (tab: Tab) => void
   setConstant: (id: string, value: number) => void
   setRvParam: (id: string, param: string, value: number) => void
@@ -73,12 +74,14 @@ interface Actions {
   setSimDuration: (v: number) => void
   setSimTimestep: (v: number) => void
   setSelectedResultId: (id: string) => void
+  saveParameters: () => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useStore = create<State & Actions>((set, get) => ({
   modelJson: null,
+  modelFilename: null,
   parsedModel: null,
   modelSummary: null,
   activeTab: 'dashboard',
@@ -93,7 +96,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   simTimestep: null,
   simTimestepUnit: 'yr',
 
-  loadModel(json) {
+  loadModel(json, filename) {
     let parsed: ModelJson | null = null
     try {
       parsed = JSON.parse(json) as ModelJson
@@ -104,6 +107,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     const ss = parsed.simulation_settings
     set({
       modelJson: json,
+      modelFilename: filename ?? null,
       parsedModel: parsed,
       modelSummary: null,
       status: 'idle',
@@ -178,6 +182,56 @@ export const useStore = create<State & Actions>((set, get) => ({
   setSimDuration: (v) => set({ simDuration: v }),
   setSimTimestep: (v) => set({ simTimestep: v }),
   setSelectedResultId: (id) => set({ selectedResultId: id }),
+
+  saveParameters() {
+    const { parsedModel, modelFilename, nRealizations, seed, simDuration, simTimestep } = get()
+    if (!parsedModel) return
+
+    const constants: Record<string, number> = {}
+    const rv_params: Record<string, Record<string, number>> = {}
+
+    for (const elem of parsedModel.elements) {
+      if (elem.type === 'constant' && (elem as import('./types').ConstantElement).editable) {
+        const c = elem as import('./types').ConstantElement
+        constants[c.id] = c.value.value
+      } else if (elem.type === 'random_variable') {
+        const rv = elem as import('./types').RandomVariableElement
+        const params: Record<string, number> = {}
+        for (const [k, v] of Object.entries(rv.distribution.parameters)) {
+          params[k] = typeof v === 'number' ? v : (v as { value: number }).value
+        }
+        rv_params[rv.id] = params
+      }
+    }
+
+    const paramsJson = JSON.stringify(
+      {
+        constants,
+        rv_params,
+        run_config: {
+          n_realizations: nRealizations,
+          ...(seed !== null ? { seed } : {}),
+          ...(simDuration !== null ? { duration_override: simDuration } : {}),
+          ...(simTimestep !== null ? { timestep_override: simTimestep } : {}),
+        },
+      },
+      null,
+      2,
+    )
+
+    const stem = modelFilename
+      ? modelFilename.replace(/\.json$/i, '')
+      : 'model'
+    const filename = `${stem}.params.json`
+
+    const blob = new Blob([paramsJson], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  },
 
   _onWorkerMessage(msg) {
     switch (msg.type) {

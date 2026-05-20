@@ -8,7 +8,7 @@ export function FileDropZone() {
   const handleFile = useCallback(
     (file: File) => {
       const reader = new FileReader()
-      reader.onload = (e) => loadModel(e.target?.result as string)
+      reader.onload = (e) => loadModel(e.target?.result as string, file.name)
       reader.readAsText(file)
     },
     [loadModel],

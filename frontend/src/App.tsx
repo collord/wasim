@@ -24,7 +24,7 @@ export function App() {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => loadModel(ev.target?.result as string)
+    reader.onload = (ev) => loadModel(ev.target?.result as string, file.name)
     reader.readAsText(file)
   }
 
