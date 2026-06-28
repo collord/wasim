@@ -53,18 +53,30 @@ constant/expression, accumulator integration, seeded RNG, and the exact-delay ch
 engine (do after the new cycle policy lands so cyclic models re-baseline together); the
 version-discriminated cycle policy (semantics §9) itself; SI unit normalization (M5).
 
-**M2 in progress.**
+**M2 complete.** Everything driven by hand-authored v2-native fixtures (no v1 equivalent).
 
 - `v2_parse.rs` (`parse_v2`) — v2-native JSON → `Model` via a raw-DTO + lowering layer
-  (node/stock/gate/species/medium; link/event/cell error until M3/M4). Unblocks testing the
-  net-new features that have no v1 equivalent.
-- `engine_v2.rs` + `graph_v2.rs` — implemented the net-new node rules **`hysteresis`,
-  `filter` (incl. EMA), `markov`, `convolution`, `gate_logic`** + the **`gate` primitive** +
-  the **`compound_growth`** stock trait. Added per-realization state (flag/ring-buffer/EMA/
-  state-index) and gate-tree + AST dep extraction in the graph. All covered by v2-native
-  fixtures (8 rule tests + 3 parser tests).
-- **Remaining M2:** stock traits `overflow_routing` / `priority_withdrawal` (cross-element);
-  `trigger_spec` + `resampling`; the +7 distribution families; Iman-Conover correlation.
+  (node/stock/gate/species/medium; link/event/cell error until M3/M4).
+- Net-new node rules **`hysteresis`, `filter` (incl. EMA), `markov`, `convolution`,
+  `gate_logic`** + the **`gate` primitive**. Per-realization state (flag/ring-buffer/EMA/
+  state-index) + gate-tree + AST dep extraction in the graph.
+- Stock traits **`compound_growth`, `overflow_routing` (single-level), `priority_withdrawal`**
+  (request/limit as rates; targets output their allocation).
+- **`trigger_spec`** evaluation (always/on_condition/periodic/on_schedule; on_event→M3) +
+  sample **`resampling`**.
+- **+7 distribution families** (pert, pareto, extreme_value, student_t, cumulative, sampled,
+  external) + 4-parameter beta; closed-form `icdf` for pareto/extreme_value/cumulative/sampled.
+- **Iman-Conover** rank correlation (precomputed across realizations; van der Waerden scores +
+  decorrelate/recorrelate via Cholesky), replacing the Gaussian copula in the v2 path.
+- Tests: v2_parse(3), engine_v2_rules(8), distributions_v2(8), triggers_v2(2),
+  stock_traits_v2(2), iman_conover_v2(1) — all green; v1-import equivalence unaffected.
+- **Known limits (noted for later):** overflow cascades are single-level; `convolution`
+  `response` Ref resolves only lookups (not series); log_linear/spline interpolation map to
+  linear/cubic; `external` distribution degrades to 0.0.
+
+**Next: M3** — `link` primitive (rate/fraction, priority_allocation, transit_buffer,
+transit_decay, scheduled_flow) and `event` primitive (trigger+effects, rate_generation Poisson,
+failure_state_machine). Then M4 mass transport, M5 units + flip `run()` to the v2 core.
 
 ## 1. What v2 changes (summary)
 

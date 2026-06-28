@@ -1,8 +1,15 @@
 use rand::Rng;
-use rand_distr::{Beta, Exp, Gamma, LogNormal, Normal, Triangular, Uniform, Weibull};
+use rand_distr::{Beta, Exp, Gamma, LogNormal, Normal, StudentT, Triangular, Uniform, Weibull};
 
 use crate::error::EngineError;
-use crate::model::{DistributionKind, ProcessMeanType, ProcessSpec, Quantity, Truncation};
+use crate::model::{
+    CumulativePoint, DistributionKind, ProcessMeanType, ProcessSpec, Quantity, Truncation,
+};
+
+/// Keep a uniform draw strictly inside (0, 1) for inverse-CDF transforms.
+fn open_unit(u: f64) -> f64 {
+    u.max(1e-12).min(1.0 - 1e-12)
+}
 
 const MAX_REJECTION_ATTEMPTS: usize = 10_000;
 
@@ -64,10 +71,14 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
             rng.sample(dist)
         }
 
-        DistributionKind::Beta { alpha, beta } => {
+        DistributionKind::Beta { alpha, beta, min, max } => {
             let dist = Beta::new(alpha.value, beta.value)
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
-            rng.sample(dist)
+            let b = rng.sample(dist);
+            match (min, max) {
+                (Some(lo), Some(hi)) => lo.value + (hi.value - lo.value) * b,
+                _ => b,
+            }
         }
 
         DistributionKind::Weibull { shape, scale } => {
@@ -140,6 +151,57 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
                 }
             }
             *outcomes.last().unwrap()
+        }
+
+        DistributionKind::Pert { min, mode, max } => {
+            let (a, m, b) = (min.value, mode.value, max.value);
+            if a >= b {
+                return Err(EngineError::Sampling(format!("pert: min ({a}) must be < max ({b})")));
+            }
+            // Beta-PERT shape parameters (λ = 4).
+            let alpha = 1.0 + 4.0 * (m - a) / (b - a);
+            let beta = 1.0 + 4.0 * (b - m) / (b - a);
+            let dist = Beta::new(alpha, beta).map_err(|e| EngineError::Sampling(e.to_string()))?;
+            a + (b - a) * rng.sample(dist)
+        }
+
+        DistributionKind::Pareto { scale, shape, location } => {
+            let u = open_unit(rng.sample(Uniform::new(0.0_f64, 1.0)));
+            let loc = location.as_ref().map(|q| q.value).unwrap_or(0.0);
+            loc + scale.value / (1.0 - u).powf(1.0 / shape.value)
+        }
+
+        DistributionKind::ExtremeValue { location, scale } => {
+            let u = open_unit(rng.sample(Uniform::new(0.0_f64, 1.0)));
+            location.value - scale.value * (-u.ln()).ln() // Gumbel (max) inverse CDF
+        }
+
+        DistributionKind::StudentT { degrees_of_freedom, location, scale } => {
+            let dist = StudentT::new(degrees_of_freedom.value)
+                .map_err(|e| EngineError::Sampling(e.to_string()))?;
+            let t: f64 = rng.sample(dist);
+            let loc = location.as_ref().map(|q| q.value).unwrap_or(0.0);
+            let sc = scale.as_ref().map(|q| q.value).unwrap_or(1.0);
+            loc + sc * t
+        }
+
+        DistributionKind::Cumulative { points } => {
+            if points.is_empty() {
+                return Err(EngineError::Sampling("cumulative: no points".into()));
+            }
+            cumulative_inverse(points, rng.sample(Uniform::new(0.0_f64, 1.0)))
+        }
+
+        DistributionKind::Sampled { samples, weights } => {
+            if samples.is_empty() {
+                return Err(EngineError::Sampling("sampled: no samples".into()));
+            }
+            sampled_inverse(samples, weights, rng.sample(Uniform::new(0.0_f64, 1.0)))
+        }
+
+        DistributionKind::External { .. } => {
+            eprintln!("warn: 'external' distribution cannot be sampled by the engine; using 0.0");
+            0.0
         }
     };
 
@@ -335,13 +397,81 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
             }
             chosen
         }
+        DistributionKind::Pareto { scale, shape, location } => {
+            let u = open_unit(u);
+            let loc = location.as_ref().map(|q| q.value).unwrap_or(0.0);
+            loc + scale.value / (1.0 - u).powf(1.0 / shape.value)
+        }
+        DistributionKind::ExtremeValue { location, scale } => {
+            let u = open_unit(u);
+            location.value - scale.value * (-u.ln()).ln()
+        }
+        DistributionKind::Cumulative { points } => {
+            if points.is_empty() { return None; }
+            cumulative_inverse(points, u)
+        }
+        DistributionKind::Sampled { samples, weights } => {
+            if samples.is_empty() { return None; }
+            sampled_inverse(samples, weights, u)
+        }
+        // No closed-form inverse CDF; caller falls back to iid.
         DistributionKind::Gamma { .. }
         | DistributionKind::Beta { .. }
         | DistributionKind::Weibull { .. }
         | DistributionKind::PearsonV { .. }
-        | DistributionKind::PearsonIii { .. } => return None,
+        | DistributionKind::PearsonIii { .. }
+        | DistributionKind::Pert { .. }
+        | DistributionKind::StudentT { .. }
+        | DistributionKind::External { .. } => return None,
     };
     Some(raw)
+}
+
+/// Inverse CDF of a piecewise-linear cumulative distribution (`cumulative` family).
+fn cumulative_inverse(points: &[CumulativePoint], u: f64) -> f64 {
+    let mut pts: Vec<&CumulativePoint> = points.iter().collect();
+    pts.sort_by(|a, b| a.cumulative_probability.total_cmp(&b.cumulative_probability));
+    if u <= pts[0].cumulative_probability {
+        return pts[0].x;
+    }
+    let last = *pts.last().unwrap();
+    if u >= last.cumulative_probability {
+        return last.x;
+    }
+    for w in pts.windows(2) {
+        let (lo, hi) = (w[0], w[1]);
+        if u >= lo.cumulative_probability && u <= hi.cumulative_probability {
+            let dp = hi.cumulative_probability - lo.cumulative_probability;
+            let t = if dp.abs() < 1e-12 { 0.0 } else { (u - lo.cumulative_probability) / dp };
+            return lo.x + t * (hi.x - lo.x);
+        }
+    }
+    last.x
+}
+
+/// Inverse CDF of a (weighted) empirical distribution (`sampled` family).
+fn sampled_inverse(samples: &[f64], weights: &Option<Vec<f64>>, u: f64) -> f64 {
+    match weights {
+        Some(w) if w.len() == samples.len() => {
+            let total: f64 = w.iter().sum();
+            if total <= 0.0 {
+                return samples[samples.len() / 2];
+            }
+            let target = u * total;
+            let mut cum = 0.0;
+            for (s, wi) in samples.iter().zip(w) {
+                cum += wi;
+                if target <= cum {
+                    return *s;
+                }
+            }
+            *samples.last().unwrap()
+        }
+        _ => {
+            let i = ((u * samples.len() as f64).floor() as usize).min(samples.len() - 1);
+            samples[i]
+        }
+    }
 }
 
 // ── GBM per-timestep sampler ──────────────────────────────────────────────────

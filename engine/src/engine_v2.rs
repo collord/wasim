@@ -27,7 +27,7 @@ use crate::graph_v2::ModelGraphV2;
 use crate::model::QuantityOrFormula;
 use crate::model_v2::{
     ConvResponse, Element, FilterStat, FixedValue, GateNode, MarkovStart, Model, NodeRule,
-    Primitive, TransitionRow,
+    Primitive, TransitionRow, TriggerMode, TriggerSpec, WithdrawalSpec,
 };
 use crate::sampling;
 
@@ -85,6 +85,14 @@ pub fn run(
             Primitive::Node(n) if matches!(&n.rule, NodeRule::Sample { autocorrelation: Some(_), .. })))
         .map(|e| e.id())
         .collect();
+    // sample nodes that redraw on a resampling trigger.
+    let resample_ids: Vec<&str> = model
+        .elements
+        .iter()
+        .filter(|e| matches!(&e.primitive,
+            Primitive::Node(n) if matches!(&n.rule, NodeRule::Sample { resampling: Some(_), .. })))
+        .map(|e| e.id())
+        .collect();
 
     let mut final_store: HashMap<String, Vec<f64>> =
         save_final.iter().map(|&id| (id.to_string(), Vec::with_capacity(n_real as usize))).collect();
@@ -97,6 +105,8 @@ pub fn run(
 
     let corr_groups = build_corr_groups(model)?;
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
+    // Iman-Conover rank correlation: reorder per-realization draws up front (semantics §8).
+    let ic_samples = iman_conover_samples(model, &corr_groups, n_real, seed, &lookups, dt, &dt_unit)?;
 
     for real_idx in 0..n_real {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -128,31 +138,13 @@ pub fn run(
             }
         }
 
-        // Gaussian copula for correlated groups.
+        // Correlated groups: look up this realization's Iman-Conover-reordered draw.
         for group in &corr_groups {
-            let n = group.ids.len();
-            let std_normal = rand_distr::Normal::new(0.0_f64, 1.0_f64)
-                .map_err(|e| EngineError::Sampling(e.to_string()))?;
-            let z_iid: Vec<f64> = (0..n).map(|_| rng.sample(std_normal)).collect();
-            let z_corr = cholesky_matvec(&group.chol_l, &z_iid);
-            for (i, id) in group.ids.iter().enumerate() {
-                let elem = &model.elements[elem_idx[id.as_str()]];
-                if let Primitive::Node(node) = &elem.primitive {
-                    if let NodeRule::Sample { distribution, .. } = &node.rule {
-                        let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit);
-                        let resolved = resolve_distribution(distribution, &ctx)?;
-                        let u = sampling::standard_normal_cdf(z_corr[i]);
-                        let v = match sampling::icdf(&resolved.kind, u) {
-                            Some(raw) => {
-                                let lo = resolved.truncation.as_ref().and_then(|t| t.min);
-                                let hi = resolved.truncation.as_ref().and_then(|t| t.max);
-                                raw.max(lo.unwrap_or(f64::NEG_INFINITY)).min(hi.unwrap_or(f64::INFINITY))
-                            }
-                            None => sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?,
-                        };
-                        rv_samples.insert(id.clone(), v);
-                        dist_ctx.insert(id.clone(), Value::Scalar(v));
-                    }
+            for id in &group.ids {
+                if let Some(col) = ic_samples.get(id) {
+                    let v = col[real_idx as usize];
+                    rv_samples.insert(id.clone(), v);
+                    dist_ctx.insert(id.clone(), Value::Scalar(v));
                 }
             }
         }
@@ -275,6 +267,21 @@ pub fn run(
                 }
             }
 
+            // Redraw sample nodes whose resampling trigger fires. The trigger is evaluated
+            // against the previous step's outputs (current step isn't computed yet).
+            for &id in &resample_ids {
+                if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
+                    if let NodeRule::Sample { distribution, resampling: Some(trig), .. } = &n.rule {
+                        let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                        if trigger_fires(trig, &ctx, dt, step_idx)? {
+                            let resolved = resolve_distribution(distribution, &ctx)?;
+                            let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
+                            rv_samples.insert(id.to_string(), v);
+                        }
+                    }
+                }
+            }
+
             let mut outputs: HashMap<String, Value> = HashMap::new();
 
             for elem_id in &graph.topo_order {
@@ -382,48 +389,106 @@ pub fn run(
                 outputs.insert(elem_id.clone(), value);
             }
 
-            // Stock integration: S_{t+1} = clamp(S_t + net_rate * dt).
+            // Stock integration pass. Computes each stock's next level (with traits) but
+            // defers writing into `outputs` so a single shared ctx can borrow it.
+            let mut next_vals: HashMap<String, Value> = HashMap::new();
+            let mut cap_vals: HashMap<String, f64> = HashMap::new();
+            let mut overflow_in: HashMap<String, f64> = HashMap::new();
+            let mut withdrawal_allocs: Vec<(String, f64)> = Vec::new();
             for &id in &stock_ids {
-                if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
-                    // External (non-return) flow: explicit rate, else Σinflows − Σoutflows.
-                    let external = match &s.rate {
-                        Some(qof) => eval_qof_value(qof, &ctx)?,
-                        None => {
-                            let infl: f64 = s.inflows.iter()
-                                .map(|i| outputs.get(i).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
-                            let outf: f64 = s.outflows.iter()
-                                .map(|o| outputs.get(o).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
-                            Value::Scalar(infl - outf)
+                let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive else { continue };
+                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                let current = stock_state[id].clone();
+
+                // Trait priority_withdrawal: allocate available stock by priority. `request`/
+                // `limit` are rates (amount = rate·dt); each target outputs its allocation.
+                let mut withdrawal_outflow = 0.0;
+                if !s.withdrawals.is_empty() {
+                    let floor = s.floor.as_ref().map(|q| q.value).unwrap_or(0.0);
+                    let mut available = (current.as_scalar() - floor).max(0.0);
+                    let mut ws: Vec<&WithdrawalSpec> = s.withdrawals.iter().collect();
+                    ws.sort_by_key(|w| w.priority.unwrap_or(i64::MAX));
+                    for w in ws {
+                        let mut amount = match &w.request {
+                            Some(q) => (eval_qof_value(q, &ctx)?.as_scalar() * dt).max(0.0),
+                            None => 0.0,
+                        };
+                        if let Some(lim) = &w.limit {
+                            amount = amount.min((eval_qof_value(lim, &ctx)?.as_scalar() * dt).max(0.0));
                         }
-                    };
-                    let current = stock_state[id].clone();
-                    // Trait compound_growth: multiplicative self-referential return term.
-                    let mut next = if let Some(rr_qof) = &s.return_rate {
-                        let rr = eval_qof_value(rr_qof, &ctx)?.as_scalar();
-                        current.zip_with(external, move |c, e| {
-                            let e = if e.is_nan() { 0.0 } else { e };
-                            c * (1.0 + rr * dt) + e * dt
-                        })
-                    } else {
-                        current.zip_with(external, |c, r| if r.is_nan() { c } else { c + r * dt })
-                    };
-                    if let Some(floor) = &s.floor {
-                        let lo = floor.value;
-                        next = next.map(|v| v.max(lo));
+                        let alloc = amount.min(available);
+                        available -= alloc;
+                        withdrawal_outflow += alloc;
+                        withdrawal_allocs.push((w.target.clone(), alloc));
                     }
-                    if let Some(cap) = &s.capacity {
-                        let cap_val = eval_qof_value(cap, &ctx)?.as_scalar();
+                }
+
+                // External (non-return) flow: explicit rate, else Σinflows − Σoutflows.
+                let external = match &s.rate {
+                    Some(qof) => eval_qof_value(qof, &ctx)?,
+                    None => {
+                        let infl: f64 = s.inflows.iter()
+                            .map(|i| outputs.get(i).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
+                        let outf: f64 = s.outflows.iter()
+                            .map(|o| outputs.get(o).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
+                        Value::Scalar(infl - outf)
+                    }
+                };
+                // Trait compound_growth: multiplicative self-referential return term.
+                let mut next = if let Some(rr_qof) = &s.return_rate {
+                    let rr = eval_qof_value(rr_qof, &ctx)?.as_scalar();
+                    current.zip_with(external, move |c, e| {
+                        let e = if e.is_nan() { 0.0 } else { e };
+                        c * (1.0 + rr * dt) + e * dt
+                    })
+                } else {
+                    current.zip_with(external, |c, r| if r.is_nan() { c } else { c + r * dt })
+                };
+                if withdrawal_outflow != 0.0 {
+                    next = next.map(move |v| v - withdrawal_outflow);
+                }
+                if let Some(floor) = &s.floor {
+                    let lo = floor.value;
+                    next = next.map(|v| v.max(lo));
+                }
+                // Trait capacity_clamp (+ overflow_routing): clamp to capacity, route excess.
+                if let Some(cap) = &s.capacity {
+                    let cap_val = eval_qof_value(cap, &ctx)?.as_scalar();
+                    cap_vals.insert(id.to_string(), cap_val);
+                    let cur = next.as_scalar();
+                    if cur > cap_val {
+                        let excess = cur - cap_val;
+                        next = next.map(|v| v.min(cap_val));
+                        if let Some(target) = &s.overflow_target {
+                            *overflow_in.entry(target.clone()).or_default() += excess;
+                        }
+                    }
+                }
+                next_vals.insert(id.to_string(), next);
+            }
+
+            // Apply routed overflow to target stocks (single level), then re-clamp.
+            for &id in &stock_ids {
+                let Some(mut next) = next_vals.remove(id) else { continue };
+                if let Some(extra) = overflow_in.get(id) {
+                    let extra = *extra;
+                    next = next.map(move |v| v + extra);
+                    if let Some(&cap_val) = cap_vals.get(id) {
                         next = next.map(|v| v.min(cap_val));
                     }
-                    stock_state.insert(id.to_string(), next);
                 }
+                stock_state.insert(id.to_string(), next);
             }
-            // End-of-step semantics: recorded value reflects the post-update level.
+
+            // End-of-step: recorded value reflects post-update level; withdrawal targets
+            // output their allocation.
             for &id in &stock_ids {
                 if let Some(v) = stock_state.get(id) {
                     outputs.insert(id.to_string(), v.clone());
                 }
+            }
+            for (target, alloc) in &withdrawal_allocs {
+                outputs.insert(target.clone(), Value::Scalar(*alloc));
             }
 
             for d in &model.time_history_displays {
@@ -597,6 +662,50 @@ fn eval_qof_value(qof: &QuantityOrFormula, ctx: &EvalCtx) -> Result<Value, Engin
         QuantityOrFormula::Quantity(q) => Ok(Value::Scalar(q.value)),
         QuantityOrFormula::Expression(ef) => eval_ast(&ef.ast, ctx),
         QuantityOrFormula::Formula(_) => Ok(Value::Scalar(0.0)),
+    }
+}
+
+/// Whether a trigger fires this timestep. `condition` is evaluated against `ctx`
+/// (the caller decides whether that holds current- or previous-step outputs).
+fn trigger_fires(t: &TriggerSpec, ctx: &EvalCtx, dt: f64, step_idx: usize) -> Result<bool, EngineError> {
+    Ok(match infer_mode(t) {
+        TriggerMode::Always => true,
+        TriggerMode::OnCondition => match &t.condition {
+            Some(c) => eval_qof_value(c, ctx)?.as_scalar() != 0.0,
+            None => false,
+        },
+        TriggerMode::Periodic => match &t.period {
+            Some(p) => {
+                let period_steps = (p.value / dt).round().max(1.0) as usize;
+                step_idx > 0 && step_idx % period_steps == 0
+            }
+            None => false,
+        },
+        TriggerMode::OnSchedule => {
+            t.schedule.iter().any(|q| (q.value / dt).round() as usize == step_idx)
+        }
+        // External-event triggers require the event primitive (M3).
+        TriggerMode::OnEvent => false,
+    })
+}
+
+/// Infer a trigger's mode from present fields when `mode` is unspecified.
+fn infer_mode(t: &TriggerSpec) -> TriggerMode {
+    match t.mode {
+        Some(m) => m,
+        None => {
+            if t.condition.is_some() {
+                TriggerMode::OnCondition
+            } else if t.period.is_some() {
+                TriggerMode::Periodic
+            } else if !t.schedule.is_empty() {
+                TriggerMode::OnSchedule
+            } else if t.source.is_some() {
+                TriggerMode::OnEvent
+            } else {
+                TriggerMode::Always
+            }
+        }
     }
 }
 
@@ -827,4 +936,160 @@ fn build_corr_groups(model: &Model) -> Result<Vec<CorrGroup>, EngineError> {
         groups.push(CorrGroup { ids, chol_l });
     }
     Ok(groups)
+}
+
+/// Iman-Conover rank correlation. For each group, draw independent marginals for all
+/// realizations, build a score matrix with the target rank structure, then reorder each
+/// marginal to match — inducing the target rank correlation while preserving marginals.
+/// Returns, per correlated element id, its reordered samples (one per realization).
+fn iman_conover_samples(
+    model: &Model,
+    groups: &[CorrGroup],
+    n_real: u32,
+    seed: u64,
+    lookups: &HashMap<String, LookupData>,
+    dt: f64,
+    dt_unit: &str,
+) -> Result<HashMap<String, Vec<f64>>, EngineError> {
+    let mut out = HashMap::new();
+    let k = n_real as usize;
+    if groups.is_empty() || k == 0 {
+        return Ok(out);
+    }
+
+    // Dedicated rng stream, disjoint from the realization streams (0..n_real).
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    rng.set_stream(u64::MAX);
+
+    let mut dist_ctx: HashMap<String, Value> = HashMap::new();
+    for elem in &model.elements {
+        if let Some(q) = fixed_scalar(elem) {
+            dist_ctx.insert(elem.id().to_string(), Value::Scalar(q));
+        }
+    }
+    let empty: HashMap<String, Value> = HashMap::new();
+    let elem_idx: HashMap<&str, usize> =
+        model.elements.iter().enumerate().map(|(i, e)| (e.id(), i)).collect();
+
+    // van der Waerden scores aᵢ = Φ⁻¹(i/(k+1)).
+    let scores: Vec<f64> =
+        (1..=k).map(|i| sampling::standard_normal_quantile(i as f64 / (k as f64 + 1.0))).collect();
+
+    for group in groups {
+        let n = group.ids.len();
+        // Independent marginal draws: r_samples[var][realization].
+        let mut r_samples: Vec<Vec<f64>> = Vec::with_capacity(n);
+        for id in &group.ids {
+            let elem = &model.elements[elem_idx[id.as_str()]];
+            let Primitive::Node(node) = &elem.primitive else { continue };
+            let NodeRule::Sample { distribution, .. } = &node.rule else { continue };
+            let ctx = dist_ctx_eval(lookups, &dist_ctx, &empty, dt, dt_unit);
+            let resolved = resolve_distribution(distribution, &ctx)?;
+            let col: Result<Vec<f64>, _> =
+                (0..k).map(|_| sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)).collect();
+            r_samples.push(col?);
+        }
+
+        if k < 2 {
+            for (j, id) in group.ids.iter().enumerate() {
+                out.insert(id.clone(), r_samples[j].clone());
+            }
+            continue;
+        }
+
+        // Score matrix M (n columns, each a permutation of the scores).
+        let m_cols: Vec<Vec<f64>> = (0..n)
+            .map(|_| {
+                let mut s = scores.clone();
+                shuffle(&mut s, &mut rng);
+                s
+            })
+            .collect();
+
+        // Decorrelate-then-recorrelate: M* = M · Q⁻ᵀ · Pᵀ, where Q Qᵀ = corr(M), P Pᵀ = C.
+        let t = corr_matrix(&m_cols);
+        let q = cholesky(&t)
+            .map_err(|_| EngineError::InvalidModel("Iman-Conover: score correlation not PSD".into()))?;
+        let p = &group.chol_l;
+        let mut mstar_cols: Vec<Vec<f64>> = vec![vec![0.0; k]; n];
+        for r in 0..k {
+            let mrow: Vec<f64> = (0..n).map(|j| m_cols[j][r]).collect();
+            let w = forward_solve(&q, &mrow); // Q w = mrow
+            let mstar = cholesky_matvec(p, &w); // P w
+            for (j, &val) in mstar.iter().enumerate() {
+                mstar_cols[j][r] = val;
+            }
+        }
+
+        // Reorder each marginal so its ranks match the score column's ranks.
+        for (j, id) in group.ids.iter().enumerate() {
+            let mut sorted = r_samples[j].clone();
+            sorted.sort_by(f64::total_cmp);
+            let rk = ranks(&mstar_cols[j]);
+            let reordered: Vec<f64> = (0..k).map(|r| sorted[rk[r]]).collect();
+            out.insert(id.clone(), reordered);
+        }
+    }
+    Ok(out)
+}
+
+/// Pearson correlation matrix of N equal-length columns.
+fn corr_matrix(cols: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let n = cols.len();
+    let k = cols[0].len() as f64;
+    let means: Vec<f64> = cols.iter().map(|c| c.iter().sum::<f64>() / k).collect();
+    let mut cov = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        for j in 0..n {
+            let s: f64 = (0..cols[i].len()).map(|t| (cols[i][t] - means[i]) * (cols[j][t] - means[j])).sum();
+            cov[i][j] = s / k;
+        }
+    }
+    let sd: Vec<f64> = (0..n).map(|i| cov[i][i].max(0.0).sqrt()).collect();
+    let mut corr = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        for j in 0..n {
+            corr[i][j] = if sd[i] > 1e-12 && sd[j] > 1e-12 {
+                cov[i][j] / (sd[i] * sd[j])
+            } else if i == j {
+                1.0
+            } else {
+                0.0
+            };
+        }
+    }
+    corr
+}
+
+/// Forward substitution: solve L x = b for lower-triangular L.
+fn forward_solve(l: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    let n = b.len();
+    let mut x = vec![0.0; n];
+    for i in 0..n {
+        let mut s = b[i];
+        for j in 0..i {
+            s -= l[i][j] * x[j];
+        }
+        x[i] = if l[i][i].abs() > 1e-12 { s / l[i][i] } else { 0.0 };
+    }
+    x
+}
+
+/// In-place Fisher-Yates shuffle.
+fn shuffle<R: Rng>(v: &mut [f64], rng: &mut R) {
+    for i in (1..v.len()).rev() {
+        let j = rng.gen_range(0..=i);
+        v.swap(i, j);
+    }
+}
+
+/// Rank of each element (0 = smallest), ties broken by index via total order.
+fn ranks(col: &[f64]) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..col.len()).collect();
+    idx.sort_by(|&a, &b| col[a].total_cmp(&col[b]));
+    let mut r = vec![0usize; col.len()];
+    for (rank, &i) in idx.iter().enumerate() {
+        r[i] = rank;
+    }
+    r
 }

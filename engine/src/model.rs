@@ -570,6 +570,11 @@ pub enum DistributionKind {
     Beta {
         alpha: Quantity,
         beta: Quantity,
+        /// 4-parameter beta: affine-scale the standard beta onto [min, max].
+        #[serde(default)]
+        min: Option<Quantity>,
+        #[serde(default)]
+        max: Option<Quantity>,
     },
     Weibull {
         shape: Quantity,
@@ -595,6 +600,47 @@ pub enum DistributionKind {
         outcomes: Vec<f64>,
         probabilities: Vec<f64>,
     },
+    // ── v2 families ──
+    Pert {
+        min: Quantity,
+        mode: Quantity,
+        max: Quantity,
+    },
+    Pareto {
+        scale: Quantity,
+        shape: Quantity,
+        #[serde(default)]
+        location: Option<Quantity>,
+    },
+    ExtremeValue {
+        location: Quantity,
+        scale: Quantity,
+    },
+    StudentT {
+        degrees_of_freedom: Quantity,
+        #[serde(default)]
+        location: Option<Quantity>,
+        #[serde(default)]
+        scale: Option<Quantity>,
+    },
+    Cumulative {
+        points: Vec<CumulativePoint>,
+    },
+    Sampled {
+        samples: Vec<f64>,
+        #[serde(default)]
+        weights: Option<Vec<f64>>,
+    },
+    External {
+        #[serde(default)]
+        definition: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CumulativePoint {
+    pub x: f64,
+    pub cumulative_probability: f64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -86,7 +86,7 @@ fn apply_dist_params(kind: &mut DistributionKind, overrides: &HashMap<String, f6
             if let Some(&v) = overrides.get("shape") { shape.value = v; }
             if let Some(&v) = overrides.get("scale") { scale.value = v; }
         }
-        DistributionKind::Beta { alpha, beta } => {
+        DistributionKind::Beta { alpha, beta, .. } => {
             if let Some(&v) = overrides.get("alpha") { alpha.value = v; }
             if let Some(&v) = overrides.get("beta") { beta.value = v; }
         }
@@ -103,6 +103,8 @@ fn apply_dist_params(kind: &mut DistributionKind, overrides: &HashMap<String, f6
             if let Some(&v) = overrides.get("prob") { prob.value = v; }
         }
         DistributionKind::Discrete { .. } => {}
+        // v2 families: no scalar override hooks wired yet.
+        _ => {}
     }
 }
 
