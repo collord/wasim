@@ -12,7 +12,7 @@
 //! unchanged-semantics subset. Lag is the one intentional divergence: v2 `lag` is a strict
 //! one-step delay (multi-step delays are chained at import), which fixes a v1 off-by-one.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -25,7 +25,10 @@ use crate::error::EngineError;
 use crate::eval::{eval_ast, resolve_distribution, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::QuantityOrFormula;
-use crate::model_v2::{Element, FixedValue, Model, NodeRule, Primitive};
+use crate::model_v2::{
+    ConvResponse, Element, FilterStat, FixedValue, GateNode, MarkovStart, Model, NodeRule,
+    Primitive, TransitionRow,
+};
 use crate::sampling;
 
 struct CorrGroup {
@@ -226,6 +229,24 @@ pub fn run(
             }
         }
 
+        // Per-realization state for stateful node rules.
+        let mut hyst_state: HashMap<String, bool> = HashMap::new();
+        let mut filter_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
+        let mut filter_ema: HashMap<String, f64> = HashMap::new();
+        let mut markov_state: HashMap<String, usize> = HashMap::new();
+        let mut conv_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
+        for elem in &model.elements {
+            if let Primitive::Node(n) = &elem.primitive {
+                if let NodeRule::Markov { states, initial_state, .. } = &n.rule {
+                    let idx = match initial_state {
+                        MarkovStart::Index(i) => *i,
+                        MarkovStart::Label(l) => states.iter().position(|s| s == l).unwrap_or(0),
+                    };
+                    markov_state.insert(elem.id().to_string(), idx);
+                }
+            }
+        }
+
         let mut prev_outputs: HashMap<String, Value> = HashMap::new();
 
         for step_idx in 0..n_steps {
@@ -258,10 +279,106 @@ pub fn run(
 
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
-                let value = eval_element(
-                    elem, &lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx,
-                    &rv_samples, &sp_state, &stock_state,
-                )?;
+                let value = match &elem.primitive {
+                    Primitive::Node(node) => match &node.rule {
+                        NodeRule::Hysteresis {
+                            input, high_threshold, low_threshold, output_above, output_below,
+                        } => {
+                            let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                            let active = match hyst_state.get(elem_id.as_str()) {
+                                Some(true) => !(x <= low_threshold.value), // stays active unless x ≤ low
+                                Some(false) => x >= high_threshold.value,  // activates when x ≥ high
+                                None => x >= high_threshold.value,         // step-0 init
+                            };
+                            hyst_state.insert(elem_id.clone(), active);
+                            Value::Scalar(if active { output_above.value } else { output_below.value })
+                        }
+                        NodeRule::Filter { input, window, statistic } => {
+                            let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                            let val = match statistic {
+                                FilterStat::Ema => {
+                                    let alpha = 2.0 / (*window as f64 + 1.0);
+                                    let ema = match filter_ema.get(elem_id.as_str()) {
+                                        Some(&p) => alpha * x + (1.0 - alpha) * p,
+                                        None => x,
+                                    };
+                                    filter_ema.insert(elem_id.clone(), ema);
+                                    ema
+                                }
+                                _ => {
+                                    let buf = filter_buf.entry(elem_id.clone()).or_default();
+                                    buf.push_back(x);
+                                    while buf.len() > *window {
+                                        buf.pop_front();
+                                    }
+                                    match statistic {
+                                        FilterStat::Mean => buf.iter().sum::<f64>() / buf.len() as f64,
+                                        FilterStat::Min => buf.iter().cloned().fold(f64::INFINITY, f64::min),
+                                        FilterStat::Max => buf.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                                        FilterStat::Sum => buf.iter().sum(),
+                                        FilterStat::Ema => unreachable!(),
+                                    }
+                                }
+                            };
+                            Value::Scalar(val)
+                        }
+                        NodeRule::Markov { transition_matrix, output_values, .. } => {
+                            let cur = *markov_state.get(elem_id.as_str()).unwrap_or(&0);
+                            let out = output_values.get(cur).copied().unwrap_or(0.0);
+                            if let Some(row) = transition_matrix.get(cur) {
+                                let probs: Vec<f64> = match row {
+                                    TransitionRow::Fixed(p) => p.clone(),
+                                    TransitionRow::Expr(es) => {
+                                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                                        es.iter()
+                                            .map(|q| eval_qof_value(q, &ctx).map(|v| v.as_scalar()).unwrap_or(0.0))
+                                            .collect()
+                                    }
+                                };
+                                let u: f64 = rng.gen();
+                                let mut acc = 0.0;
+                                let mut next = cur;
+                                for (i, &p) in probs.iter().enumerate() {
+                                    acc += p;
+                                    if u <= acc {
+                                        next = i;
+                                        break;
+                                    }
+                                }
+                                markov_state.insert(elem_id.clone(), next);
+                            }
+                            Value::Scalar(out)
+                        }
+                        NodeRule::Convolution { input, response } => {
+                            let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                            let weights = conv_weights(response, &lookups);
+                            let n = weights.len().max(1);
+                            let buf = conv_buf.entry(elem_id.clone()).or_default();
+                            buf.push_front(x);
+                            while buf.len() > n {
+                                buf.pop_back();
+                            }
+                            let val: f64 = buf.iter().zip(weights.iter()).map(|(b, w)| b * w).sum();
+                            Value::Scalar(val)
+                        }
+                        NodeRule::GateLogic { root, .. } => {
+                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                            Value::Scalar(if eval_gate(root, &ctx)? { 1.0 } else { 0.0 })
+                        }
+                        _ => eval_element(
+                            elem, &lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx,
+                            &rv_samples, &sp_state, &stock_state,
+                        )?,
+                    },
+                    Primitive::Gate(g) => {
+                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                        Value::Scalar(if eval_gate(&g.root, &ctx)? { 1.0 } else { 0.0 })
+                    }
+                    _ => eval_element(
+                        elem, &lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx,
+                        &rv_samples, &sp_state, &stock_state,
+                    )?,
+                };
                 outputs.insert(elem_id.clone(), value);
             }
 
@@ -269,7 +386,8 @@ pub fn run(
             for &id in &stock_ids {
                 if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
                     let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
-                    let rate_val = match &s.rate {
+                    // External (non-return) flow: explicit rate, else Σinflows − Σoutflows.
+                    let external = match &s.rate {
                         Some(qof) => eval_qof_value(qof, &ctx)?,
                         None => {
                             let infl: f64 = s.inflows.iter()
@@ -280,7 +398,16 @@ pub fn run(
                         }
                     };
                     let current = stock_state[id].clone();
-                    let mut next = current.zip_with(rate_val, |c, r| if r.is_nan() { c } else { c + r * dt });
+                    // Trait compound_growth: multiplicative self-referential return term.
+                    let mut next = if let Some(rr_qof) = &s.return_rate {
+                        let rr = eval_qof_value(rr_qof, &ctx)?.as_scalar();
+                        current.zip_with(external, move |c, e| {
+                            let e = if e.is_nan() { 0.0 } else { e };
+                            c * (1.0 + rr * dt) + e * dt
+                        })
+                    } else {
+                        current.zip_with(external, |c, r| if r.is_nan() { c } else { c + r * dt })
+                    };
                     if let Some(floor) = &s.floor {
                         let lo = floor.value;
                         next = next.map(|v| v.max(lo));
@@ -470,6 +597,53 @@ fn eval_qof_value(qof: &QuantityOrFormula, ctx: &EvalCtx) -> Result<Value, Engin
         QuantityOrFormula::Quantity(q) => Ok(Value::Scalar(q.value)),
         QuantityOrFormula::Expression(ef) => eval_ast(&ef.ast, ctx),
         QuantityOrFormula::Formula(_) => Ok(Value::Scalar(0.0)),
+    }
+}
+
+/// Evaluate a boolean gate tree against the current-step outputs.
+fn eval_gate(node: &GateNode, ctx: &EvalCtx) -> Result<bool, EngineError> {
+    Ok(match node {
+        GateNode::And(children) => {
+            for ch in children {
+                if !eval_gate(ch, ctx)? {
+                    return Ok(false);
+                }
+            }
+            true
+        }
+        GateNode::Or(children) => {
+            for ch in children {
+                if eval_gate(ch, ctx)? {
+                    return Ok(true);
+                }
+            }
+            false
+        }
+        GateNode::Not(child) => !eval_gate(child, ctx)?,
+        GateNode::NVote { threshold, children } => {
+            let mut k = 0u32;
+            for ch in children {
+                if eval_gate(ch, ctx)? {
+                    k += 1;
+                }
+            }
+            k >= *threshold
+        }
+        GateNode::Reference(id) | GateNode::Input(id) => {
+            ctx.outputs.get(id.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0) > 0.0
+        }
+        GateNode::Condition(qof) => eval_qof_value(qof, ctx)?.as_scalar() != 0.0,
+    })
+}
+
+/// Convolution response weights: inline values, or the y-column of a referenced lookup.
+fn conv_weights(response: &ConvResponse, lookups: &HashMap<String, LookupData>) -> Vec<f64> {
+    match response {
+        ConvResponse::Inline { values, .. } => values.clone(),
+        ConvResponse::Ref(id) => lookups
+            .get(id)
+            .map(|l| if !l.y.is_empty() { l.y.clone() } else { l.columns.first().cloned().unwrap_or_default() })
+            .unwrap_or_default(),
     }
 }
 

@@ -53,6 +53,19 @@ constant/expression, accumulator integration, seeded RNG, and the exact-delay ch
 engine (do after the new cycle policy lands so cyclic models re-baseline together); the
 version-discriminated cycle policy (semantics §9) itself; SI unit normalization (M5).
 
+**M2 in progress.**
+
+- `v2_parse.rs` (`parse_v2`) — v2-native JSON → `Model` via a raw-DTO + lowering layer
+  (node/stock/gate/species/medium; link/event/cell error until M3/M4). Unblocks testing the
+  net-new features that have no v1 equivalent.
+- `engine_v2.rs` + `graph_v2.rs` — implemented the net-new node rules **`hysteresis`,
+  `filter` (incl. EMA), `markov`, `convolution`, `gate_logic`** + the **`gate` primitive** +
+  the **`compound_growth`** stock trait. Added per-realization state (flag/ring-buffer/EMA/
+  state-index) and gate-tree + AST dep extraction in the graph. All covered by v2-native
+  fixtures (8 rule tests + 3 parser tests).
+- **Remaining M2:** stock traits `overflow_routing` / `priority_withdrawal` (cross-element);
+  `trigger_spec` + `resampling`; the +7 distribution families; Iman-Conover correlation.
+
 ## 1. What v2 changes (summary)
 
 v1 is a **fixed-type taxonomy**: `ElementKind` is an internally-tagged enum

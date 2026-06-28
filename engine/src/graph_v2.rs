@@ -12,7 +12,8 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use crate::error::EngineError;
-use crate::model_v2::{Element, Model, NodeRule, Primitive};
+use crate::model::{AstNode, QuantityOrFormula};
+use crate::model_v2::{Element, GateNode, Model, NodeRule, Primitive};
 
 pub struct ModelGraphV2 {
     pub topo_order: Vec<String>,
@@ -123,11 +124,98 @@ fn element_deps(elem: &Element) -> Vec<&str> {
         Primitive::Node(n) => match &n.rule {
             // Back-edge: lag reads the previous timestep, breaking cycles.
             NodeRule::Lag { .. } => vec![],
+            // Markov is autonomous (no input dependency).
+            NodeRule::Markov { .. } => vec![],
+            // These read the current-step value of `input`.
+            NodeRule::Filter { input, .. }
+            | NodeRule::Hysteresis { input, .. }
+            | NodeRule::Convolution { input, .. } => {
+                let mut d = vec![input.as_str()];
+                d.extend(elem.base.inputs.iter().map(|s| s.as_str()));
+                d
+            }
+            // Gate logic depends on the elements its tree references.
+            NodeRule::GateLogic { root, .. } => {
+                let mut d: Vec<&str> = elem.base.inputs.iter().map(|s| s.as_str()).collect();
+                collect_gate_deps(root, &mut d);
+                d
+            }
             // Everything else evaluates from current-step inputs declared on the base.
             // (fixed/sample/process/lookup/series carry no inputs; expression carries them.)
             _ => elem.base.inputs.iter().map(|s| s.as_str()).collect(),
         },
-        // link/event/gate/cell are not produced by the v1 normalizer; M2+.
+        Primitive::Gate(g) => {
+            let mut d: Vec<&str> = elem.base.inputs.iter().map(|s| s.as_str()).collect();
+            collect_gate_deps(&g.root, &mut d);
+            d
+        }
+        // link/event/cell are not produced by the v1 normalizer; M3/M4.
         _ => vec![],
+    }
+}
+
+/// Collect element ids a gate tree depends on (reference/input leaves + AST refs in
+/// `condition` leaves).
+fn collect_gate_deps<'a>(node: &'a GateNode, out: &mut Vec<&'a str>) {
+    match node {
+        GateNode::And(c) | GateNode::Or(c) | GateNode::NVote { children: c, .. } => {
+            for child in c {
+                collect_gate_deps(child, out);
+            }
+        }
+        GateNode::Not(child) => collect_gate_deps(child, out),
+        GateNode::Reference(id) | GateNode::Input(id) => out.push(id.as_str()),
+        GateNode::Condition(qof) => {
+            if let QuantityOrFormula::Expression(ef) = qof {
+                collect_ast_refs(&ef.ast, out);
+            }
+        }
+    }
+}
+
+/// Collect element ids referenced by `ref` nodes in an AST. `lookup_call` targets are
+/// static tables, not runtime deps, so only its input sub-expressions are walked.
+fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
+    match node {
+        AstNode::Ref { element_id, .. } => out.push(element_id.as_str()),
+        AstNode::Add { left, right }
+        | AstNode::Subtract { left, right }
+        | AstNode::Multiply { left, right }
+        | AstNode::Divide { left, right }
+        | AstNode::Power { left, right }
+        | AstNode::Lt { left, right }
+        | AstNode::Gt { left, right }
+        | AstNode::Lte { left, right }
+        | AstNode::Gte { left, right }
+        | AstNode::Eq { left, right }
+        | AstNode::Neq { left, right }
+        | AstNode::And { left, right }
+        | AstNode::Or { left, right } => {
+            collect_ast_refs(left, out);
+            collect_ast_refs(right, out);
+        }
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_ast_refs(operand, out),
+        AstNode::Call { args, .. } => {
+            for a in args {
+                collect_ast_refs(a, out);
+            }
+        }
+        AstNode::If { cond, then, else_ } => {
+            collect_ast_refs(cond, out);
+            collect_ast_refs(then, out);
+            collect_ast_refs(else_, out);
+        }
+        AstNode::LookupCall { input, input2, .. } => {
+            collect_ast_refs(input, out);
+            if let Some(i2) = input2 {
+                collect_ast_refs(i2, out);
+            }
+        }
+        AstNode::Array { elements } => {
+            for e in elements {
+                collect_ast_refs(e, out);
+            }
+        }
+        AstNode::Literal { .. } | AstNode::TimeRef { .. } => {}
     }
 }
