@@ -2,9 +2,21 @@ use std::collections::HashMap;
 
 use crate::error::EngineError;
 use crate::model::{
-    AstNode, BuiltinFn, Distribution, DistributionKind, ElementKind, Quantity, QuantityOrFormula,
-    TimeProperty, WasimModel,
+    AstNode, BuiltinFn, Distribution, DistributionKind, ExtrapolationMethod, Quantity,
+    QuantityOrFormula, TimeProperty,
 };
+
+/// Lookup-table data extracted from a model, keyed by element id. Decouples the AST
+/// walker from any particular model representation (v1 `WasimModel` or v2 `Model`).
+#[derive(Debug, Clone, Default)]
+pub struct LookupData {
+    pub x: Vec<f64>,
+    pub y: Vec<f64>,
+    /// Multi-column table: each inner vec is one column, parallel to `x`. When present,
+    /// `y` is ignored and the column index comes from `lookup_call`'s `input2`.
+    pub columns: Vec<Vec<f64>>,
+    pub extrapolation: ExtrapolationMethod,
+}
 
 // ── Value ─────────────────────────────────────────────────────────────────────
 
@@ -57,7 +69,8 @@ impl Value {
 // ── Evaluation context ────────────────────────────────────────────────────────
 
 pub struct EvalCtx<'a> {
-    pub model: &'a WasimModel,
+    /// Lookup tables by element id (for `lookup_call` and lookup `ref`s).
+    pub lookups: &'a HashMap<String, LookupData>,
     /// Current-step outputs computed so far (in topo order).
     pub outputs: &'a HashMap<String, Value>,
     /// Previous-step outputs; used as fallback for self-referencing expressions.
@@ -66,13 +79,15 @@ pub struct EvalCtx<'a> {
     pub elapsed: f64,
     /// Timestep size in the declared unit.
     pub dt: f64,
+    /// Declared timestep unit (for calendar time properties).
+    pub dt_unit: &'a str,
     /// 0-based step index.
     pub step_index: usize,
 }
 
 impl<'a> EvalCtx<'a> {
     fn calendar(&self) -> CalendarState {
-        CalendarState::from_step(self.step_index, self.dt, &self.model.simulation_settings.timestep.unit)
+        CalendarState::from_step(self.step_index, self.dt, self.dt_unit)
     }
 }
 
@@ -143,11 +158,9 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         AstNode::Ref { element_id, .. } => {
             // Lookup elements don't self-evaluate; return their y-column as a vector
             // so that sum_array/interp_array/dot_product work on lookup refs.
-            if let Some(elem) = ctx.model.elements.iter().find(|e| &e.id == element_id) {
-                if let ElementKind::Lookup { y, columns, .. } = &elem.kind {
-                    let data = if !columns.is_empty() { columns[0].clone() } else { y.clone() };
-                    return Ok(Value::Vector(data));
-                }
+            if let Some(lk) = ctx.lookups.get(element_id.as_str()) {
+                let data = if !lk.columns.is_empty() { lk.columns[0].clone() } else { lk.y.clone() };
+                return Ok(Value::Vector(data));
             }
             Ok(ctx.outputs.get(element_id.as_str())
                 .or_else(|| ctx.prev_outputs.get(element_id.as_str()))
@@ -386,30 +399,28 @@ fn require_args(name: &str, got: usize, min: usize, max: usize) -> Result<(), En
 }
 
 fn eval_lookup(element_id: &str, x: f64, col: Option<f64>, ctx: &EvalCtx) -> Result<f64, EngineError> {
-    let elem = ctx.model.elements.iter().find(|e| e.id == element_id)
-        .ok_or_else(|| EngineError::ElementNotFound(element_id.to_string()))?;
-
-    let (xs, columns, y, extrap) = match &elem.kind {
-        ElementKind::Lookup { x, columns, y, extrapolation, .. } => (x, columns, y, extrapolation),
-        _ => return Ok(0.0),
+    let lk = match ctx.lookups.get(element_id) {
+        Some(l) => l,
+        // Non-lookup or missing target: degrade to 0.0 (matches v1's non-lookup branch).
+        None => return Ok(0.0),
     };
 
-    if xs.is_empty() { return Ok(0.0); }
+    if lk.x.is_empty() { return Ok(0.0); }
 
-    let ys: &[f64] = if !columns.is_empty() {
+    let ys: &[f64] = if !lk.columns.is_empty() {
         let idx = col.unwrap_or(1.0) as usize;
         let col_idx = idx.saturating_sub(1);
-        columns.get(col_idx).map(|v| v.as_slice()).ok_or_else(|| {
+        lk.columns.get(col_idx).map(|v| v.as_slice()).ok_or_else(|| {
             EngineError::Eval(format!(
                 "lookup '{element_id}' has {} column(s), requested column {idx}",
-                columns.len()
+                lk.columns.len()
             ))
         })?
     } else {
-        y.as_slice()
+        lk.y.as_slice()
     };
 
-    interp1d(xs, ys, x, extrap, element_id)
+    interp1d(&lk.x, ys, x, &lk.extrapolation, element_id)
 }
 
 fn interp1d(
