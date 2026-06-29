@@ -207,6 +207,46 @@ struct RawElement {
     count_limit: Option<i64>,
     #[serde(default)]
     failure_process: Option<RawFailure>,
+
+    // cell
+    #[serde(default)]
+    volume: Option<QuantityOrFormula>,
+    #[serde(default)]
+    media: Vec<RawMediumRef>,
+    #[serde(default)]
+    species: Vec<RawSpeciesRef>,
+    #[serde(default)]
+    partitioning: Vec<RawPartition>,
+    #[serde(default)]
+    inventory: Option<QuantityOrFormula>,
+    #[serde(default)]
+    release_rate: Option<QuantityOrFormula>,
+    #[serde(default)]
+    release_schedule: Option<RawTrigger>,
+    #[serde(default)]
+    release_target: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawSpeciesRef {
+    species: String,
+    #[serde(default)]
+    initial_inventory: Option<Quantity>,
+}
+
+#[derive(Deserialize)]
+struct RawMediumRef {
+    medium: String,
+    #[serde(default)]
+    fraction: Option<QuantityOrFormula>,
+}
+
+#[derive(Deserialize)]
+struct RawPartition {
+    species: String,
+    from_medium: String,
+    to_medium: String,
+    coefficient: QuantityOrFormula,
 }
 
 #[derive(Deserialize)]
@@ -402,12 +442,28 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             rate: e.rate.clone(),
             failure_process: e.failure_process.as_ref().map(|f| lower_failure(f, &e.id)).transpose()?,
         }),
-        "cell" => {
-            return Err(EngineError::Unsupported(format!(
-                "v2 parse: primitive 'cell' (element '{}') lands in M4",
-                e.id
-            )));
-        }
+        "cell" => v2::Primitive::Cell(v2::Cell {
+            volume: e.volume.clone(),
+            media: e.media.iter().map(|m| v2::MediumRef {
+                medium: m.medium.clone(),
+                fraction: m.fraction.clone(),
+            }).collect(),
+            species: e.species.iter().map(|s| v2::SpeciesRef {
+                species: s.species.clone(),
+                initial_inventory: s.initial_inventory.clone(),
+            }).collect(),
+            inflows: e.inflows.clone(),
+            partitioning: e.partitioning.iter().map(|p| v2::PartitionEntry {
+                species: p.species.clone(),
+                from_medium: p.from_medium.clone(),
+                to_medium: p.to_medium.clone(),
+                coefficient: p.coefficient.clone(),
+            }).collect(),
+            inventory: e.inventory.clone(),
+            release_rate: e.release_rate.clone(),
+            release_schedule: e.release_schedule.as_ref().map(lower_trigger),
+            release_target: e.release_target.clone(),
+        }),
         other => {
             return Err(EngineError::InvalidModel(format!(
                 "element '{}' has unknown primitive '{other}'",

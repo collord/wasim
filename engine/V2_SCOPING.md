@@ -92,7 +92,25 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   `replace` and `repair` both redraw the failure clock on return-to-working (no wear model);
   overflow/link debit precedence with multiple sources draining one stock is greedy-by-order.
 
-Then M4 mass transport, M5 units + flip `run()` to the v2 core.
+**M4 in progress.**
+
+- R1 dispersion math spec written (§11a — Ogata-Banks inverse-Gaussian RTD as a convolution
+  kernel; closes R1). Implementation lands in M4 part 2.
+- **`cell` primitive (part 1)** — tracks mass per (cell, species). Traits `source_release`
+  (finite `inventory` budget emitted at `release_rate` to `release_target`, optionally
+  scheduled) and `decay_chain_propagation` (first-order decay λ=ln2/half_life; daughters
+  ingrow per branching_fraction; processed parents-first via a species topo order). Per-
+  species mass exposed as result id `"<cell>:<species>"`; cell output = total mass.
+  `species`/`medium` definitions are inert and never saved.
+- Parser lowers `cell` (incl. media/partitioning fields, carried for part 2). All eight
+  primitives now parse.
+- Tests: cells_v2 (3) — source-release depletion, exponential decay, chain ingrowth with
+  mass conservation. All green.
+- **Remaining M4 (part 2):** `partitioning_equilibrium` (multi-phase Kd redistribution,
+  ≥3-phase linear solve), link `species_transport` (advective/diffusive fluxes between cells),
+  `transit_dispersion` (implement §11a kernel), and concentration `C = mass/(volume·fraction)`.
+
+Then M5: SI units + flip `run()` to the v2 core + retire the v1 engine.
 
 ## 1. What v2 changes (summary)
 
@@ -358,6 +376,41 @@ verify — the corpus is a golden regression. M4 carries the most *algorithmic* 
 - **R8 — `quantity_or_formula` raw-`Formula` strings.** Still degrade to 0.0 + warn
   (parsing is the transpiler's job). Confirm acceptable for v2 (v2 fixtures should use
   parsed `ast`, never raw strings).
+
+## 11a. Dispersion math appendix (closes R1)
+
+`transit_dispersion` is implemented as a **convolution against a residence-time
+distribution (RTD)**, reusing the M2 `convolution` machinery — the kernel is just a
+response function derived from the link's mean residence time `T = transit_time` and the
+Péclet number `Pe = dispersion`.
+
+**Kernel (inverse-Gaussian / Wald RTD).** The 1-D advection-dispersion equation for a
+pulse input has the dispersed-flow RTD
+
+```
+E(t) = sqrt( Pe·T / (4π t³) ) · exp( −Pe·(t − T)² / (4·T·t) ),   t > 0
+```
+
+which has mean `T` and variance `2T²/Pe` (Levenspiel's open-open vessel-dispersion model).
+This is the canonical, closed-form choice and needs no separately-known velocity/length —
+only `(T, Pe)`, exactly what the link carries.
+
+**Discretization.** Sample `E(k·dt)` for `k = 1, 2, …, K`, where `K` is the smallest index
+with cumulative mass ≥ 0.999 (cap at, say, `10·T/dt` to bound cost). Normalize the samples
+to sum to 1 → kernel `w_k`. The link's delivered flow at step t is
+`Σ_k inflow(t−k)·w_k`, i.e. a convolution — the same buffer mechanism as the `convolution`
+node, so M4 adds only the kernel derivation.
+
+**transit_decay under dispersion.** Apply decay per parcel by its residence time: multiply
+`w_k` by `exp(−decay_rate · k·dt)` before (re)normalizing for the *delivered* fraction (the
+decayed mass is lost, not delivered), so each residence time decays correctly.
+
+**Edge cases.** `Pe → ∞` ⇒ variance → 0 ⇒ kernel collapses to a spike at `t = T` (plug
+flow — fall back to the FIFO path). `Pe ≤ 0` or `Pe < ~0.5` ⇒ treat as well-mixed/plug per a
+documented floor (very low Pe makes the inverse-Gaussian heavy-tailed; clamp `K`). `T < dt`
+⇒ deliver within one step (kernel ≈ spike at k=1).
+
+**Status:** spec complete; implementation lands in M4 part 2 alongside `species_transport`.
 
 ## 12. Sizing (rough)
 

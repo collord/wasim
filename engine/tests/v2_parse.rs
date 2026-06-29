@@ -90,13 +90,13 @@ fn parses_node_rules_stock_and_gate() {
 }
 
 #[test]
-fn rejects_deferred_primitives() {
+fn rejects_unknown_primitive() {
     let json = r#"{
       "wasim_version": "0.8.0",
       "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
-      "elements": [{"id": "p", "name": "P", "primitive": "cell", "volume": {"value": 1, "unit": "m3"}}]
+      "elements": [{"id": "p", "name": "P", "primitive": "widget"}]
     }"#;
-    assert!(parse_v2(json).is_err(), "cell should be rejected until M4");
+    assert!(parse_v2(json).is_err(), "unknown primitive should be rejected");
 }
 
 // ── End-to-end: v2-native parse → run ─────────────────────────────────────────

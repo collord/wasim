@@ -111,6 +111,36 @@ pub fn run(
         hist_store.insert(d.id.clone(), vec![Vec::new(); n_steps]);
     }
 
+    // Species decay info (id → (half_life, [(daughter, branching)])) + a parents-first order.
+    let species_info: HashMap<String, (Option<f64>, Vec<(String, f64)>)> = model.elements.iter()
+        .filter_map(|e| match &e.primitive {
+            Primitive::Species(s) => Some((e.id().to_string(), (
+                s.half_life.as_ref().map(|q| q.value),
+                s.decay_products.iter()
+                    .map(|d| (d.species.clone(), d.branching_fraction.unwrap_or(1.0)))
+                    .collect(),
+            ))),
+            _ => None,
+        })
+        .collect();
+    let decay_order = build_decay_order(&species_info);
+
+    // Per-(cell, species) result ids so each species' mass is observable.
+    let mut cell_species_ids: Vec<String> = Vec::new();
+    for elem in &model.elements {
+        if let Primitive::Cell(c) = &elem.primitive {
+            if should_save_history(elem) || should_save_final(elem) {
+                for sp in &c.species {
+                    cell_species_ids.push(format!("{}:{}", elem.id(), sp.species));
+                }
+            }
+        }
+    }
+    for id in &cell_species_ids {
+        final_store.entry(id.clone()).or_insert_with(|| Vec::with_capacity(n_real as usize));
+        hist_store.entry(id.clone()).or_insert_with(|| vec![Vec::new(); n_steps]);
+    }
+
     let corr_groups = build_corr_groups(model)?;
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
     // Iman-Conover rank correlation: reorder per-realization draws up front (semantics §8).
@@ -268,6 +298,25 @@ pub fn run(
             }
         }
 
+        // Cell mass per (cell, species) and finite source-inventory budgets.
+        let mut cell_mass: HashMap<(String, String), f64> = HashMap::new();
+        let mut source_inv: HashMap<String, f64> = HashMap::new();
+        {
+            let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0);
+            for elem in &model.elements {
+                if let Primitive::Cell(c) = &elem.primitive {
+                    for sp in &c.species {
+                        if let Some(q) = &sp.initial_inventory {
+                            cell_mass.insert((elem.id().to_string(), sp.species.clone()), q.value);
+                        }
+                    }
+                    if let Some(inv) = &c.inventory {
+                        source_inv.insert(elem.id().to_string(), eval_qof_value(inv, &ctx)?.as_scalar());
+                    }
+                }
+            }
+        }
+
         let mut prev_outputs: HashMap<String, Value> = HashMap::new();
 
         for step_idx in 0..n_steps {
@@ -410,8 +459,9 @@ pub fn run(
                         let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
                         Value::Scalar(if eval_gate(&g.root, &ctx)? { 1.0 } else { 0.0 })
                     }
-                    // Links and events are resolved in their own passes below; placeholder here.
-                    Primitive::Link(_) | Primitive::Event(_) => {
+                    // Links/events/cells are resolved in their own passes; definitions are inert.
+                    Primitive::Link(_) | Primitive::Event(_) | Primitive::Cell(_)
+                    | Primitive::Species(_) | Primitive::Medium(_) => {
                         prev_outputs.get(elem_id.as_str()).cloned().unwrap_or(Value::Scalar(0.0))
                     }
                     _ => eval_element(
@@ -771,6 +821,79 @@ pub fn run(
                 outputs.insert(target.clone(), Value::Scalar(*alloc));
             }
 
+            // ── Cell mass transport: source_release (finite inventory) + first-order decay
+            // and parent-first decay-chain propagation. Mass tracked per (cell, species). ──
+            {
+                let mut cell_delta: HashMap<(String, String), f64> = HashMap::new();
+                {
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    for elem in &model.elements {
+                        if let Primitive::Cell(c) = &elem.primitive {
+                            if let (Some(rate), Some(target)) = (&c.release_rate, &c.release_target) {
+                                let fires = match &c.release_schedule {
+                                    Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
+                                    None => true,
+                                };
+                                if !fires {
+                                    continue;
+                                }
+                                let want = (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0);
+                                let released = match source_inv.get_mut(elem.id()) {
+                                    Some(b) => {
+                                        let r = want.min(*b);
+                                        *b -= r;
+                                        r
+                                    }
+                                    None => want, // no finite inventory → unlimited source
+                                };
+                                let sp = c.species.first().map(|s| s.species.clone()).unwrap_or_default();
+                                *cell_delta.entry((target.clone(), sp)).or_default() += released;
+                            }
+                        }
+                    }
+                }
+                for ((cell, sp), amt) in cell_delta {
+                    *cell_mass.entry((cell, sp)).or_default() += amt;
+                }
+                // Decay each species (parents first) and ingrow daughters.
+                for elem in &model.elements {
+                    if let Primitive::Cell(_) = &elem.primitive {
+                        let cell = elem.id();
+                        for sp in &decay_order {
+                            let key = (cell.to_string(), sp.clone());
+                            let mass = match cell_mass.get(&key) {
+                                Some(&m) if m != 0.0 => m,
+                                _ => continue,
+                            };
+                            if let Some((Some(hl), products)) = species_info.get(sp) {
+                                let lambda = std::f64::consts::LN_2 / *hl;
+                                let decayed = mass * (1.0 - (-lambda * dt).exp());
+                                cell_mass.insert(key, mass - decayed);
+                                for (daughter, branching) in products {
+                                    *cell_mass.entry((cell.to_string(), daughter.clone())).or_default()
+                                        += decayed * *branching;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Publish cell outputs: total mass + per-species.
+                for elem in &model.elements {
+                    if let Primitive::Cell(c) = &elem.primitive {
+                        let cell = elem.id();
+                        for sp in &c.species {
+                            let m = cell_mass.get(&(cell.to_string(), sp.species.clone())).copied().unwrap_or(0.0);
+                            outputs.insert(format!("{cell}:{}", sp.species), Value::Scalar(m));
+                        }
+                        let total: f64 = cell_mass.iter()
+                            .filter(|((cid, _), _)| cid == cell)
+                            .map(|(_, &m)| m)
+                            .sum();
+                        outputs.insert(cell.to_string(), Value::Scalar(total));
+                    }
+                }
+            }
+
             for d in &model.time_history_displays {
                 let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
@@ -788,6 +911,15 @@ pub fn run(
             if step_idx == n_steps - 1 {
                 for &id in &save_final {
                     if let Some(v) = outputs.get(id) {
+                        final_store.get_mut(id).unwrap().push(v.as_scalar());
+                    }
+                }
+            }
+            // Per-(cell, species) mass records.
+            for id in &cell_species_ids {
+                if let Some(v) = outputs.get(id) {
+                    hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
+                    if step_idx == n_steps - 1 {
                         final_store.get_mut(id).unwrap().push(v.as_scalar());
                     }
                 }
@@ -849,10 +981,23 @@ pub fn run(
         .filter(|id| results_map.contains_key(*id))
         .partition(|id| !referenced.contains(id));
 
+    // Per-(cell, species) mass result entries.
+    for id in &cell_species_ids {
+        let final_values = final_store.get(id).cloned().unwrap_or_default();
+        let time_history = Some(stats(&hist_store[id]));
+        results_map.insert(id.clone(), ElementResults {
+            label: id.clone(),
+            unit: "mass".to_string(),
+            final_values,
+            time_history,
+        });
+    }
+
     let display_ids: Vec<String> = model.time_history_displays.iter().map(|d| d.id.clone()).collect();
     let output_ids: Vec<String> = display_ids
         .into_iter()
         .chain(sinks.iter().chain(intermediates.iter()).map(|&s| s.to_string()))
+        .chain(cell_species_ids.iter().cloned())
         .collect();
 
     Ok(SimulationResults { time_axis, elements: results_map, n_realizations: n_real, n_steps, output_ids })
@@ -951,6 +1096,35 @@ fn eval_qexpr(qe: &QuantityExpr, ctx: &EvalCtx) -> Result<f64, EngineError> {
         QuantityExpr::Quantity(q) => Ok(q.value),
         QuantityExpr::Ast(a) => Ok(eval_ast(a, ctx)?.as_scalar()),
     }
+}
+
+/// Topologically order species so each parent precedes its decay products (so a chain
+/// fully propagates within one step). Cycles are broken by the visited set.
+fn build_decay_order(info: &HashMap<String, (Option<f64>, Vec<(String, f64)>)>) -> Vec<String> {
+    fn visit(
+        id: &str,
+        info: &HashMap<String, (Option<f64>, Vec<(String, f64)>)>,
+        visited: &mut HashSet<String>,
+        order: &mut Vec<String>,
+    ) {
+        if visited.contains(id) {
+            return;
+        }
+        visited.insert(id.to_string());
+        if let Some((_, products)) = info.get(id) {
+            for (daughter, _) in products {
+                visit(daughter, info, visited, order);
+            }
+        }
+        order.push(id.to_string());
+    }
+    let mut visited = HashSet::new();
+    let mut order = Vec::new();
+    for id in info.keys() {
+        visit(id, info, &mut visited, &mut order);
+    }
+    order.reverse(); // post-order reversed → parents before daughters
+    order
 }
 
 /// Number of Poisson(λ) occurrences this step.
@@ -1098,11 +1272,15 @@ fn is_fixed_scalar(elem: &Element) -> bool {
 }
 
 /// Default-save everything except fixed-scalar nodes (matches v1: save unless constant).
+/// `species`/`medium` are inert definitions and never produce results.
+fn is_definition(elem: &Element) -> bool {
+    matches!(elem.primitive, Primitive::Species(_) | Primitive::Medium(_))
+}
 fn should_save_history(elem: &Element) -> bool {
-    elem.base.save_results.time_history.unwrap_or_else(|| !is_fixed_scalar(elem))
+    !is_definition(elem) && elem.base.save_results.time_history.unwrap_or_else(|| !is_fixed_scalar(elem))
 }
 fn should_save_final(elem: &Element) -> bool {
-    elem.base.save_results.final_value.unwrap_or_else(|| !is_fixed_scalar(elem))
+    !is_definition(elem) && elem.base.save_results.final_value.unwrap_or_else(|| !is_fixed_scalar(elem))
 }
 
 fn primary_unit(elem: &Element) -> &str {
