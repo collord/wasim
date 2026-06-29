@@ -12,9 +12,9 @@ use serde::Deserialize;
 
 use crate::error::EngineError;
 use crate::model::{
-    Bounds, ContainerDef, CorrelationPair, Distribution, ExpressionField, InterpolationMethod,
-    OutputSpec, ProcessSpec, Quantity, QuantityOrFormula, SamplingMethod, SaveSpec,
-    SimulationSettings, SourceMetadata, TimeHistoryDisplay,
+    AstNode, Bounds, ContainerDef, CorrelationPair, Distribution, ExpressionField,
+    InterpolationMethod, OutputSpec, ProcessSpec, Quantity, QuantityOrFormula, SamplingMethod,
+    SaveSpec, SimulationSettings, SourceMetadata, TimeHistoryDisplay,
 };
 use crate::model_v2 as v2;
 
@@ -177,6 +177,52 @@ struct RawElement {
     density: Option<QuantityOrFormula>,
     #[serde(default)]
     porosity: Option<QuantityOrFormula>,
+
+    // link
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    target: Option<String>,
+    #[serde(default)]
+    fraction: Option<QuantityOrFormula>,
+    #[serde(default)]
+    priority: Option<i64>,
+    #[serde(default)]
+    transit_time: Option<Quantity>,
+    #[serde(default)]
+    decay_rate: Option<QuantityOrFormula>,
+    #[serde(default)]
+    dispersion: Option<Quantity>,
+    #[serde(default)]
+    schedule: Option<RawTrigger>,
+
+    // event
+    #[serde(default)]
+    trigger: Option<RawTrigger>,
+    #[serde(default)]
+    effects: Vec<RawEffect>,
+    #[serde(default)]
+    event_value: Option<RawQexpr>,
+    #[serde(default)]
+    count_limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct RawEffect {
+    target: String,
+    #[serde(default)]
+    change: Option<RawQexpr>,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawQexpr {
+    Quantity(Quantity),
+    Ast(AstNode),
 }
 
 #[derive(Deserialize, Default)]
@@ -311,10 +357,35 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             density: e.density.clone(),
             porosity: e.porosity.clone(),
         }),
-        "link" | "event" | "cell" => {
+        "link" => v2::Primitive::Link(v2::Link {
+            source: e.source.clone(),
+            target: e.target.clone(),
+            rate: e.rate.clone(),
+            fraction: e.fraction.clone(),
+            priority: e.priority,
+            transit_time: e.transit_time.clone(),
+            decay_rate: e.decay_rate.clone(),
+            dispersion: e.dispersion.clone(),
+            schedule: e.schedule.as_ref().map(lower_trigger),
+            // species_transport (species/medium/fluxes/geometry) lands in M4.
+            species: None,
+            medium: None,
+            fluxes: Vec::new(),
+            geometry: None,
+        }),
+        "event" => v2::Primitive::Event(v2::Event {
+            trigger: e.trigger.as_ref().map(lower_trigger),
+            effects: e.effects.iter().map(lower_effect).collect(),
+            event_value: e.event_value.as_ref().map(lower_qexpr),
+            count_limit: e.count_limit,
+            rate: e.rate.clone(),
+            // failure_state_machine lowering lands with its engine support.
+            failure_process: None,
+        }),
+        "cell" => {
             return Err(EngineError::Unsupported(format!(
-                "v2 parse: primitive '{}' (element '{}') lands in M3/M4",
-                e.primitive, e.id
+                "v2 parse: primitive 'cell' (element '{}') lands in M4",
+                e.id
             )));
         }
         other => {
@@ -475,6 +546,26 @@ fn lower_gate(g: &RawGate) -> v2::GateNode {
         RawGate::Reference { reference } => v2::GateNode::Reference(reference.clone()),
         RawGate::Condition { condition } => v2::GateNode::Condition(condition.clone()),
         RawGate::Input { input } => v2::GateNode::Input(input.clone()),
+    }
+}
+
+fn lower_effect(e: &RawEffect) -> v2::EffectSpec {
+    v2::EffectSpec {
+        target: e.target.clone(),
+        change: e.change.as_ref().map(lower_qexpr),
+        mode: match e.mode.as_deref() {
+            Some("multiplicative") => v2::EffectMode::Multiplicative,
+            Some("replace") => v2::EffectMode::Replace,
+            _ => v2::EffectMode::Additive,
+        },
+        label: e.label.clone(),
+    }
+}
+
+fn lower_qexpr(q: &RawQexpr) -> v2::QuantityExpr {
+    match q {
+        RawQexpr::Quantity(qty) => v2::QuantityExpr::Quantity(qty.clone()),
+        RawQexpr::Ast(a) => v2::QuantityExpr::Ast(a.clone()),
     }
 }
 

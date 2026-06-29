@@ -26,8 +26,8 @@ use crate::eval::{eval_ast, resolve_distribution, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::QuantityOrFormula;
 use crate::model_v2::{
-    ConvResponse, Element, FilterStat, FixedValue, GateNode, MarkovStart, Model, NodeRule,
-    Primitive, TransitionRow, TriggerMode, TriggerSpec, WithdrawalSpec,
+    ConvResponse, EffectMode, Element, FilterStat, FixedValue, GateNode, MarkovStart, Model,
+    NodeRule, Primitive, QuantityExpr, TransitionRow, TriggerMode, TriggerSpec, WithdrawalSpec,
 };
 use crate::sampling;
 
@@ -227,6 +227,8 @@ pub fn run(
         let mut filter_ema: HashMap<String, f64> = HashMap::new();
         let mut markov_state: HashMap<String, usize> = HashMap::new();
         let mut conv_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
+        // Transit buffers: per link, a FIFO of (release_step, amount).
+        let mut link_buf: HashMap<String, VecDeque<(usize, f64)>> = HashMap::new();
         for elem in &model.elements {
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Markov { states, initial_state, .. } = &n.rule {
@@ -381,12 +383,168 @@ pub fn run(
                         let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
                         Value::Scalar(if eval_gate(&g.root, &ctx)? { 1.0 } else { 0.0 })
                     }
+                    // Links and events are resolved in their own passes below; placeholder here.
+                    Primitive::Link(_) | Primitive::Event(_) => {
+                        prev_outputs.get(elem_id.as_str()).cloned().unwrap_or(Value::Scalar(0.0))
+                    }
                     _ => eval_element(
                         elem, &lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx,
                         &rv_samples, &sp_state, &stock_state,
                     )?,
                 };
                 outputs.insert(elem_id.clone(), value);
+            }
+
+            // ── Link transfers: move quantity source→target, with priority allocation,
+            // transit buffering (plug flow), first-order decay, and scheduling. Stocks lose at
+            // entry and gain at release; in-transit mass is conserved in the link buffer. ──
+            let mut link_delta: HashMap<String, f64> = HashMap::new();
+            #[allow(clippy::type_complexity)]
+            let mut link_reqs: Vec<(String, Option<String>, Option<String>, i64, f64, usize, f64)> =
+                Vec::new();
+            for elem in &model.elements {
+                if let Primitive::Link(l) = &elem.primitive {
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    let fires = match &l.schedule {
+                        Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
+                        None => true,
+                    };
+                    let requested = if !fires {
+                        0.0
+                    } else if let Some(rate) = &l.rate {
+                        (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0)
+                    } else if let Some(frac) = &l.fraction {
+                        let src_val = l.source.as_ref()
+                            .and_then(|s| outputs.get(s)).map(|v| v.as_scalar()).unwrap_or(0.0);
+                        (eval_qof_value(frac, &ctx)?.as_scalar() * src_val).max(0.0)
+                    } else {
+                        0.0
+                    };
+                    let transit_steps = l.transit_time.as_ref()
+                        .map(|q| (q.value / dt).round().max(0.0) as usize).unwrap_or(0);
+                    let decay_factor = match (&l.decay_rate, &l.transit_time) {
+                        (Some(dr), Some(tt)) => (-eval_qof_value(dr, &ctx)?.as_scalar() * tt.value).exp(),
+                        _ => 1.0,
+                    };
+                    link_reqs.push((elem.id().to_string(), l.source.clone(), l.target.clone(),
+                        l.priority.unwrap_or(i64::MAX), requested, transit_steps, decay_factor));
+                }
+            }
+            // Source availability (stocks only; non-stock sources are treated as unlimited).
+            let mut avail: HashMap<String, f64> = HashMap::new();
+            for elem in &model.elements {
+                if let Primitive::Stock(s) = &elem.primitive {
+                    let lo = s.floor.as_ref().map(|q| q.value).unwrap_or(0.0);
+                    avail.insert(elem.id().to_string(), (stock_state[elem.id()].as_scalar() - lo).max(0.0));
+                }
+            }
+            // Serve links in (source, priority) order; trait priority_allocation.
+            link_reqs.sort_by(|a, b| a.1.cmp(&b.1).then(a.3.cmp(&b.3)));
+            let mut link_out: Vec<(String, f64)> = Vec::new();
+            for (id, source, target, _prio, requested, transit_steps, decay_factor) in &link_reqs {
+                let alloc = match source {
+                    Some(src) => match avail.get_mut(src) {
+                        Some(a) => {
+                            let give = requested.min(*a);
+                            *a -= give;
+                            *link_delta.entry(src.clone()).or_default() -= give;
+                            give
+                        }
+                        None => *requested,
+                    },
+                    None => *requested,
+                };
+                let entered = alloc * decay_factor;
+                let delivered = if *transit_steps > 0 {
+                    let buf = link_buf.entry(id.clone()).or_default();
+                    buf.push_back((step_idx + transit_steps, entered));
+                    let mut released = 0.0;
+                    while let Some(&(rel, amt)) = buf.front() {
+                        if rel <= step_idx {
+                            released += amt;
+                            buf.pop_front();
+                        } else {
+                            break;
+                        }
+                    }
+                    released
+                } else {
+                    entered
+                };
+                if let Some(tgt) = target {
+                    *link_delta.entry(tgt.clone()).or_default() += delivered;
+                }
+                link_out.push((id.clone(), delivered));
+            }
+            for (id, v) in link_out {
+                outputs.insert(id, Value::Scalar(v));
+            }
+
+            // ── Event pass: fire on trigger (or Poisson rate_generation) and apply effects.
+            // Effects on stocks fold into integration; effects on nodes overwrite their output. ──
+            let mut stock_event: HashMap<String, (f64, f64, Option<f64>)> = HashMap::new(); // (add, mul, set)
+            let mut node_effects: Vec<(String, Value)> = Vec::new();
+            let mut event_out: Vec<(String, f64)> = Vec::new();
+            for elem in &model.elements {
+                if let Primitive::Event(ev) = &elem.primitive {
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    // Trait rate_generation: Poisson occurrences; else a single trigger firing.
+                    let count: f64 = if let Some(rate) = &ev.rate {
+                        let lambda = (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0);
+                        poisson_count(lambda, &mut rng) as f64
+                    } else {
+                        match &ev.trigger {
+                            Some(t) => if trigger_fires(t, &ctx, dt, step_idx)? { 1.0 } else { 0.0 },
+                            None => 0.0,
+                        }
+                    };
+                    event_out.push((elem.id().to_string(), count));
+                    if count <= 0.0 {
+                        continue;
+                    }
+                    for effect in &ev.effects {
+                        let change = match &effect.change {
+                            Some(qe) => eval_qexpr(qe, &ctx)?,
+                            None => 0.0,
+                        };
+                        let target = effect.target.clone();
+                        let is_stock = elem_idx.get(target.as_str())
+                            .map(|&i| matches!(model.elements[i].primitive, Primitive::Stock(_)))
+                            .unwrap_or(false);
+                        match effect.mode {
+                            EffectMode::Additive => {
+                                if is_stock {
+                                    stock_event.entry(target).or_insert((0.0, 1.0, None)).0 += change * count;
+                                } else {
+                                    let cur = outputs.get(&target).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                    node_effects.push((target, Value::Scalar(cur + change * count)));
+                                }
+                            }
+                            EffectMode::Multiplicative => {
+                                let factor = change.powf(count);
+                                if is_stock {
+                                    stock_event.entry(target).or_insert((0.0, 1.0, None)).1 *= factor;
+                                } else {
+                                    let cur = outputs.get(&target).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                    node_effects.push((target, Value::Scalar(cur * factor)));
+                                }
+                            }
+                            EffectMode::Replace => {
+                                if is_stock {
+                                    stock_event.entry(target).or_insert((0.0, 1.0, None)).2 = Some(change);
+                                } else {
+                                    node_effects.push((target, Value::Scalar(change)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for (id, c) in event_out {
+                outputs.insert(id, Value::Scalar(c));
+            }
+            for (target, v) in node_effects {
+                outputs.insert(target, v);
             }
 
             // Stock integration pass. Computes each stock's next level (with traits) but
@@ -446,6 +604,17 @@ pub fn run(
                 };
                 if withdrawal_outflow != 0.0 {
                     next = next.map(move |v| v - withdrawal_outflow);
+                }
+                // Link transfers (debit if source, credit if target) — already integrated.
+                if let Some(ld) = link_delta.get(id).copied() {
+                    next = next.map(move |v| v + ld);
+                }
+                // Discrete event effects on the stock level (add, then scale, then replace).
+                if let Some(&(add, mul, set)) = stock_event.get(id) {
+                    next = next.map(move |v| (v + add) * mul);
+                    if let Some(s) = set {
+                        next = next.map(move |_| s);
+                    }
                 }
                 if let Some(floor) = &s.floor {
                     let lo = floor.value;
@@ -662,6 +831,25 @@ fn eval_qof_value(qof: &QuantityOrFormula, ctx: &EvalCtx) -> Result<Value, Engin
         QuantityOrFormula::Quantity(q) => Ok(Value::Scalar(q.value)),
         QuantityOrFormula::Expression(ef) => eval_ast(&ef.ast, ctx),
         QuantityOrFormula::Formula(_) => Ok(Value::Scalar(0.0)),
+    }
+}
+
+/// Evaluate a `quantity_expr` (fixed quantity or bare AST) to a scalar.
+fn eval_qexpr(qe: &QuantityExpr, ctx: &EvalCtx) -> Result<f64, EngineError> {
+    match qe {
+        QuantityExpr::Quantity(q) => Ok(q.value),
+        QuantityExpr::Ast(a) => Ok(eval_ast(a, ctx)?.as_scalar()),
+    }
+}
+
+/// Number of Poisson(λ) occurrences this step.
+fn poisson_count<R: Rng>(lambda: f64, rng: &mut R) -> u64 {
+    if lambda <= 0.0 {
+        return 0;
+    }
+    match rand_distr::Poisson::new(lambda) {
+        Ok(p) => rng.sample(p) as u64,
+        Err(_) => 0,
     }
 }
 

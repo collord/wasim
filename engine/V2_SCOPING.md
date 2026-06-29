@@ -74,9 +74,23 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   `response` Ref resolves only lookups (not series); log_linear/spline interpolation map to
   linear/cubic; `external` distribution degrades to 0.0.
 
-**Next: M3** — `link` primitive (rate/fraction, priority_allocation, transit_buffer,
-transit_decay, scheduled_flow) and `event` primitive (trigger+effects, rate_generation Poisson,
-failure_state_machine). Then M4 mass transport, M5 units + flip `run()` to the v2 core.
+**M3 in progress.**
+
+- **`link` primitive** — rate/fraction transfer source→target with mass conservation;
+  traits `priority_allocation` (supply served in priority order), `transit_buffer` (plug-flow
+  FIFO delay), `transit_decay` (first-order loss in transit), `scheduled_flow`. Stocks lose at
+  entry / gain at release; in-transit mass lives in the link buffer. Folds into the stock
+  integration pass as a per-stock delta. (`species_transport` dispersion → M4.)
+- **`event` primitive** — base trigger + effects (additive/multiplicative/replace on stock
+  levels and node outputs); trait `rate_generation` (Poisson occurrences, effects scaled by
+  count). Event pass runs after the link pass; stock effects fold into integration.
+- Parser lowers `link` + `event`; `cell` still deferred to M4.
+- Tests: links_v2 (5), events_v2 (4) — all green; v1-import path unaffected.
+- **Remaining M3:** `event` trait **`failure_state_machine`** (working/failed automaton:
+  bases exposure_time/operating_time/demand/capacity_demand/event/condition; repair policies
+  none/repair/replace/preventive_maintenance; effect application on transition).
+
+Then M4 mass transport, M5 units + flip `run()` to the v2 core.
 
 ## 1. What v2 changes (summary)
 
