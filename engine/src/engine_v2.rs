@@ -26,14 +26,22 @@ use crate::eval::{eval_ast, resolve_distribution, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::QuantityOrFormula;
 use crate::model_v2::{
-    ConvResponse, EffectMode, Element, FilterStat, FixedValue, GateNode, MarkovStart, Model,
-    NodeRule, Primitive, QuantityExpr, TransitionRow, TriggerMode, TriggerSpec, WithdrawalSpec,
+    ConvResponse, EffectMode, Element, FailureBasis, FilterStat, FixedValue, GateNode, MarkovStart,
+    Model, NodeRule, Primitive, QuantityExpr, RepairPolicy, TransitionRow, TriggerMode,
+    TriggerSpec, WithdrawalSpec,
 };
 use crate::sampling;
 
 struct CorrGroup {
     ids: Vec<String>,
     chol_l: Vec<Vec<f64>>,
+}
+
+/// Per-realization failure_state_machine state for an event.
+struct Fsm {
+    failed: bool,
+    ttf: f64, // time-to-failure remaining (exposure/operating bases)
+    ttr: f64, // time-to-repair remaining
 }
 
 pub fn run(
@@ -229,6 +237,25 @@ pub fn run(
         let mut conv_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
         // Transit buffers: per link, a FIFO of (release_step, amount).
         let mut link_buf: HashMap<String, VecDeque<(usize, f64)>> = HashMap::new();
+        // failure_state_machine state per event.
+        let mut fsm_state: HashMap<String, Fsm> = HashMap::new();
+        for elem in &model.elements {
+            if let Primitive::Event(ev) = &elem.primitive {
+                if let Some(fp) = &ev.failure_process {
+                    // Time-based bases draw an initial time-to-failure up front.
+                    let ttf = match fp.basis {
+                        FailureBasis::ExposureTime | FailureBasis::OperatingTime => fp
+                            .time_to_failure
+                            .as_ref()
+                            .map(|d| sampling::sample(&d.kind, &d.truncation, &mut rng))
+                            .transpose()?
+                            .unwrap_or(f64::INFINITY),
+                        _ => f64::INFINITY,
+                    };
+                    fsm_state.insert(elem.id().to_string(), Fsm { failed: false, ttf, ttr: 0.0 });
+                }
+            }
+        }
         for elem in &model.elements {
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Markov { states, initial_state, .. } = &n.rule {
@@ -486,9 +513,83 @@ pub fn run(
             let mut node_effects: Vec<(String, Value)> = Vec::new();
             let mut event_out: Vec<(String, f64)> = Vec::new();
             for elem in &model.elements {
-                if let Primitive::Event(ev) = &elem.primitive {
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
-                    // Trait rate_generation: Poisson occurrences; else a single trigger firing.
+                let Primitive::Event(ev) = &elem.primitive else { continue };
+                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+
+                // Output value + effect action. action = Some((reverse, count)).
+                let (out_val, action): (f64, Option<(bool, f64)>) = if let Some(fp) = &ev.failure_process {
+                    // Trait failure_state_machine: working/failed automaton.
+                    let st = fsm_state.get_mut(elem.id()).expect("fsm state initialized");
+                    let mut to_failed = false;
+                    let mut to_working = false;
+                    if !st.failed {
+                        let fail_now = match fp.basis {
+                            FailureBasis::ExposureTime | FailureBasis::OperatingTime => {
+                                st.ttf -= dt;
+                                st.ttf <= 0.0
+                            }
+                            FailureBasis::Condition => match &ev.trigger {
+                                Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
+                                None => false,
+                            },
+                            FailureBasis::Demand => match &ev.trigger {
+                                Some(t) if trigger_fires(t, &ctx, dt, step_idx)? => {
+                                    let p = fp.time_to_failure.as_ref()
+                                        .map(|d| sampling::sample(&d.kind, &d.truncation, &mut rng))
+                                        .transpose()?.unwrap_or(0.0);
+                                    let u: f64 = rng.gen();
+                                    u < p
+                                }
+                                _ => false,
+                            },
+                            // capacity_demand / event bases not yet modeled → never fail.
+                            _ => false,
+                        };
+                        if fail_now {
+                            st.failed = true;
+                            to_failed = true;
+                            st.ttr = match fp.repair.as_ref().map(|r| r.policy) {
+                                Some(RepairPolicy::Repair) | Some(RepairPolicy::Replace) => fp
+                                    .repair.as_ref().and_then(|r| r.time_to_repair.as_ref())
+                                    .map(|d| sampling::sample(&d.kind, &d.truncation, &mut rng))
+                                    .transpose()?.unwrap_or(f64::INFINITY),
+                                _ => f64::INFINITY, // none / preventive_maintenance
+                            };
+                        }
+                    } else {
+                        let repair_now = match fp.repair.as_ref().map(|r| r.policy) {
+                            Some(RepairPolicy::Repair) | Some(RepairPolicy::Replace) => {
+                                st.ttr -= dt;
+                                st.ttr <= 0.0
+                            }
+                            Some(RepairPolicy::PreventiveMaintenance) => match &ev.trigger {
+                                Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
+                                None => false,
+                            },
+                            _ => false, // none → stays failed
+                        };
+                        if repair_now {
+                            st.failed = false;
+                            to_working = true;
+                            // Returning to working draws a fresh time-to-failure for time-based
+                            // bases (replace is as-good-as-new; repair likewise restarts the clock).
+                            if matches!(fp.basis, FailureBasis::ExposureTime | FailureBasis::OperatingTime) {
+                                st.ttf = fp.time_to_failure.as_ref()
+                                    .map(|d| sampling::sample(&d.kind, &d.truncation, &mut rng))
+                                    .transpose()?.unwrap_or(f64::INFINITY);
+                            }
+                        }
+                    }
+                    let action = if to_failed {
+                        Some((false, 1.0))
+                    } else if to_working {
+                        Some((true, 1.0)) // reverse the effects applied on failure
+                    } else {
+                        None
+                    };
+                    (if st.failed { 1.0 } else { 0.0 }, action)
+                } else {
+                    // Base event: Poisson rate_generation, else a single trigger firing.
                     let count: f64 = if let Some(rate) = &ev.rate {
                         let lambda = (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0);
                         poisson_count(lambda, &mut rng) as f64
@@ -498,10 +599,12 @@ pub fn run(
                             None => 0.0,
                         }
                     };
-                    event_out.push((elem.id().to_string(), count));
-                    if count <= 0.0 {
-                        continue;
-                    }
+                    (count, if count > 0.0 { Some((false, count)) } else { None })
+                };
+
+                event_out.push((elem.id().to_string(), out_val));
+
+                if let Some((reverse, count)) = action {
                     for effect in &ev.effects {
                         let change = match &effect.change {
                             Some(qe) => eval_qexpr(qe, &ctx)?,
@@ -513,15 +616,20 @@ pub fn run(
                             .unwrap_or(false);
                         match effect.mode {
                             EffectMode::Additive => {
+                                let delta = if reverse { -change } else { change * count };
                                 if is_stock {
-                                    stock_event.entry(target).or_insert((0.0, 1.0, None)).0 += change * count;
+                                    stock_event.entry(target).or_insert((0.0, 1.0, None)).0 += delta;
                                 } else {
                                     let cur = outputs.get(&target).map(|v| v.as_scalar()).unwrap_or(0.0);
-                                    node_effects.push((target, Value::Scalar(cur + change * count)));
+                                    node_effects.push((target, Value::Scalar(cur + delta)));
                                 }
                             }
                             EffectMode::Multiplicative => {
-                                let factor = change.powf(count);
+                                let factor = if reverse {
+                                    if change != 0.0 { 1.0 / change } else { 1.0 }
+                                } else {
+                                    change.powf(count)
+                                };
                                 if is_stock {
                                     stock_event.entry(target).or_insert((0.0, 1.0, None)).1 *= factor;
                                 } else {
@@ -530,10 +638,13 @@ pub fn run(
                                 }
                             }
                             EffectMode::Replace => {
-                                if is_stock {
-                                    stock_event.entry(target).or_insert((0.0, 1.0, None)).2 = Some(change);
-                                } else {
-                                    node_effects.push((target, Value::Scalar(change)));
+                                // Replace is not reversible; apply only on the forward transition.
+                                if !reverse {
+                                    if is_stock {
+                                        stock_event.entry(target).or_insert((0.0, 1.0, None)).2 = Some(change);
+                                    } else {
+                                        node_effects.push((target, Value::Scalar(change)));
+                                    }
                                 }
                             }
                         }

@@ -74,7 +74,7 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   `response` Ref resolves only lookups (not series); log_linear/spline interpolation map to
   linear/cubic; `external` distribution degrades to 0.0.
 
-**M3 in progress.**
+**M3 complete.**
 
 - **`link` primitive** — rate/fraction transfer source→target with mass conservation;
   traits `priority_allocation` (supply served in priority order), `transit_buffer` (plug-flow
@@ -83,12 +83,14 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   integration pass as a per-stock delta. (`species_transport` dispersion → M4.)
 - **`event` primitive** — base trigger + effects (additive/multiplicative/replace on stock
   levels and node outputs); trait `rate_generation` (Poisson occurrences, effects scaled by
-  count). Event pass runs after the link pass; stock effects fold into integration.
-- Parser lowers `link` + `event`; `cell` still deferred to M4.
-- Tests: links_v2 (5), events_v2 (4) — all green; v1-import path unaffected.
-- **Remaining M3:** `event` trait **`failure_state_machine`** (working/failed automaton:
-  bases exposure_time/operating_time/demand/capacity_demand/event/condition; repair policies
-  none/repair/replace/preventive_maintenance; effect application on transition).
+  count); trait **`failure_state_machine`** (working/failed automaton: bases exposure_time/
+  operating_time/condition/demand with repair policies none/repair/replace/preventive_
+  maintenance; effects applied on failure, reversed on repair; event output = failed state).
+- Parser lowers `link` + `event` (+ `failure_process`); `cell` still deferred to M4.
+- Tests: links_v2 (5), events_v2 (4), fsm_v2 (3) — all green; v1-import path unaffected.
+- **Known limits (noted for later):** FSM bases `capacity_demand`/`event` never fail yet;
+  `replace` and `repair` both redraw the failure clock on return-to-working (no wear model);
+  overflow/link debit precedence with multiple sources draining one stock is greedy-by-order.
 
 Then M4 mass transport, M5 units + flip `run()` to the v2 core.
 

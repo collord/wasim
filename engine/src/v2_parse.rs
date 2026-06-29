@@ -205,6 +205,27 @@ struct RawElement {
     event_value: Option<RawQexpr>,
     #[serde(default)]
     count_limit: Option<i64>,
+    #[serde(default)]
+    failure_process: Option<RawFailure>,
+}
+
+#[derive(Deserialize)]
+struct RawFailure {
+    basis: String,
+    #[serde(default)]
+    time_to_failure: Option<Distribution>,
+    #[serde(default)]
+    repair: Option<RawRepair>,
+    #[serde(default)]
+    demand_capacity: Option<QuantityOrFormula>,
+}
+
+#[derive(Deserialize)]
+struct RawRepair {
+    #[serde(default)]
+    time_to_repair: Option<Distribution>,
+    #[serde(default)]
+    policy: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -379,8 +400,7 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             event_value: e.event_value.as_ref().map(lower_qexpr),
             count_limit: e.count_limit,
             rate: e.rate.clone(),
-            // failure_state_machine lowering lands with its engine support.
-            failure_process: None,
+            failure_process: e.failure_process.as_ref().map(|f| lower_failure(f, &e.id)).transpose()?,
         }),
         "cell" => {
             return Err(EngineError::Unsupported(format!(
@@ -567,6 +587,37 @@ fn lower_qexpr(q: &RawQexpr) -> v2::QuantityExpr {
         RawQexpr::Quantity(qty) => v2::QuantityExpr::Quantity(qty.clone()),
         RawQexpr::Ast(a) => v2::QuantityExpr::Ast(a.clone()),
     }
+}
+
+fn lower_failure(f: &RawFailure, id: &str) -> Result<v2::FailureProcess, EngineError> {
+    let basis = match f.basis.as_str() {
+        "exposure_time" => v2::FailureBasis::ExposureTime,
+        "operating_time" => v2::FailureBasis::OperatingTime,
+        "demand" => v2::FailureBasis::Demand,
+        "capacity_demand" => v2::FailureBasis::CapacityDemand,
+        "event" => v2::FailureBasis::Event,
+        "condition" => v2::FailureBasis::Condition,
+        other => {
+            return Err(EngineError::InvalidModel(format!(
+                "event '{id}' failure_process has invalid basis '{other}'"
+            )));
+        }
+    };
+    let repair = f.repair.as_ref().map(|r| v2::RepairSpec {
+        time_to_repair: r.time_to_repair.clone(),
+        policy: match r.policy.as_deref() {
+            Some("repair") => v2::RepairPolicy::Repair,
+            Some("replace") => v2::RepairPolicy::Replace,
+            Some("preventive_maintenance") => v2::RepairPolicy::PreventiveMaintenance,
+            _ => v2::RepairPolicy::None,
+        },
+    });
+    Ok(v2::FailureProcess {
+        basis,
+        time_to_failure: f.time_to_failure.clone(),
+        repair,
+        demand_capacity: f.demand_capacity.clone(),
+    })
 }
 
 fn lower_trigger(t: &RawTrigger) -> v2::TriggerSpec {
