@@ -106,9 +106,15 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   primitives now parse.
 - Tests: cells_v2 (3) — source-release depletion, exponential decay, chain ingrowth with
   mass conservation. All green.
-- **Remaining M4 (part 2):** `partitioning_equilibrium` (multi-phase Kd redistribution,
-  ≥3-phase linear solve), link `species_transport` (advective/diffusive fluxes between cells),
-  `transit_dispersion` (implement §11a kernel), and concentration `C = mass/(volume·fraction)`.
+- **`transit_dispersion`** (M4 part 2a) — implemented the §11a Ogata-Banks RTD as a
+  convolution kernel on links. The link buffer became a release-step→amount map (RTD release
+  times overlap across steps); decay applies per residence time; plug flow is the no-dispersion
+  fallback. Test: a single pulse spreads with mass conserved.
+- **Remaining M4 (part 2b):** `partitioning_equilibrium` (Kd redistribution across media —
+  needs the per-medium mass model; two-phase closed-form, ≥3-phase linear solve) and link
+  `species_transport` (advective/diffusive fluxes between cells), plus concentration
+  `C = mass/(volume·fraction)`. These require extending `cell_mass` from (cell, species) to
+  (cell, species, medium).
 
 Then M5: SI units + flip `run()` to the v2 core + retire the v1 engine.
 

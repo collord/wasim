@@ -90,6 +90,33 @@ fn transit_decay_loses_mass_in_transit() {
 }
 
 #[test]
+fn transit_dispersion_spreads_a_pulse() {
+    // A single pulse of 100 (all of S at step 0) is spread by the RTD kernel
+    // (mean transit 5, Pe 10) into T. Mass is conserved; delivery is gradual.
+    let r = run(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 25, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+        "elements": [
+          {"id": "S", "name": "S", "primitive": "stock", "initial_value": {"value": 100, "unit": "m3"}, "save_results": {"time_history": true}},
+          {"id": "T", "name": "T", "primitive": "stock", "initial_value": {"value": 0, "unit": "m3"}, "save_results": {"time_history": true}},
+          {"id": "L", "name": "L", "primitive": "link", "source": "S", "target": "T", "fraction": {"value": 1.0, "unit": "1"},
+            "transit_time": {"value": 5, "unit": "d"}, "dispersion": {"value": 10, "unit": "1"},
+            "schedule": {"mode": "on_schedule", "schedule": [{"value": 0, "unit": "d"}]}, "save_results": {"time_history": true}}
+        ]}"#,
+    );
+    let s = hist(&r, "S");
+    let t = hist(&r, "T");
+    assert_eq!(s[0], 0.0, "the whole pulse leaves the source at step 0");
+    // Conservation: essentially all 100 delivered by the end.
+    let tf = *t.last().unwrap();
+    assert!((tf - 100.0).abs() < 1.0, "delivered {tf}, expected ≈ 100");
+    // Spread, not a plug: little delivered very early, a partial amount near the mean.
+    assert!(t[1] < 20.0, "early delivery {} should be small", t[1]);
+    assert!((25.0..=85.0).contains(&t[5]), "delivery near the mean {} should be partial", t[5]);
+    assert!(t[1] < t[5] && t[5] < tf, "delivery is monotonic and gradual");
+}
+
+#[test]
 fn scheduled_flow_transfers_only_on_schedule() {
     // schedule [2]: the single transfer of 10 happens at step 2 only.
     let r = run(

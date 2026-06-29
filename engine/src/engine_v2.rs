@@ -265,8 +265,8 @@ pub fn run(
         let mut filter_ema: HashMap<String, f64> = HashMap::new();
         let mut markov_state: HashMap<String, usize> = HashMap::new();
         let mut conv_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
-        // Transit buffers: per link, a FIFO of (release_step, amount).
-        let mut link_buf: HashMap<String, VecDeque<(usize, f64)>> = HashMap::new();
+        // Transit buffers: per link, a map of release_step → scheduled amount.
+        let mut link_buf: HashMap<String, HashMap<usize, f64>> = HashMap::new();
         // failure_state_machine state per event.
         let mut fsm_state: HashMap<String, Fsm> = HashMap::new();
         for elem in &model.elements {
@@ -477,7 +477,7 @@ pub fn run(
             // entry and gain at release; in-transit mass is conserved in the link buffer. ──
             let mut link_delta: HashMap<String, f64> = HashMap::new();
             #[allow(clippy::type_complexity)]
-            let mut link_reqs: Vec<(String, Option<String>, Option<String>, i64, f64, usize, f64)> =
+            let mut link_reqs: Vec<(String, Option<String>, Option<String>, i64, f64, Option<f64>, Option<f64>, f64)> =
                 Vec::new();
             for elem in &model.elements {
                 if let Primitive::Link(l) = &elem.primitive {
@@ -497,14 +497,14 @@ pub fn run(
                     } else {
                         0.0
                     };
-                    let transit_steps = l.transit_time.as_ref()
-                        .map(|q| (q.value / dt).round().max(0.0) as usize).unwrap_or(0);
-                    let decay_factor = match (&l.decay_rate, &l.transit_time) {
-                        (Some(dr), Some(tt)) => (-eval_qof_value(dr, &ctx)?.as_scalar() * tt.value).exp(),
-                        _ => 1.0,
+                    let transit_time = l.transit_time.as_ref().map(|q| q.value);
+                    let pe = l.dispersion.as_ref().map(|q| q.value);
+                    let decay_lambda = match &l.decay_rate {
+                        Some(dr) => eval_qof_value(dr, &ctx)?.as_scalar(),
+                        None => 0.0,
                     };
                     link_reqs.push((elem.id().to_string(), l.source.clone(), l.target.clone(),
-                        l.priority.unwrap_or(i64::MAX), requested, transit_steps, decay_factor));
+                        l.priority.unwrap_or(i64::MAX), requested, transit_time, pe, decay_lambda));
                 }
             }
             // Source availability (stocks only; non-stock sources are treated as unlimited).
@@ -518,7 +518,7 @@ pub fn run(
             // Serve links in (source, priority) order; trait priority_allocation.
             link_reqs.sort_by(|a, b| a.1.cmp(&b.1).then(a.3.cmp(&b.3)));
             let mut link_out: Vec<(String, f64)> = Vec::new();
-            for (id, source, target, _prio, requested, transit_steps, decay_factor) in &link_reqs {
+            for (id, source, target, _prio, requested, transit_time, pe, decay_lambda) in &link_reqs {
                 let alloc = match source {
                     Some(src) => match avail.get_mut(src) {
                         Some(a) => {
@@ -531,22 +531,25 @@ pub fn run(
                     },
                     None => *requested,
                 };
-                let entered = alloc * decay_factor;
-                let delivered = if *transit_steps > 0 {
+                let lambda = *decay_lambda;
+                let delivered = if let Some(tt) = *transit_time {
                     let buf = link_buf.entry(id.clone()).or_default();
-                    buf.push_back((step_idx + transit_steps, entered));
-                    let mut released = 0.0;
-                    while let Some(&(rel, amt)) = buf.front() {
-                        if rel <= step_idx {
-                            released += amt;
-                            buf.pop_front();
-                        } else {
-                            break;
+                    // Trait transit_dispersion: spread the parcel across an Ogata-Banks RTD
+                    // kernel (decay applied per residence time). Else plug flow (single slug).
+                    if matches!(*pe, Some(p) if p.is_finite() && p > 0.0 && p < 1e6) {
+                        let p = pe.unwrap();
+                        for (k, &w) in dispersion_kernel(tt, p, dt).iter().enumerate() {
+                            let off = k + 1;
+                            *buf.entry(step_idx + off).or_default() +=
+                                alloc * w * (-lambda * off as f64 * dt).exp();
                         }
+                    } else {
+                        let steps = (tt / dt).round().max(0.0) as usize;
+                        *buf.entry(step_idx + steps).or_default() += alloc * (-lambda * tt).exp();
                     }
-                    released
+                    buf.remove(&step_idx).unwrap_or(0.0)
                 } else {
-                    entered
+                    alloc
                 };
                 if let Some(tgt) = target {
                     *link_delta.entry(tgt.clone()).or_default() += delivered;
@@ -1125,6 +1128,27 @@ fn build_decay_order(info: &HashMap<String, (Option<f64>, Vec<(String, f64)>)>) 
     }
     order.reverse(); // post-order reversed → parents before daughters
     order
+}
+
+/// Discretized residence-time distribution for link transit_dispersion (V2_SCOPING §11a):
+/// the Ogata-Banks / inverse-Gaussian RTD with mean `transit_time` and variance 2T²/Pe,
+/// sampled at k·dt for k=1..K and normalized to a unit-sum convolution kernel.
+fn dispersion_kernel(transit_time: f64, pe: f64, dt: f64) -> Vec<f64> {
+    let kmax = ((10.0 * transit_time / dt).ceil() as usize).clamp(1, 100_000);
+    let mut w = Vec::with_capacity(kmax);
+    for k in 1..=kmax {
+        let t = k as f64 * dt;
+        let e = (pe * transit_time / (4.0 * std::f64::consts::PI * t.powi(3))).sqrt()
+            * (-pe * (t - transit_time).powi(2) / (4.0 * transit_time * t)).exp();
+        w.push(e * dt);
+    }
+    let sum: f64 = w.iter().sum();
+    if sum > 0.0 {
+        for x in &mut w {
+            *x /= sum;
+        }
+    }
+    w
 }
 
 /// Number of Poisson(λ) occurrences this step.
