@@ -213,8 +213,13 @@ struct RawElement {
     volume: Option<QuantityOrFormula>,
     #[serde(default)]
     media: Vec<RawMediumRef>,
+    /// `species` is an array of species refs on a cell, but a single id string on a
+    /// species_transport link — kept untyped and branched during lowering.
     #[serde(default)]
-    species: Vec<RawSpeciesRef>,
+    species: Option<serde_json::Value>,
+    /// link species_transport medium (a single id string).
+    #[serde(default)]
+    medium: Option<String>,
     #[serde(default)]
     partitioning: Vec<RawPartition>,
     #[serde(default)]
@@ -428,9 +433,9 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             decay_rate: e.decay_rate.clone(),
             dispersion: e.dispersion.clone(),
             schedule: e.schedule.as_ref().map(lower_trigger),
-            // species_transport (species/medium/fluxes/geometry) lands in M4.
-            species: None,
-            medium: None,
+            // species_transport: species/medium are single id strings here.
+            species: e.species.as_ref().and_then(|v| v.as_str()).map(String::from),
+            medium: e.medium.clone(),
             fluxes: Vec::new(),
             geometry: None,
         }),
@@ -448,10 +453,7 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
                 medium: m.medium.clone(),
                 fraction: m.fraction.clone(),
             }).collect(),
-            species: e.species.iter().map(|s| v2::SpeciesRef {
-                species: s.species.clone(),
-                initial_inventory: s.initial_inventory.clone(),
-            }).collect(),
+            species: cell_species_refs(&e.species),
             inflows: e.inflows.clone(),
             partitioning: e.partitioning.iter().map(|p| v2::PartitionEntry {
                 species: p.species.clone(),
@@ -623,6 +625,20 @@ fn lower_gate(g: &RawGate) -> v2::GateNode {
         RawGate::Condition { condition } => v2::GateNode::Condition(condition.clone()),
         RawGate::Input { input } => v2::GateNode::Input(input.clone()),
     }
+}
+
+/// Parse a cell's `species` array (untyped because the key is overloaded with link's
+/// string-valued `species`) into species refs.
+fn cell_species_refs(v: &Option<serde_json::Value>) -> Vec<v2::SpeciesRef> {
+    v.as_ref()
+        .and_then(|x| x.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| serde_json::from_value::<RawSpeciesRef>(item.clone()).ok())
+                .map(|s| v2::SpeciesRef { species: s.species, initial_inventory: s.initial_inventory })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn lower_effect(e: &RawEffect) -> v2::EffectSpec {

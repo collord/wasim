@@ -11,7 +11,12 @@ fn run(json: &str) -> SimulationResults {
 }
 
 fn hist(r: &SimulationResults, id: &str) -> Vec<f64> {
-    r.elements[id].time_history.as_ref().unwrap_or_else(|| panic!("no history for {id}")).mean.clone()
+    let el = r.elements.get(id).unwrap_or_else(|| {
+        let mut keys: Vec<&str> = r.elements.keys().map(|s| s.as_str()).collect();
+        keys.sort();
+        panic!("no element '{id}'; have: {keys:?}")
+    });
+    el.time_history.as_ref().unwrap_or_else(|| panic!("no history for {id}")).mean.clone()
 }
 
 fn close(a: &[f64], b: &[f64]) {
@@ -71,4 +76,41 @@ fn decay_chain_ingrowth_conserves_mass() {
     close(&hist(&r, "C:P"), &[50.0, 25.0, 12.5]);
     close(&hist(&r, "C:D"), &[50.0, 75.0, 87.5]);
     close(&hist(&r, "C"), &[100.0, 100.0, 100.0]); // total mass conserved
+}
+
+#[test]
+fn partitioning_equilibrium_two_phase() {
+    // X=100 across solid+fluid (each fraction 0.5) with C_solid/C_fluid = Kd = 4.
+    // → solid 80, fluid 20 (mass ratio 4·(f_solid/f_fluid) = 4); total conserved.
+    let r = run(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 2, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1},
+        "elements": [
+          {"id": "C", "name": "C", "primitive": "cell",
+           "media": [{"medium": "solid", "fraction": {"value": 0.5, "unit": "1"}}, {"medium": "fluid", "fraction": {"value": 0.5, "unit": "1"}}],
+           "species": [{"species": "X", "initial_inventory": {"value": 100, "unit": "kg"}}],
+           "partitioning": [{"species": "X", "from_medium": "fluid", "to_medium": "solid", "coefficient": {"value": 4, "unit": "1"}}],
+           "save_results": {"time_history": true}}
+        ]}"#,
+    );
+    close(&hist(&r, "C:X@solid"), &[80.0, 80.0]);
+    close(&hist(&r, "C:X@fluid"), &[20.0, 20.0]);
+    close(&hist(&r, "C:X"), &[100.0, 100.0]);
+}
+
+#[test]
+fn species_transport_moves_mass_between_cells() {
+    // A species_transport link carries X from cell A to cell B at 10/step.
+    let r = run(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 5, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1},
+        "elements": [
+          {"id": "A", "name": "A", "primitive": "cell", "species": [{"species": "X", "initial_inventory": {"value": 100, "unit": "kg"}}], "save_results": {"time_history": true}},
+          {"id": "B", "name": "B", "primitive": "cell", "species": [{"species": "X", "initial_inventory": {"value": 0, "unit": "kg"}}], "save_results": {"time_history": true}},
+          {"id": "L", "name": "L", "primitive": "link", "species": "X", "source": "A", "target": "B", "rate": {"value": 10, "unit": "kg/d"}, "save_results": {"time_history": true}}
+        ]}"#,
+    );
+    close(&hist(&r, "A:X"), &[90.0, 80.0, 70.0, 60.0, 50.0]);
+    close(&hist(&r, "B:X"), &[10.0, 20.0, 30.0, 40.0, 50.0]);
+    close(&hist(&r, "L"), &[10.0, 10.0, 10.0, 10.0, 10.0]);
 }

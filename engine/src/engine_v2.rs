@@ -27,8 +27,8 @@ use crate::graph_v2::ModelGraphV2;
 use crate::model::QuantityOrFormula;
 use crate::model_v2::{
     ConvResponse, EffectMode, Element, FailureBasis, FilterStat, FixedValue, GateNode, MarkovStart,
-    Model, NodeRule, Primitive, QuantityExpr, RepairPolicy, TransitionRow, TriggerMode,
-    TriggerSpec, WithdrawalSpec,
+    Model, NodeRule, PartitionEntry, Primitive, QuantityExpr, RepairPolicy, TransitionRow,
+    TriggerMode, TriggerSpec, WithdrawalSpec,
 };
 use crate::sampling;
 
@@ -125,13 +125,35 @@ pub fn run(
         .collect();
     let decay_order = build_decay_order(&species_info);
 
-    // Per-(cell, species) result ids so each species' mass is observable.
+    // Cell media as (medium_id, fraction); medium-less cells get one implicit medium "".
+    // Fractions are assumed constant (evaluated structurally).
+    let cell_media: HashMap<String, Vec<(String, f64)>> = model.elements.iter().filter_map(|e| {
+        if let Primitive::Cell(c) = &e.primitive {
+            let media = if c.media.is_empty() {
+                vec![(String::new(), 1.0)]
+            } else {
+                c.media.iter()
+                    .map(|m| (m.medium.clone(), m.fraction.as_ref().map(qof_const).unwrap_or(1.0)))
+                    .collect()
+            };
+            Some((e.id().to_string(), media))
+        } else {
+            None
+        }
+    }).collect();
+
+    // Result ids: per-(cell, species) total, plus per-medium for multi-medium cells.
     let mut cell_species_ids: Vec<String> = Vec::new();
     for elem in &model.elements {
         if let Primitive::Cell(c) = &elem.primitive {
             if should_save_history(elem) || should_save_final(elem) {
                 for sp in &c.species {
                     cell_species_ids.push(format!("{}:{}", elem.id(), sp.species));
+                    if !c.media.is_empty() {
+                        for m in &c.media {
+                            cell_species_ids.push(format!("{}:{}@{}", elem.id(), sp.species, m.medium));
+                        }
+                    }
                 }
             }
         }
@@ -298,16 +320,21 @@ pub fn run(
             }
         }
 
-        // Cell mass per (cell, species) and finite source-inventory budgets.
-        let mut cell_mass: HashMap<(String, String), f64> = HashMap::new();
+        // Cell mass per (cell, species, medium) and finite source-inventory budgets.
+        let mut cell_mass: HashMap<(String, String, String), f64> = HashMap::new();
         let mut source_inv: HashMap<String, f64> = HashMap::new();
         {
             let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0);
             for elem in &model.elements {
                 if let Primitive::Cell(c) = &elem.primitive {
+                    let first_medium = cell_media.get(elem.id())
+                        .and_then(|m| m.first()).map(|(id, _)| id.clone()).unwrap_or_default();
                     for sp in &c.species {
                         if let Some(q) = &sp.initial_inventory {
-                            cell_mass.insert((elem.id().to_string(), sp.species.clone()), q.value);
+                            cell_mass.insert(
+                                (elem.id().to_string(), sp.species.clone(), first_medium.clone()),
+                                q.value,
+                            );
                         }
                     }
                     if let Some(inv) = &c.inventory {
@@ -481,6 +508,10 @@ pub fn run(
                 Vec::new();
             for elem in &model.elements {
                 if let Primitive::Link(l) = &elem.primitive {
+                    // species_transport links operate on cell mass; handled in the cell pass.
+                    if l.species.is_some() {
+                        continue;
+                    }
                     let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
                     let fires = match &l.schedule {
                         Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
@@ -824,12 +855,17 @@ pub fn run(
                 outputs.insert(target.clone(), Value::Scalar(*alloc));
             }
 
-            // ── Cell mass transport: source_release (finite inventory) + first-order decay
-            // and parent-first decay-chain propagation. Mass tracked per (cell, species). ──
+            // ── Cell mass transport: source_release, species_transport links, partitioning
+            // equilibrium, and decay chains. Mass tracked per (cell, species, medium). ──
             {
-                let mut cell_delta: HashMap<(String, String), f64> = HashMap::new();
+                let mut cell_delta: HashMap<(String, String, String), f64> = HashMap::new();
+                let mut st_link_out: Vec<(String, f64)> = Vec::new();
                 {
                     let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    let first_medium = |cell: &str| -> String {
+                        cell_media.get(cell).and_then(|m| m.first()).map(|(id, _)| id.clone()).unwrap_or_default()
+                    };
+                    // source_release: emit finite inventory into the target cell's first medium.
                     for elem in &model.elements {
                         if let Primitive::Cell(c) = &elem.primitive {
                             if let (Some(rate), Some(target)) = (&c.release_rate, &c.release_target) {
@@ -847,49 +883,119 @@ pub fn run(
                                         *b -= r;
                                         r
                                     }
-                                    None => want, // no finite inventory → unlimited source
+                                    None => want,
                                 };
                                 let sp = c.species.first().map(|s| s.species.clone()).unwrap_or_default();
-                                *cell_delta.entry((target.clone(), sp)).or_default() += released;
+                                *cell_delta.entry((target.clone(), sp, first_medium(target))).or_default() += released;
                             }
                         }
                     }
-                }
-                for ((cell, sp), amt) in cell_delta {
-                    *cell_mass.entry((cell, sp)).or_default() += amt;
-                }
-                // Decay each species (parents first) and ingrow daughters.
-                for elem in &model.elements {
-                    if let Primitive::Cell(_) = &elem.primitive {
-                        let cell = elem.id();
-                        for sp in &decay_order {
-                            let key = (cell.to_string(), sp.clone());
-                            let mass = match cell_mass.get(&key) {
-                                Some(&m) if m != 0.0 => m,
-                                _ => continue,
+                    // species_transport links: move a species (rate or fraction) between cells.
+                    for elem in &model.elements {
+                        if let Primitive::Link(l) = &elem.primitive {
+                            let (Some(species), Some(src), Some(tgt)) = (&l.species, &l.source, &l.target) else { continue };
+                            let src_medium = l.medium.clone().unwrap_or_else(|| first_medium(src));
+                            let tgt_medium = l.medium.clone().unwrap_or_else(|| first_medium(tgt));
+                            let src_mass = cell_mass.get(&(src.clone(), species.clone(), src_medium.clone())).copied().unwrap_or(0.0);
+                            let want = if let Some(rate) = &l.rate {
+                                (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0)
+                            } else if let Some(frac) = &l.fraction {
+                                (eval_qof_value(frac, &ctx)?.as_scalar() * src_mass).max(0.0)
+                            } else {
+                                0.0
                             };
-                            if let Some((Some(hl), products)) = species_info.get(sp) {
-                                let lambda = std::f64::consts::LN_2 / *hl;
-                                let decayed = mass * (1.0 - (-lambda * dt).exp());
-                                cell_mass.insert(key, mass - decayed);
-                                for (daughter, branching) in products {
-                                    *cell_mass.entry((cell.to_string(), daughter.clone())).or_default()
-                                        += decayed * *branching;
+                            let moved = want.min(src_mass);
+                            *cell_delta.entry((src.clone(), species.clone(), src_medium)).or_default() -= moved;
+                            *cell_delta.entry((tgt.clone(), species.clone(), tgt_medium)).or_default() += moved;
+                            st_link_out.push((elem.id().to_string(), moved));
+                        }
+                    }
+                }
+                for (id, v) in st_link_out {
+                    outputs.insert(id, Value::Scalar(v));
+                }
+                for (key, amt) in cell_delta {
+                    *cell_mass.entry(key).or_default() += amt;
+                }
+                // Trait partitioning_equilibrium: redistribute each species across media by Kd.
+                {
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    for elem in &model.elements {
+                        if let Primitive::Cell(c) = &elem.primitive {
+                            if c.partitioning.is_empty() {
+                                continue;
+                            }
+                            let media = cell_media.get(elem.id()).cloned().unwrap_or_default();
+                            if media.len() < 2 {
+                                continue;
+                            }
+                            let cell = elem.id();
+                            let mut species_set: HashSet<String> = c.species.iter().map(|s| s.species.clone()).collect();
+                            for p in &c.partitioning {
+                                species_set.insert(p.species.clone());
+                            }
+                            for sp in &species_set {
+                                let m_total: f64 = media.iter()
+                                    .map(|(med, _)| cell_mass.get(&(cell.to_string(), sp.clone(), med.clone())).copied().unwrap_or(0.0))
+                                    .sum();
+                                if m_total <= 0.0 {
+                                    continue;
+                                }
+                                let ratios = partition_ratios(sp, &media, &c.partitioning, &ctx)?;
+                                let denom: f64 = media.iter().zip(&ratios).map(|((_, f), r)| r * f).sum();
+                                if denom <= 0.0 {
+                                    continue;
+                                }
+                                for ((med, f), r) in media.iter().zip(&ratios) {
+                                    cell_mass.insert((cell.to_string(), sp.clone(), med.clone()), m_total * (r * f) / denom);
                                 }
                             }
                         }
                     }
                 }
-                // Publish cell outputs: total mass + per-species.
+                // Decay each (species, medium), parents first; daughters ingrow in the same medium.
+                for elem in &model.elements {
+                    if let Primitive::Cell(_) = &elem.primitive {
+                        let cell = elem.id();
+                        let media = cell_media.get(cell).cloned().unwrap_or_else(|| vec![(String::new(), 1.0)]);
+                        for sp in &decay_order {
+                            if let Some((Some(hl), products)) = species_info.get(sp) {
+                                let factor = (-std::f64::consts::LN_2 / *hl * dt).exp();
+                                for (med, _) in &media {
+                                    let key = (cell.to_string(), sp.clone(), med.clone());
+                                    let mass = match cell_mass.get(&key) {
+                                        Some(&m) if m != 0.0 => m,
+                                        _ => continue,
+                                    };
+                                    let decayed = mass * (1.0 - factor);
+                                    cell_mass.insert(key, mass - decayed);
+                                    for (daughter, branching) in products {
+                                        *cell_mass.entry((cell.to_string(), daughter.clone(), med.clone())).or_default()
+                                            += decayed * *branching;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Publish cell outputs: cell total, per-species total, and per-medium.
                 for elem in &model.elements {
                     if let Primitive::Cell(c) = &elem.primitive {
                         let cell = elem.id();
+                        let media = cell_media.get(cell).cloned().unwrap_or_else(|| vec![(String::new(), 1.0)]);
                         for sp in &c.species {
-                            let m = cell_mass.get(&(cell.to_string(), sp.species.clone())).copied().unwrap_or(0.0);
-                            outputs.insert(format!("{cell}:{}", sp.species), Value::Scalar(m));
+                            let mut sp_total = 0.0;
+                            for (med, _) in &media {
+                                let m = cell_mass.get(&(cell.to_string(), sp.species.clone(), med.clone())).copied().unwrap_or(0.0);
+                                sp_total += m;
+                                if !c.media.is_empty() {
+                                    outputs.insert(format!("{cell}:{}@{}", sp.species, med), Value::Scalar(m));
+                                }
+                            }
+                            outputs.insert(format!("{cell}:{}", sp.species), Value::Scalar(sp_total));
                         }
                         let total: f64 = cell_mass.iter()
-                            .filter(|((cid, _), _)| cid == cell)
+                            .filter(|((cid, _, _), _)| cid == cell)
                             .map(|(_, &m)| m)
                             .sum();
                         outputs.insert(cell.to_string(), Value::Scalar(total));
@@ -1099,6 +1205,54 @@ fn eval_qexpr(qe: &QuantityExpr, ctx: &EvalCtx) -> Result<f64, EngineError> {
         QuantityExpr::Quantity(q) => Ok(q.value),
         QuantityExpr::Ast(a) => Ok(eval_ast(a, ctx)?.as_scalar()),
     }
+}
+
+/// Structural (constant) value of a quantity_or_formula; expressions default to 1.0.
+fn qof_const(q: &QuantityOrFormula) -> f64 {
+    match q {
+        QuantityOrFormula::Quantity(x) => x.value,
+        _ => 1.0,
+    }
+}
+
+/// Per-medium concentration ratios r_m (reference = first medium, r=1) for one species,
+/// derived from the partition coefficients (r_to = Kd·r_from). Unconnected media → 1.
+/// Equilibrium mass in medium m is then M·(r_m·f_m)/Σ(r_k·f_k).
+fn partition_ratios(
+    species: &str,
+    media: &[(String, f64)],
+    entries: &[PartitionEntry],
+    ctx: &EvalCtx,
+) -> Result<Vec<f64>, EngineError> {
+    let n = media.len();
+    let idx: HashMap<&str, usize> = media.iter().enumerate().map(|(i, (m, _))| (m.as_str(), i)).collect();
+    let mut r = vec![f64::NAN; n];
+    r[0] = 1.0;
+    for _ in 0..n {
+        let mut changed = false;
+        for e in entries.iter().filter(|e| e.species == species) {
+            let (Some(&fi), Some(&ti)) = (idx.get(e.from_medium.as_str()), idx.get(e.to_medium.as_str())) else {
+                continue;
+            };
+            let kd = eval_qof_value(&e.coefficient, ctx)?.as_scalar();
+            if r[fi].is_finite() && !r[ti].is_finite() {
+                r[ti] = kd * r[fi];
+                changed = true;
+            } else if r[ti].is_finite() && !r[fi].is_finite() && kd != 0.0 {
+                r[fi] = r[ti] / kd;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for x in &mut r {
+        if !x.is_finite() {
+            *x = 1.0;
+        }
+    }
+    Ok(r)
 }
 
 /// Topologically order species so each parent precedes its decay products (so a chain

@@ -110,13 +110,18 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   convolution kernel on links. The link buffer became a release-step→amount map (RTD release
   times overlap across steps); decay applies per residence time; plug flow is the no-dispersion
   fallback. Test: a single pulse spreads with mass conserved.
-- **Remaining M4 (part 2b):** `partitioning_equilibrium` (Kd redistribution across media —
-  needs the per-medium mass model; two-phase closed-form, ≥3-phase linear solve) and link
-  `species_transport` (advective/diffusive fluxes between cells), plus concentration
-  `C = mass/(volume·fraction)`. These require extending `cell_mass` from (cell, species) to
-  (cell, species, medium).
+- **per-medium mass + `partitioning_equilibrium` + `species_transport`** (M4 part 2b) —
+  `cell_mass` extended to `(cell, species, medium)` (medium-less cells use one implicit medium).
+  Partitioning redistributes each species across media by concentration ratios propagated from
+  the Kd graph (`r_to = Kd·r_from`; mass_m = M·r_m·f_m/Σ) — closed-form for any number of media,
+  no linear solver. `species_transport` links move a species (rate/fraction) between cells.
+  Per-medium mass exposed as `"<cell>:<species>@<medium>"`. Tests: two-phase partitioning
+  (Kd=4 → 80/20 split), species transport between cells.
+- **M4 known limits:** concentration is exposed as per-medium *mass* (true `C = mass/(volume·
+  fraction)` derivable but not emitted); `species_transport` uses rate/fraction, not the
+  detailed advective/diffusive `fluxes[]`; partitioning fractions assumed constant.
 
-Then M5: SI units + flip `run()` to the v2 core + retire the v1 engine.
+**M4 complete.** Then M5: SI units + flip `run()` to the v2 core + retire the v1 engine.
 
 ## 1. What v2 changes (summary)
 
