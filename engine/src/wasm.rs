@@ -246,7 +246,7 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
-        DistributionKind::Beta { alpha, beta } => match param {
+        DistributionKind::Beta { alpha, beta, .. } => match param {
             "alpha" => alpha.value = value,
             "beta" => beta.value = value,
             _ => return Err(format!("unknown parameter '{param}'")),
@@ -272,6 +272,11 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
 
         DistributionKind::Discrete { .. } => {
             return Err("parameter editing not supported for discrete distributions".into());
+        }
+
+        // v2 distribution families: no in-browser parameter-editing hooks wired yet.
+        _ => {
+            return Err("parameter editing not supported for this distribution".to_string());
         }
     }
     Ok(())
