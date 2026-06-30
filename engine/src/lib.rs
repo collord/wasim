@@ -8,6 +8,7 @@ pub mod model;
 pub mod model_v2;
 pub mod params;
 pub mod sampling;
+pub mod summary;
 pub mod units;
 pub mod v1_import;
 pub mod v2_parse;

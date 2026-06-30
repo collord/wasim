@@ -1,20 +1,23 @@
-//! Browser-facing WASM API.
+//! Browser-facing WASM API — the bridge onto the **v2 engine core**.
 //!
-//! Build with:
-//!   wasm-pack build --target web -- --features wasm
+//! `WasmEngine` accepts either v1 or v2-native model JSON (v1 is normalized into the v2
+//! primitive model), holds a single v2 `Model` + `ModelGraphV2`, and runs via `run_v2`.
 //!
-//! JS usage:
-//!   import init, { WasmEngine } from './pkg/wasim_engine.js';
-//!   await init();
-//!   const engine = new WasmEngine(modelJsonString);
-//!   const results = JSON.parse(engine.run_json('{"n_realizations":1000,"seed":42}'));
+//! The summary is enriched (`primitive`, `value_rule`, active `traits`, `inputs`, `value`)
+//! while staying backward-compatible: the legacy `type` field is still emitted (the original
+//! v1 type for imported models, else a mapping from the primitive/value_rule), so the current
+//! v1 frontend keeps working until it migrates to the richer fields.
+//!
+//! Build: `wasm-pack build --target web --out-dir pkg -- --features wasm`
 
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
-use crate::engine::{run, RunConfig};
-use crate::graph::ModelGraph;
-use crate::model::{DistributionKind, ElementKind, WasimModel};
+use crate::engine::RunConfig;
+use crate::engine_v2::run as run_v2;
+use crate::graph_v2::ModelGraphV2;
+use crate::model::{DistributionKind, WasimModel};
+use crate::model_v2::{self as v2, FixedValue, NodeRule, Primitive};
 
 // ── JS-facing config ──────────────────────────────────────────────────────────
 
@@ -28,193 +31,122 @@ struct JsRunConfig {
 
 // ── WasmEngine ────────────────────────────────────────────────────────────────
 
-/// Loaded and validated simulation model. Constructed from a model.json string.
+/// Loaded and validated simulation model (internally v2). Constructed from v1 or v2 JSON.
 #[wasm_bindgen]
 pub struct WasmEngine {
-    model: WasimModel,
-    graph: ModelGraph,
+    model: v2::Model,
+    graph: ModelGraphV2,
 }
 
 #[wasm_bindgen]
 impl WasmEngine {
-    /// Parse and validate `model_json`. Throws a `JsError` on parse or graph errors.
+    /// Parse `model_json` (v2-native if its first element has a `primitive` field, else v1 →
+    /// normalized) and build the dependency graph. Throws on parse/graph errors.
     #[wasm_bindgen(constructor)]
     pub fn new(model_json: &str) -> Result<WasmEngine, JsError> {
-        let model: WasimModel = serde_json::from_str(model_json)
-            .map_err(|e| JsError::new(&format!("model parse error: {e}")))?;
-        let graph = ModelGraph::build(&model)
+        let model = load_v2(model_json).map_err(|e| JsError::new(&e))?;
+        let graph = ModelGraphV2::build(&model)
             .map_err(|e| JsError::new(&format!("model graph error: {e}")))?;
         Ok(WasmEngine { model, graph })
     }
 
-    /// Return the current model.json (including any in-browser parameter edits).
+    /// Return the current (v2) model JSON, including any in-browser parameter edits.
     pub fn model_json(&self) -> String {
         serde_json::to_string(&self.model).unwrap_or_default()
     }
 
-    /// Return a lightweight model summary for the frontend graph and dashboard views.
-    ///
-    /// JSON shape:
-    /// ```json
-    /// {
-    ///   "element_count": 15,
-    ///   "elements": [{ "id", "name", "type", "container", "editable" }, ...],
-    ///   "containers": [...],
-    ///   "simulation_settings": { ... }
-    /// }
-    /// ```
+    /// Lightweight model summary for the graph/dashboard views. Each element carries the
+    /// legacy `type` plus the v2 `primitive`/`value_rule`/`traits`/`inputs`/`value`.
     pub fn model_summary(&self) -> String {
-        #[derive(serde::Serialize)]
-        struct Summary<'a> {
-            element_count: usize,
-            elements: Vec<ElemSummary<'a>>,
-            containers: &'a [crate::model::ContainerDef],
-            simulation_settings: &'a crate::model::SimulationSettings,
-        }
-
-        #[derive(serde::Serialize)]
-        struct ElemSummary<'a> {
-            id: &'a str,
-            name: &'a str,
-            #[serde(rename = "type")]
-            kind: &'static str,
-            container: Option<&'a str>,
-            editable: bool,
-            unit: &'a str,
-            description: Option<&'a str>,
-        }
-
-        let elements: Vec<ElemSummary> = self
-            .model
-            .elements
-            .iter()
-            .map(|e| {
-                let (kind_str, editable) = match &e.kind {
-                    ElementKind::Constant { editable, .. } => ("constant", *editable),
-                    ElementKind::RandomVariable { .. } => ("random_variable", true),
-                    ElementKind::Expression { .. } => ("expression", false),
-                    ElementKind::Accumulator { .. } => ("accumulator", false),
-                    ElementKind::Timeseries { .. } => ("timeseries", false),
-                    ElementKind::Lookup { .. } => ("lookup", false),
-                    ElementKind::Delay { .. } => ("delay", false),
-                    ElementKind::Script { .. } => ("script", false),
-                    ElementKind::Array { .. } => ("array", false),
-                    ElementKind::StochasticProcess { .. } => ("stochastic_process", false),
-                };
-                ElemSummary {
-                    id: &e.id,
-                    name: &e.name,
-                    kind: kind_str,
-                    container: e.container.as_deref(),
-                    editable,
-                    unit: e.primary_unit(),
-                    description: e.description.as_deref(),
-                }
-            })
-            .collect();
-
-        let summary = Summary {
-            element_count: elements.len(),
-            elements,
-            containers: &self.model.containers,
-            simulation_settings: &self.model.simulation_settings,
-        };
-
-        serde_json::to_string(&summary).unwrap_or_default()
+        crate::summary::summary_json(&self.model)
     }
 
-    /// Run the simulation and return results as a JSON string.
-    ///
-    /// `config_json` keys (all optional — model defaults apply when absent):
-    ///   `n_realizations: number`
-    ///   `seed: number`
+    /// Run the simulation through the v2 core and return results as a JSON string.
     pub fn run_json(&self, config_json: &str) -> Result<String, JsError> {
-        let js_config: JsRunConfig =
-            serde_json::from_str(config_json).unwrap_or_default();
+        let js: JsRunConfig = serde_json::from_str(config_json).unwrap_or_default();
         let config = RunConfig {
-            n_realizations: js_config.n_realizations,
-            seed: js_config.seed,
-            duration_override: js_config.duration_override,
-            timestep_override: js_config.timestep_override,
+            n_realizations: js.n_realizations,
+            seed: js.seed,
+            duration_override: js.duration_override,
+            timestep_override: js.timestep_override,
         };
-        let results = run(&self.model, &self.graph, &config)
+        let results = run_v2(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;
-        serde_json::to_string(&results)
-            .map_err(|e| JsError::new(&e.to_string()))
+        serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
     }
 
-    /// Update a `constant` element's value before running.
-    /// `value` is in the element's declared unit.
+    /// Update an editable fixed value (the v2 analog of a v1 `constant`).
     pub fn set_constant(&mut self, id: &str, value: f64) -> Result<(), JsError> {
         for elem in &mut self.model.elements {
-            if elem.id != id {
+            if elem.base.id != id {
                 continue;
             }
-            return match &mut elem.kind {
-                ElementKind::Constant { value: v, .. } => {
-                    v.value = value;
-                    Ok(())
+            if let Primitive::Node(n) = &mut elem.primitive {
+                if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &mut n.rule {
+                    q.value = value;
+                    return Ok(());
                 }
-                _ => Err(JsError::new(&format!("'{id}' is not a constant element"))),
-            };
+            }
+            return Err(JsError::new(&format!("'{id}' is not an editable fixed value")));
         }
         Err(JsError::new(&format!("element '{id}' not found")))
     }
 
-    /// Update a named parameter of a `random_variable` element's distribution.
-    ///
-    /// `param_name` is the distribution parameter key (e.g. `"mean"`, `"stddev"`).
-    /// `value` is the new magnitude in the existing declared unit.
-    pub fn set_rv_param(
-        &mut self,
-        id: &str,
-        param_name: &str,
-        value: f64,
-    ) -> Result<(), JsError> {
+    /// Update a distribution parameter of a `sample` node (the v2 analog of `random_variable`).
+    pub fn set_rv_param(&mut self, id: &str, param_name: &str, value: f64) -> Result<(), JsError> {
         for elem in &mut self.model.elements {
-            if elem.id != id {
+            if elem.base.id != id {
                 continue;
             }
-            return match &mut elem.kind {
-                ElementKind::RandomVariable { distribution, .. } => {
-                    set_dist_param(&mut distribution.kind, param_name, value)
-                        .map_err(|msg| JsError::new(&msg))
+            if let Primitive::Node(n) = &mut elem.primitive {
+                if let NodeRule::Sample { distribution, .. } = &mut n.rule {
+                    return set_dist_param(&mut distribution.kind, param_name, value)
+                        .map_err(|msg| JsError::new(&msg));
                 }
-                _ => Err(JsError::new(&format!("'{id}' is not a random_variable"))),
-            };
+            }
+            return Err(JsError::new(&format!("'{id}' is not a sample node")));
         }
         Err(JsError::new(&format!("element '{id}' not found")))
     }
 
-    /// Return the topological evaluation order as a JSON array of element IDs.
-    /// Useful for debugging model wiring in the frontend.
+    /// Topological evaluation order as a JSON array of element IDs.
     pub fn topo_order_json(&self) -> String {
         serde_json::to_string(&self.graph.topo_order).unwrap_or_default()
+    }
+}
+
+// ── Loading ───────────────────────────────────────────────────────────────────
+
+fn load_v2(json: &str) -> Result<v2::Model, String> {
+    let is_v2 = serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| {
+            v.get("elements")
+                .and_then(|e| e.as_array())
+                .and_then(|a| a.first())
+                .map(|f| f.get("primitive").is_some())
+        })
+        .unwrap_or(false);
+    if is_v2 {
+        crate::v2_parse::parse(json).map_err(|e| format!("v2 model parse error: {e}"))
+    } else {
+        let m: WasimModel =
+            serde_json::from_str(json).map_err(|e| format!("v1 model parse error: {e}"))?;
+        Ok(crate::v1_import::normalize(&m))
     }
 }
 
 // ── Distribution parameter mutation ──────────────────────────────────────────
 
 fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Result<(), String> {
+    use crate::model::{Quantity, QuantityOrFormula};
+    let qof = |v: f64, unit: String| QuantityOrFormula::Quantity(Quantity { value: v, unit, display_unit: None });
     match kind {
-        DistributionKind::Normal { mean, stddev } => match param {
-            "mean" => *mean = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
-                value, unit: mean.unit().to_string(), display_unit: None,
-            }),
-            "stddev" => *stddev = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
-                value, unit: stddev.unit().to_string(), display_unit: None,
-            }),
-            _ => return Err(format!("unknown parameter '{param}'")),
-        },
-
-        DistributionKind::Lognormal { mean, stddev }
+        DistributionKind::Normal { mean, stddev }
+        | DistributionKind::Lognormal { mean, stddev }
         | DistributionKind::LognormalMoments { mean, stddev } => match param {
-            "mean" => *mean = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
-                value, unit: mean.unit().to_string(), display_unit: None,
-            }),
-            "stddev" => *stddev = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
-                value, unit: stddev.unit().to_string(), display_unit: None,
-            }),
+            "mean" => *mean = qof(value, mean.unit().to_string()),
+            "stddev" => *stddev = qof(value, stddev.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
@@ -224,7 +156,8 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
-        DistributionKind::Triangular { min, mode, max } => match param {
+        DistributionKind::Triangular { min, mode, max }
+        | DistributionKind::Pert { min, mode, max } => match param {
             "min" => min.value = value,
             "mode" => mode.value = value,
             "max" => max.value = value,
@@ -232,9 +165,7 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
         },
 
         DistributionKind::Exponential { mean } => match param {
-            "mean" => *mean = crate::model::QuantityOrFormula::Quantity(crate::model::Quantity {
-                value, unit: mean.unit().to_string(), display_unit: None,
-            }),
+            "mean" => *mean = qof(value, mean.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
@@ -270,14 +201,7 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
-        DistributionKind::Discrete { .. } => {
-            return Err("parameter editing not supported for discrete distributions".into());
-        }
-
-        // v2 distribution families: no in-browser parameter-editing hooks wired yet.
-        _ => {
-            return Err("parameter editing not supported for this distribution".to_string());
-        }
+        _ => return Err("parameter editing not supported for this distribution".to_string()),
     }
     Ok(())
 }
