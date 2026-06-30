@@ -121,7 +121,23 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   fraction)` derivable but not emitted); `species_transport` uses rate/fraction, not the
   detailed advective/diffusive `fluxes[]`; partitioning fractions assumed constant.
 
-**M4 complete.** Then M5: SI units + flip `run()` to the v2 core + retire the v1 engine.
+**M4 complete.**
+
+**M5 in progress.**
+
+- **`run()` flip done** — added canonical entry points `simulate(&WasimModel, config)` and
+  `simulate_json(json, config)` that route all input through the v2 core (v1 → normalize →
+  v2 graph → v2 run; v2-native → parse_v2 → run). The v2 engine is now *the* engine. The v1
+  `engine.rs` is retained only as the equivalence reference behind the corpus test (deleting
+  it would remove the v2≡v1 cross-check).
+- **Version-discriminated cycle policy** (semantics §9): `ModelGraphV2::build` rejects cycles
+  in v2-native models (`from_v1 == false`) and warns-and-skips in v1-imported models (matching
+  the v1 engine, preserving corpus equivalence). Tests: flip_v2 (4).
+  - *Note:* the spec's "implicit-lag" refinement for v1-imported cycles is deferred — the
+    current warn-and-skip matches the validated v1 behavior, so switching to implicit-lag would
+    diverge from the equivalence baseline.
+- **Remaining M5: SI unit normalization.** This has a real design tension (see below) and is
+  the last open decision.
 
 ## 1. What v2 changes (summary)
 

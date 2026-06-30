@@ -24,3 +24,38 @@ pub use model_v2::Model as ModelV2;
 pub use params::ModelParams;
 pub use v1_import::normalize as normalize_v1;
 pub use v2_parse::parse as parse_v2;
+
+// ── Canonical entry points ────────────────────────────────────────────────────
+//
+// The v2 engine core (`run_v2`) is the engine. All input flows through it: a v1
+// model is normalized into the v2 primitive model first. The legacy v1 engine
+// (`run`) is retained only as the equivalence reference behind the corpus test.
+
+/// Run a v1 model through the v2 engine core (normalize → v2 graph → v2 run).
+pub fn simulate(model: &WasimModel, config: &RunConfig) -> Result<SimulationResults, EngineError> {
+    let v2 = normalize_v1(model);
+    let graph = ModelGraphV2::build(&v2)?;
+    run_v2(&v2, &graph, config)
+}
+
+/// Load a model from JSON — v2-native when its first element carries a `primitive`
+/// field, else v1 — and run it through the v2 engine core.
+pub fn simulate_json(json: &str, config: &RunConfig) -> Result<SimulationResults, EngineError> {
+    if is_v2_native(json)? {
+        let m = parse_v2(json)?;
+        let graph = ModelGraphV2::build(&m)?;
+        run_v2(&m, &graph, config)
+    } else {
+        let m: WasimModel = serde_json::from_str(json)?;
+        simulate(&m, config)
+    }
+}
+
+fn is_v2_native(json: &str) -> Result<bool, EngineError> {
+    let v: serde_json::Value = serde_json::from_str(json)?;
+    Ok(v.get("elements")
+        .and_then(|e| e.as_array())
+        .and_then(|arr| arr.first())
+        .map(|first| first.get("primitive").is_some())
+        .unwrap_or(false))
+}

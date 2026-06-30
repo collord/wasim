@@ -72,6 +72,14 @@ impl ModelGraphV2 {
         }
 
         let skipped_cycle_ids: Vec<String> = cyclic.iter().map(|&n| graph[n].to_string()).collect();
+
+        // Version-discriminated cycle policy (semantics §9): v2-native models are expected to
+        // be cycle-free by construction, so reject; v1-imported models warn and skip the
+        // cyclic elements (matching the v1 engine's behavior, preserving corpus equivalence).
+        if !model.from_v1 {
+            let id = skipped_cycle_ids.first().cloned().unwrap_or_default();
+            return Err(EngineError::CycleDetected(id));
+        }
         eprintln!(
             "warn: {} element(s) skipped due to dependency cycles: {}",
             skipped_cycle_ids.len(),
