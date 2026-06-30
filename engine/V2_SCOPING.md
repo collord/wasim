@@ -136,8 +136,19 @@ version-discriminated cycle policy (semantics §9) itself; SI unit normalization
   - *Note:* the spec's "implicit-lag" refinement for v1-imported cycles is deferred — the
     current warn-and-skip matches the validated v1 behavior, so switching to implicit-lag would
     diverge from the equivalence baseline.
-- **Remaining M5: SI unit normalization.** This has a real design tension (see below) and is
-  the last open decision.
+- **Units (registry + validation) done** — `units.rs`: SI registry (time/length/mass/volume/
+  dimensionless + composite `A/B`), a `convert(value, from, to)` utility, and a load-time
+  `validate` pass that *warns* on unrecognized units and rate/timestep time-scale mismatches.
+  Wired into `simulate`/`simulate_json`. Numeric behavior is unchanged (declared units), so the
+  v1≡v2 equivalence is preserved. Tests: units_v2 (5).
+  - *Deliberately not done:* full SI normalization at load — it conflicts with the calendar
+    (`time_ref` month/day) and GBM time-scaling, and would break the v1≡v2 corpus equivalence
+    (v2 in SI vs v1 in declared units). A separate, golden-value-re-baselining effort if wanted.
+
+**M5 complete. The v2 migration is feature-complete:** all six primitives + every trait, the
+v2-native parser, the v1→v2 normalizer, the version-discriminated cycle policy, and the canonical
+`simulate`/`simulate_json` entry points routing all input through the v2 core. 60 tests green
+(14 v1 reference + 46 v2); the v1 engine is retained only as the equivalence reference.
 
 ## 1. What v2 changes (summary)
 

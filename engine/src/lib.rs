@@ -8,6 +8,7 @@ pub mod model;
 pub mod model_v2;
 pub mod params;
 pub mod sampling;
+pub mod units;
 pub mod v1_import;
 pub mod v2_parse;
 
@@ -34,6 +35,7 @@ pub use v2_parse::parse as parse_v2;
 /// Run a v1 model through the v2 engine core (normalize → v2 graph → v2 run).
 pub fn simulate(model: &WasimModel, config: &RunConfig) -> Result<SimulationResults, EngineError> {
     let v2 = normalize_v1(model);
+    warn_units(&v2);
     let graph = ModelGraphV2::build(&v2)?;
     run_v2(&v2, &graph, config)
 }
@@ -43,11 +45,18 @@ pub fn simulate(model: &WasimModel, config: &RunConfig) -> Result<SimulationResu
 pub fn simulate_json(json: &str, config: &RunConfig) -> Result<SimulationResults, EngineError> {
     if is_v2_native(json)? {
         let m = parse_v2(json)?;
+        warn_units(&m);
         let graph = ModelGraphV2::build(&m)?;
         run_v2(&m, &graph, config)
     } else {
         let m: WasimModel = serde_json::from_str(json)?;
         simulate(&m, config)
+    }
+}
+
+fn warn_units(model: &ModelV2) {
+    for w in units::validate(model) {
+        eprintln!("warn: unit check: {w}");
     }
 }
 
