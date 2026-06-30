@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
 import dagre from '@dagrejs/dagre'
 import { useStore } from '../../store'
-import type { ModelElement } from '../../types'
+import type { ElementSummary } from '../../types'
 
 // ── Layout constants ───────────────────────────────────────────────────────────
 
@@ -23,6 +23,14 @@ const TYPE_STROKE: Record<string, string> = {
   lookup:          '#0891b2',
   delay:           '#ea580c',
   script:          '#e11d48',
+  // v2 primitives
+  stock:           '#d97706',
+  link:            '#0d9488',
+  event:           '#e11d48',
+  gate:            '#4f46e5',
+  cell:            '#65a30d',
+  species:         '#64748b',
+  medium:          '#64748b',
 }
 
 const TYPE_BG: Record<string, string> = {
@@ -34,6 +42,14 @@ const TYPE_BG: Record<string, string> = {
   lookup:          '#ecfeff',
   delay:           '#fff7ed',
   script:          '#fff1f2',
+  // v2 primitives
+  stock:           '#fffbeb',
+  link:            '#f0fdfa',
+  event:           '#fff1f2',
+  gate:            '#eef2ff',
+  cell:            '#f7fee7',
+  species:         '#f8fafc',
+  medium:          '#f8fafc',
 }
 
 // ── Type icons (20 × 20 coordinate space) ─────────────────────────────────────
@@ -121,17 +137,16 @@ interface Layout {
 
 // ── Dagre layout ──────────────────────────────────────────────────────────────
 
-function buildLayout(elements: ModelElement[], unitMap: Record<string, string>, descMap: Record<string, string | null>): Layout {
+function buildLayout(elements: ElementSummary[], unitMap: Record<string, string>, descMap: Record<string, string | null>): Layout {
   const knownIds = new Set(elements.map((e) => e.id))
 
   // Partition: constants with no explicit container → const_group
   // Everything else → individual element node
-  const ungroupedConstants: ModelElement[] = []
-  const individualElems: ModelElement[] = []
+  const ungroupedConstants: ElementSummary[] = []
+  const individualElems: ElementSummary[] = []
 
   for (const e of elements) {
-    const container = (((e as unknown) as Record<string, unknown>).container as string | null) ?? null
-    if (e.type === 'constant' && !container) {
+    if (e.type === 'constant' && !e.container) {
       ungroupedConstants.push(e)
     } else {
       individualElems.push(e)
@@ -166,8 +181,7 @@ function buildLayout(elements: ModelElement[], unitMap: Record<string, string>, 
   for (const e of elements) {
     const toNode = nodeOf.get(e.id)
     if (!toNode) continue
-    const inputs = (((e as unknown) as Record<string, unknown>).inputs as string[]) ?? []
-    for (const src of inputs) {
+    for (const src of e.inputs) {
       if (!knownIds.has(src)) continue
       const fromNode = nodeOf.get(src)
       if (!fromNode || fromNode === toNode) continue
@@ -249,7 +263,6 @@ function trunc(s: string, n: number) { return s.length > n ? s.slice(0, n - 1) +
 // ── Graph tab ─────────────────────────────────────────────────────────────────
 
 export function GraphTab() {
-  const parsedModel  = useStore((s) => s.parsedModel)
   const modelSummary = useStore((s) => s.modelSummary)
 
   const unitMap = useMemo(() =>
@@ -261,8 +274,8 @@ export function GraphTab() {
   [modelSummary])
 
   const layout = useMemo(() =>
-    parsedModel ? buildLayout(parsedModel.elements, unitMap, descMap) : null,
-  [parsedModel, unitMap, descMap])
+    modelSummary ? buildLayout(modelSummary.elements, unitMap, descMap) : null,
+  [modelSummary, unitMap, descMap])
 
   // ── Pan / zoom ──────────────────────────────────────────────────────────────
   const [tx, setTx] = useState(0)
@@ -311,7 +324,7 @@ export function GraphTab() {
     setScale(s); setTx((sw - lw * s) / 2); setTy((sh - lh * s) / 2)
   }
 
-  if (!parsedModel || !layout) {
+  if (!modelSummary || !layout) {
     return <p className="py-12 text-center text-sm text-slate-400">No model loaded.</p>
   }
 

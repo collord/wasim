@@ -353,7 +353,7 @@ export function ResultsTab() {
   const results = useStore((s) => s.results)
   const selectedId = useStore((s) => s.selectedResultId)
   const setSelected = useStore((s) => s.setSelectedResultId)
-  const parsedModel = useStore((s) => s.parsedModel)
+  const modelSummary = useStore((s) => s.modelSummary)
   const status = useStore((s) => s.status)
 
   const [plotIds, setPlotIds] = useState<string[]>([])
@@ -387,14 +387,8 @@ export function ResultsTab() {
       ? plotIds
       : [activeId].filter(Boolean)
 
-  const timeUnit = parsedModel?.simulation_settings.timestep.unit ?? ''
+  const timeUnit = modelSummary?.simulation_settings.timestep.unit ?? ''
   const activeElem: ElementResults | undefined = activeId ? results.elements[activeId] : undefined
-
-  function togglePlot(id: string) {
-    setPlotIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
-  }
 
   const plotSeries = effectivePlotIds
     .map((id, idx) => {

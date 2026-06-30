@@ -37,7 +37,6 @@ interface State {
   // Model
   modelJson: string | null
   modelFilename: string | null
-  parsedModel: ModelJson | null
   modelSummary: ModelSummary | null
 
   // Active tab
@@ -82,7 +81,6 @@ interface Actions {
 export const useStore = create<State & Actions>((set, get) => ({
   modelJson: null,
   modelFilename: null,
-  parsedModel: null,
   modelSummary: null,
   activeTab: 'dashboard',
   status: 'idle',
@@ -97,7 +95,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   simTimestepUnit: 'yr',
 
   loadModel(json, filename) {
-    let parsed: ModelJson | null = null
+    // Lightweight parse for sim-settings only (top level is format-agnostic, v1 or v2).
+    // Element rendering/editing is driven entirely by the engine's model_summary.
+    let parsed: ModelJson
     try {
       parsed = JSON.parse(json) as ModelJson
     } catch {
@@ -108,7 +108,6 @@ export const useStore = create<State & Actions>((set, get) => ({
     set({
       modelJson: json,
       modelFilename: filename ?? null,
-      parsedModel: parsed,
       modelSummary: null,
       status: 'idle',
       results: null,
@@ -125,41 +124,38 @@ export const useStore = create<State & Actions>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   setConstant(id, value) {
-    // Update local parsedModel so the form reflects the edit immediately
-    const pm = get().parsedModel
-    if (!pm) return
-    const elements = pm.elements.map((e) => {
-      if (e.id === id && e.type === 'constant') {
-        const c = e as import('./types').ConstantElement
-        return { ...c, value: { ...c.value, value } }
-      }
-      return e
-    })
-    set({ parsedModel: { ...pm, elements } })
+    // Echo the edit into the summary so the form reflects it immediately.
+    const sm = get().modelSummary
+    if (sm) {
+      set({
+        modelSummary: {
+          ...sm,
+          elements: sm.elements.map((e) => (e.id === id ? { ...e, value } : e)),
+        },
+      })
+    }
     postToWorker({ type: 'set_constant', element_id: id, value })
   },
 
   setRvParam(id, param, value) {
-    // Update local parsedModel distribution parameter
-    const pm = get().parsedModel
-    if (!pm) return
-    const elements = pm.elements.map((e) => {
-      if (e.id !== id || e.type !== 'random_variable') return e
-      const rv = e as import('./types').RandomVariableElement
-      const oldParam = rv.distribution.parameters[param]
-      const updatedParam =
-        typeof oldParam === 'object' && oldParam !== null
-          ? { ...oldParam, value }
-          : value
-      return {
-        ...rv,
-        distribution: {
-          ...rv.distribution,
-          parameters: { ...rv.distribution.parameters, [param]: updatedParam },
+    const sm = get().modelSummary
+    if (sm) {
+      set({
+        modelSummary: {
+          ...sm,
+          elements: sm.elements.map((e) => {
+            if (e.id !== id || !e.dist) return e
+            const old = e.dist.parameters[param]
+            const updated =
+              typeof old === 'object' && old !== null ? { ...old, value } : value
+            return {
+              ...e,
+              dist: { ...e.dist, parameters: { ...e.dist.parameters, [param]: updated } },
+            }
+          }),
         },
-      }
-    })
-    set({ parsedModel: { ...pm, elements } })
+      })
+    }
     postToWorker({ type: 'set_rv_param', element_id: id, param_name: param, value })
   },
 
@@ -184,23 +180,21 @@ export const useStore = create<State & Actions>((set, get) => ({
   setSelectedResultId: (id) => set({ selectedResultId: id }),
 
   saveParameters() {
-    const { parsedModel, modelFilename, nRealizations, seed, simDuration, simTimestep } = get()
-    if (!parsedModel) return
+    const { modelSummary, modelFilename, nRealizations, seed, simDuration, simTimestep } = get()
+    if (!modelSummary) return
 
     const constants: Record<string, number> = {}
     const rv_params: Record<string, Record<string, number>> = {}
 
-    for (const elem of parsedModel.elements) {
-      if (elem.type === 'constant' && (elem as import('./types').ConstantElement).editable) {
-        const c = elem as import('./types').ConstantElement
-        constants[c.id] = c.value.value
-      } else if (elem.type === 'random_variable') {
-        const rv = elem as import('./types').RandomVariableElement
+    for (const e of modelSummary.elements) {
+      if (e.value_rule === 'fixed' && e.editable && e.value !== null) {
+        constants[e.id] = e.value
+      } else if (e.value_rule === 'sample' && e.dist) {
         const params: Record<string, number> = {}
-        for (const [k, v] of Object.entries(rv.distribution.parameters)) {
+        for (const [k, v] of Object.entries(e.dist.parameters)) {
           params[k] = typeof v === 'number' ? v : (v as { value: number }).value
         }
-        rv_params[rv.id] = params
+        rv_params[e.id] = params
       }
     }
 

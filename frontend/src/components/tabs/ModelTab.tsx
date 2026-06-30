@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useStore } from '../../store'
 
 const TYPE_COLOR: Record<string, string> = {
+  // legacy v1 types / node value_rules
   constant: 'bg-slate-100 text-slate-700',
   random_variable: 'bg-blue-100 text-blue-700',
   expression: 'bg-violet-100 text-violet-700',
@@ -10,38 +11,34 @@ const TYPE_COLOR: Record<string, string> = {
   lookup: 'bg-cyan-100 text-cyan-700',
   delay: 'bg-orange-100 text-orange-700',
   script: 'bg-rose-100 text-rose-700',
-}
-
-function elementInputIds(raw: Record<string, unknown>): string[] {
-  const ids: string[] = []
-  const inputs = raw['inputs']
-  if (Array.isArray(inputs)) ids.push(...(inputs as string[]))
-  const input = raw['input']
-  if (typeof input === 'string') ids.push(input)
-  return ids
+  // v2 primitives
+  stock: 'bg-amber-100 text-amber-700',
+  link: 'bg-teal-100 text-teal-700',
+  event: 'bg-rose-100 text-rose-700',
+  gate: 'bg-indigo-100 text-indigo-700',
+  cell: 'bg-lime-100 text-lime-700',
+  species: 'bg-slate-100 text-slate-600',
+  medium: 'bg-slate-100 text-slate-600',
 }
 
 export function ModelTab() {
   const summary = useStore((s) => s.modelSummary)
-  const parsedModel = useStore((s) => s.parsedModel)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const { deps, rdeps } = useMemo(() => {
-    if (!parsedModel) return { deps: new Map<string, string[]>(), rdeps: new Map<string, string[]>() }
     const deps = new Map<string, string[]>()
     const rdeps = new Map<string, string[]>()
-    for (const e of parsedModel.elements) {
-      const inputs = elementInputIds(e as unknown as Record<string, unknown>)
-      deps.set(e.id, inputs)
-      for (const dep of inputs) {
+    for (const e of summary?.elements ?? []) {
+      deps.set(e.id, e.inputs)
+      for (const dep of e.inputs) {
         if (!rdeps.has(dep)) rdeps.set(dep, [])
         rdeps.get(dep)!.push(e.id)
       }
     }
     return { deps, rdeps }
-  }, [parsedModel])
+  }, [summary])
 
-  if (!summary || !parsedModel) {
+  if (!summary) {
     return (
       <p className="py-12 text-center text-sm text-slate-400">
         No model loaded.
@@ -49,7 +46,7 @@ export function ModelTab() {
     )
   }
 
-  const { simulation_settings: ss } = parsedModel
+  const ss = summary.simulation_settings
   const containerNames = Object.fromEntries(
     summary.containers.map((c) => [c.id, c.name]),
   )
@@ -153,6 +150,9 @@ export function ModelTab() {
                           <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${TYPE_COLOR[e.type] ?? 'bg-slate-100 text-slate-600'}`}>
                             {e.type}
                           </span>
+                          {e.traits.length > 0 && (
+                            <span className="ml-1.5 text-[10px] text-slate-400">{e.traits.join(' · ')}</span>
+                          )}
                         </td>
                       </tr>
                       {isOpen && (

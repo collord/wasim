@@ -28,104 +28,39 @@ export interface Distribution {
   correlation_group?: string | null
 }
 
-export type ModelElement =
-  | ConstantElement
-  | RandomVariableElement
-  | ExpressionElement
-  | AccumulatorElement
-  | LookupElement
-  | ArrayElement
-  | OtherElement
-
-export interface ConstantElement {
-  id: string
-  name: string
-  type: 'constant'
-  container: string | null
-  description?: string | null
-  value: Quantity
-  editable: boolean
-  bounds?: { min?: number | null; max?: number | null } | null
-  save_results?: { final_value: boolean; time_history: boolean }
-}
-
-export interface RandomVariableElement {
-  id: string
-  name: string
-  type: 'random_variable'
-  container: string | null
-  description?: string | null
-  distribution: Distribution
-  save_results?: { final_value: boolean; time_history: boolean }
-}
-
-export interface ExpressionElement {
-  id: string
-  name: string
-  type: 'expression'
-  container: string | null
-  description?: string | null
-  save_results?: { final_value: boolean; time_history: boolean }
-}
-
-export interface AccumulatorElement {
-  id: string
-  name: string
-  type: 'accumulator'
-  container: string | null
-  description?: string | null
-  save_results?: { final_value: boolean; time_history: boolean }
-}
-
-export interface LookupElement {
-  id: string
-  name: string
-  type: 'lookup'
-  container: string | null
-  x_unit: string
-  y_unit: string
-  x: number[]
-  y: number[]
-  columns: number[][]
-  extrapolation: 'clamp' | 'linear' | 'error'
-}
-
-export interface ArrayElement {
-  id: string
-  name: string
-  type: 'array'
-  container: string | null
-  values_unit: string
-  inputs: string[]
-}
-
-export interface OtherElement {
-  id: string
-  name: string
-  type: string
-  container: string | null
-}
-
+/** Top-level metadata, parsed once on load for sim-settings (format-agnostic; v1 or v2). */
 export interface ModelJson {
   wasim_version: string
-  source?: {
-    generator?: string | null
-    notes?: string | null
-  } | null
   simulation_settings: SimulationSettings
-  containers: ContainerDef[]
-  elements: ModelElement[]
+  containers?: ContainerDef[]
 }
 
-// ── Model summary (from WasmEngine.model_summary()) ──────────────────────────
+// ── Model summary (from WasmEngine.model_summary()) — the FE's model of record ──
+//
+// The engine emits a legacy `type` (original v1 type for imports, else mapped from the
+// primitive/value_rule) plus the v2 fields. The frontend renders + edits from this and
+// never parses the model schema itself.
 
 export interface ElementSummary {
   id: string
   name: string
+  /** Legacy v1-ish type (back-compat label). */
   type: string
+  /** v2 primitive: node | stock | link | event | gate | cell | species | medium. */
+  primitive: string
+  /** Node value_rule (fixed/expression/sample/…); null for non-node primitives. */
+  value_rule: string | null
+  /** Active traits, derived from field presence (e.g. capacity_clamp, transit_buffer). */
+  traits: string[]
   container: string | null
   editable: boolean
   unit: string
+  /** Current value for an editable `fixed` node. */
+  value: number | null
+  bounds?: { min?: number | null; max?: number | null } | null
+  /** Distribution (family + parameters) for a `sample` node. */
+  dist?: Distribution | null
+  inputs: string[]
   description: string | null
 }
 

@@ -31,6 +31,9 @@ pub fn summary_json(model: &Model) -> String {
         editable: bool,
         unit: &'a str,
         value: Option<f64>,
+        bounds: Option<&'a crate::model::Bounds>,
+        /// Full distribution (family + parameters + truncation) for `sample` nodes.
+        dist: Option<serde_json::Value>,
         inputs: &'a [String],
         description: Option<&'a str>,
     }
@@ -49,6 +52,8 @@ pub fn summary_json(model: &Model) -> String {
             editable: is_editable(e),
             unit: unit_of(e),
             value: current_value(e),
+            bounds: bounds_of(e),
+            dist: dist_of(e),
             inputs: &e.base.inputs,
             description: e.base.description.as_deref(),
         })
@@ -204,6 +209,24 @@ pub fn current_value(elem: &Element) -> Option<f64> {
     if let Primitive::Node(n) = &elem.primitive {
         if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &n.rule {
             return Some(q.value);
+        }
+    }
+    None
+}
+
+fn bounds_of(elem: &Element) -> Option<&crate::model::Bounds> {
+    if let Primitive::Node(n) = &elem.primitive {
+        if let NodeRule::Fixed { bounds, .. } = &n.rule {
+            return bounds.as_ref();
+        }
+    }
+    None
+}
+
+fn dist_of(elem: &Element) -> Option<serde_json::Value> {
+    if let Primitive::Node(n) = &elem.primitive {
+        if let NodeRule::Sample { distribution, .. } = &n.rule {
+            return serde_json::to_value(distribution).ok();
         }
     }
     None

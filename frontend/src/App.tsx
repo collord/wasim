@@ -13,12 +13,12 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 export function App() {
-  const modelLoaded = useStore((s) => s.parsedModel !== null)
+  const modelLoaded = useStore((s) => s.modelJson !== null)
   const activeTab = useStore((s) => s.activeTab)
   const setActiveTab = useStore((s) => s.setActiveTab)
   const status = useStore((s) => s.status)
   const loadModel = useStore((s) => s.loadModel)
-  const modelName = useStore((s) => s.parsedModel?.source?.notes ?? null)
+  const modelName = useStore((s) => s.modelFilename)
 
   const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

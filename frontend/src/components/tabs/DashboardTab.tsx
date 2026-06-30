@@ -1,5 +1,5 @@
 import { useStore } from '../../store'
-import type { ConstantElement, RandomVariableElement } from '../../types'
+import type { ElementSummary } from '../../types'
 
 function SaveParamsButton() {
   const saveParameters = useStore((s) => s.saveParameters)
@@ -28,18 +28,19 @@ const PARAM_LABELS: Record<string, Record<string, string>> = {
   pearson_v: { shape: 'Shape', scale: 'Scale' },
   pearson_iii: { mean: 'Mean', stddev: 'Std Dev', skewness: 'Skewness' },
   discrete_uniform: { min: 'Min', max: 'Max' },
+  pert: { min: 'Min', mode: 'Mode', max: 'Max' },
+  pareto: { scale: 'Scale', shape: 'Shape' },
+  extreme_value: { location: 'Location', scale: 'Scale' },
+  student_t: { degrees_of_freedom: 'DoF', location: 'Location', scale: 'Scale' },
 }
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function ConstantInput({ elem }: { elem: ConstantElement }) {
+function ConstantInput({ elem }: { elem: ElementSummary }) {
   const setConstant = useStore((s) => s.setConstant)
-  const pm = useStore((s) => s.parsedModel)
-  // Read live value from parsedModel (reflects edits)
-  const liveElem = pm?.elements.find((e) => e.id === elem.id) as ConstantElement | undefined
-  const raw = liveElem?.value.value ?? elem.value.value
-  const current = Number.isFinite(raw) ? raw : ''
-  const unit = elem.value.unit !== '1' ? elem.value.unit : ''
+  const raw = elem.value
+  const current = raw !== null && Number.isFinite(raw) ? raw : ''
+  const unit = elem.unit !== '1' ? elem.unit : ''
 
   return (
     <div className="flex items-center gap-3">
@@ -68,11 +69,10 @@ function ConstantInput({ elem }: { elem: ConstantElement }) {
   )
 }
 
-function RvParamInput({ elem }: { elem: RandomVariableElement }) {
+function RvParamInput({ elem }: { elem: ElementSummary }) {
   const setRvParam = useStore((s) => s.setRvParam)
-  const pm = useStore((s) => s.parsedModel)
-  const liveElem = pm?.elements.find((e) => e.id === elem.id) as RandomVariableElement | undefined
-  const dist = liveElem?.distribution ?? elem.distribution
+  const dist = elem.dist
+  if (!dist) return null
   const labels = PARAM_LABELS[dist.family] ?? {}
 
   return (
@@ -220,10 +220,9 @@ function RunControls() {
 // ── Dashboard tab ─────────────────────────────────────────────────────────────
 
 export function DashboardTab() {
-  const parsedModel = useStore((s) => s.parsedModel)
   const summary = useStore((s) => s.modelSummary)
 
-  if (!parsedModel) {
+  if (!summary) {
     return (
       <p className="py-12 text-center text-sm text-slate-400">
         No model loaded.
@@ -231,20 +230,14 @@ export function DashboardTab() {
     )
   }
 
-  const containerNames = Object.fromEntries(
-    (parsedModel.containers ?? []).map((c) => [c.id, c.name]),
-  )
+  const containerNames = Object.fromEntries(summary.containers.map((c) => [c.id, c.name]))
 
-  // Group editable elements by container
-  const editableElems = parsedModel.elements.filter(
-    (e) => e.type === 'constant'
-      ? (e as ConstantElement).editable === true
-      : e.type === 'random_variable',
-  )
+  // Editable elements (editable fixed nodes + sample nodes), grouped by container.
+  const editableElems = summary.elements.filter((e) => e.editable)
 
-  const groups = new Map<string, typeof editableElems>()
+  const groups = new Map<string, ElementSummary[]>()
   groups.set('(top level)', [])
-  for (const c of parsedModel.containers ?? []) groups.set(c.id, [])
+  for (const c of summary.containers) groups.set(c.id, [])
   for (const e of editableElems) {
     const key = e.container ?? '(top level)'
     if (!groups.has(key)) groups.set(key, [])
@@ -253,7 +246,7 @@ export function DashboardTab() {
 
   const nonEmptyGroups = Array.from(groups.entries()).filter(([, elems]) => elems.length > 0)
 
-  const loadedLabel = summary ? `${summary.element_count} elements` : 'loading…'
+  const loadedLabel = `${summary.element_count} elements`
 
   return (
     <div className="flex flex-col">
@@ -280,10 +273,10 @@ export function DashboardTab() {
               <div className="divide-y divide-slate-50">
                 {elems.map((e) => (
                   <div key={e.id} className="px-4 py-3">
-                    {e.type === 'constant' ? (
-                      <ConstantInput elem={e as ConstantElement} />
+                    {e.value_rule === 'sample' ? (
+                      <RvParamInput elem={e} />
                     ) : (
-                      <RvParamInput elem={e as RandomVariableElement} />
+                      <ConstantInput elem={e} />
                     )}
                   </div>
                 ))}
