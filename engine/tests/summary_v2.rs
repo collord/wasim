@@ -1,7 +1,7 @@
 //! The model summary contract (consumed by the frontend): legacy `type` + v2
 //! `primitive`/`value_rule`/`traits`/`editable`/`value`.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use wasim_engine::{normalize_v1, parse_v2, summary, WasimModel};
 
 fn summ(model: &wasim_engine::ModelV2) -> Value {
@@ -85,4 +85,33 @@ fn summary_preserves_legacy_type_for_v1_imports() {
     let acc = elem(&s, "acc");
     assert_eq!(acc["type"], "accumulator"); // preserved, not "stock"
     assert_eq!(acc["primitive"], "stock");
+}
+
+#[test]
+fn summary_includes_formula_and_table() {
+    let m = parse_v2(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 5, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+        "elements": [
+          {"id": "a", "name": "A", "primitive": "node", "value_rule": "fixed", "value": {"value": 2, "unit": "1"}},
+          {"id": "e", "name": "E", "primitive": "node", "value_rule": "expression", "inputs": ["a"],
+           "expression": {"ast": {"op": "multiply", "left": {"op": "ref", "element_id": "a"}, "right": {"op": "literal", "value": 3}}, "display": "A * 3"}},
+          {"id": "e2", "name": "E2", "primitive": "node", "value_rule": "expression",
+           "expression": {"ast": {"op": "add", "left": {"op": "literal", "value": 1}, "right": {"op": "literal", "value": 2}}}},
+          {"id": "t", "name": "T", "primitive": "node", "value_rule": "lookup",
+           "table": {"x": [0, 1, 2], "y": [10, 20, 30], "x_unit": "d", "y_unit": "m"}}
+        ]}"#,
+    )
+    .unwrap();
+    let s = summ(&m);
+
+    // Prefer the transpiler-provided display string.
+    assert_eq!(elem(&s, "e")["formula"].as_str(), Some("A * 3"));
+    // Fall back to a rendered AST when display is absent.
+    assert_eq!(elem(&s, "e2")["formula"].as_str(), Some("(1 + 2)"));
+    // Lookup tables are surfaced.
+    let t = &elem(&s, "t")["table"];
+    assert_eq!(t["x"], json!([0.0, 1.0, 2.0]));
+    assert_eq!(t["y"], json!([10.0, 20.0, 30.0]));
+    assert_eq!(t["x_unit"], "d");
 }

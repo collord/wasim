@@ -1,5 +1,51 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../../store'
+import type { ElementSummary } from '../../types'
+
+function fmt(v: number | undefined): string {
+  return v === undefined || v === null ? '' : String(Number(v.toPrecision(6)))
+}
+
+// Compact preview of a lookup/series table (first rows).
+function TablePreview({ table }: { table: NonNullable<ElementSummary['table']> }) {
+  const { x, y, columns, x_unit, y_unit } = table
+  const nCols = columns.length > 0 ? columns.length : 1
+  const cell = (i: number, c: number) => (columns.length > 0 ? columns[c]?.[i] : y[i])
+  const MAX = 8
+  const shown = Math.min(x.length, MAX)
+  const uSuffix = (u?: string | null) => (u && u !== '1' ? ` [${u}]` : '')
+
+  return (
+    <div className="mb-3">
+      <p className="mb-1 font-semibold uppercase tracking-wider text-[10px] text-slate-500">
+        Table · {x.length} rows
+      </p>
+      <table className="border-collapse font-mono text-xs">
+        <thead>
+          <tr className="text-slate-400">
+            <th className="border-b border-slate-200 px-2 py-0.5 text-right font-normal">x{uSuffix(x_unit)}</th>
+            {Array.from({ length: nCols }).map((_, c) => (
+              <th key={c} className="border-b border-slate-200 px-2 py-0.5 text-right font-normal">
+                {nCols > 1 ? `y${c + 1}` : 'y'}{uSuffix(y_unit)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: shown }).map((_, i) => (
+            <tr key={i} className="text-slate-600">
+              <td className="px-2 py-0.5 text-right">{fmt(x[i])}</td>
+              {Array.from({ length: nCols }).map((_, c) => (
+                <td key={c} className="px-2 py-0.5 text-right">{fmt(cell(i, c))}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {x.length > MAX && <p className="mt-0.5 text-[10px] text-slate-400">… {x.length - MAX} more rows</p>}
+    </div>
+  )
+}
 
 const TYPE_COLOR: Record<string, string> = {
   // legacy v1 types / node value_rules
@@ -124,17 +170,18 @@ export function ModelTab() {
                   const myDeps = deps.get(e.id) ?? []
                   const myRdeps = rdeps.get(e.id) ?? []
                   const hasDeps = myDeps.length > 0 || myRdeps.length > 0
+                  const hasDetail = hasDeps || !!e.formula || !!e.table
                   return (
                     <>
                       <tr
                         key={e.id}
                         title={e.description ?? undefined}
-                        className={`border-b border-slate-50 ${isOpen ? '' : 'last:border-0'} ${hasDeps ? 'cursor-pointer hover:bg-slate-50' : ''}`}
-                        onClick={() => hasDeps && toggle(e.id)}
+                        className={`border-b border-slate-50 ${isOpen ? '' : 'last:border-0'} ${hasDetail ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                        onClick={() => hasDetail && toggle(e.id)}
                       >
                         <td className="px-4 py-2 font-medium text-slate-800">
                           <span className="flex items-center gap-1.5">
-                            {hasDeps && (
+                            {hasDetail && (
                               <span className="text-slate-400 text-xs select-none">
                                 {isOpen ? '▾' : '▸'}
                               </span>
@@ -158,6 +205,15 @@ export function ModelTab() {
                       {isOpen && (
                         <tr key={`${e.id}-deps`} className="border-b border-slate-50 bg-slate-50">
                           <td colSpan={4} className="px-8 py-3">
+                            {e.formula && (
+                              <div className="mb-3">
+                                <p className="mb-1 font-semibold uppercase tracking-wider text-[10px] text-slate-500">Formula</p>
+                                <code className="block whitespace-pre-wrap break-all rounded border border-slate-200 bg-white px-2 py-1 font-mono text-xs text-slate-700">
+                                  {e.formula}
+                                </code>
+                              </div>
+                            )}
+                            {e.table && <TablePreview table={e.table} />}
                             <div className="flex gap-8 text-xs">
                               <div>
                                 <p className="mb-1 font-semibold text-slate-500 uppercase tracking-wider text-[10px]">Depends on</p>

@@ -60,6 +60,16 @@ export interface ElementSummary {
   bounds?: { min?: number | null; max?: number | null } | null
   /** Distribution (family + parameters) for a `sample` node. */
   dist?: Distribution | null
+  /** Readable formula for an `expression` node. */
+  formula?: string | null
+  /** Interpolation data for a `lookup`/`series` node. */
+  table?: {
+    x: number[]
+    y: number[]
+    columns: number[][]
+    x_unit?: string | null
+    y_unit?: string | null
+  } | null
   inputs: string[]
   description: string | null
 }

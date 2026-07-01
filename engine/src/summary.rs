@@ -6,6 +6,7 @@
 //! `inputs`. This is the contract the frontend's graph/dashboard/editing views build on, so it
 //! lives here (host-testable) rather than inside the wasm-gated bridge.
 
+use crate::model::{AstNode, BuiltinFn, TimeProperty};
 use crate::model_v2::{Element, FixedValue, Model, NodeRule, Primitive};
 
 /// Serialize a model summary to JSON (the shape `WasmEngine.model_summary()` returns).
@@ -34,8 +35,21 @@ pub fn summary_json(model: &Model) -> String {
         bounds: Option<&'a crate::model::Bounds>,
         /// Full distribution (family + parameters + truncation) for `sample` nodes.
         dist: Option<serde_json::Value>,
+        /// Readable formula for `expression` nodes (the display string, else a rendered AST).
+        formula: Option<String>,
+        /// Interpolation data for `lookup`/`series` nodes.
+        table: Option<TableSummary<'a>>,
         inputs: &'a [String],
         description: Option<&'a str>,
+    }
+
+    #[derive(serde::Serialize)]
+    struct TableSummary<'a> {
+        x: &'a [f64],
+        y: &'a [f64],
+        columns: &'a [Vec<f64>],
+        x_unit: Option<&'a str>,
+        y_unit: Option<&'a str>,
     }
 
     let elements: Vec<ElemSummary> = model
@@ -54,6 +68,21 @@ pub fn summary_json(model: &Model) -> String {
             value: current_value(e),
             bounds: bounds_of(e),
             dist: dist_of(e),
+            formula: formula_of(e),
+            table: match &e.primitive {
+                Primitive::Node(n) => match &n.rule {
+                    NodeRule::Lookup(t) => Some(TableSummary {
+                        x: &t.x, y: &t.y, columns: &t.z,
+                        x_unit: t.x_unit.as_deref(), y_unit: t.y_unit.as_deref(),
+                    }),
+                    NodeRule::Series { timestamps, values, time_unit, .. } => Some(TableSummary {
+                        x: timestamps, y: values, columns: &[],
+                        x_unit: time_unit.as_deref(), y_unit: None,
+                    }),
+                    _ => None,
+                },
+                _ => None,
+            },
             inputs: &e.base.inputs,
             description: e.base.description.as_deref(),
         })
@@ -212,6 +241,108 @@ pub fn current_value(elem: &Element) -> Option<f64> {
         }
     }
     None
+}
+
+/// Readable formula for an expression node: the transpiler-provided `display` string when
+/// present, else a rendered AST (fallback for inferred/v2-native expressions).
+fn formula_of(elem: &Element) -> Option<String> {
+    if let Primitive::Node(n) = &elem.primitive {
+        if let NodeRule::Expression(ef) = &n.rule {
+            let disp = ef.display.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            return Some(disp.map(String::from).unwrap_or_else(|| render_ast(&ef.ast)));
+        }
+    }
+    None
+}
+
+/// Compact infix rendering of an AST (fully parenthesized — a readable fallback, not a
+/// minimal-parens pretty-printer).
+fn render_ast(n: &AstNode) -> String {
+    let bin = |l: &AstNode, op: &str, r: &AstNode| format!("({} {op} {})", render_ast(l), render_ast(r));
+    match n {
+        AstNode::Literal { value, unit } => match unit.as_deref() {
+            Some(u) if u != "1" => format!("{value} {u}"),
+            _ => format!("{value}"),
+        },
+        AstNode::Ref { element_id, .. } => element_id.clone(),
+        AstNode::TimeRef { property } => time_prop_name(property).to_string(),
+        AstNode::Add { left, right } => bin(left, "+", right),
+        AstNode::Subtract { left, right } => bin(left, "-", right),
+        AstNode::Multiply { left, right } => bin(left, "*", right),
+        AstNode::Divide { left, right } => bin(left, "/", right),
+        AstNode::Power { left, right } => bin(left, "^", right),
+        AstNode::Lt { left, right } => bin(left, "<", right),
+        AstNode::Gt { left, right } => bin(left, ">", right),
+        AstNode::Lte { left, right } => bin(left, "<=", right),
+        AstNode::Gte { left, right } => bin(left, ">=", right),
+        AstNode::Eq { left, right } => bin(left, "==", right),
+        AstNode::Neq { left, right } => bin(left, "!=", right),
+        AstNode::And { left, right } => bin(left, "&&", right),
+        AstNode::Or { left, right } => bin(left, "||", right),
+        AstNode::Neg { operand } => format!("-{}", render_ast(operand)),
+        AstNode::Not { operand } => format!("!{}", render_ast(operand)),
+        AstNode::Call { func, args } => {
+            let a: Vec<String> = args.iter().map(render_ast).collect();
+            format!("{}({})", fn_name(func), a.join(", "))
+        }
+        AstNode::If { cond, then, else_ } => {
+            format!("if({}, {}, {})", render_ast(cond), render_ast(then), render_ast(else_))
+        }
+        AstNode::LookupCall { element_id, input, input2 } => match input2 {
+            Some(i2) => format!("{element_id}[{}, {}]", render_ast(input), render_ast(i2)),
+            None => format!("{element_id}[{}]", render_ast(input)),
+        },
+        AstNode::Array { elements } => {
+            let e: Vec<String> = elements.iter().map(render_ast).collect();
+            format!("[{}]", e.join(", "))
+        }
+    }
+}
+
+fn time_prop_name(p: &TimeProperty) -> &'static str {
+    match p {
+        TimeProperty::Elapsed => "elapsed",
+        TimeProperty::Timestep => "dt",
+        TimeProperty::Year => "year",
+        TimeProperty::Month => "month",
+        TimeProperty::DayOfYear => "day_of_year",
+        TimeProperty::DayOfMonth => "day_of_month",
+        TimeProperty::DaysInMonth => "days_in_month",
+    }
+}
+
+fn fn_name(f: &BuiltinFn) -> &'static str {
+    match f {
+        BuiltinFn::Min => "min",
+        BuiltinFn::Max => "max",
+        BuiltinFn::Abs => "abs",
+        BuiltinFn::Sqrt => "sqrt",
+        BuiltinFn::Exp => "exp",
+        BuiltinFn::Ln => "ln",
+        BuiltinFn::Log => "log",
+        BuiltinFn::Sin => "sin",
+        BuiltinFn::Cos => "cos",
+        BuiltinFn::Tan => "tan",
+        BuiltinFn::Asin => "asin",
+        BuiltinFn::Acos => "acos",
+        BuiltinFn::Atan => "atan",
+        BuiltinFn::Atan2 => "atan2",
+        BuiltinFn::Floor => "floor",
+        BuiltinFn::Ceil => "ceil",
+        BuiltinFn::Round => "round",
+        BuiltinFn::Mod => "mod",
+        BuiltinFn::Sign => "sign",
+        BuiltinFn::Int => "int",
+        BuiltinFn::Step => "step",
+        BuiltinFn::Tanh => "tanh",
+        BuiltinFn::SumArray => "sum_array",
+        BuiltinFn::SizeArray => "size_array",
+        BuiltinFn::GetElement => "get_element",
+        BuiltinFn::InterpArray => "interp_array",
+        BuiltinFn::MeanArray => "mean_array",
+        BuiltinFn::MinArray => "min_array",
+        BuiltinFn::DotProduct => "dot_product",
+    }
 }
 
 fn bounds_of(elem: &Element) -> Option<&crate::model::Bounds> {
