@@ -75,6 +75,23 @@ fn external_degrades_to_zero() {
 }
 
 #[test]
+fn trapezoidal_symmetric_mean_and_support() {
+    // Symmetric trapezoid min=0, lower=2, upper=8, max=10 → mean = 5 (by symmetry),
+    // support [0, 10].
+    let v = draws(r#"{"family": "trapezoidal", "parameters": {"min": {"value": 0, "unit": "1"}, "lower": {"value": 2, "unit": "1"}, "upper": {"value": 8, "unit": "1"}, "max": {"value": 10, "unit": "1"}}}"#);
+    assert!((mean(&v) - 5.0).abs() < 0.2, "trapezoid mean {}", mean(&v));
+    assert!(v.iter().all(|&x| (0.0..=10.0).contains(&x)), "trapezoid support");
+}
+
+#[test]
+fn trapezoidal_degenerates_to_triangular() {
+    // lower == upper collapses the plateau → triangular(0, 5, 10), mean = 5.
+    let v = draws(r#"{"family": "trapezoidal", "parameters": {"min": {"value": 0, "unit": "1"}, "lower": {"value": 5, "unit": "1"}, "upper": {"value": 5, "unit": "1"}, "max": {"value": 10, "unit": "1"}}}"#);
+    assert!((mean(&v) - 5.0).abs() < 0.2, "trapezoid→triangular mean {}", mean(&v));
+    assert!(v.iter().all(|&x| (0.0..=10.0).contains(&x)), "support");
+}
+
+#[test]
 fn beta_four_parameter_scaling() {
     // Beta(2,2) is symmetric → scaled onto [10,20] has mean 15, support [10,20].
     let v = draws(r#"{"family": "beta", "parameters": {"alpha": {"value": 2, "unit": "1"}, "beta": {"value": 2, "unit": "1"}, "min": {"value": 10, "unit": "1"}, "max": {"value": 20, "unit": "1"}}}"#);

@@ -556,6 +556,15 @@ pub enum DistributionKind {
         mode: Quantity,
         max: Quantity,
     },
+    /// Trapezoidal: a lower ramp (min→lower), a plateau (lower→upper), and an
+    /// upper ramp (upper→max). Degenerates to triangular when lower == upper and
+    /// to uniform when min == lower and upper == max.
+    Trapezoidal {
+        min: Quantity,
+        lower: Quantity,
+        upper: Quantity,
+        max: Quantity,
+    },
     LognormalMoments {
         mean: QuantityOrFormula,
         stddev: QuantityOrFormula,

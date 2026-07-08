@@ -58,6 +58,11 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
             rng.sample(dist)
         }
 
+        DistributionKind::Trapezoidal { min, lower, upper, max } => {
+            let u = rng.sample(Uniform::new(0.0_f64, 1.0));
+            trapezoid_icdf(min.value, lower.value, upper.value, max.value, u)?
+        }
+
         DistributionKind::Exponential { mean } => {
             let lambda = 1.0 / mean.value();
             let dist = Exp::new(lambda)
@@ -374,6 +379,12 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
                 b - ((b - a) * (b - c) * (1.0 - u)).sqrt()
             }
         }
+        DistributionKind::Trapezoidal { min, lower, upper, max } => {
+            match trapezoid_icdf(min.value, lower.value, upper.value, max.value, u) {
+                Ok(v) => v,
+                Err(_) => return None,
+            }
+        }
         DistributionKind::Exponential { mean } => {
             -mean.value() * (1.0 - u).ln()
         }
@@ -425,6 +436,34 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
         | DistributionKind::External { .. } => return None,
     };
     Some(raw)
+}
+
+/// Inverse CDF of a trapezoidal distribution with breakpoints min ≤ lower ≤ upper ≤ max.
+///
+/// Ports SELDM's `fndUniform01ToTrapezoid` (Kacker & Lawrence, 2007). The density is a
+/// trapezoid of height `h = 2 / ((max-min) + (upper-lower))`: a lower ramp on [min, lower],
+/// a plateau on [lower, upper], and an upper ramp on [upper, max].
+fn trapezoid_icdf(min: f64, lower: f64, upper: f64, max: f64, u: f64) -> Result<f64, EngineError> {
+    if !(min <= lower && lower <= upper && upper <= max) || min >= max {
+        return Err(EngineError::Sampling(format!(
+            "trapezoidal: require min ({min}) ≤ lower ({lower}) ≤ upper ({upper}) ≤ max ({max}) and min < max"
+        )));
+    }
+    // Uniform special case (both ramps degenerate).
+    if min == lower && upper == max {
+        return Ok(min + (max - min) * u);
+    }
+    let h = 2.0 / ((max - min) + (upper - lower));
+    let lower_area = (h / 2.0) * (lower - min); // cumulative prob at end of lower ramp
+    let upper_start = 1.0 - (h / 2.0) * (max - upper); // cumulative prob at start of upper ramp
+    let v = if u <= lower_area {
+        min + (2.0 * (lower - min) / h).sqrt() * u.sqrt()
+    } else if u <= upper_start {
+        (min + lower) / 2.0 + u / h
+    } else {
+        max - (2.0 * (max - upper) / h).sqrt() * (1.0 - u).sqrt()
+    };
+    Ok(v)
 }
 
 /// Inverse CDF of a piecewise-linear cumulative distribution (`cumulative` family).
@@ -535,5 +574,86 @@ fn time_unit_to_seconds(unit: &str) -> f64 {
         "min" | "minute" | "minutes" => 60.0,
         "s" | "sec" | "second" | "seconds" => 1.0,
         _ => 1.0,
+    }
+}
+
+#[cfg(test)]
+mod trapezoid_tests {
+    use super::trapezoid_icdf;
+
+    /// Verbatim transcription of SELDM's `fndUniform01ToTrapezoid`
+    /// (modStatistics.bas, G.E. Granato) for parity checking. Parameters map:
+    /// dMin=min, dLower=lower, dUpper=upper, dMax=max.
+    fn seldm_trapezoid(u01: f64, min: f64, lower: f64, upper: f64, max: f64) -> f64 {
+        // Error cases return the input U01 in SELDM; we don't exercise those here.
+        if (min > lower) || (min > upper) || (min >= max) {
+            return u01;
+        } else if (lower > upper) || (lower > max) {
+            return u01;
+        } else if upper > max {
+            return u01;
+        }
+        if min == lower && upper == max {
+            // NOTE: SELDM's rectangle branch reads `dMin * (dMax - dMin) * dU01`,
+            // which is dimensionally wrong (a transcription bug in the original).
+            // Our engine implements the correct uniform inverse-CDF instead, so we
+            // deliberately do NOT compare against this branch.
+            return min * (max - min) * u01;
+        }
+        let h = 2.0 / ((max - min) + (upper - lower));
+        if u01 >= 0.0 && u01 <= (h / 2.0) * (lower - min) {
+            min + (2.0 * ((lower - min) / h)).sqrt() * u01.sqrt()
+        } else if u01 > (h / 2.0) * (lower - min) && u01 <= 1.0 - (h / 2.0) * (max - upper) {
+            (min + lower) / 2.0 + u01 / h
+        } else {
+            max - (2.0 * (max - upper) / h).sqrt() * (1.0 - u01).sqrt()
+        }
+    }
+
+    #[test]
+    fn matches_seldm_trapezoid_across_quantiles() {
+        // Non-degenerate trapezoid; compare the two ramps + plateau, excluding the
+        // rectangle branch (which is a known bug in the SELDM original).
+        let (min, lower, upper, max) = (1.0, 3.0, 7.0, 12.0);
+        for i in 1..1000 {
+            let u = i as f64 / 1000.0;
+            let ours = trapezoid_icdf(min, lower, upper, max, u).unwrap();
+            let seldm = seldm_trapezoid(u, min, lower, upper, max);
+            assert!(
+                (ours - seldm).abs() < 1e-12,
+                "u={u}: ours={ours} seldm={seldm}"
+            );
+        }
+    }
+
+    #[test]
+    fn triangular_degenerate_matches_seldm() {
+        // lower == upper → triangular. SELDM handles this via the same trapezoid math.
+        let (min, lower, upper, max) = (0.0, 5.0, 5.0, 10.0);
+        for i in 1..1000 {
+            let u = i as f64 / 1000.0;
+            let ours = trapezoid_icdf(min, lower, upper, max, u).unwrap();
+            let seldm = seldm_trapezoid(u, min, lower, upper, max);
+            assert!((ours - seldm).abs() < 1e-12, "u={u}: ours={ours} seldm={seldm}");
+        }
+    }
+
+    #[test]
+    fn monotonic_and_in_support() {
+        let (min, lower, upper, max) = (2.0, 4.0, 9.0, 15.0);
+        let mut prev = f64::NEG_INFINITY;
+        for i in 0..=1000 {
+            let u = i as f64 / 1000.0;
+            let x = trapezoid_icdf(min, lower, upper, max, u).unwrap();
+            assert!(x >= min - 1e-9 && x <= max + 1e-9, "u={u} x={x} out of support");
+            assert!(x >= prev - 1e-9, "non-monotonic at u={u}: {prev} -> {x}");
+            prev = x;
+        }
+    }
+
+    #[test]
+    fn rejects_bad_ordering() {
+        assert!(trapezoid_icdf(5.0, 3.0, 7.0, 10.0, 0.5).is_err()); // min > lower
+        assert!(trapezoid_icdf(0.0, 0.0, 0.0, 0.0, 0.5).is_err()); // min == max
     }
 }
