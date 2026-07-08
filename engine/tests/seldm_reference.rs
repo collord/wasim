@@ -291,6 +291,22 @@ pub fn plotting_position(rank: usize, count: usize, formula: u8, ascending: bool
     }
 }
 
+/// SELDM `fnlngRankFromPP`: inverse of `plotting_position` — the rank (1-based) whose
+/// plotting position is nearest the requested `pp`. `formula` as in `plotting_position`.
+pub fn fnlng_rank_from_pp(pp: f64, count: usize, formula: u8, ascending: bool) -> usize {
+    let a = match formula {
+        0 => 0.375,
+        1 => 0.4,
+        2 => 0.44,
+        3 => 0.5,
+        4 => 0.3175,
+        _ => 0.0,
+    };
+    let p = if ascending { pp } else { 1.0 - pp };
+    let rank = (p * (count as f64 + 1.0 - 2.0 * a) + a).round() as i64;
+    rank.clamp(1, count as i64) as usize
+}
+
 /// SELDM `fndUniform01ToTrapezoid` (Kacker & Lawrence, 2007), non-degenerate branch.
 /// Exposed for the parity tests. Assumes min ≤ lower ≤ upper ≤ max and min < max, and
 /// excludes the buggy rectangle branch of the original (see the trapezoid unit tests).
