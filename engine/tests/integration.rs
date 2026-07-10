@@ -1,7 +1,34 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wasim_engine::{run, ModelGraph, ModelParams, RunConfig, WasimModel};
+use wasim_engine::{
+    normalize_v1, parse_v2, run, simulate_json, EngineError, ModelGraph, ModelGraphV2, ModelParams,
+    ModelV2, RunConfig, WasimModel,
+};
+
+/// The corpus is a mix of v1 and v2-native models. Detect the format (first element carries a
+/// `primitive` field ⇒ v2-native) and load into the v2 primitive model either way.
+fn is_v2_native(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| {
+            v.get("elements")
+                .and_then(|e| e.as_array())
+                .and_then(|a| a.first())
+                .map(|f| f.get("primitive").is_some())
+        })
+        .unwrap_or(false)
+}
+
+fn load_v2(json: &str) -> Result<ModelV2, String> {
+    if is_v2_native(json) {
+        parse_v2(json).map_err(|e| e.to_string())
+    } else {
+        serde_json::from_str::<WasimModel>(json)
+            .map(|m| normalize_v1(&m))
+            .map_err(|e| e.to_string())
+    }
+}
 
 // ── Rank-correlation (Gaussian copula) ───────────────────────────────────────
 
@@ -221,7 +248,8 @@ fn parse_all_schema_examples() {
             continue;
         }
         let json = fs::read_to_string(&path).unwrap();
-        match serde_json::from_str::<WasimModel>(&json) {
+        // Load via the format that matches each file (v1 or v2-native).
+        match load_v2(&json) {
             Ok(_) => count += 1,
             Err(e) => failures.push(format!("{}: {e}", path.file_name().unwrap().to_string_lossy())),
         }
@@ -235,13 +263,6 @@ fn parse_all_schema_examples() {
 
 #[test]
 fn build_graph_for_all_examples() {
-    // Models known to contain genuine expression cycles. The graph builder now
-    // warns and skips cyclic elements rather than returning an error, so all of
-    // these should build successfully with a non-empty skipped_cycle_ids.
-    let known_cycle_models: &[&str] = &[
-        "wgen_par.json",
-    ];
-
     let examples_dir = openvsim_examples_dir();
     if !examples_dir.exists() {
         eprintln!("skipping build_graph_for_all_examples: {} not present", examples_dir.display());
@@ -257,17 +278,14 @@ fn build_graph_for_all_examples() {
         }
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let json = fs::read_to_string(&path).unwrap();
-        let model: WasimModel = serde_json::from_str(&json).unwrap();
-        match ModelGraph::build(&model) {
-            Err(e) => failures.push(format!("{name}: {e}")),
-            Ok(g) => {
-                if known_cycle_models.contains(&name.as_str()) {
-                    assert!(
-                        !g.skipped_cycle_ids.is_empty(),
-                        "{name}: expected skipped_cycle_ids to be non-empty"
-                    );
-                }
-            }
+        match load_v2(&json) {
+            Err(e) => failures.push(format!("{name}: load: {e}")),
+            Ok(model) => match ModelGraphV2::build(&model) {
+                Ok(_) => {}
+                // v2-native cycles are rejected by design (semantics §9); that's not a failure.
+                Err(EngineError::CycleDetected(_)) => {}
+                Err(e) => failures.push(format!("{name}: graph: {e}")),
+            },
         }
     }
 
@@ -586,9 +604,7 @@ fn predatorprey_runs_without_error() {
     let path = openvsim_examples_dir().join("predatorprey1.json");
     if !path.exists() { eprintln!("skipping: {} not present", path.display()); return; }
     let json = fs::read_to_string(&path).unwrap();
-    let model = load(&json);
-    let graph = ModelGraph::build(&model).unwrap();
-    let results = run(&model, &graph, &RunConfig::default()).unwrap();
+    let results = simulate_json(&json, &RunConfig::default()).unwrap();
     // Just check it doesn't crash; values may be degenerate
     eprintln!("predatorprey element count: {}", results.elements.len());
     for (id, el) in &results.elements {
@@ -637,9 +653,7 @@ fn array_models_run_without_error() {
     for name in cases {
         let path = dir.join(name);
         let json = fs::read_to_string(&path).expect(name);
-        let model = load(&json);
-        let graph = ModelGraph::build(&model).unwrap();
-        match run(&model, &graph, &RunConfig::default()) {
+        match simulate_json(&json, &RunConfig::default()) {
             Ok(_) => { eprintln!("{name}: ok"); passed += 1; }
             Err(e) => {
                 eprintln!("{name}: FAIL — {e:?}");

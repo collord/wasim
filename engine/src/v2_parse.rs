@@ -204,7 +204,7 @@ struct RawElement {
     #[serde(default)]
     event_value: Option<RawQexpr>,
     #[serde(default)]
-    count_limit: Option<i64>,
+    count_limit: Option<f64>,
     #[serde(default)]
     failure_process: Option<RawFailure>,
 
@@ -530,7 +530,7 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             interpolation: lower_interp(e.interpolation.as_deref()),
         },
         "lag" => v2::NodeRule::Lag {
-            input: e.input.clone().ok_or_else(|| missing("input"))?,
+            input: e.input.clone(),
             initial: e.initial.clone(),
         },
         "convolution" => v2::NodeRule::Convolution {

@@ -111,7 +111,7 @@ pub enum NodeRule {
     },
     /// [lag] Strictly one-timestep delay of `input`. Multi-step delays are chained.
     Lag {
-        input: String,
+        input: Option<String>,
         initial: Option<Quantity>,
     },
     /// [convolution] Discrete convolution of input history with a response function.
@@ -287,7 +287,7 @@ pub struct Event {
     pub trigger: Option<TriggerSpec>,
     pub effects: Vec<EffectSpec>,
     pub event_value: Option<QuantityExpr>,
-    pub count_limit: Option<i64>,
+    pub count_limit: Option<f64>,
     pub rate: Option<QuantityOrFormula>,           // trait: rate_generation
     pub failure_process: Option<FailureProcess>,    // trait: failure_state_machine
 }

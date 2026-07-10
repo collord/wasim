@@ -482,7 +482,10 @@ pub enum BuiltinFn {
     Sign,
     Int,
     Step,
-    // Trig extension
+    Log2,
+    // Hyperbolic
+    Sinh,
+    Cosh,
     Tanh,
     // Array operations (evaluated against array-valued elements)
     SumArray,
@@ -491,6 +494,7 @@ pub enum BuiltinFn {
     InterpArray,
     MeanArray,
     MinArray,
+    MaxArray,
     DotProduct,
 }
 

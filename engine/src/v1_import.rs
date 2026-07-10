@@ -229,7 +229,7 @@ fn normalize_delay(
             },
             primitive: v2::Primitive::Node(v2::Node {
                 rule: v2::NodeRule::Lag {
-                    input,
+                    input: Some(input),
                     initial: initial.cloned(),
                 },
             }),

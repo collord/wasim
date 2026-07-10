@@ -364,6 +364,9 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::Sign => "sign",
         BuiltinFn::Int => "int",
         BuiltinFn::Step => "step",
+        BuiltinFn::Log2 => "log2",
+        BuiltinFn::Sinh => "sinh",
+        BuiltinFn::Cosh => "cosh",
         BuiltinFn::Tanh => "tanh",
         BuiltinFn::SumArray => "sum_array",
         BuiltinFn::SizeArray => "size_array",
@@ -371,6 +374,7 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::InterpArray => "interp_array",
         BuiltinFn::MeanArray => "mean_array",
         BuiltinFn::MinArray => "min_array",
+        BuiltinFn::MaxArray => "max_array",
         BuiltinFn::DotProduct => "dot_product",
     }
 }

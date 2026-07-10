@@ -60,8 +60,17 @@ pub fn run(
     if !duration.is_finite() || duration <= 0.0 {
         return Err(EngineError::InvalidModel(format!("duration must be > 0, got {duration}")));
     }
-    let n_steps = (duration / dt).round() as usize;
     let dt_unit = model.simulation_settings.timestep.unit.clone();
+    // duration and timestep may be authored in different time units (e.g. duration in `s`,
+    // timestep in `day`). Reconcile duration into the timestep's unit before dividing;
+    // fall back to a raw ratio only when the units are non-convertible (unknown/mismatched).
+    let duration_in_dt = crate::units::convert(
+        duration,
+        &model.simulation_settings.duration.unit,
+        &dt_unit,
+    )
+    .unwrap_or(duration);
+    let n_steps = (duration_in_dt / dt).round() as usize;
 
     let elem_idx: HashMap<&str, usize> =
         model.elements.iter().enumerate().map(|(i, e)| (e.id(), i)).collect();
@@ -1145,10 +1154,13 @@ fn eval_element(
             }
             NodeRule::Lag { input, initial } => {
                 // Strict one-step delay: read the input's previous-step output.
-                let v = prev_outputs
-                    .get(input.as_str())
+                // An unwired lag (no input) is a pure initial-value hold.
+                let init = initial.as_ref().map(|q| q.value).unwrap_or(0.0);
+                let v = input
+                    .as_ref()
+                    .and_then(|id| prev_outputs.get(id.as_str()))
                     .map(|v| v.as_scalar())
-                    .unwrap_or_else(|| initial.as_ref().map(|q| q.value).unwrap_or(0.0));
+                    .unwrap_or(init);
                 Ok(Value::Scalar(v))
             }
             NodeRule::Expression(ef) => {

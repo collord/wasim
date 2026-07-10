@@ -220,10 +220,18 @@ pub fn run(
     if !duration.is_finite() || duration <= 0.0 {
         return Err(EngineError::InvalidModel(format!("duration must be > 0, got {duration}")));
     }
-    let n_steps = (duration / dt).round() as usize;
-
     // Lookup tables, extracted once for the AST walker (decoupled from WasimModel).
     let dt_unit = model.simulation_settings.timestep.unit.clone();
+    // duration and timestep may be authored in different time units (e.g. duration in `s`,
+    // timestep in `day`). Reconcile duration into the timestep's unit before dividing;
+    // fall back to a raw ratio only when the units are non-convertible (unknown/mismatched).
+    let duration_in_dt = crate::units::convert(
+        duration,
+        &model.simulation_settings.duration.unit,
+        &dt_unit,
+    )
+    .unwrap_or(duration);
+    let n_steps = (duration_in_dt / dt).round() as usize;
     let lookups: HashMap<String, crate::eval::LookupData> = model.elements.iter()
         .filter_map(|e| match &e.kind {
             ElementKind::Lookup { x, y, columns, extrapolation, .. } => Some((

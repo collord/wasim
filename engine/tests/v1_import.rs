@@ -15,6 +15,20 @@ fn load(json: &str) -> WasimModel {
     serde_json::from_str(json).expect("parse failed")
 }
 
+/// v2-native models (first element has a `primitive` field) don't go through the v1
+/// normalizer — this suite only exercises v1→v2 import.
+fn is_v2_native(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| {
+            v.get("elements")
+                .and_then(|e| e.as_array())
+                .and_then(|a| a.first())
+                .map(|f| f.get("primitive").is_some())
+        })
+        .unwrap_or(false)
+}
+
 fn openvsim_examples_dir() -> PathBuf {
     std::env::var("WASIM_SCHEMA_EXAMPLES")
         .map(PathBuf::from)
@@ -99,7 +113,7 @@ fn multistep_delay_expands_to_chained_lags() {
         let e = v2.elements.iter().find(|e| e.id() == id).unwrap();
         match &e.primitive {
             Primitive::Node(n) => match &n.rule {
-                NodeRule::Lag { input, .. } => input.clone(),
+                NodeRule::Lag { input, .. } => input.clone().expect("lag input"),
                 other => panic!("{id}: expected lag, got {other:?}"),
             },
             _ => panic!("{id}: expected node"),
@@ -146,6 +160,9 @@ fn normalize_all_schema_examples() {
         }
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let json = fs::read_to_string(&path).unwrap();
+        if is_v2_native(&json) {
+            continue; // v2-native files skip the v1 normalizer
+        }
         let model: WasimModel = match serde_json::from_str(&json) {
             Ok(m) => m,
             Err(e) => {
@@ -182,6 +199,7 @@ fn normalize_all_schema_examples() {
     if !failures.is_empty() {
         panic!("normalize failures ({}):\n{}", failures.len(), failures.join("\n"));
     }
-    assert!(count >= 100, "expected ≥100 examples, found {count}");
-    eprintln!("normalized {count} corpus models into v2 with no structural failures");
+    // Most of the corpus is now v2-native; only the remaining v1 files exercise the normalizer.
+    assert!(count >= 1, "expected at least one v1 model in the corpus, found {count}");
+    eprintln!("normalized {count} v1 corpus models into v2 with no structural failures");
 }

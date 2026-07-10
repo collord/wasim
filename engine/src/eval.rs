@@ -320,6 +320,11 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             let v = eval_ast(&args[0], ctx)?.into_vec();
             return Ok(Value::Scalar(v.iter().cloned().fold(f64::INFINITY, f64::min)));
         }
+        BuiltinFn::MaxArray => {
+            require_args("max_array", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            return Ok(Value::Scalar(v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)));
+        }
         BuiltinFn::SizeArray => {
             require_args("size_array", args.len(), 1, 1)?;
             return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().len() as f64));
@@ -381,10 +386,13 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::Sign  => { require_args("sign",  n, 1, 1)?; vals[0].signum() }
         BuiltinFn::Int   => { require_args("int",   n, 1, 1)?; vals[0].trunc() }
         BuiltinFn::Step  => { require_args("step",  n, 1, 1)?; if vals[0] >= 0.0 { 1.0 } else { 0.0 } }
+        BuiltinFn::Log2  => { require_args("log2",  n, 1, 1)?; vals[0].log2() }
+        BuiltinFn::Sinh  => { require_args("sinh",  n, 1, 1)?; vals[0].sinh() }
+        BuiltinFn::Cosh  => { require_args("cosh",  n, 1, 1)?; vals[0].cosh() }
         BuiltinFn::Tanh  => { require_args("tanh",  n, 1, 1)?; vals[0].tanh() }
         BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
-        | BuiltinFn::DotProduct => unreachable!(),
+        | BuiltinFn::MaxArray | BuiltinFn::DotProduct => unreachable!(),
     };
     Ok(Value::Scalar(result))
 }
