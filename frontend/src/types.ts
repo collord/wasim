@@ -107,6 +107,8 @@ export interface ElementResults {
 
 export interface SimulationResults {
   time_axis: number[]
+  /** Unit label for time_axis (display unit if the timestep declared one, else canonical). */
+  time_unit: string
   elements: Record<string, ElementResults>
   n_realizations: number
   n_steps: number

@@ -34,6 +34,10 @@ impl Default for RunConfig {
 pub struct SimulationResults {
     /// Time axis in declared timestep units. Length = n_steps.
     pub time_axis: Vec<f64>,
+    /// Unit label for `time_axis`. The engine emits the canonical timestep unit; the
+    /// display boundary (wasm bridge) may rewrite both axis and label to a display unit.
+    #[serde(default)]
+    pub time_unit: String,
     pub elements: HashMap<String, ElementResults>,
     pub n_realizations: u32,
     pub n_steps: usize,
@@ -731,6 +735,7 @@ pub fn run(
 
     Ok(SimulationResults {
         time_axis,
+        time_unit: dt_unit.clone(),
         elements: results_map,
         n_realizations: n_real,
         n_steps,

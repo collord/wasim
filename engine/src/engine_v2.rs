@@ -1118,7 +1118,7 @@ pub fn run(
         .chain(cell_species_ids.iter().cloned())
         .collect();
 
-    Ok(SimulationResults { time_axis, elements: results_map, n_realizations: n_real, n_steps, output_ids })
+    Ok(SimulationResults { time_axis, time_unit: dt_unit.clone(), elements: results_map, n_realizations: n_real, n_steps, output_ids })
 }
 
 // ── per-element evaluation ────────────────────────────────────────────────────

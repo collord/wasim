@@ -387,7 +387,8 @@ export function ResultsTab() {
       ? plotIds
       : [activeId].filter(Boolean)
 
-  const timeUnit = modelSummary?.simulation_settings.timestep.unit ?? ''
+  const timeUnit =
+    results.time_unit || (modelSummary?.simulation_settings.timestep.unit ?? '')
   const activeElem: ElementResults | undefined = activeId ? results.elements[activeId] : undefined
 
   const plotSeries = effectivePlotIds

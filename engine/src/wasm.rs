@@ -93,6 +93,16 @@ impl WasmEngine {
                 }
             }
         }
+
+        // Convert the time axis to the timestep's display unit, if declared (e.g. an axis
+        // in canonical `s` shown as `yr`). Same display boundary as element values above.
+        let ts = &self.model.simulation_settings.timestep;
+        if let Some(du) = ts.display_unit.as_deref() {
+            if let Some((f, o)) = crate::units::display_conversion(&ts.unit, du) {
+                results.time_axis.iter_mut().for_each(|t| *t = *t * f + o);
+                results.time_unit = du.to_string();
+            }
+        }
         serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
     }
 
