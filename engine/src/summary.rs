@@ -30,7 +30,13 @@ pub fn summary_json(model: &Model) -> String {
         traits: Vec<&'static str>,
         container: Option<&'a str>,
         editable: bool,
+        /// Canonical unit the engine computes in.
         unit: &'a str,
+        /// Preferred display unit + affine mapping (`display = value·factor + offset`).
+        /// Present only when a valid conversion exists; else the frontend shows `unit`.
+        display_unit: Option<&'a str>,
+        display_factor: f64,
+        display_offset: f64,
         value: Option<f64>,
         bounds: Option<&'a crate::model::Bounds>,
         /// Full distribution (family + parameters + truncation) for `sample` nodes.
@@ -65,6 +71,9 @@ pub fn summary_json(model: &Model) -> String {
             container: e.base.container.as_deref(),
             editable: is_editable(e),
             unit: unit_of(e),
+            display_unit: display_of(e).map(|(du, _, _)| du),
+            display_factor: display_of(e).map(|(_, f, _)| f).unwrap_or(1.0),
+            display_offset: display_of(e).map(|(_, _, o)| o).unwrap_or(0.0),
             value: current_value(e),
             bounds: bounds_of(e),
             dist: dist_of(e),
@@ -241,6 +250,27 @@ pub fn current_value(elem: &Element) -> Option<f64> {
         }
     }
     None
+}
+
+/// The element's preferred display unit (from a fixed value's `display_unit`, else the
+/// primary output's `display_unit`).
+fn display_unit_of(elem: &Element) -> Option<&str> {
+    if let Primitive::Node(n) = &elem.primitive {
+        if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &n.rule {
+            if let Some(du) = q.display_unit.as_deref() {
+                return Some(du);
+            }
+        }
+    }
+    elem.base.outputs.first().and_then(|o| o.display_unit.as_deref())
+}
+
+/// (display_unit, factor, offset) when a valid canonical→display conversion exists.
+/// `display = value·factor + offset`.
+pub fn display_of(elem: &Element) -> Option<(&str, f64, f64)> {
+    let du = display_unit_of(elem)?;
+    let (f, o) = crate::units::display_conversion(unit_of(elem), du)?;
+    Some((du, f, o))
 }
 
 /// Readable formula for an expression node: the transpiler-provided `display` string when

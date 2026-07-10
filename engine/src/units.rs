@@ -59,6 +59,8 @@ fn simple(unit: &str) -> Option<(f64, BaseDim)> {
         "m3" | "m^3" => (1.0, Volume),
         "l" | "L" | "litre" | "liter" => (0.001, Volume),
         "ml" | "mL" => (1e-6, Volume),
+        "kl" | "kL" | "kiloliter" | "kilolitre" => (1.0, Volume),       // 10³ L = 1 m³
+        "Ml" | "ML" | "megaliter" | "megalitre" => (1000.0, Volume),    // 10⁶ L
         "gal" => (0.003_785_41, Volume),
         "ft3" => (0.028_316_8, Volume),
         // dimensionless
@@ -95,6 +97,51 @@ pub fn convert(value: f64, from: &str, to: &str) -> Option<f64> {
         return None;
     }
     Some(value * ff / tf)
+}
+
+/// Conversion from a canonical `unit` to a `display_unit`, as `(factor, offset)`:
+/// `display_value = value * factor + offset`. Temperature is affine (offset ≠ 0).
+/// Returns `None` when no valid conversion exists (unknown units or a genuine dimension
+/// mismatch) — callers should then show the canonical unit unchanged.
+pub fn display_conversion(unit: &str, display_unit: &str) -> Option<(f64, f64)> {
+    let (u, du) = (unit.trim(), display_unit.trim());
+    if u == du {
+        return Some((1.0, 0.0));
+    }
+    // Temperature is an affine (offset) conversion, not a pure factor.
+    if let (Some((a, b)), Some((c, d))) = (temp_to_celsius(u), celsius_to_temp(du)) {
+        return Some((c * a, c * b + d));
+    }
+    // Same-dimension factor conversion.
+    if let (Some((uf, ud)), Some((df, dd))) = (parse_unit(u), parse_unit(du)) {
+        return if ud == dd { Some((uf / df, 0.0)) } else { None };
+    }
+    // Dimensionless relabel (persons, currency, counts): canonical is dimensionless and the
+    // display unit is a non-unit label.
+    if matches!(u, "1" | "") && parse_unit(du).is_none() && temp_to_celsius(du).is_none() {
+        return Some((1.0, 0.0));
+    }
+    None
+}
+
+/// (a, b) s.t. `celsius = a·value + b`, for a temperature unit.
+fn temp_to_celsius(unit: &str) -> Option<(f64, f64)> {
+    match unit {
+        "C" | "°C" | "degC" | "celsius" | "Celsius" => Some((1.0, 0.0)),
+        "K" | "kelvin" | "Kelvin" => Some((1.0, -273.15)),
+        "F" | "°F" | "degF" | "fahrenheit" | "Fahrenheit" => Some((1.0 / 1.8, -32.0 / 1.8)),
+        _ => None,
+    }
+}
+
+/// (c, d) s.t. `display = c·celsius + d`, for a temperature unit.
+fn celsius_to_temp(unit: &str) -> Option<(f64, f64)> {
+    match unit {
+        "C" | "°C" | "degC" | "celsius" | "Celsius" => Some((1.0, 0.0)),
+        "K" | "kelvin" | "Kelvin" => Some((1.0, 273.15)),
+        "F" | "°F" | "degF" | "fahrenheit" | "Fahrenheit" => Some((1.8, 32.0)),
+        _ => None,
+    }
 }
 
 /// Load-time dimensional validation. Returns human-readable warnings; the engine continues

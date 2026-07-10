@@ -54,8 +54,14 @@ export interface ElementSummary {
   traits: string[]
   container: string | null
   editable: boolean
+  /** Canonical unit the engine computes in. */
   unit: string
-  /** Current value for an editable `fixed` node. */
+  /** Preferred display unit + affine map (`display = value·factor + offset`), when a valid
+   * conversion exists; else absent and the canonical `unit` is shown. */
+  display_unit?: string | null
+  display_factor?: number
+  display_offset?: number
+  /** Current value for an editable `fixed` node (in canonical units). */
   value: number | null
   bounds?: { min?: number | null; max?: number | null } | null
   /** Distribution (family + parameters) for a `sample` node. */

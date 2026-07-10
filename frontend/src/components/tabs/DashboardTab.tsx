@@ -1,5 +1,6 @@
 import { useStore } from '../../store'
 import type { ElementSummary } from '../../types'
+import { dispOf, toDisplay, fromDisplay } from '../../display'
 
 function SaveParamsButton() {
   const saveParameters = useStore((s) => s.saveParameters)
@@ -38,9 +39,13 @@ const PARAM_LABELS: Record<string, Record<string, string>> = {
 
 function ConstantInput({ elem }: { elem: ElementSummary }) {
   const setConstant = useStore((s) => s.setConstant)
+  // Show + edit in display units; store the canonical value.
+  const d = dispOf(elem)
   const raw = elem.value
-  const current = raw !== null && Number.isFinite(raw) ? raw : ''
-  const unit = elem.unit !== '1' ? elem.unit : ''
+  const current = raw !== null && Number.isFinite(raw) ? toDisplay(raw, d) : ''
+  const unit = d.unit !== '1' ? d.unit : ''
+  const boundMin = elem.bounds?.min != null ? toDisplay(elem.bounds.min, d) : undefined
+  const boundMax = elem.bounds?.max != null ? toDisplay(elem.bounds.max, d) : undefined
 
   return (
     <div className="flex items-center gap-3">
@@ -56,10 +61,10 @@ function ConstantInput({ elem }: { elem: ElementSummary }) {
           value={current}
           onChange={(e) => {
             const v = parseFloat(e.target.value)
-            if (Number.isFinite(v)) setConstant(elem.id, v)
+            if (Number.isFinite(v)) setConstant(elem.id, fromDisplay(v, d))
           }}
-          min={elem.bounds?.min ?? undefined}
-          max={elem.bounds?.max ?? undefined}
+          min={boundMin}
+          max={boundMax}
           step="any"
           className="w-28 rounded border border-slate-300 px-2 py-1 text-right font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />

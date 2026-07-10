@@ -88,6 +88,32 @@ fn summary_preserves_legacy_type_for_v1_imports() {
 }
 
 #[test]
+fn summary_exposes_display_units() {
+    let m = parse_v2(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 5, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+        "elements": [
+          {"id": "temp", "name": "Temp", "primitive": "node", "value_rule": "fixed", "value": {"value": 300, "unit": "K", "display_unit": "C"}},
+          {"id": "flow", "name": "Flow", "primitive": "node", "value_rule": "expression",
+           "expression": {"ast": {"op": "literal", "value": 1}},
+           "outputs": [{"name": "flow", "unit": "m^3/s", "display_unit": "m3/day"}]}
+        ]}"#,
+    )
+    .unwrap();
+    let s = summ(&m);
+
+    let t = elem(&s, "temp");
+    assert_eq!(t["unit"], "K");
+    assert_eq!(t["display_unit"], "C");
+    assert!((t["display_offset"].as_f64().unwrap() + 273.15).abs() < 1e-9);
+    assert_eq!(t["display_factor"], 1.0);
+
+    let f = elem(&s, "flow");
+    assert_eq!(f["display_unit"], "m3/day");
+    assert!((f["display_factor"].as_f64().unwrap() - 86400.0).abs() < 1.0);
+}
+
+#[test]
 fn summary_includes_formula_and_table() {
     let m = parse_v2(
         r#"{"wasim_version": "0.8.0",

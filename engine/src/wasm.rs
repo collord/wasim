@@ -70,8 +70,29 @@ impl WasmEngine {
             duration_override: js.duration_override,
             timestep_override: js.timestep_override,
         };
-        let results = run_v2(&self.model, &self.graph, &config)
+        let mut results = run_v2(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;
+
+        // Convert results into display units (`display = value·factor + offset`) so the UI
+        // shows friendly units. The engine core stays canonical; this is the display boundary.
+        let disp: std::collections::HashMap<&str, (String, f64, f64)> = self
+            .model
+            .elements
+            .iter()
+            .filter_map(|e| crate::summary::display_of(e).map(|(du, f, o)| (e.id(), (du.to_string(), f, o))))
+            .collect();
+        for (id, r) in results.elements.iter_mut() {
+            if let Some((du, f, o)) = disp.get(id.as_str()) {
+                let (f, o) = (*f, *o);
+                r.unit = du.clone();
+                r.final_values.iter_mut().for_each(|v| *v = *v * f + o);
+                if let Some(h) = &mut r.time_history {
+                    for arr in [&mut h.mean, &mut h.p05, &mut h.p25, &mut h.p50, &mut h.p75, &mut h.p95] {
+                        arr.iter_mut().for_each(|v| *v = *v * f + o);
+                    }
+                }
+            }
+        }
         serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
     }
 

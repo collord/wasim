@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
 import dagre from '@dagrejs/dagre'
 import { useStore } from '../../store'
 import type { ElementSummary } from '../../types'
+import { unitLabel } from '../../display'
 
 // ── Layout constants ───────────────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ export function GraphTab() {
   const modelSummary = useStore((s) => s.modelSummary)
 
   const unitMap = useMemo(() =>
-    Object.fromEntries((modelSummary?.elements ?? []).map((e) => [e.id, e.unit])),
+    Object.fromEntries((modelSummary?.elements ?? []).map((e) => [e.id, unitLabel(e)])),
   [modelSummary])
 
   const descMap = useMemo(() =>

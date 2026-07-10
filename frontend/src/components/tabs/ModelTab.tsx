@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../../store'
 import type { ElementSummary } from '../../types'
+import { unitLabel } from '../../display'
 
 function fmt(v: number | undefined): string {
   return v === undefined || v === null ? '' : String(Number(v.toPrecision(6)))
@@ -191,7 +192,7 @@ export function ModelTab() {
                         </td>
                         <td className="px-4 py-2 font-mono text-xs text-slate-500">{e.id}</td>
                         <td className="px-4 py-2 font-mono text-xs text-slate-400">
-                          {e.unit !== '1' ? e.unit : ''}
+                          {unitLabel(e) !== '1' ? unitLabel(e) : ''}
                         </td>
                         <td className="px-4 py-2">
                           <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${TYPE_COLOR[e.type] ?? 'bg-slate-100 text-slate-600'}`}>
