@@ -17,6 +17,23 @@ pub fn summary_json(model: &Model) -> String {
         elements: Vec<ElemSummary<'a>>,
         containers: &'a [crate::model::ContainerDef],
         simulation_settings: &'a crate::model::SimulationSettings,
+        /// Display mappings for the duration/timestep quantities (`display = value·factor + offset`),
+        /// so the dashboard can show/edit them in their declared display unit while the engine
+        /// keeps consuming canonical values.
+        time_display: TimeDisplay,
+    }
+
+    #[derive(serde::Serialize)]
+    struct QtyDisplay {
+        unit: String,
+        factor: f64,
+        offset: f64,
+    }
+
+    #[derive(serde::Serialize)]
+    struct TimeDisplay {
+        duration: QtyDisplay,
+        timestep: QtyDisplay,
     }
 
     #[derive(serde::Serialize)]
@@ -97,11 +114,26 @@ pub fn summary_json(model: &Model) -> String {
         })
         .collect();
 
+    // Map a time quantity (duration/timestep) to its display unit, if it declares one and the
+    // conversion is valid; else identity on the canonical unit. Mirrors `display_of` for elements.
+    let qty_display = |q: &crate::model::Quantity| -> QtyDisplay {
+        if let Some(du) = q.display_unit.as_deref() {
+            if let Some((f, o)) = crate::units::display_conversion(&q.unit, du) {
+                return QtyDisplay { unit: du.to_string(), factor: f, offset: o };
+            }
+        }
+        QtyDisplay { unit: q.unit.clone(), factor: 1.0, offset: 0.0 }
+    };
+
     let summary = Summary {
         element_count: elements.len(),
         elements,
         containers: &model.containers,
         simulation_settings: &model.simulation_settings,
+        time_display: TimeDisplay {
+            duration: qty_display(&model.simulation_settings.duration),
+            timestep: qty_display(&model.simulation_settings.timestep),
+        },
     };
     serde_json::to_string(&summary).unwrap_or_default()
 }

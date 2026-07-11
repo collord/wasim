@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { MainToWorker, WorkerToMain } from './worker/protocol'
-import type { ModelJson, ModelSummary, SimulationResults } from './types'
+import type { ModelJson, ModelSummary, QtyDisplay, SimulationResults } from './types'
+
+const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
 
 // ── Worker singleton ──────────────────────────────────────────────────────────
 
@@ -53,10 +55,12 @@ interface State {
   // Run config (user-controlled)
   nRealizations: number
   seed: number | null
+  // Canonical (engine-facing) duration/timestep. The dashboard shows/edits them in the
+  // declared display unit via the *Disp mappings; these values stay canonical.
   simDuration: number | null
-  simDurationUnit: string
   simTimestep: number | null
-  simTimestepUnit: string
+  simDurationDisp: QtyDisplay
+  simTimestepDisp: QtyDisplay
 
   // Internal
   _onWorkerMessage: (msg: WorkerToMain) => void
@@ -90,9 +94,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   nRealizations: 1000,
   seed: 42,
   simDuration: null,
-  simDurationUnit: 'yr',
   simTimestep: null,
-  simTimestepUnit: 'yr',
+  simDurationDisp: IDENTITY_DISP,
+  simTimestepDisp: IDENTITY_DISP,
 
   loadModel(json, filename) {
     // Lightweight parse for sim-settings only (top level is format-agnostic, v1 or v2).
@@ -114,9 +118,10 @@ export const useStore = create<State & Actions>((set, get) => ({
       selectedResultId: null,
       errorMessage: null,
       simDuration: ss.duration.value,
-      simDurationUnit: ss.duration.unit,
       simTimestep: ss.timestep.value,
-      simTimestepUnit: ss.timestep.unit,
+      // Disp mappings reset to identity until the engine summary arrives (model_loaded).
+      simDurationDisp: IDENTITY_DISP,
+      simTimestepDisp: IDENTITY_DISP,
     })
     postToWorker({ type: 'load_model', payload: json })
   },
@@ -175,8 +180,15 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   setNRealizations: (n) => set({ nRealizations: n }),
   setSeed: (s) => set({ seed: s }),
-  setSimDuration: (v) => set({ simDuration: v }),
-  setSimTimestep: (v) => set({ simTimestep: v }),
+  // Inputs are in display units; store canonical (canonical = (display - offset) / factor).
+  setSimDuration: (v) => {
+    const d = get().simDurationDisp
+    set({ simDuration: (v - d.offset) / d.factor })
+  },
+  setSimTimestep: (v) => {
+    const d = get().simTimestepDisp
+    set({ simTimestep: (v - d.offset) / d.factor })
+  },
   setSelectedResultId: (id) => set({ selectedResultId: id }),
 
   saveParameters() {
@@ -230,7 +242,14 @@ export const useStore = create<State & Actions>((set, get) => ({
   _onWorkerMessage(msg) {
     switch (msg.type) {
       case 'model_loaded':
-        set({ modelSummary: msg.summary, activeTab: 'graph' })
+        set({
+          modelSummary: msg.summary,
+          activeTab: 'graph',
+          // Display mappings arrive with the summary (engine-computed); the dashboard
+          // shows/edits duration & timestep in these units while the store stays canonical.
+          simDurationDisp: msg.summary.time_display.duration,
+          simTimestepDisp: msg.summary.time_display.timestep,
+        })
         break
 
       case 'complete': {

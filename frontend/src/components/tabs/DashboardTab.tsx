@@ -128,9 +128,9 @@ function RunControls() {
   const nRealizations = useStore((s) => s.nRealizations)
   const seed = useStore((s) => s.seed)
   const simDuration = useStore((s) => s.simDuration)
-  const simDurationUnit = useStore((s) => s.simDurationUnit)
+  const simDurationDisp = useStore((s) => s.simDurationDisp)
   const simTimestep = useStore((s) => s.simTimestep)
-  const simTimestepUnit = useStore((s) => s.simTimestepUnit)
+  const simTimestepDisp = useStore((s) => s.simTimestepDisp)
   const setNRealizations = useStore((s) => s.setNRealizations)
   const setSeed = useStore((s) => s.setSeed)
   const setSimDuration = useStore((s) => s.setSimDuration)
@@ -150,13 +150,13 @@ function RunControls() {
           <div className="flex items-center gap-1">
             <input
               type="number"
-              value={simDuration ?? ''}
+              value={simDuration === null ? '' : simDuration * simDurationDisp.factor + simDurationDisp.offset}
               onChange={(e) => setSimDuration(parseFloat(e.target.value))}
               min={0}
               step="any"
               className={`w-full ${inputCls}`}
             />
-            <span className="text-xs text-slate-400 whitespace-nowrap">{simDurationUnit}</span>
+            <span className="text-xs text-slate-400 whitespace-nowrap">{simDurationDisp.unit}</span>
           </div>
         </div>
         <div className="flex flex-col gap-0.5">
@@ -164,13 +164,13 @@ function RunControls() {
           <div className="flex items-center gap-1">
             <input
               type="number"
-              value={simTimestep ?? ''}
+              value={simTimestep === null ? '' : simTimestep * simTimestepDisp.factor + simTimestepDisp.offset}
               onChange={(e) => setSimTimestep(parseFloat(e.target.value))}
               min={0}
               step="any"
               className={`w-full ${inputCls}`}
             />
-            <span className="text-xs text-slate-400 whitespace-nowrap">{simTimestepUnit}</span>
+            <span className="text-xs text-slate-400 whitespace-nowrap">{simTimestepDisp.unit}</span>
           </div>
         </div>
         <div className="flex flex-col gap-0.5">

@@ -80,11 +80,19 @@ export interface ElementSummary {
   description: string | null
 }
 
+/** Display mapping for a time quantity (display = value·factor + offset). */
+export interface QtyDisplay {
+  unit: string
+  factor: number
+  offset: number
+}
+
 export interface ModelSummary {
   element_count: number
   elements: ElementSummary[]
   containers: ContainerDef[]
   simulation_settings: SimulationSettings
+  time_display: { duration: QtyDisplay; timestep: QtyDisplay }
 }
 
 // ── Simulation results (from WasmEngine.run_json()) ──────────────────────────
