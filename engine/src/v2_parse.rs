@@ -33,6 +33,10 @@ struct RawModel {
     source: Option<SourceMetadata>,
     simulation_settings: RawSimSettings,
     #[serde(default)]
+    dimensions: Vec<crate::model::DimensionDef>,
+    #[serde(default)]
+    optimization: Option<crate::model::OptimizationSpec>,
+    #[serde(default)]
     containers: Vec<ContainerDef>,
     elements: Vec<RawElement>,
     #[serde(default)]
@@ -387,6 +391,8 @@ fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
             seed: raw.simulation_settings.seed,
         },
         reporting_periods: raw.simulation_settings.reporting_periods,
+        dimensions: raw.dimensions,
+        optimization: raw.optimization,
         containers: raw.containers,
         elements,
         time_history_displays: raw.time_history_displays,

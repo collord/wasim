@@ -762,3 +762,44 @@ fn random_variable_autocorrelation_recovers_rho() {
     assert!((rho_hat - 0.7).abs() < 0.05, "expected ρ̂ ≈ 0.7, got {rho_hat:.3}");
 }
 
+
+/// Zero-duration (single-evaluation driver/instant) models must load and evaluate — the
+/// engine treats duration==0 as n_steps=1. Regression guard for the DURATION_ZERO_FINDING
+/// decision: the point is that the load-time `duration must be > 0` rejection is gone.
+/// Some of these models have unrelated data issues (bad distribution params, etc.); those
+/// may still error, but never with the duration guard.
+#[test]
+fn zero_duration_models_run() {
+    let dir = openvsim_examples_dir();
+    if !dir.exists() { eprintln!("skipping: {} not present", dir.display()); return; }
+
+    // Clean single-evaluation models that must run all the way through to n_steps==1.
+    let must_run = [
+        "randomsequencegenerator.json", "localizedcontainer.json", "sensitivity.json",
+    ];
+    for name in must_run {
+        let path = dir.join(name);
+        if !path.exists() { continue; }
+        let json = fs::read_to_string(&path).expect(name);
+        match simulate_json(&json, &RunConfig::default()) {
+            Ok(r) => assert_eq!(r.n_steps, 1, "{name}: single-evaluation model should be 1 step"),
+            Err(e) => panic!("{name}: zero-duration model failed to run: {e:?}"),
+        }
+    }
+
+    // The rest may fail for unrelated (data) reasons, but never with the duration guard.
+    let no_duration_error = [
+        "montecarlostatistics.json", "probabilisticoptimization.json", "distributions.json",
+        "rectangular_weir.json", "coffeemachinepurchasedecision.json", "oil_sands_production.json",
+        "plume.json",
+    ];
+    for name in no_duration_error {
+        let path = dir.join(name);
+        if !path.exists() { continue; }
+        let json = fs::read_to_string(&path).expect(name);
+        if let Err(e) = simulate_json(&json, &RunConfig::default()) {
+            let msg = format!("{e:?}");
+            assert!(!msg.contains("duration must be"), "{name}: still hit the duration guard: {msg}");
+        }
+    }
+}

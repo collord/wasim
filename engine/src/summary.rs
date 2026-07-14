@@ -6,7 +6,7 @@
 //! `inputs`. This is the contract the frontend's graph/dashboard/editing views build on, so it
 //! lives here (host-testable) rather than inside the wasm-gated bridge.
 
-use crate::model::{AstNode, BuiltinFn, TimeProperty};
+use crate::model::{AstNode, BuiltinFn, IndexAxis, SubmodelStatKind, TimeProperty};
 use crate::model_v2::{Element, FixedValue, Model, NodeRule, Primitive};
 
 /// Serialize a model summary to JSON (the shape `WasmEngine.model_summary()` returns).
@@ -357,6 +357,34 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::Array { elements } => {
             let e: Vec<String> = elements.iter().map(render_ast).collect();
             format!("[{}]", e.join(", "))
+        }
+        AstNode::SubmodelStat { submodel_id, output, statistic, arg } => {
+            let f = match statistic {
+                SubmodelStatKind::Mean => "pdf_mean",
+                SubmodelStatKind::Percentile => "pdf_percentile",
+                SubmodelStatKind::Sd => "pdf_sd",
+                SubmodelStatKind::CumulativeProb => "pdf_cumprob",
+            };
+            // Show the leaf names for readability (ids are full slash-paths).
+            let sub = submodel_id.rsplit('/').next().unwrap_or(submodel_id);
+            let out = output.rsplit('/').next().unwrap_or(output);
+            match arg {
+                Some(a) => format!("{f}({sub}.{out}, {})", render_ast(a)),
+                None => format!("{f}({sub}.{out})"),
+            }
+        }
+        AstNode::VectorMap { over, body } => format!("vector[{over}]({})", render_ast(body)),
+        AstNode::IndexRef { axis } => match axis {
+            IndexAxis::Row => "row".to_string(),
+            IndexAxis::Col => "col".to_string(),
+        },
+        AstNode::Index { array, indices } => {
+            let idx: Vec<String> = indices.iter().map(render_ast).collect();
+            format!("{}[{}]", render_ast(array), idx.join(", "))
+        }
+        AstNode::ExternCall { func, args } => {
+            let a: Vec<String> = args.iter().map(render_ast).collect();
+            format!("{func}({})", a.join(", "))
         }
     }
 }

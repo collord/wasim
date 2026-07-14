@@ -221,8 +221,8 @@ pub fn run(
     if !dt.is_finite() || dt <= 0.0 {
         return Err(EngineError::InvalidModel(format!("timestep must be > 0, got {dt}")));
     }
-    if !duration.is_finite() || duration <= 0.0 {
-        return Err(EngineError::InvalidModel(format!("duration must be > 0, got {duration}")));
+    if !duration.is_finite() || duration < 0.0 {
+        return Err(EngineError::InvalidModel(format!("duration must be >= 0, got {duration}")));
     }
     // Lookup tables, extracted once for the AST walker (decoupled from WasimModel).
     let dt_unit = model.simulation_settings.timestep.unit.clone();
@@ -235,7 +235,13 @@ pub fn run(
         &dt_unit,
     )
     .unwrap_or(duration);
-    let n_steps = (duration_in_dt / dt).round() as usize;
+    // duration 0 (or below half a timestep) is a single-evaluation model — see engine_v2 + §9.
+    let n_steps = ((duration_in_dt / dt).round() as usize).max(1);
+    // v1 models have no dimensions/array comprehensions; supply empty array-env state so the
+    // shared EvalCtx (used by the v2 array executor) is satisfied.
+    let dim_sizes_empty: HashMap<String, usize> = HashMap::new();
+    let index_stack_empty: std::cell::RefCell<Vec<usize>> = std::cell::RefCell::new(Vec::new());
+    let submodel_outputs_empty: HashMap<(String, String), Vec<f64>> = HashMap::new();
     let lookups: HashMap<String, crate::eval::LookupData> = model.elements.iter()
         .filter_map(|e| match &e.kind {
             ElementKind::Lookup { x, y, columns, extrapolation, .. } => Some((
@@ -340,7 +346,7 @@ pub fn run(
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let ctx = EvalCtx { lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
@@ -362,7 +368,7 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                    let ctx = EvalCtx { lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
                     let v = match sampling::icdf(&resolved.kind, u) {
@@ -422,7 +428,7 @@ pub fn run(
         for elem_id in &graph.topo_order {
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let ElementKind::Expression { expression, .. } = &elem.kind {
-                let ctx = EvalCtx { lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                 if let Ok(v) = eval_ast(&expression.ast, &ctx) {
                     init_ctx_outputs.insert(elem_id.clone(), v);
                 }
@@ -436,7 +442,7 @@ pub fn run(
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
                 let init = match initial_expression {
                     Some(expr) => {
-                        let ctx = EvalCtx { lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(initial_value.value),
@@ -520,7 +526,7 @@ pub fn run(
                     }
 
                     ElementKind::Expression { expression, .. } => {
-                        let ctx = EvalCtx {
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty,
                             lookups: &lookups, dt_unit: &dt_unit,
                             outputs: &outputs,
                             prev_outputs: &prev_outputs,
@@ -538,7 +544,7 @@ pub fn run(
                                 if *procedural {
                                     eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
-                                let ctx = EvalCtx { lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
                             }
                         }
@@ -553,7 +559,7 @@ pub fn run(
                             None => !expressions.is_empty(),
                         };
                         if is_expression {
-                            let ctx = EvalCtx {
+                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty,
                                 lookups: &lookups, dt_unit: &dt_unit,
                                 outputs: &outputs,
                                 prev_outputs: &prev_outputs,
@@ -579,7 +585,7 @@ pub fn run(
             for &id in &acc_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Accumulator { rate, min_value, capacity, .. } = &elem.kind {
-                    let ctx = EvalCtx {
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty,
                         lookups: &lookups, dt_unit: &dt_unit,
                         outputs: &outputs,
                         prev_outputs: &prev_outputs,
@@ -627,7 +633,7 @@ pub fn run(
 
             // Evaluate time_history_displays against the finalized step outputs.
             for d in &model.time_history_displays {
-                let ctx = EvalCtx { lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {
@@ -791,4 +797,18 @@ pub(crate) fn percentile(vs: &[f64], p: f64) -> f64 {
     sorted.sort_by(f64::total_cmp);
     let idx = ((p / 100.0) * (sorted.len() - 1) as f64).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
+}
+
+/// Sample standard deviation (n-1 denominator). 0.0 for fewer than 2 samples.
+pub(crate) fn std(vs: &[f64]) -> f64 {
+    if vs.len() < 2 { return 0.0; }
+    let m = mean(vs);
+    let var = vs.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (vs.len() - 1) as f64;
+    var.sqrt()
+}
+
+/// Empirical CDF at `threshold`: fraction of samples ≤ threshold.
+pub(crate) fn cumulative_prob(vs: &[f64], threshold: f64) -> f64 {
+    if vs.is_empty() { return 0.0; }
+    vs.iter().filter(|&&x| x <= threshold).count() as f64 / vs.len() as f64
 }

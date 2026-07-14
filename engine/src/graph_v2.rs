@@ -224,6 +224,28 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
                 collect_ast_refs(e, out);
             }
         }
-        AstNode::Literal { .. } | AstNode::TimeRef { .. } => {}
+        // The expression depends on the submodel it reads a statistic from. The
+        // `arg` sub-node may itself reference elements (e.g. a percentile index).
+        AstNode::SubmodelStat { submodel_id, arg, .. } => {
+            out.push(submodel_id.as_str());
+            if let Some(a) = arg {
+                collect_ast_refs(a, out);
+            }
+        }
+        // Array-comprehension nodes (§15). Refs live in the sub-expressions; the
+        // `over` dimension is an ordinal set, not an element, so it is not a dep.
+        AstNode::VectorMap { body, .. } => collect_ast_refs(body, out),
+        AstNode::Index { array, indices } => {
+            collect_ast_refs(array, out);
+            for i in indices {
+                collect_ast_refs(i, out);
+            }
+        }
+        AstNode::ExternCall { args, .. } => {
+            for a in args {
+                collect_ast_refs(a, out);
+            }
+        }
+        AstNode::IndexRef { .. } | AstNode::Literal { .. } | AstNode::TimeRef { .. } => {}
     }
 }

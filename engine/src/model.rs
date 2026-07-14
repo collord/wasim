@@ -101,6 +101,127 @@ pub struct ContainerDef {
     pub parent: Option<String>,
     #[serde(default)]
     pub children: Vec<String>,
+    /// Interior element ids (v2). Membership is also carried by each element's `container`
+    /// back-ref (authoritative); this list is a convenience the emit side may populate.
+    #[serde(default)]
+    pub elements: Vec<String>,
+    /// Structural role. `container`/`group` are organizational; `submodel` is a nested run (§12).
+    #[serde(default)]
+    pub kind: ContainerKind,
+    /// For `kind: submodel`: the nested run's settings. None inherits the parent's.
+    #[serde(default)]
+    pub simulation_settings: Option<SimulationSettings>,
+    /// Named boundary inputs/outputs (submodel interface, §12).
+    #[serde(default)]
+    pub interface: Option<ContainerInterface>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerKind {
+    #[default]
+    Container,
+    Group,
+    Submodel,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ContainerInterface {
+    #[serde(default)]
+    pub inputs: Vec<InterfaceInput>,
+    #[serde(default)]
+    pub outputs: Vec<String>,
+}
+
+/// A submodel boundary input: the parent `from` element drives the interior `input` element.
+/// `from` is None for an engine/dashboard-supplied input with no model driver.
+#[derive(Debug, Clone, Serialize)]
+pub struct InterfaceInput {
+    pub input: String,
+    pub from: Option<String>,
+}
+
+// Accept both the 0.8.4 object form `{input, from}` and the pre-0.8.4 bare-string form
+// (which carries only the consumer id, no driver) during the corpus cutover.
+impl<'de> Deserialize<'de> for InterfaceInput {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Str(String),
+            Obj {
+                input: String,
+                #[serde(default)]
+                from: Option<String>,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Str(input) => InterfaceInput { input, from: None },
+            Raw::Obj { input, from } => InterfaceInput { input, from },
+        })
+    }
+}
+
+// ── Optimization study (§13) ────────────────────────────────────────────────────
+
+/// A study-level optimization: search variable values that make the objective best.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OptimizationSpec {
+    pub objective: Objective,
+    pub variables: Vec<OptVariable>,
+    #[serde(default)]
+    pub constraints: Vec<OptConstraint>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Objective {
+    pub element_id: String,
+    pub direction: OptDirection,
+    /// Present for a probabilistic objective; None = deterministic (single value).
+    #[serde(default)]
+    pub statistic: Option<ObjectiveStatistic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptDirection {
+    Maximize,
+    Minimize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ObjectiveStatistic {
+    pub kind: ObjectiveStatKind,
+    /// Percentile in [0,100]; required when kind = percentile.
+    #[serde(default)]
+    pub p: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectiveStatKind {
+    Mean,
+    Percentile,
+    Peak,
+    Valley,
+    Sum,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OptVariable {
+    pub element_id: String,
+    pub lower: Quantity,
+    pub upper: Quantity,
+    pub initial: Quantity,
+    #[serde(default)]
+    pub integer: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OptConstraint {
+    pub condition: QuantityOrFormula,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -108,6 +229,21 @@ pub struct OutputSpec {
     pub name: String,
     pub unit: String,
     pub display_unit: Option<String>,
+    /// Ids of the dimensions (top-level `dimensions[]`) this output ranges over.
+    /// Empty = scalar. See wasim-engine-semantics.md §15.
+    #[serde(default)]
+    pub dimensions: Vec<String>,
+}
+
+/// A named, ordered dimension (ordinal set) — `size` members, optionally labeled.
+/// `vector_map.over` iterates these; `output_spec.dimensions` reference them by id.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DimensionDef {
+    pub id: String,
+    pub name: String,
+    pub size: usize,
+    #[serde(default)]
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -436,10 +572,61 @@ pub enum AstNode {
         input: Box<AstNode>,
         input2: Option<Box<AstNode>>,
     },
+    // Monte-Carlo statistic of a submodel output, reduced across the submodel's
+    // realizations (the `pdf_*` operations). See wasim-engine-semantics.md §2.13.
+    SubmodelStat {
+        submodel_id: String,
+        output: String,
+        statistic: SubmodelStatKind,
+        #[serde(default)]
+        arg: Option<Box<AstNode>>,
+    },
     // Array construction: evaluates each element and produces a vector
     Array {
         elements: Vec<AstNode>,
     },
+    // Comprehension over a dimension: evaluate `body` once per member of `over`.
+    // See wasim-engine-semantics.md §15.
+    VectorMap {
+        over: String,
+        body: Box<AstNode>,
+    },
+    // The implicit iteration index inside a `vector_map` body.
+    IndexRef {
+        #[serde(default)]
+        axis: IndexAxis,
+    },
+    // Array/matrix element access: array[i] or matrix[i, j].
+    Index {
+        array: Box<AstNode>,
+        indices: Vec<AstNode>,
+    },
+    // A source function the engine does not implement — preserved for round-tripping
+    // and connectivity; evaluates to 0.0 (opaque).
+    ExternCall {
+        #[serde(rename = "fn")]
+        func: String,
+        args: Vec<AstNode>,
+    },
+}
+
+/// The axis a `index_ref` refers to inside a `vector_map` body.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexAxis {
+    #[default]
+    Row,
+    Col,
+}
+
+/// Which statistic a `submodel_stat` node reduces a submodel output to.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmodelStatKind {
+    Mean,
+    Percentile,
+    Sd,
+    CumulativeProb,
 }
 
 fn default_output_name() -> String {

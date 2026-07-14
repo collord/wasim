@@ -33,6 +33,8 @@ pub fn normalize(model: &WasimModel) -> v2::Model {
         source: model.source.clone(),
         simulation_settings: model.simulation_settings.clone(),
         reporting_periods: Vec::new(),
+        dimensions: Vec::new(),
+        optimization: None,
         containers: model.containers.clone(),
         elements,
         time_history_displays: model.time_history_displays.clone(),

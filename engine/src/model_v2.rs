@@ -18,9 +18,11 @@ use serde::Serialize;
 // Schema-shared building blocks are identical between v1 and v2; reuse them so the
 // AST walker (`eval.rs`) and samplers (`sampling.rs`) work against one set of types.
 pub use crate::model::{
-    AstNode, Bounds, ContainerDef, CorrelationPair, Distribution, ExpressionField,
-    InterpolationMethod, OutputSpec, ProcessSpec, Quantity, QuantityOrFormula, SaveSpec,
-    SimulationSettings, SourceMetadata, TimeHistoryDisplay,
+    AstNode, Bounds, ContainerDef, ContainerInterface, ContainerKind, CorrelationPair,
+    DimensionDef, Distribution, ExpressionField, InterfaceInput, InterpolationMethod, Objective,
+    ObjectiveStatKind, ObjectiveStatistic, OptConstraint, OptDirection, OptVariable, OutputSpec,
+    OptimizationSpec, ProcessSpec, Quantity, QuantityOrFormula, SaveSpec, SimulationSettings,
+    SourceMetadata, TimeHistoryDisplay,
 };
 
 // ── Top-level ─────────────────────────────────────────────────────────────────
@@ -32,6 +34,10 @@ pub struct Model {
     pub simulation_settings: SimulationSettings,
     /// v2 adds `reporting_periods`; carried here (v1 import leaves it empty).
     pub reporting_periods: Vec<Quantity>,
+    /// Ordinal-set declarations for array comprehensions (§15). Empty when scalar-only.
+    pub dimensions: Vec<DimensionDef>,
+    /// Study-level optimization config (§13). None for non-optimization models.
+    pub optimization: Option<OptimizationSpec>,
     pub containers: Vec<ContainerDef>,
     pub elements: Vec<Element>,
     pub time_history_displays: Vec<TimeHistoryDisplay>,

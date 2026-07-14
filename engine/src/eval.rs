@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::error::EngineError;
@@ -83,6 +84,15 @@ pub struct EvalCtx<'a> {
     pub dt_unit: &'a str,
     /// 0-based step index.
     pub step_index: usize,
+    /// Dimension id → member count, for `vector_map` comprehensions (§15).
+    pub dimensions: &'a HashMap<String, usize>,
+    /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
+    /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
+    /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
+    pub index_stack: &'a RefCell<Vec<usize>>,
+    /// Per-realization sample vectors for submodel outputs, keyed by (submodel_id, output).
+    /// Populated by a pre-pass (§12); `submodel_stat` reduces these on demand.
+    pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
 }
 
 impl<'a> EvalCtx<'a> {
@@ -246,6 +256,79 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 .collect();
             Ok(Value::Vector(vals?))
         }
+
+        // Submodel statistic (pdf_*): reduce the submodel output's per-realization samples
+        // (pre-computed by the §12 pre-pass) by the named statistic. Unresolved submodel/
+        // output → 0.0 (dangling-ref policy). See wasim-engine-semantics.md §2.13.
+        AstNode::SubmodelStat { submodel_id, output, statistic, arg } => {
+            let key = (submodel_id.clone(), output.clone());
+            let samples = match ctx.submodel_outputs.get(&key) {
+                Some(s) => s,
+                None => return Ok(Value::Scalar(0.0)),
+            };
+            let arg_val = arg
+                .as_deref()
+                .map(|n| eval_ast_scalar(n, ctx))
+                .transpose()?
+                .unwrap_or(0.0);
+            let reduced = match statistic {
+                crate::model::SubmodelStatKind::Mean => crate::engine::mean(samples),
+                crate::model::SubmodelStatKind::Percentile => {
+                    crate::engine::percentile(samples, arg_val)
+                }
+                crate::model::SubmodelStatKind::Sd => crate::engine::std(samples),
+                crate::model::SubmodelStatKind::CumulativeProb => {
+                    crate::engine::cumulative_prob(samples, arg_val)
+                }
+            };
+            Ok(Value::Scalar(reduced))
+        }
+
+        // Array-comprehension nodes (§15). Indices are 1-based (matching `get_element` and
+        // GoldSim arrays): `vector_map` pushes the current 1-based member index onto the
+        // shared stack, `index_ref` reads it, `index` subtracts 1 to select.
+        AstNode::VectorMap { over, body } => {
+            let size = *ctx.dimensions.get(over.as_str()).unwrap_or(&0);
+            if size == 0 {
+                // Unknown/empty dimension: degrade to an empty vector (dangling-ref policy).
+                return Ok(Value::Vector(Vec::new()));
+            }
+            let mut out = Vec::with_capacity(size);
+            for i in 1..=size {
+                ctx.index_stack.borrow_mut().push(i);
+                let r = eval_ast(body, ctx);
+                ctx.index_stack.borrow_mut().pop();
+                out.push(r?.as_scalar());
+            }
+            Ok(Value::Vector(out))
+        }
+        AstNode::IndexRef { axis } => {
+            let stack = ctx.index_stack.borrow();
+            // `row` = innermost (top); `col` = the enclosing vector_map (one below).
+            let v = match axis {
+                crate::model::IndexAxis::Row => stack.last().copied(),
+                crate::model::IndexAxis::Col => {
+                    let n = stack.len();
+                    if n >= 2 { stack.get(n - 2).copied() } else { None }
+                }
+            };
+            Ok(Value::Scalar(v.unwrap_or(0) as f64))
+        }
+        AstNode::Index { array, indices } => {
+            let v = eval_ast(array, ctx)?.into_vec();
+            // First index selects the (1-based) member; a second index (matrix col) is only
+            // meaningful for nested arrays, which the flat Value::Vector doesn't model — take
+            // the first index for the vector case.
+            let i = indices
+                .first()
+                .map(|n| eval_ast_scalar(n, ctx))
+                .transpose()?
+                .unwrap_or(0.0);
+            let idx = (i.round() as i64 - 1).max(0) as usize;
+            Ok(Value::Scalar(v.get(idx).copied().unwrap_or(0.0)))
+        }
+        // Opaque source function — preserved for round-tripping, evaluates to 0.0 (§15).
+        AstNode::ExternCall { .. } => Ok(Value::Scalar(0.0)),
     }
 }
 

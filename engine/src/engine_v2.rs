@@ -12,6 +12,7 @@
 //! unchanged-semantics subset. Lag is the one intentional divergence: v2 `lag` is a strict
 //! one-step delay (multi-step delays are chained at import), which fixes a v1 off-by-one.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use rand::{Rng, SeedableRng};
@@ -57,8 +58,8 @@ pub fn run(
     if !dt.is_finite() || dt <= 0.0 {
         return Err(EngineError::InvalidModel(format!("timestep must be > 0, got {dt}")));
     }
-    if !duration.is_finite() || duration <= 0.0 {
-        return Err(EngineError::InvalidModel(format!("duration must be > 0, got {duration}")));
+    if !duration.is_finite() || duration < 0.0 {
+        return Err(EngineError::InvalidModel(format!("duration must be >= 0, got {duration}")));
     }
     let dt_unit = model.simulation_settings.timestep.unit.clone();
     // duration and timestep may be authored in different time units (e.g. duration in `s`,
@@ -70,10 +71,27 @@ pub fn run(
         &dt_unit,
     )
     .unwrap_or(duration);
-    let n_steps = (duration_in_dt / dt).round() as usize;
+    // A duration of 0 (or below half a timestep) is a single-evaluation model: evaluate once
+    // at t=start and stop. These are GoldSim driver/instant models (optimization/statistics
+    // drivers, static calcs) whose real timeline is a nested submodel run. See semantics §9.
+    let n_steps = ((duration_in_dt / dt).round() as usize).max(1);
 
     let elem_idx: HashMap<&str, usize> =
         model.elements.iter().enumerate().map(|(i, e)| (e.id(), i)).collect();
+
+    // Array-comprehension environment (§15): dimension-size table + shared vector_map
+    // index stack, threaded into every EvalCtx via ArrayEnv.
+    let dim_sizes: HashMap<String, usize> =
+        model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
+    let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+    // SubModel pre-pass (§12): run each referenced submodel once and collect its output
+    // samples, so `submodel_stat` nodes reduce real data instead of degrading to 0.0.
+    let submodel_outputs = crate::submodel_v2::run_submodels(model, config)?;
+    let arr = ArrayEnv {
+        dims: &dim_sizes,
+        index_stack: &index_stack,
+        submodel_outputs: &submodel_outputs,
+    };
 
     let lookups = lookups_map(model);
 
@@ -175,7 +193,7 @@ pub fn run(
     let corr_groups = build_corr_groups(model)?;
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
     // Iman-Conover rank correlation: reorder per-realization draws up front (semantics §8).
-    let ic_samples = iman_conover_samples(model, &corr_groups, n_real, seed, &lookups, dt, &dt_unit)?;
+    let ic_samples = iman_conover_samples(model, &corr_groups, n_real, seed, &lookups, dt, &dt_unit, &arr)?;
 
     for real_idx in 0..n_real {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -197,7 +215,7 @@ pub fn run(
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Sample { distribution, .. } = &n.rule {
                     if !corr_ids.contains(elem.id()) {
-                        let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit);
+                        let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
                         let resolved = resolve_distribution(distribution, &ctx)?;
                         let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                         rv_samples.insert(elem.id().to_string(), v);
@@ -267,7 +285,7 @@ pub fn run(
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Expression(ef) = &n.rule {
-                    let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0);
+                    let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0, &arr);
                     if let Ok(v) = eval_ast(&ef.ast, &ctx) {
                         init_outputs.insert(elem_id.clone(), v);
                     }
@@ -281,7 +299,7 @@ pub fn run(
             if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
                 let init = match &s.initial_expression {
                     Some(expr) => {
-                        let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0);
+                        let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0, &arr);
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(s.initial_value.value),
@@ -333,7 +351,7 @@ pub fn run(
         let mut cell_mass: HashMap<(String, String, String), f64> = HashMap::new();
         let mut source_inv: HashMap<String, f64> = HashMap::new();
         {
-            let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0);
+            let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0, &arr);
             for elem in &model.elements {
                 if let Primitive::Cell(c) = &elem.primitive {
                     let first_medium = cell_media.get(elem.id())
@@ -386,7 +404,7 @@ pub fn run(
             for &id in &resample_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Sample { distribution, resampling: Some(trig), .. } = &n.rule {
-                        let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                        let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                         if trigger_fires(trig, &ctx, dt, step_idx)? {
                             let resolved = resolve_distribution(distribution, &ctx)?;
                             let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
@@ -450,7 +468,7 @@ pub fn run(
                                 let probs: Vec<f64> = match row {
                                     TransitionRow::Fixed(p) => p.clone(),
                                     TransitionRow::Expr(es) => {
-                                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                                         es.iter()
                                             .map(|q| eval_qof_value(q, &ctx).map(|v| v.as_scalar()).unwrap_or(0.0))
                                             .collect()
@@ -483,16 +501,16 @@ pub fn run(
                             Value::Scalar(val)
                         }
                         NodeRule::GateLogic { root, .. } => {
-                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                             Value::Scalar(if eval_gate(root, &ctx)? { 1.0 } else { 0.0 })
                         }
                         _ => eval_element(
                             elem, &lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx,
-                            &rv_samples, &sp_state, &stock_state,
+                            &rv_samples, &sp_state, &stock_state, &arr,
                         )?,
                     },
                     Primitive::Gate(g) => {
-                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                         Value::Scalar(if eval_gate(&g.root, &ctx)? { 1.0 } else { 0.0 })
                     }
                     // Links/events/cells are resolved in their own passes; definitions are inert.
@@ -502,7 +520,7 @@ pub fn run(
                     }
                     _ => eval_element(
                         elem, &lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx,
-                        &rv_samples, &sp_state, &stock_state,
+                        &rv_samples, &sp_state, &stock_state, &arr,
                     )?,
                 };
                 outputs.insert(elem_id.clone(), value);
@@ -521,7 +539,7 @@ pub fn run(
                     if l.species.is_some() {
                         continue;
                     }
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                     let fires = match &l.schedule {
                         Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
                         None => true,
@@ -607,7 +625,7 @@ pub fn run(
             let mut event_out: Vec<(String, f64)> = Vec::new();
             for elem in &model.elements {
                 let Primitive::Event(ev) = &elem.primitive else { continue };
-                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
 
                 // Output value + effect action. action = Some((reverse, count)).
                 let (out_val, action): (f64, Option<(bool, f64)>) = if let Some(fp) = &ev.failure_process {
@@ -759,7 +777,7 @@ pub fn run(
             let mut withdrawal_allocs: Vec<(String, f64)> = Vec::new();
             for &id in &stock_ids {
                 let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive else { continue };
-                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                 let current = stock_state[id].clone();
 
                 // Trait priority_withdrawal: allocate available stock by priority. `request`/
@@ -870,7 +888,7 @@ pub fn run(
                 let mut cell_delta: HashMap<(String, String, String), f64> = HashMap::new();
                 let mut st_link_out: Vec<(String, f64)> = Vec::new();
                 {
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                     let first_medium = |cell: &str| -> String {
                         cell_media.get(cell).and_then(|m| m.first()).map(|(id, _)| id.clone()).unwrap_or_default()
                     };
@@ -928,7 +946,7 @@ pub fn run(
                 }
                 // Trait partitioning_equilibrium: redistribute each species across media by Kd.
                 {
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                     for elem in &model.elements {
                         if let Primitive::Cell(c) = &elem.primitive {
                             if c.partitioning.is_empty() {
@@ -1013,7 +1031,7 @@ pub fn run(
             }
 
             for d in &model.time_history_displays {
-                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx);
+                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {
@@ -1136,6 +1154,7 @@ fn eval_element(
     rv_samples: &HashMap<String, f64>,
     sp_state: &HashMap<String, f64>,
     stock_state: &HashMap<String, Value>,
+    arr: &ArrayEnv,
 ) -> Result<Value, EngineError> {
     let id = elem.id();
     match &elem.primitive {
@@ -1164,7 +1183,7 @@ fn eval_element(
                 Ok(Value::Scalar(v))
             }
             NodeRule::Expression(ef) => {
-                let ctx = ctx_at(lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_idx);
+                let ctx = ctx_at(lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_idx, arr);
                 eval_ast(&ef.ast, &ctx)
             }
             other => Err(EngineError::Unsupported(format!(
@@ -1181,6 +1200,16 @@ fn eval_element(
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+/// Per-run evaluation environment threaded into every `EvalCtx`. Constant across a run:
+/// `dims` is the dimension-size table; `index_stack` is the shared vector_map index stack
+/// (interior-mutable); `submodel_outputs` holds each referenced submodel output's
+/// per-realization samples (§12). Bundled so the many `ctx_at` call sites take one arg.
+pub(crate) struct ArrayEnv<'a> {
+    pub dims: &'a HashMap<String, usize>,
+    pub index_stack: &'a RefCell<Vec<usize>>,
+    pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
+}
+
 fn ctx_at<'a>(
     lookups: &'a HashMap<String, LookupData>,
     outputs: &'a HashMap<String, Value>,
@@ -1189,8 +1218,12 @@ fn ctx_at<'a>(
     dt: f64,
     dt_unit: &'a str,
     step_index: usize,
+    arr: &ArrayEnv<'a>,
 ) -> EvalCtx<'a> {
-    EvalCtx { lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index }
+    EvalCtx {
+        lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
+        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+    }
 }
 
 fn dist_ctx_eval<'a>(
@@ -1199,8 +1232,12 @@ fn dist_ctx_eval<'a>(
     prev_outputs: &'a HashMap<String, Value>,
     dt: f64,
     dt_unit: &'a str,
+    arr: &ArrayEnv<'a>,
 ) -> EvalCtx<'a> {
-    EvalCtx { lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0 }
+    EvalCtx {
+        lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
+        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+    }
 }
 
 fn eval_qof_value(qof: &QuantityOrFormula, ctx: &EvalCtx) -> Result<Value, EngineError> {
@@ -1617,6 +1654,7 @@ fn iman_conover_samples(
     lookups: &HashMap<String, LookupData>,
     dt: f64,
     dt_unit: &str,
+    arr: &ArrayEnv,
 ) -> Result<HashMap<String, Vec<f64>>, EngineError> {
     let mut out = HashMap::new();
     let k = n_real as usize;
@@ -1650,7 +1688,7 @@ fn iman_conover_samples(
             let elem = &model.elements[elem_idx[id.as_str()]];
             let Primitive::Node(node) = &elem.primitive else { continue };
             let NodeRule::Sample { distribution, .. } = &node.rule else { continue };
-            let ctx = dist_ctx_eval(lookups, &dist_ctx, &empty, dt, dt_unit);
+            let ctx = dist_ctx_eval(lookups, &dist_ctx, &empty, dt, dt_unit, arr);
             let resolved = resolve_distribution(distribution, &ctx)?;
             let col: Result<Vec<f64>, _> =
                 (0..k).map(|_| sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)).collect();
