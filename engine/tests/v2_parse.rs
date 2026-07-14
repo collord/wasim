@@ -336,3 +336,40 @@ fn submodel_interface_input_driving() {
     // driver(5) drives driver_in; y = 5*2 = 10; mean = 10.
     assert_eq!(r.elements["Model/Result"].final_values, vec![10.0], "input-driving: Result should be 10");
 }
+
+/// Boundary-port injection: the interface `input` names a synthesized id with NO distinct
+/// interior element; an interior element references that id directly. The engine injects a
+/// fixed element for the driven port so the reference resolves to the parent's value.
+/// Parent driver = 4; interior `y = port * 3` reads the injected port → y = 12; mean = 12.
+#[test]
+fn submodel_boundary_port_injection() {
+    let json = r#"{
+      "wasim_version": "0.8.4",
+      "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+      "containers": [
+        {"id": "Model", "name": "Model", "children": ["Model/Sub"], "elements": ["Model/drv", "Model/R"]},
+        {"id": "Model/Sub", "name": "Sub", "parent": "Model", "kind": "submodel",
+         "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 3},
+         "interface": {"inputs": [{"input": "Model/Sub/port", "from": "Model/drv"}], "outputs": ["Model/Sub/y"]},
+         "elements": ["Model/Sub/y"]}
+      ],
+      "elements": [
+        {"id": "Model/drv", "name": "drv", "primitive": "node", "value_rule": "fixed",
+         "container": "Model", "value": {"value": 4, "unit": "1"}},
+        {"id": "Model/Sub/y", "name": "y", "primitive": "node", "value_rule": "expression",
+         "container": "Model/Sub", "inputs": ["Model/Sub/port"],
+         "expression": {"ast": {"op": "multiply", "left": {"op": "ref", "element_id": "Model/Sub/port"}, "right": {"op": "literal", "value": 3}}},
+         "save_results": {"final_value": true}},
+        {"id": "Model/R", "name": "R", "primitive": "node", "value_rule": "expression",
+         "container": "Model", "inputs": ["Model/Sub"],
+         "expression": {"ast": {"op": "submodel_stat", "submodel_id": "Model/Sub", "output": "Model/Sub/y", "statistic": "mean"}},
+         "save_results": {"final_value": true}}
+      ]
+    }"#;
+
+    let m = parse_v2(json).expect("parse");
+    let g = ModelGraphV2::build(&m).expect("graph");
+    let r = run_v2(&m, &g, &RunConfig::default()).expect("run");
+    // `port` (synthesized, no interior element) is injected = drv = 4; y = 4*3 = 12; mean = 12.
+    assert_eq!(r.elements["Model/R"].final_values, vec![12.0], "boundary-port injection: R should be 12");
+}

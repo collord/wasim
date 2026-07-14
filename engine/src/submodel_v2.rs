@@ -154,15 +154,15 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         .clone()
         .unwrap_or_else(|| model.simulation_settings.clone());
 
-    // Interface-input driving: for each `{input, from}` binding, pin the interior `input`
-    // element to the current value of the parent `from` element. Bindings with `from: null`
-    // (engine/dashboard-supplied inputs) are left at their authored value.
+    // Interface-input driving: for each `{input, from}` binding with a resolvable driver,
+    // pin the `input` element to the parent `from` element's current value. Bindings with
+    // `from: null` (engine/dashboard-supplied) are left as-authored. The `input` id is
+    // accepted as-is: when it names an existing interior element it's overridden below; when
+    // it's a synthesized boundary-port id (the common case — the port has no distinct interior
+    // element), it's injected as a fixed element so any interior reference to it resolves.
     let mut driven: HashMap<String, f64> = HashMap::new();
     if let Some(iface) = &container.interface {
         for binding in &iface.inputs {
-            if !interior_ids.contains(&binding.input) {
-                continue; // consumer isn't an interior element; nothing to override
-            }
             if let Some(from) = &binding.from {
                 if let Some(v) = fixed_scalar(model, from) {
                     driven.insert(binding.input.clone(), v);
@@ -170,6 +170,15 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
             }
         }
     }
+    let make_fixed = |v: f64| NodeRule::Fixed {
+        value: FixedValue::Scalar(crate::model::Quantity {
+            value: v,
+            unit: "1".to_string(),
+            display_unit: None,
+        }),
+        editable: false,
+        bounds: None,
+    };
 
     Some(Model {
         wasim_version: model.wasim_version.clone(),
@@ -179,33 +188,41 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         dimensions: model.dimensions.clone(),
         optimization: None,
         containers,
-        // Drop any inputs[] that point outside the submodel — the interface would supply
-        // them; without a wired interface they simply resolve to 0.0 (dangling policy).
-        // Force-save every interior element's final value so a referenced interface output
-        // is captured regardless of the emit side's save flags.
-        elements: elements
-            .into_iter()
-            .map(|mut e| {
-                // Pin a driven interface-input element to the parent's value (overrides its
-                // placeholder rule with a fixed scalar).
-                if let Some(&v) = driven.get(e.id()) {
-                    if let Primitive::Node(n) = &mut e.primitive {
-                        n.rule = NodeRule::Fixed {
-                            value: FixedValue::Scalar(crate::model::Quantity {
-                                value: v,
-                                unit: "1".to_string(),
-                                display_unit: None,
-                            }),
-                            editable: false,
-                            bounds: None,
-                        };
+        // Drop any inputs[] that point outside the submodel — the interface supplies them;
+        // an unwired reference resolves to 0.0 (dangling policy). Force-save every interior
+        // final value so a referenced interface output is captured regardless of save flags.
+        elements: {
+            let mut out: Vec<Element> = elements
+                .into_iter()
+                .map(|mut e| {
+                    // Override an existing interior element that a binding drives.
+                    if let Some(&v) = driven.get(e.id()) {
+                        if let Primitive::Node(n) = &mut e.primitive {
+                            n.rule = make_fixed(v);
+                        }
                     }
+                    e.base.inputs.retain(|i| interior_ids.contains(i));
+                    e.base.save_results.final_value = Some(true);
+                    e
+                })
+                .collect();
+            // Inject a fixed element for any driven boundary-port id that had no interior
+            // element, so interior references to it resolve to the parent-supplied value.
+            for (id, &v) in &driven {
+                if !interior_ids.contains(id) {
+                    out.push(Element {
+                        base: crate::model_v2::ElementBase {
+                            id: id.clone(),
+                            name: id.rsplit('/').next().unwrap_or(id).to_string(),
+                            container: Some(submodel_id.to_string()),
+                            ..Default::default()
+                        },
+                        primitive: Primitive::Node(crate::model_v2::Node { rule: make_fixed(v) }),
+                    });
                 }
-                e.base.inputs.retain(|i| interior_ids.contains(i));
-                e.base.save_results.final_value = Some(true);
-                e
-            })
-            .collect(),
+            }
+            out
+        },
         time_history_displays: Vec::new(),
         from_v1: false,
     })

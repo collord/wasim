@@ -116,3 +116,24 @@ Your regeneration to the `{input, from}` shape clears those.
 `designoptimization` (`orifice_area`/`pond_capacity` ← the optimization variables) and
 `probabilisticoptimization` (`Slope`) — those are the ones that close the probabilistic-
 optimization loop end-to-end, once Gap 1 (`total_cost` real AST) also lands.
+
+### On your `input`-resolution question (2026-07-14): (a) — accept the boundary-port id as-is
+
+Confirmed: keep the synthesized `<submodel>/<name>` id; **do NOT trace the interior consumer(s)**
+(option a, not b). No behavior is lost. Measured on the regenerated corpus, `input` resolves to a
+real element in 5/40 bindings; for the other 35 the synthesized id is not even referenced by any
+interior AST today — so requiring `input ∈ elements[]` would force consumer-tracing on your side
+for zero functional gain. It also matches the old leaf-name target, so it's non-regressive.
+
+**Engine now honors this robustly:** the submodel executor injects a fixed element for a driven
+`input` id that has no interior element, so any interior reference to that boundary-port id
+resolves to the parent-supplied value — whether or not the port is a distinct interior element.
+So both shapes work: `input` = a real interior element (overridden) OR a synthesized boundary port
+(injected). The only requirement is that `from` resolves to a fixed-value parent element — which,
+as you note, is the part that actually drives, and it's solid. Verified with a fixture where an
+interior expression reads a synthesized port id and receives the parent driver's value.
+
+Practical note: driving currently reads the `from` element's value only when it's a **fixed
+scalar** (the case for all optimization variables and the corpus drivers). A `from` pointing at a
+computed/expression parent element isn't evaluated into the submodel yet — flag any such case if
+it arises; none in the corpus today.
