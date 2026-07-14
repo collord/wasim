@@ -373,3 +373,76 @@ fn submodel_boundary_port_injection() {
     // `port` (synthesized, no interior element) is injected = drv = 4; y = 4*3 = 12; mean = 12.
     assert_eq!(r.elements["Model/R"].final_values, vec![12.0], "boundary-port injection: R should be 12");
 }
+
+/// Expression `from` driver (the dynamicoptimization case): the parent driver is a computed,
+/// time-varying expression. The executor pulls it + its closure into the submodel so the
+/// interior consumer reads its per-step value. Here `drv = 2 + step_idx*0` is constant-ish;
+/// use `drv = 3 * 4 = 12` (pure expression) so the interior `y = port` = 12; mean = 12.
+#[test]
+fn submodel_expression_from_driver() {
+    let json = r#"{
+      "wasim_version": "0.8.4",
+      "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+      "containers": [
+        {"id": "Model", "name": "Model", "children": ["Model/Sub"], "elements": ["Model/base", "Model/drv", "Model/R"]},
+        {"id": "Model/Sub", "name": "Sub", "parent": "Model", "kind": "submodel",
+         "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 3},
+         "interface": {"inputs": [{"input": "Model/Sub/port", "from": "Model/drv"}], "outputs": ["Model/Sub/y"]},
+         "elements": ["Model/Sub/y"]}
+      ],
+      "elements": [
+        {"id": "Model/base", "name": "base", "primitive": "node", "value_rule": "fixed",
+         "container": "Model", "value": {"value": 3, "unit": "1"}},
+        {"id": "Model/drv", "name": "drv", "primitive": "node", "value_rule": "expression", "inputs": ["Model/base"],
+         "expression": {"ast": {"op": "multiply", "left": {"op": "ref", "element_id": "Model/base"}, "right": {"op": "literal", "value": 4}}}},
+        {"id": "Model/Sub/y", "name": "y", "primitive": "node", "value_rule": "expression",
+         "container": "Model/Sub", "inputs": ["Model/Sub/port"],
+         "expression": {"ast": {"op": "ref", "element_id": "Model/Sub/port"}},
+         "save_results": {"final_value": true}},
+        {"id": "Model/R", "name": "R", "primitive": "node", "value_rule": "expression",
+         "container": "Model", "inputs": ["Model/Sub"],
+         "expression": {"ast": {"op": "submodel_stat", "submodel_id": "Model/Sub", "output": "Model/Sub/y", "statistic": "mean"}},
+         "save_results": {"final_value": true}}
+      ]
+    }"#;
+
+    let m = parse_v2(json).expect("parse");
+    let g = ModelGraphV2::build(&m).expect("graph");
+    let r = run_v2(&m, &g, &RunConfig::default()).expect("run");
+    // drv = base*4 = 3*4 = 12 (its closure `base` is pulled into the submodel); port=drv; y=12; mean=12.
+    assert_eq!(r.elements["Model/R"].final_values, vec![12.0], "expression-from: R should be 12");
+}
+
+/// Sample `from` driver: the parent driver is a distribution. Copying its rule into the submodel
+/// makes the interior consumer draw per submodel realization → mean of the driven output ≈ the
+/// distribution mean. uniform(0,10) over 2000 realizations → mean ≈ 5.
+#[test]
+fn submodel_sample_from_driver() {
+    let json = r#"{
+      "wasim_version": "0.8.4",
+      "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "seed": 9},
+      "containers": [
+        {"id": "Model", "name": "Model", "children": ["Model/Sub"], "elements": ["Model/drv", "Model/R"]},
+        {"id": "Model/Sub", "name": "Sub", "parent": "Model", "kind": "submodel",
+         "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 2000, "seed": 9},
+         "interface": {"inputs": [{"input": "Model/Sub/port", "from": "Model/drv"}], "outputs": ["Model/Sub/port"]},
+         "elements": []}
+      ],
+      "elements": [
+        {"id": "Model/drv", "name": "drv", "primitive": "node", "value_rule": "sample",
+         "container": "Model",
+         "distribution": {"family": "uniform", "parameters": {"min": {"value": 0, "unit": "1"}, "max": {"value": 10, "unit": "1"}}}},
+        {"id": "Model/R", "name": "R", "primitive": "node", "value_rule": "expression",
+         "container": "Model", "inputs": ["Model/Sub"],
+         "expression": {"ast": {"op": "submodel_stat", "submodel_id": "Model/Sub", "output": "Model/Sub/port", "statistic": "mean"}},
+         "save_results": {"final_value": true}}
+      ]
+    }"#;
+
+    let m = parse_v2(json).expect("parse");
+    let g = ModelGraphV2::build(&m).expect("graph");
+    let r = run_v2(&m, &g, &RunConfig::default()).expect("run");
+    let mean = r.elements["Model/R"].final_values[0];
+    // The interior `port` draws uniform(0,10) per submodel realization; mean ≈ 5.
+    assert!((mean - 5.0).abs() < 0.5, "sample-from: mean {mean} not ≈5");
+}

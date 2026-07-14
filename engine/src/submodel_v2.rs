@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::EngineError;
 use crate::model::AstNode;
-use crate::model_v2::{ContainerKind, Element, FixedValue, Model, NodeRule, Primitive};
+use crate::model_v2::{ContainerKind, Element, Model, NodeRule, Primitive};
 use crate::{ModelGraphV2, RunConfig};
 
 /// Walk every element expression AST and collect the `(submodel_id, output)` pairs any
@@ -100,16 +100,60 @@ fn is_under(
     false
 }
 
-/// Current scalar value of a fixed-value node, if `id` names one. Used to read the parent's
-/// value of an interface-input driver.
-fn fixed_scalar(model: &Model, id: &str) -> Option<f64> {
-    model.elements.iter().find(|e| e.id() == id).and_then(|e| match &e.primitive {
-        Primitive::Node(n) => match &n.rule {
-            NodeRule::Fixed { value: FixedValue::Scalar(q), .. } => Some(q.value),
-            _ => None,
-        },
-        _ => None,
-    })
+/// AST element references (for pulling a `from` driver's dependency closure into a submodel).
+fn ast_refs(node: &AstNode, out: &mut HashSet<String>) {
+    match node {
+        AstNode::Ref { element_id, .. } | AstNode::LookupCall { element_id, .. } => {
+            out.insert(element_id.clone());
+        }
+        AstNode::Add { left, right } | AstNode::Subtract { left, right }
+        | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
+        | AstNode::Power { left, right } | AstNode::Lt { left, right }
+        | AstNode::Gt { left, right } | AstNode::Lte { left, right }
+        | AstNode::Gte { left, right } | AstNode::Eq { left, right }
+        | AstNode::Neq { left, right } | AstNode::And { left, right }
+        | AstNode::Or { left, right } => { ast_refs(left, out); ast_refs(right, out); }
+        AstNode::Neg { operand } | AstNode::Not { operand } => ast_refs(operand, out),
+        AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
+            args.iter().for_each(|a| ast_refs(a, out));
+        }
+        AstNode::If { cond, then, else_ } => {
+            ast_refs(cond, out); ast_refs(then, out); ast_refs(else_, out);
+        }
+        AstNode::VectorMap { body, .. } => ast_refs(body, out),
+        AstNode::Index { array, indices } => {
+            ast_refs(array, out); indices.iter().for_each(|i| ast_refs(i, out));
+        }
+        AstNode::Array { elements } => elements.iter().for_each(|e| ast_refs(e, out)),
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
+        AstNode::Literal { .. } | AstNode::TimeRef { .. } | AstNode::IndexRef { .. } => {}
+    }
+}
+
+/// The AST-reference dependency closure of `start` among elements not already interior.
+fn driver_closure(model: &Model, start: &str, interior: &HashSet<String>) -> Vec<Element> {
+    let by_id: HashMap<&str, &Element> = model.elements.iter().map(|e| (e.id(), e)).collect();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut stack = vec![start.to_string()];
+    let mut out = Vec::new();
+    while let Some(id) = stack.pop() {
+        if seen.contains(&id) || interior.contains(&id) {
+            continue;
+        }
+        seen.insert(id.clone());
+        let Some(e) = by_id.get(id.as_str()) else { continue };
+        out.push((*e).clone());
+        // Follow the element's own dependencies (expression AST + declared inputs).
+        if let Primitive::Node(n) = &e.primitive {
+            if let NodeRule::Expression(ef) = &n.rule {
+                let mut r = HashSet::new();
+                ast_refs(&ef.ast, &mut r);
+                stack.extend(r);
+            }
+        }
+        stack.extend(e.base.inputs.iter().cloned());
+    }
+    out
 }
 
 /// Extract a submodel container's interior into a fresh, runnable `Model`. Interior =
@@ -136,9 +180,6 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         .filter(|e| is_under(e.base.container.as_deref(), submodel_id, &parent_of))
         .cloned()
         .collect();
-    if elements.is_empty() {
-        return None; // hollow submodel — nothing to run
-    }
 
     let interior_ids: HashSet<String> = elements.iter().map(|e| e.id().to_string()).collect();
     // Interior containers: the submodel itself + any container whose element(s) are interior.
@@ -154,31 +195,74 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         .clone()
         .unwrap_or_else(|| model.simulation_settings.clone());
 
-    // Interface-input driving: for each `{input, from}` binding with a resolvable driver,
-    // pin the `input` element to the parent `from` element's current value. Bindings with
-    // `from: null` (engine/dashboard-supplied) are left as-authored. The `input` id is
-    // accepted as-is: when it names an existing interior element it's overridden below; when
-    // it's a synthesized boundary-port id (the common case — the port has no distinct interior
-    // element), it's injected as a fixed element so any interior reference to it resolves.
-    let mut driven: HashMap<String, f64> = HashMap::new();
+    // Interface-input driving (§12): for each `{input, from}` binding with a resolvable driver,
+    // pull the parent `from` element AND its dependency closure into the submodel (re-containered
+    // so they run), then make the interior `input` id an expression that refs `from`. Copying
+    // the driver's rule this way handles every driver kind uniformly — a fixed scalar, a
+    // time-varying expression (e.g. `10 + 5·cos(2π·elapsed/T)`), a series read over the
+    // submodel's own clock, or a per-realization sample. Bindings with `from: null`
+    // (engine/dashboard-supplied) contribute nothing. The `input` id is accepted as-is: an
+    // existing interior element is replaced by the alias; a synthesized boundary-port id is
+    // injected, so interior references to it resolve to the driver.
+    let mut extra: Vec<Element> = Vec::new();        // pulled-in driver closure elements
+    let mut aliases: HashMap<String, String> = HashMap::new(); // input id -> from id (ref alias)
+    let mut pulled: HashSet<String> = HashSet::new();
     if let Some(iface) = &container.interface {
         for binding in &iface.inputs {
-            if let Some(from) = &binding.from {
-                if let Some(v) = fixed_scalar(model, from) {
-                    driven.insert(binding.input.clone(), v);
+            let Some(from) = &binding.from else { continue };
+            if binding.input == *from {
+                continue; // consumer already IS the driver; nothing to wire
+            }
+            for e in driver_closure(model, from, &interior_ids) {
+                if pulled.insert(e.id().to_string()) {
+                    extra.push(e);
                 }
             }
+            aliases.insert(binding.input.clone(), from.clone());
         }
     }
-    let make_fixed = |v: f64| NodeRule::Fixed {
-        value: FixedValue::Scalar(crate::model::Quantity {
-            value: v,
-            unit: "1".to_string(),
-            display_unit: None,
-        }),
-        editable: false,
-        bounds: None,
-    };
+    // Re-container the pulled driver elements into the submodel so they're interior + run.
+    for e in &mut extra {
+        e.base.container = Some(submodel_id.to_string());
+    }
+
+    // Assemble the submodel's element list:
+    // interior elements (interface-input consumers replaced by an alias-ref to their driver;
+    // others keep their inputs, dropping references outside the submodel) + pulled driver
+    // closure + injected alias elements for boundary-port inputs with no interior element.
+    let mut out: Vec<Element> = elements
+        .into_iter()
+        .map(|mut e| {
+            if let Some(from) = aliases.get(e.id()) {
+                if let Primitive::Node(n) = &mut e.primitive {
+                    n.rule = alias_ref(from);
+                    e.base.inputs = vec![from.clone()];
+                }
+            } else {
+                e.base.inputs.retain(|i| interior_ids.contains(i) || pulled.contains(i));
+            }
+            e.base.save_results.final_value = Some(true);
+            e
+        })
+        .collect();
+    out.extend(extra);
+    for (input, from) in &aliases {
+        if !interior_ids.contains(input) {
+            out.push(Element {
+                base: crate::model_v2::ElementBase {
+                    id: input.clone(),
+                    name: input.rsplit('/').next().unwrap_or(input).to_string(),
+                    container: Some(submodel_id.to_string()),
+                    inputs: vec![from.clone()],
+                    ..Default::default()
+                },
+                primitive: Primitive::Node(crate::model_v2::Node { rule: alias_ref(from) }),
+            });
+        }
+    }
+    if out.is_empty() {
+        return None; // hollow submodel — nothing to run, even after driving
+    }
 
     Some(Model {
         wasim_version: model.wasim_version.clone(),
@@ -188,43 +272,19 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         dimensions: model.dimensions.clone(),
         optimization: None,
         containers,
-        // Drop any inputs[] that point outside the submodel — the interface supplies them;
-        // an unwired reference resolves to 0.0 (dangling policy). Force-save every interior
-        // final value so a referenced interface output is captured regardless of save flags.
-        elements: {
-            let mut out: Vec<Element> = elements
-                .into_iter()
-                .map(|mut e| {
-                    // Override an existing interior element that a binding drives.
-                    if let Some(&v) = driven.get(e.id()) {
-                        if let Primitive::Node(n) = &mut e.primitive {
-                            n.rule = make_fixed(v);
-                        }
-                    }
-                    e.base.inputs.retain(|i| interior_ids.contains(i));
-                    e.base.save_results.final_value = Some(true);
-                    e
-                })
-                .collect();
-            // Inject a fixed element for any driven boundary-port id that had no interior
-            // element, so interior references to it resolve to the parent-supplied value.
-            for (id, &v) in &driven {
-                if !interior_ids.contains(id) {
-                    out.push(Element {
-                        base: crate::model_v2::ElementBase {
-                            id: id.clone(),
-                            name: id.rsplit('/').next().unwrap_or(id).to_string(),
-                            container: Some(submodel_id.to_string()),
-                            ..Default::default()
-                        },
-                        primitive: Primitive::Node(crate::model_v2::Node { rule: make_fixed(v) }),
-                    });
-                }
-            }
-            out
-        },
+        elements: out,
         time_history_displays: Vec::new(),
         from_v1: false,
+    })
+}
+
+/// An expression rule that simply reads element `from` — used to alias an interface-input
+/// consumer to its driver.
+fn alias_ref(from: &str) -> NodeRule {
+    NodeRule::Expression(crate::model::ExpressionField {
+        ast: AstNode::Ref { element_id: from.to_string(), output: "value".to_string() },
+        display: None,
+        source: Default::default(),
     })
 }
 
