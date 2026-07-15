@@ -23,6 +23,23 @@ The reduction math and the solver are proven on hand-authored fixtures. What's m
 
 ## Gap 1 — submodel_stat outputs are stubbed / not real expressions
 
+> **Re-check 2026-07-14 (fresh regeneration): largely resolved.** `designoptimization.total_cost`
+> is now a **REAL AST** (`sum_array([construction_cost, discharge_fee])`), and all three
+> optimization objectives now have real ASTs. End-to-end, **2 of 3 optimization loops are live**
+> — the objective moves with the search: `probabilisticoptimization` (105.8→120.2),
+> `dynamicoptimization` (0.02→147.6). `designoptimization` still evaluates to 0 — **traced to
+> three emit-side stubs in the `Prob_StormwaterModel` interior** (not the engine, not the driving):
+> `total_cost = construction_cost + discharge_fee`, where (a) `Unit_Const_Cost` is
+> `normal(mean=0, stddev=0)` → 0, so `construction_cost = pond_capacity × 0 = 0` regardless of the
+> driven `pond_capacity`; and (b) `Orifice_Outflow`/`Overflow` are `literal 0.0` → `discharge = 0`
+> → `discharge_fee = if(0 > limit, fee, 0) = 0`. So `total_cost ≡ 0`. Emit needs real
+> ASTs/dist-params for those interior elements to close this third loop; independent of the engine.
+> The remaining 8 stubbed `submodel_stat`
+> outputs are all **`non-expr`**: 5 are `sample` nodes (LEGITIMATE — a distribution-sample output
+> the engine reduces fine, NOT a gap) and 3 are `None`-rule (`Failed3`, `Monthly_Totals`,
+> `Annual_Totals` — genuinely need a real output expression). The original table below is the
+> pre-regeneration snapshot, retained for history.
+
 A `submodel_stat` reduces a submodel *output* element's per-realization values. For that to be
 meaningful, the output element must actually *compute* something. Today, of the outputs
 referenced by a `submodel_stat`, these do not:
