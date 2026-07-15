@@ -156,9 +156,10 @@ function RunControls() {
     <div className="sticky bottom-0 rounded-b-lg border-t border-slate-200 bg-white px-4 py-3">
       <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
         <div className="flex flex-col gap-0.5">
-          <label className="text-xs text-slate-500">Duration</label>
+          <label htmlFor="run-duration" className="text-xs text-slate-500">Duration</label>
           <div className="flex items-center gap-1">
             <input
+              id="run-duration"
               type="number"
               value={simDuration === null ? '' : simDuration * simDurationDisp.factor + simDurationDisp.offset}
               onChange={(e) => setSimDuration(parseFloat(e.target.value))}
@@ -170,9 +171,10 @@ function RunControls() {
           </div>
         </div>
         <div className="flex flex-col gap-0.5">
-          <label className="text-xs text-slate-500">Timestep</label>
+          <label htmlFor="run-timestep" className="text-xs text-slate-500">Timestep</label>
           <div className="flex items-center gap-1">
             <input
+              id="run-timestep"
               type="number"
               value={simTimestep === null ? '' : simTimestep * simTimestepDisp.factor + simTimestepDisp.offset}
               onChange={(e) => setSimTimestep(parseFloat(e.target.value))}
@@ -184,8 +186,9 @@ function RunControls() {
           </div>
         </div>
         <div className="flex flex-col gap-0.5">
-          <label className="text-xs text-slate-500">Realizations</label>
+          <label htmlFor="run-realizations" className="text-xs text-slate-500">Realizations</label>
           <input
+            id="run-realizations"
             type="number"
             value={nRealizations}
             onChange={(e) => setNRealizations(parseInt(e.target.value, 10) || 1)}
@@ -195,8 +198,9 @@ function RunControls() {
           />
         </div>
         <div className="flex flex-col gap-0.5">
-          <label className="text-xs text-slate-500">Seed</label>
+          <label htmlFor="run-seed" className="text-xs text-slate-500">Seed</label>
           <input
+            id="run-seed"
             type="number"
             value={seed ?? ''}
             placeholder="random"
