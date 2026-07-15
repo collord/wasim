@@ -14,11 +14,29 @@ export interface SimulationSettings {
   seed: number | null
 }
 
+export interface InterfaceBinding {
+  input: string
+  from: string | null
+}
+
+export interface ContainerInterface {
+  inputs: InterfaceBinding[]
+  outputs: string[]
+}
+
 export interface ContainerDef {
   id: string
   name: string
   parent: string | null
   children: string[]
+  /** Interior element ids (convenience; element.container is authoritative). */
+  elements?: string[]
+  /** Structural role. `submodel` is a nested run; others are organizational. */
+  kind?: 'container' | 'group' | 'submodel'
+  /** For a submodel: the nested run's settings (null = inherit parent). */
+  simulation_settings?: SimulationSettings | null
+  /** For a submodel: boundary inputs (parent driver → interior consumer) + outputs. */
+  interface?: ContainerInterface | null
 }
 
 export interface Distribution {

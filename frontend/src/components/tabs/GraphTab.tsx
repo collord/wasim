@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
 import dagre from '@dagrejs/dagre'
 import { useStore } from '../../store'
-import type { ElementSummary } from '../../types'
+import type { ContainerDef, ElementSummary } from '../../types'
 import { unitLabel } from '../../display'
 
 // ── Layout constants ───────────────────────────────────────────────────────────
@@ -12,6 +12,16 @@ const CGROUP_W = 160
 const CGROUP_HEADER_H = 28
 const CGROUP_MEMBER_H = 19
 const CGROUP_PAD_B = 8
+
+// Collapsed submodel box: header + a body line per interface output (capped) + a stats line.
+const SUB_W = 190
+const SUB_HEADER_H = 30
+const SUB_LINE_H = 18
+const SUB_PAD_B = 10
+const SUB_MAX_OUTPUTS = 5
+// Padding of the expanded submodel frame around its interior nodes.
+const SUB_FRAME_PAD = 24
+const SUB_FRAME_HEADER_H = 30
 
 // ── Per-type colour palette ────────────────────────────────────────────────────
 
@@ -32,6 +42,7 @@ const TYPE_STROKE: Record<string, string> = {
   cell:            '#65a30d',
   species:         '#64748b',
   medium:          '#64748b',
+  submodel:        '#0369a1',
 }
 
 const TYPE_BG: Record<string, string> = {
@@ -51,6 +62,7 @@ const TYPE_BG: Record<string, string> = {
   cell:            '#f7fee7',
   species:         '#f8fafc',
   medium:          '#f8fafc',
+  submodel:        '#f0f9ff',
 }
 
 // ── Type icons (20 × 20 coordinate space) ─────────────────────────────────────
@@ -104,6 +116,14 @@ function TypeIcon({ type }: { type: string }) {
     case 'script':
       return <text x="10" y="16" textAnchor="middle" fontSize="15"
         fontFamily="ui-monospace,monospace" fill="currentColor" fontWeight="600">{'{}'}</text>
+    case 'submodel':
+      // A box within a box — a nested model.
+      return <>
+        <rect x="2" y="2" width="16" height="16" rx="2.5"
+          fill="none" stroke="currentColor" strokeWidth="1.7" strokeDasharray="3 2" />
+        <rect x="6" y="6" width="8" height="8" rx="1.5"
+          fill="currentColor" fillOpacity="0.5" />
+      </>
     default:
       return <circle cx="10" cy="10" r="7" fill="currentColor" fillOpacity="0.45"
         stroke="currentColor" strokeWidth="1.5" />
@@ -124,6 +144,22 @@ interface LayoutConstGroup {
   x: number; y: number; w: number; h: number
 }
 
+// A collapsed submodel, drawn as one aggregate box.
+interface LayoutSubmodel {
+  id: string; name: string
+  realizations: number | null
+  outputs: string[]          // interface output leaf names (capped)
+  extraOutputs: number       // count beyond the cap
+  x: number; y: number; w: number; h: number
+}
+
+// The enclosing frame drawn behind an expanded submodel's interior nodes.
+interface LayoutSubFrame {
+  id: string; name: string
+  realizations: number | null
+  x: number; y: number; w: number; h: number
+}
+
 interface LayoutEdge {
   from: string; to: string
   points: Array<{ x: number; y: number }>
@@ -132,72 +168,140 @@ interface LayoutEdge {
 interface Layout {
   elements: LayoutElement[]
   constGroups: LayoutConstGroup[]
+  submodels: LayoutSubmodel[]
+  subFrames: LayoutSubFrame[]
   edges: LayoutEdge[]
   width: number; height: number
 }
 
 // ── Dagre layout ──────────────────────────────────────────────────────────────
 
-function buildLayout(elements: ElementSummary[], unitMap: Record<string, string>, descMap: Record<string, string | null>): Layout {
+const leaf = (id: string) => id.split('/').pop() ?? id
+
+function buildLayout(
+  elements: ElementSummary[],
+  containers: ContainerDef[],
+  expanded: Set<string>,
+  unitMap: Record<string, string>,
+  descMap: Record<string, string | null>,
+): Layout {
   const knownIds = new Set(elements.map((e) => e.id))
 
-  // Partition: constants with no explicit container → const_group
-  // Everything else → individual element node
+  // ── Submodel membership (transitive: walk each element's container up parents) ──
+  const parentOf = new Map<string, string | null>(containers.map((c) => [c.id, c.parent]))
+  const submodelIds = new Set(containers.filter((c) => c.kind === 'submodel').map((c) => c.id))
+  const subById = new Map(containers.map((c) => [c.id, c]))
+
+  // The submodel (if any) an element belongs to, walking up the container chain.
+  const submodelOf = (container: string | null | undefined): string | null => {
+    let cur = container ?? null
+    const seen = new Set<string>()
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      if (submodelIds.has(cur)) return cur
+      cur = parentOf.get(cur) ?? null
+    }
+    return null
+  }
+
+  // ── Partition elements ──
   const ungroupedConstants: ElementSummary[] = []
-  const individualElems: ElementSummary[] = []
+  const individualElems: ElementSummary[] = []      // rendered as their own node
+  const collapsedMembers = new Map<string, ElementSummary[]>() // subId → interior elems
 
   for (const e of elements) {
-    if (e.type === 'constant' && !e.container) {
+    const sub = submodelOf(e.container)
+    if (sub && !expanded.has(sub)) {
+      // Interior of a collapsed submodel → folded into the submodel box.
+      const members = collapsedMembers.get(sub) ?? []
+      members.push(e)
+      collapsedMembers.set(sub, members)
+    } else if (e.type === 'constant' && !e.container) {
       ungroupedConstants.push(e)
     } else {
       individualElems.push(e)
     }
   }
 
-  // id → graph node id (for edge mapping)
+  // ── id → graph node id (constants fold to CGROUP; collapsed-submodel interior folds to subId) ──
   const nodeOf = new Map<string, string>()
   const CGROUP_ID = '~constants'
-
   for (const e of ungroupedConstants) nodeOf.set(e.id, CGROUP_ID)
   for (const e of individualElems)    nodeOf.set(e.id, e.id)
+  for (const [subId, members] of collapsedMembers) {
+    for (const e of members) nodeOf.set(e.id, subId)
+  }
 
-  // Build dagre graph
-  const g = new dagre.graphlib.Graph({ multigraph: false })
+  // ── Dagre graph (compound so expanded-submodel interiors cluster together) ──
+  const g = new dagre.graphlib.Graph({ multigraph: false, compound: true })
   g.setGraph({ rankdir: 'LR', nodesep: 32, ranksep: 80, marginx: 48, marginy: 48 })
   g.setDefaultEdgeLabel(() => ({}))
 
-  // Add constant group node
   if (ungroupedConstants.length > 0) {
     const h = CGROUP_HEADER_H + ungroupedConstants.length * CGROUP_MEMBER_H + CGROUP_PAD_B
     g.setNode(CGROUP_ID, { width: CGROUP_W, height: h })
   }
 
-  // Add individual element nodes
+  // Collapsed submodel boxes (one node each). Height scales with capped output list.
+  const subHeight = (nOut: number) =>
+    SUB_HEADER_H + SUB_LINE_H /* realizations line */ +
+    Math.min(nOut, SUB_MAX_OUTPUTS) * SUB_LINE_H + (nOut > SUB_MAX_OUTPUTS ? SUB_LINE_H : 0) + SUB_PAD_B
+  for (const [subId, members] of collapsedMembers) {
+    void members
+    const nOut = subById.get(subId)?.interface?.outputs.length ?? 0
+    g.setNode(subId, { width: SUB_W, height: subHeight(nOut) })
+  }
+
+  // Individual element nodes; expanded-submodel interiors get clustered under their sub.
   for (const e of individualElems) {
     g.setNode(e.id, { width: NODE_W, height: NODE_H })
   }
+  const expandedFrameIds: string[] = []
+  for (const subId of expanded) {
+    if (!submodelIds.has(subId)) continue
+    const interior = individualElems.filter((e) => submodelOf(e.container) === subId)
+    if (interior.length === 0) continue
+    g.setNode(subId, {}) // cluster parent
+    for (const e of interior) g.setParent(e.id, subId)
+    expandedFrameIds.push(subId)
+  }
 
-  // Add edges (mapped to graph node IDs, deduped, no self-edges)
+  // ── Edges from element.inputs (mapped through nodeOf; container-id inputs pass through) ──
   const addedEdges = new Set<string>()
+  const addEdge = (from: string, to: string) => {
+    if (!from || !to || from === to) return
+    const key = `${from}→${to}`
+    if (addedEdges.has(key)) return
+    addedEdges.add(key)
+    g.setEdge(from, to)
+  }
   for (const e of elements) {
     const toNode = nodeOf.get(e.id)
     if (!toNode) continue
     for (const src of e.inputs) {
-      if (!knownIds.has(src)) continue
-      const fromNode = nodeOf.get(src)
-      if (!fromNode || fromNode === toNode) continue
-      const key = `${fromNode}→${toNode}`
-      if (addedEdges.has(key)) continue
-      addedEdges.add(key)
-      g.setEdge(fromNode, toNode)
+      // A submodel_stat consumer lists the submodel *container* id in its inputs; that id
+      // isn't an element but IS a rendered node — let it through so the OUT edge draws.
+      const fromNode = submodelIds.has(src) ? src : (knownIds.has(src) ? nodeOf.get(src) : undefined)
+      if (fromNode) addEdge(fromNode, toNode)
+    }
+  }
+  // ── Synthesized IN edges: interface.inputs[].from (parent driver) → submodel/consumer ──
+  for (const subId of submodelIds) {
+    const iface = subById.get(subId)?.interface
+    if (!iface) continue
+    for (const b of iface.inputs) {
+      if (!b.from || !knownIds.has(b.from)) continue
+      const fromNode = nodeOf.get(b.from) ?? b.from
+      // collapsed → into the box; expanded → into the interior consumer (if it's a node).
+      const toNode = expanded.has(subId) ? (nodeOf.get(b.input) ?? subId) : subId
+      addEdge(fromNode, toNode)
     }
   }
 
   dagre.layout(g)
-
   const gl = g.graph()
 
-  // Collect const groups
+  // ── Read back: const groups ──
   const constGroups: LayoutConstGroup[] = []
   if (ungroupedConstants.length > 0) {
     const n = g.node(CGROUP_ID)
@@ -205,24 +309,58 @@ function buildLayout(elements: ElementSummary[], unitMap: Record<string, string>
     constGroups.push({
       id: CGROUP_ID,
       members: ungroupedConstants.map((e) => ({ id: e.id, name: e.name })),
-      x: n?.x ?? 0, y: n?.y ?? 0,
-      w: CGROUP_W, h,
+      x: n?.x ?? 0, y: n?.y ?? 0, w: CGROUP_W, h,
     })
   }
 
-  // Collect element nodes
+  // ── Read back: collapsed submodel boxes ──
+  const submodels: LayoutSubmodel[] = []
+  for (const [subId] of collapsedMembers) {
+    const n = g.node(subId)
+    const c = subById.get(subId)
+    const outs = c?.interface?.outputs ?? []
+    submodels.push({
+      id: subId,
+      name: c?.name ?? leaf(subId),
+      realizations: c?.simulation_settings?.n_realizations ?? null,
+      outputs: outs.slice(0, SUB_MAX_OUTPUTS).map(leaf),
+      extraOutputs: Math.max(0, outs.length - SUB_MAX_OUTPUTS),
+      x: n?.x ?? 0, y: n?.y ?? 0, w: SUB_W, h: subHeight(outs.length),
+    })
+  }
+
+  // ── Read back: element nodes ──
   const layoutElements: LayoutElement[] = individualElems.map((e) => {
     const n = g.node(e.id)
     return {
       id: e.id, name: e.name, type: e.type,
       unit: unitMap[e.id] ?? '1',
       description: descMap[e.id] ?? null,
-      x: n?.x ?? 0, y: n?.y ?? 0,
-      w: NODE_W, h: NODE_H,
+      x: n?.x ?? 0, y: n?.y ?? 0, w: NODE_W, h: NODE_H,
     }
   })
 
-  // Collect edges
+  // ── Read back: expanded submodel frames (bbox of interior nodes) ──
+  const subFrames: LayoutSubFrame[] = []
+  for (const subId of expandedFrameIds) {
+    const interior = layoutElements.filter((e) => submodelOf(elements.find((x) => x.id === e.id)?.container) === subId)
+    if (interior.length === 0) continue
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const e of interior) {
+      minX = Math.min(minX, e.x - e.w / 2); maxX = Math.max(maxX, e.x + e.w / 2)
+      minY = Math.min(minY, e.y - e.h / 2); maxY = Math.max(maxY, e.y + e.h / 2)
+    }
+    const c = subById.get(subId)
+    subFrames.push({
+      id: subId, name: c?.name ?? leaf(subId),
+      realizations: c?.simulation_settings?.n_realizations ?? null,
+      x: minX - SUB_FRAME_PAD,
+      y: minY - SUB_FRAME_PAD - SUB_FRAME_HEADER_H,
+      w: (maxX - minX) + SUB_FRAME_PAD * 2,
+      h: (maxY - minY) + SUB_FRAME_PAD * 2 + SUB_FRAME_HEADER_H,
+    })
+  }
+
   const layoutEdges: LayoutEdge[] = g.edges().map((ev) => ({
     from: ev.v, to: ev.w,
     points: (g.edge(ev)?.points ?? []) as Array<{ x: number; y: number }>,
@@ -231,6 +369,8 @@ function buildLayout(elements: ElementSummary[], unitMap: Record<string, string>
   return {
     elements: layoutElements,
     constGroups,
+    submodels,
+    subFrames,
     edges: layoutEdges,
     width: gl.width ?? 800,
     height: gl.height ?? 600,
@@ -274,9 +414,21 @@ export function GraphTab() {
     Object.fromEntries((modelSummary?.elements ?? []).map((e) => [e.id, e.description])),
   [modelSummary])
 
+  // Expanded submodel ids (click a submodel box to drill in / collapse).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleSub = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }, [])
+
   const layout = useMemo(() =>
-    modelSummary ? buildLayout(modelSummary.elements, unitMap, descMap) : null,
-  [modelSummary, unitMap, descMap])
+    modelSummary
+      ? buildLayout(modelSummary.elements, modelSummary.containers ?? [], expanded, unitMap, descMap)
+      : null,
+  [modelSummary, expanded, unitMap, descMap])
 
   // ── Pan / zoom ──────────────────────────────────────────────────────────────
   const [tx, setTx] = useState(0)
@@ -366,6 +518,30 @@ export function GraphTab() {
 
         <g transform={`translate(${tx},${ty}) scale(${scale})`}>
 
+          {/* ── Expanded submodel frames (behind everything) ────────────── */}
+          {layout.subFrames.map((f) => {
+            const color = TYPE_STROKE.submodel
+            const bg    = TYPE_BG.submodel
+            return (
+              <g key={`frame-${f.id}`} transform={`translate(${f.x},${f.y})`}
+                onClick={(e) => { e.stopPropagation(); toggleSub(f.id) }}
+                style={{ cursor: 'pointer' }}>
+                <rect width={f.w} height={f.h} rx="10" fill={bg} fillOpacity="0.5"
+                  stroke={color} strokeWidth="1.5" strokeDasharray="6 4" />
+                <g transform={`translate(10,${(SUB_FRAME_HEADER_H - 16) / 2}) scale(0.8)`} style={{ color }}>
+                  <TypeIcon type="submodel" />
+                </g>
+                <text x="32" y={SUB_FRAME_HEADER_H / 2 + 4}
+                  fontSize="12" fontWeight="700" fill={color}
+                  fontFamily="ui-sans-serif,system-ui,sans-serif">
+                  {trunc(f.name, 28)}{f.realizations != null ? `  ·  ${f.realizations} realizations` : ''}
+                </text>
+                <text x={f.w - 14} y={SUB_FRAME_HEADER_H / 2 + 5} textAnchor="end"
+                  fontSize="13" fill={color}>▾</text>
+              </g>
+            )
+          })}
+
           {/* ── Edges ──────────────────────────────────────────────────── */}
           {layout.edges.map((edge) => (
             <path
@@ -415,6 +591,61 @@ export function GraphTab() {
                     {trunc(m.name, 20)}
                   </text>
                 ))}
+              </g>
+            )
+          })}
+
+          {/* ── Collapsed submodel boxes ────────────────────────────────── */}
+          {layout.submodels.map((sm) => {
+            const x = sm.x - sm.w / 2
+            const y = sm.y - sm.h / 2
+            const color = TYPE_STROKE.submodel
+            const bg    = TYPE_BG.submodel
+            let line = 0
+            return (
+              <g key={sm.id} transform={`translate(${x},${y})`}
+                onClick={(e) => { e.stopPropagation(); toggleSub(sm.id) }}
+                style={{ cursor: 'pointer' }}>
+                {/* Drop shadow */}
+                <rect x="1" y="2" width={sm.w} height={sm.h} rx="8" fill="rgba(0,0,0,0.07)" />
+                {/* Card */}
+                <rect width={sm.w} height={sm.h} rx="8" fill="white"
+                  stroke={color} strokeWidth="1.75" strokeDasharray="6 4" />
+                {/* Header band */}
+                <rect width={sm.w} height={SUB_HEADER_H} rx="8" fill={bg} />
+                <rect y={SUB_HEADER_H - 8} width={sm.w} height="8" fill={bg} />
+                <line x1="0" y1={SUB_HEADER_H} x2={sm.w} y2={SUB_HEADER_H}
+                  stroke={color} strokeWidth="0.75" strokeOpacity="0.5" />
+                <g transform={`translate(9,${(SUB_HEADER_H - 16) / 2}) scale(0.8)`} style={{ color }}>
+                  <TypeIcon type="submodel" />
+                </g>
+                <text x="32" y={SUB_HEADER_H / 2 + 4}
+                  fontSize="11.5" fontWeight="700" fill={color}
+                  fontFamily="ui-sans-serif,system-ui,sans-serif">
+                  {trunc(sm.name, 20)}
+                </text>
+                <text x={sm.w - 12} y={SUB_HEADER_H / 2 + 5} textAnchor="end"
+                  fontSize="13" fill={color}>▸</text>
+                {/* Body: realizations + interface outputs */}
+                <text x="12" y={SUB_HEADER_H + SUB_LINE_H * (++line) - 5}
+                  fontSize="10" fill="#0369a1" fontWeight="600"
+                  fontFamily="ui-sans-serif,system-ui,sans-serif">
+                  ⟳ {sm.realizations != null ? `${sm.realizations} realizations` : 'nested run'}
+                </text>
+                {sm.outputs.map((o) => (
+                  <text key={o} x="14" y={SUB_HEADER_H + SUB_LINE_H * (++line) - 5}
+                    fontSize="10" fill="#475569"
+                    fontFamily="ui-sans-serif,system-ui,sans-serif">
+                    → {trunc(o, 22)}
+                  </text>
+                ))}
+                {sm.extraOutputs > 0 && (
+                  <text x="14" y={SUB_HEADER_H + SUB_LINE_H * (++line) - 5}
+                    fontSize="10" fill="#94a3b8" fontStyle="italic"
+                    fontFamily="ui-sans-serif,system-ui,sans-serif">
+                    +{sm.extraOutputs} more
+                  </text>
+                )}
               </g>
             )
           })}
