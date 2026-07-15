@@ -94,13 +94,23 @@ function RvParamInput({ elem }: { elem: ElementSummary }) {
         )}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 pl-3 sm:grid-cols-3">
-        {Object.entries(dist.parameters).map(([pname, pval]) => {
-          const num = typeof pval === 'number' ? pval : (pval as { value: number }).value
+        {Object.entries(dist.parameters).flatMap(([pname, pval]) => {
+          // A numeric param is either a bare number or a {value, unit} quantity. Some
+          // distributions (e.g. `external`) carry non-numeric or null params — those aren't
+          // editable numbers, so skip them rather than crash.
+          const num =
+            typeof pval === 'number'
+              ? pval
+              : (typeof pval === 'object' && pval !== null && 'value' in pval &&
+                 typeof (pval as { value: unknown }).value === 'number'
+                  ? (pval as { value: number }).value
+                  : null)
+          if (num === null) return []
           const unit =
             typeof pval === 'object' && pval !== null && 'unit' in pval && pval.unit !== '1'
               ? (pval as { unit: string }).unit
               : ''
-          return (
+          return [(
             <div key={pname} className="flex flex-col gap-0.5">
               <label className="text-xs text-slate-500">{labels[pname] ?? pname}</label>
               <div className="flex items-center gap-1">
@@ -114,7 +124,7 @@ function RvParamInput({ elem }: { elem: ElementSummary }) {
                 {unit && <span className="whitespace-nowrap text-xs text-slate-400">{unit}</span>}
               </div>
             </div>
-          )
+          )]
         })}
       </div>
     </div>

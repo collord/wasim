@@ -266,23 +266,38 @@ function buildLayout(
     expandedFrameIds.push(subId)
   }
 
-  // ── Edges from element.inputs (mapped through nodeOf; container-id inputs pass through) ──
+  // Edges must never touch an *expanded* submodel id — that id is a dagre cluster parent,
+  // and dagre rejects edges to/from cluster nodes. So when a submodel is expanded, route its
+  // boundary edges to/from its interior element nodes (a real leaf node), else skip.
+  const isCluster = (id: string) => submodelIds.has(id) && expanded.has(id)
+  // A submodel's first interface output element (used as the "out" endpoint when expanded).
+  const outEndpoint = (subId: string): string | undefined => {
+    const out = subById.get(subId)?.interface?.outputs.find((o) => knownIds.has(o))
+    return out ? nodeOf.get(out) : undefined
+  }
+
   const addedEdges = new Set<string>()
-  const addEdge = (from: string, to: string) => {
-    if (!from || !to || from === to) return
+  const addEdge = (from: string | undefined, to: string | undefined) => {
+    if (!from || !to || from === to || isCluster(from) || isCluster(to)) return
     const key = `${from}→${to}`
     if (addedEdges.has(key)) return
     addedEdges.add(key)
     g.setEdge(from, to)
   }
+  // ── Edges from element.inputs ──
   for (const e of elements) {
     const toNode = nodeOf.get(e.id)
     if (!toNode) continue
     for (const src of e.inputs) {
-      // A submodel_stat consumer lists the submodel *container* id in its inputs; that id
-      // isn't an element but IS a rendered node — let it through so the OUT edge draws.
-      const fromNode = submodelIds.has(src) ? src : (knownIds.has(src) ? nodeOf.get(src) : undefined)
-      if (fromNode) addEdge(fromNode, toNode)
+      let fromNode: string | undefined
+      if (submodelIds.has(src)) {
+        // A submodel_stat consumer lists the submodel *container* id in its inputs. Collapsed:
+        // the box id is a real node. Expanded: use the submodel's output element instead.
+        fromNode = expanded.has(src) ? outEndpoint(src) : src
+      } else if (knownIds.has(src)) {
+        fromNode = nodeOf.get(src)
+      }
+      addEdge(fromNode, toNode)
     }
   }
   // ── Synthesized IN edges: interface.inputs[].from (parent driver) → submodel/consumer ──
@@ -292,8 +307,9 @@ function buildLayout(
     for (const b of iface.inputs) {
       if (!b.from || !knownIds.has(b.from)) continue
       const fromNode = nodeOf.get(b.from) ?? b.from
-      // collapsed → into the box; expanded → into the interior consumer (if it's a node).
-      const toNode = expanded.has(subId) ? (nodeOf.get(b.input) ?? subId) : subId
+      // collapsed → into the box; expanded → into the interior consumer node (skip if the
+      // boundary port has no distinct interior element, to avoid an edge to the cluster).
+      const toNode = expanded.has(subId) ? nodeOf.get(b.input) : subId
       addEdge(fromNode, toNode)
     }
   }
