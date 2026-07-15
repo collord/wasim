@@ -29,3 +29,7 @@ schema_examples/
 # ── Schema (symlink to the transpiler repo; transpiler-owned, not engine content) ──
 # No trailing slash: the symlink is a non-directory entry to git.
 /schema
+
+# ── Playwright e2e scratch output ──
+frontend/test-results/
+frontend/playwright-report/
