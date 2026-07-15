@@ -72,28 +72,28 @@ fn apply_dist_params(kind: &mut DistributionKind, overrides: &HashMap<String, f6
             if let Some(&v) = overrides.get("mean") { set_qof(mean, v); }
         }
         DistributionKind::Uniform { min, max } => {
-            if let Some(&v) = overrides.get("min") { min.value = v; }
-            if let Some(&v) = overrides.get("max") { max.value = v; }
+            if let Some(&v) = overrides.get("min") { set_qof(min, v); }
+            if let Some(&v) = overrides.get("max") { set_qof(max, v); }
         }
         DistributionKind::Triangular { min, mode, max } => {
-            if let Some(&v) = overrides.get("min") { min.value = v; }
-            if let Some(&v) = overrides.get("mode") { mode.value = v; }
-            if let Some(&v) = overrides.get("max") { max.value = v; }
+            if let Some(&v) = overrides.get("min") { set_qof(min, v); }
+            if let Some(&v) = overrides.get("mode") { set_qof(mode, v); }
+            if let Some(&v) = overrides.get("max") { set_qof(max, v); }
         }
         DistributionKind::Gamma { shape, scale }
         | DistributionKind::Weibull { shape, scale }
         | DistributionKind::PearsonV { shape, scale } => {
-            if let Some(&v) = overrides.get("shape") { shape.value = v; }
-            if let Some(&v) = overrides.get("scale") { scale.value = v; }
+            if let Some(&v) = overrides.get("shape") { set_qof(shape, v); }
+            if let Some(&v) = overrides.get("scale") { set_qof(scale, v); }
         }
         DistributionKind::Beta { alpha, beta, .. } => {
-            if let Some(&v) = overrides.get("alpha") { alpha.value = v; }
-            if let Some(&v) = overrides.get("beta") { beta.value = v; }
+            if let Some(&v) = overrides.get("alpha") { set_qof(alpha, v); }
+            if let Some(&v) = overrides.get("beta") { set_qof(beta, v); }
         }
         DistributionKind::PearsonIii { mean, stddev, skewness } => {
-            if let Some(&v) = overrides.get("mean") { mean.value = v; }
-            if let Some(&v) = overrides.get("stddev") { stddev.value = v; }
-            if let Some(&v) = overrides.get("skewness") { skewness.value = v; }
+            if let Some(&v) = overrides.get("mean") { set_qof(mean, v); }
+            if let Some(&v) = overrides.get("stddev") { set_qof(stddev, v); }
+            if let Some(&v) = overrides.get("skewness") { set_qof(skewness, v); }
         }
         DistributionKind::DiscreteUniform { min, max } => {
             if let Some(&v) = overrides.get("min") { *min = v as i64; }

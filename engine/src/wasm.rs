@@ -182,16 +182,16 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
         },
 
         DistributionKind::Uniform { min, max } => match param {
-            "min" => min.value = value,
-            "max" => max.value = value,
+            "min" => *min = qof(value, min.unit().to_string()),
+            "max" => *max = qof(value, max.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
         DistributionKind::Triangular { min, mode, max }
         | DistributionKind::Pert { min, mode, max } => match param {
-            "min" => min.value = value,
-            "mode" => mode.value = value,
-            "max" => max.value = value,
+            "min" => *min = qof(value, min.unit().to_string()),
+            "mode" => *mode = qof(value, mode.unit().to_string()),
+            "max" => *max = qof(value, max.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
@@ -203,21 +203,21 @@ fn set_dist_param(kind: &mut DistributionKind, param: &str, value: f64) -> Resul
         DistributionKind::Gamma { shape, scale }
         | DistributionKind::Weibull { shape, scale }
         | DistributionKind::PearsonV { shape, scale } => match param {
-            "shape" => shape.value = value,
-            "scale" => scale.value = value,
+            "shape" => *shape = qof(value, shape.unit().to_string()),
+            "scale" => *scale = qof(value, scale.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
         DistributionKind::Beta { alpha, beta, .. } => match param {
-            "alpha" => alpha.value = value,
-            "beta" => beta.value = value,
+            "alpha" => *alpha = qof(value, alpha.unit().to_string()),
+            "beta" => *beta = qof(value, beta.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 
         DistributionKind::PearsonIii { mean, stddev, skewness } => match param {
-            "mean" => mean.value = value,
-            "stddev" => stddev.value = value,
-            "skewness" => skewness.value = value,
+            "mean" => *mean = qof(value, mean.unit().to_string()),
+            "stddev" => *stddev = qof(value, stddev.unit().to_string()),
+            "skewness" => *skewness = qof(value, skewness.unit().to_string()),
             _ => return Err(format!("unknown parameter '{param}'")),
         },
 

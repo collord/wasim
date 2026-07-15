@@ -357,6 +357,66 @@ pub fn resolve_distribution(dist: &Distribution, ctx: &EvalCtx) -> Result<Distri
         DistributionKind::Exponential { mean } => DistributionKind::Exponential {
             mean: resolve_qof(mean, ctx)?,
         },
+        // Continuous families whose params may be formula-valued (§2.3). Resolve each to a
+        // scalar before sampling. Discrete/table families (discrete, sampled, cumulative,
+        // bernoulli, discrete_uniform, external) have no formula params and pass through.
+        DistributionKind::Uniform { min, max } => DistributionKind::Uniform {
+            min: resolve_qof(min, ctx)?,
+            max: resolve_qof(max, ctx)?,
+        },
+        DistributionKind::Triangular { min, mode, max } => DistributionKind::Triangular {
+            min: resolve_qof(min, ctx)?,
+            mode: resolve_qof(mode, ctx)?,
+            max: resolve_qof(max, ctx)?,
+        },
+        DistributionKind::Trapezoidal { min, lower, upper, max } => DistributionKind::Trapezoidal {
+            min: resolve_qof(min, ctx)?,
+            lower: resolve_qof(lower, ctx)?,
+            upper: resolve_qof(upper, ctx)?,
+            max: resolve_qof(max, ctx)?,
+        },
+        DistributionKind::Gamma { shape, scale } => DistributionKind::Gamma {
+            shape: resolve_qof(shape, ctx)?,
+            scale: resolve_qof(scale, ctx)?,
+        },
+        DistributionKind::Beta { alpha, beta, min, max } => DistributionKind::Beta {
+            alpha: resolve_qof(alpha, ctx)?,
+            beta: resolve_qof(beta, ctx)?,
+            min: min.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+            max: max.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+        },
+        DistributionKind::Weibull { shape, scale } => DistributionKind::Weibull {
+            shape: resolve_qof(shape, ctx)?,
+            scale: resolve_qof(scale, ctx)?,
+        },
+        DistributionKind::PearsonV { shape, scale } => DistributionKind::PearsonV {
+            shape: resolve_qof(shape, ctx)?,
+            scale: resolve_qof(scale, ctx)?,
+        },
+        DistributionKind::PearsonIii { mean, stddev, skewness } => DistributionKind::PearsonIii {
+            mean: resolve_qof(mean, ctx)?,
+            stddev: resolve_qof(stddev, ctx)?,
+            skewness: resolve_qof(skewness, ctx)?,
+        },
+        DistributionKind::Pert { min, mode, max } => DistributionKind::Pert {
+            min: resolve_qof(min, ctx)?,
+            mode: resolve_qof(mode, ctx)?,
+            max: resolve_qof(max, ctx)?,
+        },
+        DistributionKind::Pareto { scale, shape, location } => DistributionKind::Pareto {
+            scale: resolve_qof(scale, ctx)?,
+            shape: resolve_qof(shape, ctx)?,
+            location: location.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+        },
+        DistributionKind::ExtremeValue { location, scale } => DistributionKind::ExtremeValue {
+            location: resolve_qof(location, ctx)?,
+            scale: resolve_qof(scale, ctx)?,
+        },
+        DistributionKind::StudentT { degrees_of_freedom, location, scale } => DistributionKind::StudentT {
+            degrees_of_freedom: resolve_qof(degrees_of_freedom, ctx)?,
+            location: location.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+            scale: scale.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+        },
         other => other.clone(),
     };
     Ok(Distribution {
@@ -382,6 +442,37 @@ fn resolve_qof(qof: &QuantityOrFormula, ctx: &EvalCtx) -> Result<QuantityOrFormu
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// The gamma function Γ(x), via the Lanczos approximation (g=7, n=9). Accurate to ~1e-14
+/// for real x. Uses the reflection formula for x < 0.5. Poles at non-positive integers
+/// return infinity (Γ is undefined there); the caller degrades like any non-finite value.
+fn gamma_fn(x: f64) -> f64 {
+    // Lanczos coefficients (g = 7).
+    const G: f64 = 7.0;
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_93,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    if x < 0.5 {
+        // Reflection: Γ(x) = π / (sin(πx) · Γ(1−x)).
+        std::f64::consts::PI / ((std::f64::consts::PI * x).sin() * gamma_fn(1.0 - x))
+    } else {
+        let x = x - 1.0;
+        let mut a = C[0];
+        let t = x + G + 0.5;
+        for (i, &c) in C.iter().enumerate().skip(1) {
+            a += c / (x + i as f64);
+        }
+        (2.0 * std::f64::consts::PI).sqrt() * t.powf(x + 0.5) * (-t).exp() * a
+    }
+}
 
 fn bool_val(b: bool) -> f64 { if b { 1.0 } else { 0.0 } }
 fn is_true(v: f64) -> bool  { v != 0.0 }
@@ -473,6 +564,7 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::Sinh  => { require_args("sinh",  n, 1, 1)?; vals[0].sinh() }
         BuiltinFn::Cosh  => { require_args("cosh",  n, 1, 1)?; vals[0].cosh() }
         BuiltinFn::Tanh  => { require_args("tanh",  n, 1, 1)?; vals[0].tanh() }
+        BuiltinFn::Gamma => { require_args("gamma", n, 1, 1)?; gamma_fn(vals[0]) }
         BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
         | BuiltinFn::MaxArray | BuiltinFn::DotProduct => unreachable!(),

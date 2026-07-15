@@ -19,12 +19,12 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
 
     let raw = match kind {
         DistributionKind::Uniform { min, max } => {
-            if min.value >= max.value {
+            if min.value() >= max.value() {
                 return Err(EngineError::Sampling(format!(
-                    "uniform: min ({}) must be < max ({})", min.value, max.value
+                    "uniform: min ({}) must be < max ({})", min.value(), max.value()
                 )));
             }
-            rng.sample(Uniform::new(min.value, max.value))
+            rng.sample(Uniform::new(min.value(), max.value()))
         }
 
         DistributionKind::Normal { mean, stddev } => {
@@ -53,14 +53,14 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
         }
 
         DistributionKind::Triangular { min, mode, max } => {
-            let dist = Triangular::new(min.value, max.value, mode.value)
+            let dist = Triangular::new(min.value(), max.value(), mode.value())
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             rng.sample(dist)
         }
 
         DistributionKind::Trapezoidal { min, lower, upper, max } => {
             let u = rng.sample(Uniform::new(0.0_f64, 1.0));
-            trapezoid_icdf(min.value, lower.value, upper.value, max.value, u)?
+            trapezoid_icdf(min.value(), lower.value(), upper.value(), max.value(), u)?
         }
 
         DistributionKind::Exponential { mean } => {
@@ -71,47 +71,47 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
         }
 
         DistributionKind::Gamma { shape, scale } => {
-            let dist = Gamma::new(shape.value, scale.value)
+            let dist = Gamma::new(shape.value(), scale.value())
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             rng.sample(dist)
         }
 
         DistributionKind::Beta { alpha, beta, min, max } => {
-            let dist = Beta::new(alpha.value, beta.value)
+            let dist = Beta::new(alpha.value(), beta.value())
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             let b = rng.sample(dist);
             match (min, max) {
-                (Some(lo), Some(hi)) => lo.value + (hi.value - lo.value) * b,
+                (Some(lo), Some(hi)) => lo.value() + (hi.value() - lo.value()) * b,
                 _ => b,
             }
         }
 
         DistributionKind::Weibull { shape, scale } => {
             // rand_distr::Weibull::new(scale, shape)
-            let dist = Weibull::new(scale.value, shape.value)
+            let dist = Weibull::new(scale.value(), shape.value())
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             rng.sample(dist)
         }
 
         DistributionKind::PearsonV { shape, scale } => {
             // PearsonV = InverseGamma(shape, scale): sample Gamma then invert
-            let dist = Gamma::new(shape.value, 1.0)
+            let dist = Gamma::new(shape.value(), 1.0)
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
-            scale.value / rng.sample(dist)
+            scale.value() / rng.sample(dist)
         }
 
         DistributionKind::PearsonIii { mean, stddev, skewness } => {
             // Three-parameter gamma: X = location + Gamma(kappa, beta)
-            let gamma_coeff = skewness.value;
+            let gamma_coeff = skewness.value();
             if gamma_coeff.abs() < 1e-12 {
                 // Degenerate to normal
-                let dist = Normal::new(mean.value, stddev.value)
+                let dist = Normal::new(mean.value(), stddev.value())
                     .map_err(|e| EngineError::Sampling(e.to_string()))?;
                 rng.sample(dist)
             } else {
                 let kappa = (2.0 / gamma_coeff).powi(2);
-                let beta = stddev.value * gamma_coeff / 2.0;
-                let location = mean.value - kappa * beta;
+                let beta = stddev.value() * gamma_coeff / 2.0;
+                let location = mean.value() - kappa * beta;
                 let dist = Gamma::new(kappa, beta.abs())
                     .map_err(|e| EngineError::Sampling(e.to_string()))?;
                 let g = rng.sample(dist);
@@ -159,7 +159,7 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
         }
 
         DistributionKind::Pert { min, mode, max } => {
-            let (a, m, b) = (min.value, mode.value, max.value);
+            let (a, m, b) = (min.value(), mode.value(), max.value());
             if a >= b {
                 return Err(EngineError::Sampling(format!("pert: min ({a}) must be < max ({b})")));
             }
@@ -172,21 +172,21 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
 
         DistributionKind::Pareto { scale, shape, location } => {
             let u = open_unit(rng.sample(Uniform::new(0.0_f64, 1.0)));
-            let loc = location.as_ref().map(|q| q.value).unwrap_or(0.0);
-            loc + scale.value / (1.0 - u).powf(1.0 / shape.value)
+            let loc = location.as_ref().map(|q| q.value()).unwrap_or(0.0);
+            loc + scale.value() / (1.0 - u).powf(1.0 / shape.value())
         }
 
         DistributionKind::ExtremeValue { location, scale } => {
             let u = open_unit(rng.sample(Uniform::new(0.0_f64, 1.0)));
-            location.value - scale.value * (-u.ln()).ln() // Gumbel (max) inverse CDF
+            location.value() - scale.value() * (-u.ln()).ln() // Gumbel (max) inverse CDF
         }
 
         DistributionKind::StudentT { degrees_of_freedom, location, scale } => {
-            let dist = StudentT::new(degrees_of_freedom.value)
+            let dist = StudentT::new(degrees_of_freedom.value())
                 .map_err(|e| EngineError::Sampling(e.to_string()))?;
             let t: f64 = rng.sample(dist);
-            let loc = location.as_ref().map(|q| q.value).unwrap_or(0.0);
-            let sc = scale.as_ref().map(|q| q.value).unwrap_or(1.0);
+            let loc = location.as_ref().map(|q| q.value()).unwrap_or(0.0);
+            let sc = scale.as_ref().map(|q| q.value()).unwrap_or(1.0);
             loc + sc * t
         }
 
@@ -220,7 +220,7 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
     for _ in 0..MAX_REJECTION_ATTEMPTS {
         let v = match kind {
             DistributionKind::Uniform { min, max } => {
-                rng.sample(Uniform::new(min.value, max.value))
+                rng.sample(Uniform::new(min.value(), max.value()))
             }
             _ => {
                 // Re-sample by recursing without truncation to avoid re-building dist
@@ -366,12 +366,12 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
             (mu + sigma2.sqrt() * standard_normal_quantile(u)).exp()
         }
         DistributionKind::Uniform { min, max } => {
-            min.value + (max.value - min.value) * u
+            min.value() + (max.value() - min.value()) * u
         }
         DistributionKind::Triangular { min, mode, max } => {
-            let a = min.value;
-            let b = max.value;
-            let c = mode.value;
+            let a = min.value();
+            let b = max.value();
+            let c = mode.value();
             let f = (c - a) / (b - a);
             if u < f {
                 a + ((b - a) * (c - a) * u).sqrt()
@@ -380,7 +380,7 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
             }
         }
         DistributionKind::Trapezoidal { min, lower, upper, max } => {
-            match trapezoid_icdf(min.value, lower.value, upper.value, max.value, u) {
+            match trapezoid_icdf(min.value(), lower.value(), upper.value(), max.value(), u) {
                 Ok(v) => v,
                 Err(_) => return None,
             }
@@ -410,12 +410,12 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
         }
         DistributionKind::Pareto { scale, shape, location } => {
             let u = open_unit(u);
-            let loc = location.as_ref().map(|q| q.value).unwrap_or(0.0);
-            loc + scale.value / (1.0 - u).powf(1.0 / shape.value)
+            let loc = location.as_ref().map(|q| q.value()).unwrap_or(0.0);
+            loc + scale.value() / (1.0 - u).powf(1.0 / shape.value())
         }
         DistributionKind::ExtremeValue { location, scale } => {
             let u = open_unit(u);
-            location.value - scale.value * (-u.ln()).ln()
+            location.value() - scale.value() * (-u.ln()).ln()
         }
         DistributionKind::Cumulative { points } => {
             if points.is_empty() { return None; }

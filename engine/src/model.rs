@@ -674,6 +674,10 @@ pub enum BuiltinFn {
     Sinh,
     Cosh,
     Tanh,
+    // Special functions
+    /// The gamma function Γ(x). Serialized `"gamma"`. Used e.g. in Weibull scale derivation
+    /// (`scale = mean / Γ(1 + 1/shape)`).
+    Gamma,
     // Array operations (evaluated against array-valued elements)
     SumArray,
     SizeArray,
@@ -731,8 +735,8 @@ pub struct Distribution {
 #[serde(tag = "family", content = "parameters", rename_all = "snake_case")]
 pub enum DistributionKind {
     Uniform {
-        min: Quantity,
-        max: Quantity,
+        min: QuantityOrFormula,
+        max: QuantityOrFormula,
     },
     Normal {
         mean: QuantityOrFormula,
@@ -743,18 +747,18 @@ pub enum DistributionKind {
         stddev: QuantityOrFormula,
     },
     Triangular {
-        min: Quantity,
-        mode: Quantity,
-        max: Quantity,
+        min: QuantityOrFormula,
+        mode: QuantityOrFormula,
+        max: QuantityOrFormula,
     },
     /// Trapezoidal: a lower ramp (min→lower), a plateau (lower→upper), and an
     /// upper ramp (upper→max). Degenerates to triangular when lower == upper and
     /// to uniform when min == lower and upper == max.
     Trapezoidal {
-        min: Quantity,
-        lower: Quantity,
-        upper: Quantity,
-        max: Quantity,
+        min: QuantityOrFormula,
+        lower: QuantityOrFormula,
+        upper: QuantityOrFormula,
+        max: QuantityOrFormula,
     },
     LognormalMoments {
         mean: QuantityOrFormula,
@@ -764,30 +768,30 @@ pub enum DistributionKind {
         mean: QuantityOrFormula,
     },
     Gamma {
-        shape: Quantity,
-        scale: Quantity,
+        shape: QuantityOrFormula,
+        scale: QuantityOrFormula,
     },
     Beta {
-        alpha: Quantity,
-        beta: Quantity,
+        alpha: QuantityOrFormula,
+        beta: QuantityOrFormula,
         /// 4-parameter beta: affine-scale the standard beta onto [min, max].
         #[serde(default)]
-        min: Option<Quantity>,
+        min: Option<QuantityOrFormula>,
         #[serde(default)]
-        max: Option<Quantity>,
+        max: Option<QuantityOrFormula>,
     },
     Weibull {
-        shape: Quantity,
-        scale: Quantity,
+        shape: QuantityOrFormula,
+        scale: QuantityOrFormula,
     },
     PearsonV {
-        shape: Quantity,
-        scale: Quantity,
+        shape: QuantityOrFormula,
+        scale: QuantityOrFormula,
     },
     PearsonIii {
-        mean: Quantity,
-        stddev: Quantity,
-        skewness: Quantity,
+        mean: QuantityOrFormula,
+        stddev: QuantityOrFormula,
+        skewness: QuantityOrFormula,
     },
     DiscreteUniform {
         min: i64,
@@ -802,26 +806,26 @@ pub enum DistributionKind {
     },
     // ── v2 families ──
     Pert {
-        min: Quantity,
-        mode: Quantity,
-        max: Quantity,
+        min: QuantityOrFormula,
+        mode: QuantityOrFormula,
+        max: QuantityOrFormula,
     },
     Pareto {
-        scale: Quantity,
-        shape: Quantity,
+        scale: QuantityOrFormula,
+        shape: QuantityOrFormula,
         #[serde(default)]
-        location: Option<Quantity>,
+        location: Option<QuantityOrFormula>,
     },
     ExtremeValue {
-        location: Quantity,
-        scale: Quantity,
+        location: QuantityOrFormula,
+        scale: QuantityOrFormula,
     },
     StudentT {
-        degrees_of_freedom: Quantity,
+        degrees_of_freedom: QuantityOrFormula,
         #[serde(default)]
-        location: Option<Quantity>,
+        location: Option<QuantityOrFormula>,
         #[serde(default)]
-        scale: Option<Quantity>,
+        scale: Option<QuantityOrFormula>,
     },
     Cumulative {
         points: Vec<CumulativePoint>,

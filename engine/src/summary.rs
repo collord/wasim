@@ -428,6 +428,7 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::Sinh => "sinh",
         BuiltinFn::Cosh => "cosh",
         BuiltinFn::Tanh => "tanh",
+        BuiltinFn::Gamma => "gamma",
         BuiltinFn::SumArray => "sum_array",
         BuiltinFn::SizeArray => "size_array",
         BuiltinFn::GetElement => "get_element",
