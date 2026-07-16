@@ -114,6 +114,11 @@ pub struct ContainerDef {
     /// Named boundary inputs/outputs (submodel interface, §12).
     #[serde(default)]
     pub interface: Option<ContainerInterface>,
+    /// For `kind: submodel`: a dynamic (per-timestep) optimization re-solved each outer
+    /// timestep, so the optimized variables become per-timestep series (§13a). None = the
+    /// submodel is not optimized. Distinct from the top-level study-level `optimization`.
+    #[serde(default)]
+    pub optimization: Option<OptimizationSpec>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]

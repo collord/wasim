@@ -40,6 +40,12 @@ self.onmessage = async (e: MessageEvent<MainToWorker>) => {
         post({ type: 'complete', results })
         break
       }
+      case 'run_sensitivity': {
+        if (!engine) throw new Error('no model loaded')
+        const results = JSON.parse(engine.sensitivity_json(JSON.stringify(msg.spec)))
+        post({ type: 'sensitivity_complete', results })
+        break
+      }
     }
   } catch (err) {
     post({ type: 'error', message: String(err) })

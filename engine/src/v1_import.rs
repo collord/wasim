@@ -39,6 +39,7 @@ pub fn normalize(model: &WasimModel) -> v2::Model {
         elements,
         time_history_displays: model.time_history_displays.clone(),
         from_v1: true,
+        dynamic_optimization: false,
     }
 }
 

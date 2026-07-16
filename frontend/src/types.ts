@@ -141,3 +141,63 @@ export interface SimulationResults {
   /** Sink elements first (unreferenced outputs), then intermediates — all in topo order. */
   output_ids: string[]
 }
+
+// ── Sensitivity analysis (runtime-configured, from WasmEngine.sensitivity_json()) ─
+// Spec is transient UI state, never persisted in the model. Input values are canonical;
+// result values arrive in the target element's display unit.
+
+/** A Monte-Carlo reduction of the target element (matches engine ObjectiveStatKind). */
+export type SensitivityStatKind = 'mean' | 'percentile' | 'peak' | 'valley' | 'sum'
+
+export interface SensitivityStatistic {
+  kind: SensitivityStatKind
+  /** Percentile in [0,100], required when kind = 'percentile'. */
+  p?: number
+}
+
+export interface SensitivityResultRef {
+  element_id: string
+  statistic?: SensitivityStatistic | null
+}
+
+export interface SweepVar {
+  element_id: string
+  lower: number
+  upper: number
+  base: number
+  /** Sweep points for one-at-a-time (≥ 2); ignored by tornado. */
+  steps: number
+}
+
+export type SensitivityMethod = 'one_at_a_time' | 'tornado'
+
+export interface SensitivitySpec {
+  result: SensitivityResultRef
+  variables: SweepVar[]
+  method: SensitivityMethod
+}
+
+export interface CurvePoint {
+  input: number
+  result: number
+}
+
+export interface VarCurve {
+  element_id: string
+  points: CurvePoint[]
+}
+
+export interface TornadoBar {
+  element_id: string
+  low: number
+  high: number
+  swing: number
+}
+
+export interface SensitivityResults {
+  base_result: number
+  /** One curve per variable (one-at-a-time); empty for tornado. */
+  curves: VarCurve[]
+  /** One bar per variable, sorted by descending swing (tornado); empty for one-at-a-time. */
+  tornado: TornadoBar[]
+}

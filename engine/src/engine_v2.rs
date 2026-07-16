@@ -25,17 +25,29 @@ use crate::engine::{
 use crate::error::EngineError;
 use crate::eval::{eval_ast, resolve_distribution, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
-use crate::model::QuantityOrFormula;
+use crate::model::{AstNode, OptDirection, QuantityOrFormula};
 use crate::model_v2::{
     ConvResponse, EffectMode, Element, FailureBasis, FilterStat, FixedValue, GateNode, MarkovStart,
     Model, NodeRule, PartitionEntry, Primitive, QuantityExpr, RepairPolicy, TransitionRow,
     TriggerMode, TriggerSpec, WithdrawalSpec,
 };
+use crate::optimize_v2::SearchBounds;
 use crate::sampling;
 
 struct CorrGroup {
     ids: Vec<String>,
     chol_l: Vec<Vec<f64>>,
+}
+
+/// Precomputed wiring for a submodel's dynamic (per-timestep) optimization (§13a). The
+/// objective is re-minimized each outer step against `objective_ast` evaluated with candidate
+/// variable values injected, and the winning values are recorded as the variables' series.
+struct DynOpt {
+    var_ids: Vec<String>,
+    bounds: SearchBounds,
+    /// The objective element's AST (must be an expression element). None disables the solve.
+    objective_ast: Option<AstNode>,
+    direction: OptDirection,
 }
 
 /// Per-realization failure_state_machine state for an event.
@@ -194,6 +206,26 @@ pub fn run(
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
     // Iman-Conover rank correlation: reorder per-realization draws up front (semantics §8).
     let ic_samples = iman_conover_samples(model, &corr_groups, n_real, seed, &lookups, dt, &dt_unit, &arr)?;
+
+    // Dynamic (per-timestep) optimization (§13a): if THIS model carries an optimization spec
+    // (only a submodel-scoped one reaches engine_v2::run — extract_submodel plants it, the
+    // top-level study runs outside via optimize_v2), precompute its wiring once. Each outer
+    // step re-solves it against the objective at that step, so the variables become series.
+    let dyn_opt = model.optimization.as_ref().filter(|_| model.dynamic_optimization).and_then(|spec| {
+        (!spec.variables.is_empty()).then(|| DynOpt {
+            var_ids: spec.variables.iter().map(|v| v.element_id.clone()).collect(),
+            bounds: crate::optimize_v2::bounds_of(spec),
+            objective_ast: model.elements.iter().find(|e| e.id() == spec.objective.element_id)
+                .and_then(|e| match &e.primitive {
+                    Primitive::Node(n) => match &n.rule {
+                        NodeRule::Expression(ef) => Some(ef.ast.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                }),
+            direction: spec.objective.direction,
+        })
+    });
 
     for real_idx in 0..n_real {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -1030,6 +1062,50 @@ pub fn run(
                 }
             }
 
+            // Dynamic (per-timestep) optimization (§13a): after the topo pass has filled this
+            // step's `outputs` (drivers, non-variable elements), re-solve the submodel's
+            // optimization against the objective at this step, then overwrite each variable's
+            // recorded value with the optimum and re-evaluate the objective at the winner. The
+            // objective is evaluated by injecting candidate variable values into a scratch copy
+            // of `outputs` (variables' downstream cone is the objective + interface outputs,
+            // which are the variables themselves — see §13a).
+            if let Some(dopt) = &dyn_opt {
+                if let Some(obj_ast) = &dopt.objective_ast {
+                    // Score a candidate: inject its variable values into a scratch copy of this
+                    // step's outputs, evaluate the objective, apply the maximize→minimize flip.
+                    let mut scratch = outputs.clone();
+                    let winner = crate::optimize_v2::solve(
+                        &dopt.bounds,
+                        seed.wrapping_add(step_idx as u64),
+                        |point| {
+                            for (id, &v) in dopt.var_ids.iter().zip(point) {
+                                scratch.insert(id.clone(), Value::Scalar(v));
+                            }
+                            let ctx = ctx_at(&lookups, &scratch, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                            let val = eval_ast(obj_ast, &ctx).map(|v| v.as_scalar()).unwrap_or(f64::INFINITY);
+                            if !val.is_finite() {
+                                return f64::INFINITY;
+                            }
+                            match dopt.direction {
+                                OptDirection::Minimize => val,
+                                OptDirection::Maximize => -val,
+                            }
+                        },
+                    );
+                    // Record the optimum: each variable's output becomes its winning value, then
+                    // recompute the objective element at the winner so its series is consistent.
+                    for (id, &v) in dopt.var_ids.iter().zip(&winner.point) {
+                        outputs.insert(id.clone(), Value::Scalar(v));
+                    }
+                    if let Some(spec) = &model.optimization {
+                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                        if let Ok(v) = eval_ast(obj_ast, &ctx) {
+                            outputs.insert(spec.objective.element_id.clone(), v);
+                        }
+                    }
+                }
+            }
+
             for d in &model.time_history_displays {
                 let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
@@ -1098,6 +1174,17 @@ pub fn run(
             final_values,
             time_history: Some(stats(&hist_store[&d.id])),
         });
+    }
+
+    // Dynamic (per-timestep) optimization (§13a): run any submodel that carries an optimization
+    // over this (parent) clock and merge its element series in (notably the optimized variables'
+    // time histories). Gated on `!dynamic_optimization` so a dynamic submodel — which itself runs
+    // via this same function — does not recurse into its own dynamic pass.
+    if !model.dynamic_optimization {
+        let dyn_results = crate::submodel_v2::run_dynamic_submodels(model, config, &model.simulation_settings)?;
+        for (id, er) in dyn_results {
+            results_map.entry(id).or_insert(er);
+        }
     }
 
     // Display order: time_history_displays, then sinks, then intermediates (topo order).

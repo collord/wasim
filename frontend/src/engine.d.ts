@@ -6,6 +6,7 @@ declare module '@engine/wasim_engine' {
     model_json(): string
     model_summary(): string
     run_json(config_json: string): string
+    sensitivity_json(spec_json: string): string
     set_constant(id: string, value: number): void
     set_rv_param(id: string, param_name: string, value: number): void
     topo_order_json(): string

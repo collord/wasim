@@ -131,7 +131,10 @@ fn corpus_optimization_runs() {
     let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap())
         .join("openvsim/wasim/schema_examples");
     if !dir.exists() { eprintln!("skipping: corpus not present"); return; }
-    for name in ["dynamicoptimization.json", "srm_snowmelt_runoff.json", "calibrationoptimization.json"] {
+    // Top-level (static study) optimization models. `dynamicoptimization.json` is NOT here — its
+    // optimization is submodel-scoped (dynamic, §13a) and is covered by
+    // `dynamic_optimization_v2::corpus_dynamic_optimization_tracks_sqrt_driver`.
+    for name in ["srm_snowmelt_runoff.json", "calibrationoptimization.json"] {
         let p = dir.join(name);
         if !p.exists() { continue; }
         let json = std::fs::read_to_string(&p).unwrap();

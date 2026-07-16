@@ -4,11 +4,13 @@ import { GraphTab } from './components/tabs/GraphTab'
 import { ModelTab } from './components/tabs/ModelTab'
 import { DashboardTab } from './components/tabs/DashboardTab'
 import { ResultsTab } from './components/tabs/ResultsTab'
+import { SensitivityTab } from './components/tabs/SensitivityTab'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'graph', label: 'Graph' },
   { id: 'model', label: 'Model' },
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'sensitivity', label: 'Sensitivity' },
   { id: 'results', label: 'Results' },
 ]
 
@@ -80,6 +82,7 @@ export function App() {
             {activeTab === 'graph'     && <GraphTab />}
             {activeTab === 'model'     && <ModelTab />}
             {activeTab === 'dashboard' && <DashboardTab />}
+            {activeTab === 'sensitivity' && <SensitivityTab />}
             {activeTab === 'results'   && <ResultsTab />}
           </>
         )}

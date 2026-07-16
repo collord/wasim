@@ -106,6 +106,38 @@ impl WasmEngine {
         serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// Run a runtime sensitivity sweep. `spec_json` is a `SensitivitySpec` (UI-supplied,
+    /// never persisted in the model). Returns serialized `SensitivityResults`.
+    ///
+    /// Result values are converted into the target element's display unit (same display
+    /// boundary as `run_json`) so the UI charts friendly units; input values stay in the
+    /// element's canonical unit (the UI supplies them canonically, as it does for edits).
+    pub fn sensitivity_json(&self, spec_json: &str) -> Result<String, JsError> {
+        let spec: crate::sensitivity_v2::SensitivitySpec =
+            serde_json::from_str(spec_json).map_err(|e| JsError::new(&format!("bad spec: {e}")))?;
+        let config = RunConfig::default();
+        let mut results = crate::sensitivity_v2::sensitivity(&self.model, &spec, &config)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        // Convert the target's result values into its display unit (`display = value·f + o`).
+        if let Some(elem) = self.model.elements.iter().find(|e| e.id() == spec.result.element_id) {
+            if let Some((_, f, o)) = crate::summary::display_of(elem) {
+                let conv = |v: &mut f64| *v = *v * f + o;
+                conv(&mut results.base_result);
+                for c in &mut results.curves {
+                    c.points.iter_mut().for_each(|p| conv(&mut p.result));
+                }
+                for b in &mut results.tornado {
+                    conv(&mut b.low);
+                    conv(&mut b.high);
+                    // Swing is a difference: the offset cancels, only the factor scales it.
+                    b.swing *= f.abs();
+                }
+            }
+        }
+        serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
+    }
+
     /// Update an editable fixed value (the v2 analog of a v1 `constant`).
     pub fn set_constant(&mut self, id: &str, value: f64) -> Result<(), JsError> {
         for elem in &mut self.model.elements {

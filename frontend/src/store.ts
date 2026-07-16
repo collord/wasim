@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import type { MainToWorker, WorkerToMain } from './worker/protocol'
-import type { ModelJson, ModelSummary, QtyDisplay, SimulationResults } from './types'
+import type {
+  ModelJson,
+  ModelSummary,
+  QtyDisplay,
+  SensitivityResults,
+  SensitivitySpec,
+  SimulationResults,
+} from './types'
 
 const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
 
@@ -32,7 +39,7 @@ function postToWorker(msg: MainToWorker) {
 
 // ── Store shape ───────────────────────────────────────────────────────────────
 
-export type Tab = 'graph' | 'model' | 'dashboard' | 'results'
+export type Tab = 'graph' | 'model' | 'dashboard' | 'results' | 'sensitivity'
 export type SimStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface State {
@@ -51,6 +58,11 @@ interface State {
   // Results
   results: SimulationResults | null
   selectedResultId: string | null
+
+  // Sensitivity analysis (runtime; independent of the sim run status)
+  sensStatus: SimStatus
+  sensResults: SensitivityResults | null
+  sensError: string | null
 
   // Run config (user-controlled)
   nRealizations: number
@@ -72,6 +84,7 @@ interface Actions {
   setConstant: (id: string, value: number) => void
   setRvParam: (id: string, param: string, value: number) => void
   run: () => void
+  runSensitivity: (spec: SensitivitySpec) => void
   setNRealizations: (n: number) => void
   setSeed: (s: number | null) => void
   setSimDuration: (v: number) => void
@@ -91,6 +104,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   errorMessage: null,
   results: null,
   selectedResultId: null,
+  sensStatus: 'idle',
+  sensResults: null,
+  sensError: null,
   nRealizations: 1000,
   seed: 42,
   simDuration: null,
@@ -117,6 +133,9 @@ export const useStore = create<State & Actions>((set, get) => ({
       results: null,
       selectedResultId: null,
       errorMessage: null,
+      sensStatus: 'idle',
+      sensResults: null,
+      sensError: null,
       simDuration: ss.duration.value,
       simTimestep: ss.timestep.value,
       // Disp mappings reset to identity until the engine summary arrives (model_loaded).
@@ -176,6 +195,11 @@ export const useStore = create<State & Actions>((set, get) => ({
         timestep_override: simTimestep ?? undefined,
       },
     })
+  },
+
+  runSensitivity(spec) {
+    set({ sensStatus: 'running', sensError: null, sensResults: null })
+    postToWorker({ type: 'run_sensitivity', spec })
   },
 
   setNRealizations: (n) => set({ nRealizations: n }),
@@ -262,8 +286,18 @@ export const useStore = create<State & Actions>((set, get) => ({
         break
       }
 
+      case 'sensitivity_complete':
+        set({ sensStatus: 'done', sensResults: msg.results })
+        break
+
       case 'error':
-        set({ status: 'error', errorMessage: msg.message })
+        // A worker error can arrive for either a sim run or a sensitivity sweep; surface it
+        // on whichever is in flight (a sensitivity run in progress takes precedence).
+        if (get().sensStatus === 'running') {
+          set({ sensStatus: 'error', sensError: msg.message })
+        } else {
+          set({ status: 'error', errorMessage: msg.message })
+        }
         break
     }
   },

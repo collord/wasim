@@ -397,6 +397,7 @@ fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
         elements,
         time_history_displays: raw.time_history_displays,
         from_v1: false,
+        dynamic_optimization: false,
     })
 }
 

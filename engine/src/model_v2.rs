@@ -36,7 +36,10 @@ pub struct Model {
     pub reporting_periods: Vec<Quantity>,
     /// Ordinal-set declarations for array comprehensions (§15). Empty when scalar-only.
     pub dimensions: Vec<DimensionDef>,
-    /// Study-level optimization config (§13). None for non-optimization models.
+    /// Optimization config. At the top level this is the study-level spec (§13), consumed
+    /// once by `optimize_v2::optimize` (a static study); `engine_v2::run` ignores it. On a
+    /// submodel-extracted model with `dynamic_optimization = true`, it is the per-timestep
+    /// dynamic optimization (§13a) that the step loop re-solves each step.
     pub optimization: Option<OptimizationSpec>,
     pub containers: Vec<ContainerDef>,
     pub elements: Vec<Element>,
@@ -44,6 +47,10 @@ pub struct Model {
     /// True when produced by normalizing a v1 model. Drives the §9 cycle policy
     /// (v1-imported → warn + implicit-lag; v2-native → reject).
     pub from_v1: bool,
+    /// True only for a submodel model whose `optimization` is a submodel-scoped *dynamic*
+    /// (per-timestep) optimization (§13a), planted by `submodel_v2::extract_submodel`. Gates the
+    /// per-step solve in `engine_v2::run` so a top-level static study is never re-solved per step.
+    pub dynamic_optimization: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

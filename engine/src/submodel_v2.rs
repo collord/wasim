@@ -182,6 +182,14 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         .collect();
 
     let interior_ids: HashSet<String> = elements.iter().map(|e| e.id().to_string()).collect();
+    // Dynamic optimization (§13a): a submodel-scoped optimization is re-solved per outer step,
+    // so each variable becomes a per-timestep series — force its time history on (variables are
+    // fixed scalars, which otherwise default to history-off).
+    let opt_var_ids: HashSet<String> = container
+        .optimization
+        .as_ref()
+        .map(|o| o.variables.iter().map(|v| v.element_id.clone()).collect())
+        .unwrap_or_default();
     // Interior containers: the submodel itself + any container whose element(s) are interior.
     let containers = model
         .containers
@@ -242,6 +250,9 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
                 e.base.inputs.retain(|i| interior_ids.contains(i) || pulled.contains(i));
             }
             e.base.save_results.final_value = Some(true);
+            if opt_var_ids.contains(e.id()) {
+                e.base.save_results.time_history = Some(true);
+            }
             e
         })
         .collect();
@@ -270,11 +281,17 @@ fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
         simulation_settings: settings,
         reporting_periods: Vec::new(),
         dimensions: model.dimensions.clone(),
-        optimization: None,
+        // Carry the submodel's own (dynamic) optimization into the child model so its step
+        // loop re-solves it per timestep (§13a). The top-level study optimization never
+        // reaches here — this is strictly the submodel-scoped spec.
+        optimization: container.optimization.clone(),
         containers,
         elements: out,
         time_history_displays: Vec::new(),
         from_v1: false,
+        // A submodel-scoped optimization is dynamic (per-timestep, §13a); mark it so the
+        // submodel's engine_v2::run applies the per-step solve.
+        dynamic_optimization: container.optimization.is_some(),
     })
 }
 
@@ -335,6 +352,46 @@ pub fn run_submodels(
                     out.insert((sub_id.to_string(), output.to_string()), er.final_values.clone());
                 }
             }
+        }
+    }
+    Ok(out)
+}
+
+/// Run each submodel that carries a **dynamic** (per-timestep) optimization (§13a) over the
+/// PARENT's timeline, so its interface drivers vary step-to-step and the per-step solve yields
+/// a series. Returns each such submodel's full element results (keyed by element id) for the
+/// parent to merge — notably the optimized variables' time histories. A submodel-scoped
+/// optimization implies the submodel's own `duration: 0` is just the authoring default; the
+/// dynamic run must span the outer clock (GoldSim re-solves it once per outer step).
+pub fn run_dynamic_submodels(
+    model: &Model,
+    config: &RunConfig,
+    parent_settings: &crate::model_v2::SimulationSettings,
+) -> Result<HashMap<String, crate::engine::ElementResults>, EngineError> {
+    let mut out: HashMap<String, crate::engine::ElementResults> = HashMap::new();
+    for c in &model.containers {
+        if c.kind != ContainerKind::Submodel || c.optimization.is_none() {
+            continue;
+        }
+        let Some(mut sub_model) = extract_submodel(model, &c.id) else { continue };
+        // Run over the parent's clock (duration + timestep), keeping the submodel's own MC count.
+        sub_model.simulation_settings.duration = parent_settings.duration.clone();
+        sub_model.simulation_settings.timestep = parent_settings.timestep.clone();
+        let sub_config = RunConfig { seed: config.seed, ..RunConfig::default() };
+        let graph = match ModelGraphV2::build(&sub_model) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("warn: dynamic-opt submodel '{}' graph build failed ({e:?})", c.id);
+                continue;
+            }
+        };
+        match crate::engine_v2::run(&sub_model, &graph, &sub_config) {
+            Ok(r) => {
+                for (id, er) in r.elements {
+                    out.insert(id, er);
+                }
+            }
+            Err(e) => eprintln!("warn: dynamic-opt submodel '{}' run failed ({e:?})", c.id),
         }
     }
     Ok(out)

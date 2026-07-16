@@ -117,14 +117,38 @@ If a user should save/reload a sensitivity configuration, that's a **frontend**
 concern — a saved-view or the existing "Save parameters" mechanism (`SaveParamsButton`
 in DashboardTab) — a sidecar file, never `model.json`.
 
-## Known limitation (shared with optimization, not caused by this feature)
+## Probabilistic sensitivity works end-to-end (GoldSim "Probabilistic Optimization")
 
-A probabilistic sensitivity whose result depends on a submodel with an **`external`
-distribution** (e.g. `probabilisticoptimization`'s `TheSystem`) will flatline — the
-engine samples `external` as 0.0, so the submodel statistic is constant regardless of
-the swept input (verified: that model's `Cost = Slope + 100` exactly). This is the
-same `external`-distribution / decode gap flagged in `SUBMODEL_EXECUTION_FINDINGS.md`,
-independent of sensitivity; deterministic models sweep correctly.
+The `probabilisticoptimization.json` scenario — GoldSim's probabilistic-optimization
+example (support.goldsim.com article 360047030994) — sweeps correctly and is the reference
+case for a *probabilistic* result. Its `Cost = Slope + (P95(TheSystem) − 10)²` reduces a
+nested Monte-Carlo distribution (the 95th percentile of a Weibull whose shape = `Slope`,
+scale = `10/Γ(1 + 1/Slope)`) inside the expression via `submodel_stat`. The GoldSim article
+runs its **Sensitivity Analysis** dialog with Result=`Cost`, one Independent Variable
+`Slope` (Lower=5, Central=6, Upper=10), 11 points, and reports **Central Value = 14.66** and
+an **X-Y curve bottoming at ≈12.69** — the optimum, which its optimization run then matches.
+
+Reproducing that exact config in our apparatus (one-at-a-time, `Slope ∈ [5,10]`, base=6,
+11 steps, seed 42) yields **Central (Slope=6) = 14.55** and a **U-curve minimum = 12.64 at
+Slope≈8.5** — matching GoldSim's 14.66 / 12.69 to within Monte-Carlo sampling noise (stable
+across 100→5000 realizations). Over the full optimization box `Slope ∈ [1,25]` the curve
+runs ~390 (Slope=1) → ~12.6 (Slope≈9) → ~25 (Slope=25). The nested Weibull Monte-Carlo
+re-runs per sweep point, so the P95 genuinely responds to the swept input. This depends on
+the formula-valued distribution params + `gamma` builtin (schema 0.8.5).
+
+GoldSim's dialog offers three outputs on this config; our mapping: **X-Y Function Chart** →
+one-at-a-time line sweep (✓); **Tornado Chart** → tornado method (✓); **Result Data** → the
+raw `curves`/`tornado` arrays behind the charts (✓). GoldSim's "Use quantiles for Stochastic
+elements" option (sweep a *sample* node by quantile rather than value) has no analog — we
+sweep fixed scalars only (see divergence #1). Not covered: GoldSim's multi-variable
+response-surface view; our one-at-a-time is strictly one curve per variable.
+
+**Known limitation (shared with optimization, not caused by this feature):** a probabilistic
+sensitivity whose result depends on a submodel with an **`external` distribution** flatlines —
+the engine samples `external` as 0.0, so the submodel statistic is constant regardless of the
+swept input. This is the `external`-distribution / decode gap in `SUBMODEL_EXECUTION_FINDINGS.md`,
+independent of sensitivity. (`probabilisticoptimization`'s `TheSystem` is Weibull, not
+`external`, so it is NOT affected — earlier drafts of this spec misattributed it.)
 
 ## Verification
 
@@ -149,3 +173,27 @@ Engine + frontend, no schema:
 - Reuse the editable-element enumeration + charting on the frontend.
 The genuinely new code is: the sweep loop (vs. Box's-complex search), the
 `SensitivitySpec`/`SensitivityResults` types, the wasm method, and the Sensitivity tab.
+
+## Implementation notes (as-built — divergences from the design above)
+
+Two corrections surfaced against the actual code and are what shipped:
+
+1. **Sweepable inputs are fixed-scalar nodes, NOT `summary.elements.filter(e => e.editable)`.**
+   `set_variable` (now in `eval_harness`) only sets a `Fixed { Scalar }`; `is_editable`
+   also returns true for **sample nodes**, which cannot be swept by one number. More
+   decisively, **0 of 162 corpus models mark a fixed scalar `editable: true`** (verified) —
+   the `editable` flag is a curatorial "surface for hand-editing" marker that the corpus
+   only ever sets via sample nodes. Filtering on `editable` would show "no sweepable inputs"
+   on every real model. The frontend therefore filters on `value_rule === 'fixed'` with a
+   finite scalar value (any `editable`) — the same class of node `optimize_v2` already
+   sweeps as its variables. With this, **92/162 models are sweepable**.
+2. **Shared harness returns `Result`, not `f64::INFINITY`.** `evaluate_point` in the new
+   `eval_harness` module propagates model/run errors; the optimizer wraps it back to `∞`
+   for its search, while the sweep surfaces a failed point as an error rather than a silent
+   flat curve. `reduce_objective` moved to `eval_harness::reduce`. The result statistic set
+   is the existing `ObjectiveStatKind` (mean/percentile/peak/valley/sum) — `sd` /
+   `cumulative_prob` are NOT wired into the reducer and were not added.
+
+Result values cross the same display-unit boundary as `run_json` (in the target element's
+display unit); input values stay canonical (the UI supplies them canonically). Tornado
+swing scales by `|factor|` only (the offset cancels in a difference).
