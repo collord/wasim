@@ -93,6 +93,9 @@ pub struct EvalCtx<'a> {
     /// Per-realization sample vectors for submodel outputs, keyed by (submodel_id, output).
     /// Populated by a pre-pass (§12); `submodel_stat` reduces these on demand.
     pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
+    /// The local lag value (seconds) bound while sampling a convolution response expression
+    /// (§17); read by `extern_call fn:"lag"`. None outside convolution-response sampling.
+    pub lag: Option<f64>,
 }
 
 impl<'a> EvalCtx<'a> {
@@ -328,6 +331,11 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
             Ok(Value::Scalar(v.get(idx).copied().unwrap_or(0.0)))
         }
         // Opaque source function — preserved for round-tripping, evaluates to 0.0 (§15).
+        AstNode::ExternCall { func, .. } if func == "lag" => {
+            // The convolution lag variable (§17): bound while sampling a response expression,
+            // else 0.0 (an unbound lag outside convolution has no meaning).
+            Ok(Value::Scalar(ctx.lag.unwrap_or(0.0)))
+        }
         AstNode::ExternCall { .. } => Ok(Value::Scalar(0.0)),
     }
 }
@@ -474,6 +482,42 @@ fn gamma_fn(x: f64) -> f64 {
     }
 }
 
+/// Error function erf(x), Abramowitz & Stegun 7.1.26 rational approximation (|error| ≤ 1.5e-7).
+fn erf(x: f64) -> f64 {
+    let sign = x.signum();
+    let x = x.abs();
+    let t = 1.0 / (1.0 + 0.327_591_1 * x);
+    let y = 1.0
+        - (((((1.061_405_429 * t - 1.453_152_027) * t) + 1.421_413_741) * t - 0.284_496_736) * t
+            + 0.254_829_592)
+            * t
+            * (-x * x).exp();
+    sign * y
+}
+
+/// Civil (year, month, day) from seconds since the sim epoch, treated as Unix time (1970-01-01).
+/// Uses Howard Hinnant's days→civil algorithm. GoldSim date values are seconds since its epoch;
+/// the engine treats the arg as seconds-since-1970 (the rebased convention emit uses, §14).
+fn civil_from_secs(secs: f64) -> (i64, u32, u32) {
+    let days = (secs / 86400.0).floor() as i64;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// (hour, minute, second) within the day from seconds since the epoch.
+fn secs_of_day(secs: f64) -> (u32, u32, u32) {
+    let sod = secs.rem_euclid(86400.0) as u32;
+    (sod / 3600, (sod % 3600) / 60, sod % 60)
+}
+
 fn bool_val(b: bool) -> f64 { if b { 1.0 } else { 0.0 } }
 fn is_true(v: f64) -> bool  { v != 0.0 }
 
@@ -531,6 +575,19 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             let t = xi - lo as f64;
             return Ok(Value::Scalar(v[lo] + t * (v[hi] - v[lo])));
         }
+        // Table/array introspection: reduce over the (array) first arg (§1a).
+        BuiltinFn::TableMin => {
+            require_args("table_min", args.len(), 1, 1)?;
+            return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().iter().cloned().fold(f64::INFINITY, f64::min)));
+        }
+        BuiltinFn::TableMax => {
+            require_args("table_max", args.len(), 1, 1)?;
+            return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().iter().cloned().fold(f64::NEG_INFINITY, f64::max)));
+        }
+        BuiltinFn::ColumnCount => {
+            require_args("column_count", args.len(), 1, 1)?;
+            return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().len() as f64));
+        }
         _ => {}
     }
 
@@ -565,7 +622,24 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::Cosh  => { require_args("cosh",  n, 1, 1)?; vals[0].cosh() }
         BuiltinFn::Tanh  => { require_args("tanh",  n, 1, 1)?; vals[0].tanh() }
         BuiltinFn::Gamma => { require_args("gamma", n, 1, 1)?; gamma_fn(vals[0]) }
-        BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
+        BuiltinFn::Erf   => { require_args("erf",  n, 1, 1)?; erf(vals[0]) }
+        BuiltinFn::Erfc  => { require_args("erfc", n, 1, 1)?; 1.0 - erf(vals[0]) }
+        // Date extraction: the arg is seconds since the sim epoch; decompose to a civil date.
+        BuiltinFn::GetYear   => { require_args("get_year",   n, 1, 1)?; civil_from_secs(vals[0]).0 as f64 }
+        BuiltinFn::GetMonth  => { require_args("get_month",  n, 1, 1)?; civil_from_secs(vals[0]).1 as f64 }
+        BuiltinFn::GetDay    => { require_args("get_day",    n, 1, 1)?; civil_from_secs(vals[0]).2 as f64 }
+        BuiltinFn::GetHour   => { require_args("get_hour",   n, 1, 1)?; secs_of_day(vals[0]).0 as f64 }
+        BuiltinFn::GetMinute => { require_args("get_minute", n, 1, 1)?; secs_of_day(vals[0]).1 as f64 }
+        BuiltinFn::GetSecond => { require_args("get_second", n, 1, 1)?; secs_of_day(vals[0]).2 as f64 }
+        // Finance factors.
+        BuiltinFn::PvFactor      => { require_args("pv_factor", n, 2, 2)?; (1.0 + vals[0]).powf(vals[1]) }
+        BuiltinFn::AnnuityFactor => {
+            require_args("annuity_factor", n, 2, 2)?;
+            let (r, np) = (vals[0], vals[1]);
+            if r == 0.0 { np } else { (1.0 - (1.0 + r).powf(-np)) / r }
+        }
+        BuiltinFn::TableMin | BuiltinFn::TableMax | BuiltinFn::ColumnCount
+        | BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
         | BuiltinFn::MaxArray | BuiltinFn::DotProduct => unreachable!(),
     };

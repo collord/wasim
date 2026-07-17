@@ -559,6 +559,46 @@ pub fn sample_gbm<R: Rng>(
     })
 }
 
+/// One mean-reverting (Ornstein-Uhlenbeck) step, returning the process **level** at t+dt given
+/// the previous level `prev`. Unlike `sample_gbm` (which returns a per-step rate for accumulator
+/// use), a reverting SHistoryGenerator produces a level series directly (§16):
+///
+///   x_{t+dt} = x_t + κ·(θ − x_t)·dt_ratio + σ·√dt_ratio·z
+///
+/// where κ = `reversion_rate`, θ = `reference_value` (fallback: `mean`), σ = `stddev`, and
+/// dt_ratio normalizes dt into the volatility's time unit (same convention as `sample_gbm`).
+/// Only called when `reversion_rate` is present and non-zero.
+pub fn sample_ou_step<R: Rng>(
+    process: &ProcessSpec,
+    prev: f64,
+    dt: f64,
+    model_time_unit: &str,
+    rng: &mut R,
+) -> Result<f64, EngineError> {
+    let t_ref = time_unit_to_seconds(&parse_rate_denominator(&process.stddev.unit))
+        / time_unit_to_seconds(model_time_unit);
+    let dt_ratio = if t_ref > 0.0 { dt / t_ref } else { dt };
+
+    let kappa = process.reversion_rate.as_ref().map(|q| q.value()).unwrap_or(0.0);
+    // Reversion target: reference_value, else the drift level `mean`.
+    let theta = process
+        .reference_value
+        .as_ref()
+        .map(|q| q.value())
+        .unwrap_or(process.mean.value);
+    let sigma = process.stddev.value;
+
+    let z: f64 = rng.sample(
+        Normal::new(0.0_f64, 1.0_f64).map_err(|e| EngineError::Sampling(e.to_string()))?,
+    );
+    Ok(prev + kappa * (theta - prev) * dt_ratio + sigma * dt_ratio.sqrt() * z)
+}
+
+/// True when this process is mean-reverting (a non-zero reversion rate is set).
+pub fn is_reverting(process: &ProcessSpec) -> bool {
+    process.reversion_rate.as_ref().map(|q| q.value()).unwrap_or(0.0) != 0.0
+}
+
 fn parse_rate_denominator(unit: &str) -> String {
     // "1/yr" → "yr", "1/d" → "d", bare "yr" → "yr"
     unit.find('/').map_or_else(|| unit.to_string(), |pos| unit[pos + 1..].to_string())

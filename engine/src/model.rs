@@ -683,6 +683,25 @@ pub enum BuiltinFn {
     /// The gamma function Γ(x). Serialized `"gamma"`. Used e.g. in Weibull scale derivation
     /// (`scale = mean / Γ(1 + 1/shape)`).
     Gamma,
+    /// The error function erf(x) and its complement erfc(x).
+    Erf,
+    Erfc,
+    // Date extraction (1 date arg = seconds since the sim epoch; §14). Extract a calendar field.
+    GetYear,
+    GetMonth,
+    GetDay,
+    GetHour,
+    GetMinute,
+    GetSecond,
+    // Finance factors.
+    /// Present-to-future value factor `(1 + rate)^n` — `pv_factor(rate, n)`.
+    PvFactor,
+    /// Annuity (present value of an ordinary annuity) factor `(1 − (1+rate)^-n) / rate`.
+    AnnuityFactor,
+    // Table/array introspection (need array-valued context; evaluated where resolvable).
+    TableMin,
+    TableMax,
+    ColumnCount,
     // Array operations (evaluated against array-valued elements)
     SumArray,
     SizeArray,
@@ -702,6 +721,20 @@ pub struct ProcessSpec {
     pub mean_type: ProcessMeanType,
     pub mean: Quantity,
     pub stddev: Quantity,
+    /// Mean-reversion rate (per-time). None/zero = a non-reverting random walk (unchanged GBM).
+    /// Non-zero makes the process mean-revert toward `reference_value` (§16). Scalar today; the
+    /// schema allows quantity_or_formula but the engine resolves only the scalar form.
+    #[serde(default)]
+    pub reversion_rate: Option<QuantityOrFormula>,
+    /// The long-run level reverted toward when `reversion_rate` is non-zero. None → the drift
+    /// level (`mean`) is used as the target.
+    #[serde(default)]
+    pub reference_value: Option<QuantityOrFormula>,
+    /// The process value at t=0. None → the reference/drift-implied level. Scalar today; the
+    /// schema allows quantity_or_formula (an array-comprehension for correlated array processes)
+    /// but the engine resolves only the scalar form.
+    #[serde(default)]
+    pub initial_value: Option<QuantityOrFormula>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

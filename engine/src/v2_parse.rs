@@ -328,6 +328,15 @@ struct RawTable {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum RawResponse {
+    // Expr must precede Inline: it requires `expression`, so serde's untagged matching only
+    // selects it for the expression form; the all-default Inline would otherwise swallow it.
+    Expr {
+        expression: ExpressionField,
+        interval: Quantity,
+        length: Quantity,
+        #[serde(default)]
+        cumulative: bool,
+    },
     Inline {
         #[serde(default)]
         times: Vec<f64>,
@@ -550,6 +559,17 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
                     values_unit: values_unit.clone(),
                 },
                 RawResponse::Ref(id) => v2::ConvResponse::Ref(id.clone()),
+                RawResponse::Expr { expression, interval, length, cumulative } => {
+                    let to_s = |q: &crate::model::Quantity| {
+                        crate::units::convert(q.value, &q.unit, "s").unwrap_or(q.value)
+                    };
+                    v2::ConvResponse::Expr {
+                        ast: expression.ast.clone(),
+                        interval_s: to_s(interval),
+                        length_s: to_s(length),
+                        cumulative: *cumulative,
+                    }
+                }
             },
         },
         "markov" => v2::NodeRule::Markov {
@@ -573,6 +593,18 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
         "gate_logic" => v2::NodeRule::GateLogic {
             root: lower_gate(e.root.as_ref().ok_or_else(|| missing("root"))?),
             semantics: lower_semantics(e.semantics.as_deref()),
+        },
+        // A linked-Excel element (§20): the workbook is external, so the engine cannot evaluate
+        // it. Parse it as a fixed-0 placeholder (the cells/external_file binding is preserved in
+        // the JSON for round-trip/inspection but not executed). Loads and runs, yields 0.0.
+        "spreadsheet" => v2::NodeRule::Fixed {
+            value: v2::FixedValue::Scalar(crate::model::Quantity {
+                value: 0.0,
+                unit: e.unit.clone().unwrap_or_else(|| "1".to_string()),
+                display_unit: None,
+            }),
+            editable: false,
+            bounds: None,
         },
         other => {
             return Err(EngineError::InvalidModel(format!(

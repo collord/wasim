@@ -191,6 +191,16 @@ pub enum ConvResponse {
     },
     /// Element id of a lookup/series supplying the response function.
     Ref(String),
+    /// An expression over the local lag variable (`extern_call fn:"lag"`), sampled onto the lag
+    /// grid at run time (§17). Keeps referenced parameters live vs. the baked `Inline` form.
+    Expr {
+        ast: AstNode,
+        /// Lag sampling step and support, in canonical seconds.
+        interval_s: f64,
+        length_s: f64,
+        /// True = the expression is a cumulative response; weights are its successive differences.
+        cumulative: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]

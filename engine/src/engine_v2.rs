@@ -268,13 +268,26 @@ pub fn run(
             }
         }
 
-        // Initial draw for process (GBM) nodes.
+        // Initial draw for process (GBM) nodes. `sp_level` carries the running level for
+        // mean-reverting (OU) processes across steps; `sp_state` is the per-step node value.
         let mut sp_state: HashMap<String, f64> = HashMap::new();
+        let mut sp_level: HashMap<String, f64> = HashMap::new();
         for &id in &process_ids {
             if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                 if let NodeRule::Process { process, lower_bound } = &n.rule {
-                    let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
-                    sp_state.insert(id.to_string(), v);
+                    if sampling::is_reverting(process) {
+                        // Seed the level at initial_value (else reference/drift level); the node's
+                        // step-0 value is that level, not a GBM draw.
+                        let x0 = process.initial_value.as_ref().map(|q| q.value()).unwrap_or_else(|| {
+                            process.reference_value.as_ref().map(|q| q.value())
+                                .unwrap_or(process.mean.value)
+                        });
+                        sp_level.insert(id.to_string(), x0);
+                        sp_state.insert(id.to_string(), x0);
+                    } else {
+                        let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
+                        sp_state.insert(id.to_string(), v);
+                    }
                 }
             }
         }
@@ -411,8 +424,22 @@ pub fn run(
             for &id in &process_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Process { process, lower_bound } = &n.rule {
-                        let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
-                        sp_state.insert(id.to_string(), v);
+                        if sampling::is_reverting(process) {
+                            // Mean-reverting (OU): carry the level across steps, seeded at step 0
+                            // from initial_value (else the reference/drift level). §16.
+                            let prev = sp_level.get(id).copied().unwrap_or_else(|| {
+                                process.initial_value.as_ref().map(|q| q.value()).unwrap_or_else(|| {
+                                    process.reference_value.as_ref().map(|q| q.value())
+                                        .unwrap_or(process.mean.value)
+                                })
+                            });
+                            let v = sampling::sample_ou_step(process, prev, dt, &dt_unit, &mut rng)?;
+                            sp_level.insert(id.to_string(), v);
+                            sp_state.insert(id.to_string(), v);
+                        } else {
+                            let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
+                            sp_state.insert(id.to_string(), v);
+                        }
                     }
                 }
             }
@@ -522,7 +549,8 @@ pub fn run(
                         }
                         NodeRule::Convolution { input, response } => {
                             let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
-                            let weights = conv_weights(response, &lookups);
+                            let base_ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                            let weights = conv_weights(response, &lookups, &base_ctx);
                             let n = weights.len().max(1);
                             let buf = conv_buf.entry(elem_id.clone()).or_default();
                             buf.push_front(x);
@@ -1309,7 +1337,7 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs, lag: None,
     }
 }
 
@@ -1323,7 +1351,7 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs, lag: None,
     }
 }
 
@@ -1532,14 +1560,44 @@ fn eval_gate(node: &GateNode, ctx: &EvalCtx) -> Result<bool, EngineError> {
     })
 }
 
-/// Convolution response weights: inline values, or the y-column of a referenced lookup.
-fn conv_weights(response: &ConvResponse, lookups: &HashMap<String, LookupData>) -> Vec<f64> {
+/// Convolution response weights: inline values, the y-column of a referenced lookup, or — for an
+/// expression-valued response (§17) — the `~lag` formula sampled onto the lag grid with any
+/// referenced element resolved from `base_ctx` (so calibratable kernels stay live). `base_ctx`
+/// supplies the element/time context; each grid point rebinds `lag`.
+fn conv_weights(
+    response: &ConvResponse,
+    lookups: &HashMap<String, LookupData>,
+    base_ctx: &EvalCtx,
+) -> Vec<f64> {
     match response {
         ConvResponse::Inline { values, .. } => values.clone(),
         ConvResponse::Ref(id) => lookups
             .get(id)
             .map(|l| if !l.y.is_empty() { l.y.clone() } else { l.columns.first().cloned().unwrap_or_default() })
             .unwrap_or_default(),
+        ConvResponse::Expr { ast, interval_s, length_s, cumulative } => {
+            if *interval_s <= 0.0 || *length_s <= 0.0 {
+                return vec![1.0];
+            }
+            let n = ((length_s / interval_s).round() as usize + 1).min(4096);
+            // Sample the response curve at lag τ = i·interval (seconds), binding `lag`.
+            let curve: Vec<f64> = (0..n)
+                .map(|i| {
+                    let tau = i as f64 * interval_s;
+                    let ctx = EvalCtx { lag: Some(tau), ..*base_ctx };
+                    eval_ast(ast, &ctx).map(|v| v.as_scalar()).unwrap_or(0.0)
+                })
+                .collect();
+            if *cumulative {
+                // Cumulative response (S-curve) → weights are its successive differences.
+                std::iter::once(curve[0])
+                    .chain((1..n).map(|i| curve[i] - curve[i - 1]))
+                    .collect()
+            } else {
+                // Density → weight = value × interval (converting a rate into a per-step mass).
+                curve.iter().map(|f| f * interval_s).collect()
+            }
+        }
     }
 }
 
