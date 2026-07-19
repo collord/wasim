@@ -13,6 +13,8 @@
 //! while the sweep propagates the error so a failed point surfaces rather than silently
 //! poisoning a curve.
 
+use std::collections::HashMap;
+
 use crate::error::EngineError;
 use crate::model::ObjectiveStatistic;
 use crate::model_v2::{FixedValue, Model, NodeRule, Primitive};
@@ -84,4 +86,56 @@ pub(crate) fn evaluate_point(
         }
     };
     Ok(reduce(samples, stat))
+}
+
+/// Like [`evaluate_point`], but a single run also yields the mean final value of each
+/// `extra_id`. Used by the optimizer to check constraint elements against the SAME model
+/// run that produced the objective (one run serves objective + constraints).
+///
+/// Each extra id resolves to the mean of that element's per-realization final values.
+/// An extra id with no saved output (unsaved intermediate, or missing) maps to `None`,
+/// which the caller treats as an unverifiable constraint (see `optimize_v2`).
+pub(crate) fn evaluate_point_with_extras(
+    base: &Model,
+    var_ids: &[String],
+    point: &[f64],
+    target_id: &str,
+    stat: Option<&ObjectiveStatistic>,
+    extra_ids: &[String],
+    config: &RunConfig,
+) -> Result<(f64, HashMap<String, Option<f64>>), EngineError> {
+    let mut m = base.clone();
+    for (id, &v) in var_ids.iter().zip(point) {
+        set_variable(&mut m, id, v)?;
+    }
+    // Force-save each constraint-referenced element's final value so an unsaved intermediate
+    // still yields a value to check (otherwise the constraint would silently go unverified).
+    for elem in &mut m.elements {
+        if extra_ids.iter().any(|id| id == &elem.base.id) {
+            elem.base.save_results.final_value = Some(true);
+        }
+    }
+    let graph = ModelGraphV2::build(&m)?;
+    let results = crate::engine_v2::run(&m, &graph, config)?;
+    let samples = match results.elements.get(target_id) {
+        Some(er) if !er.final_values.is_empty() => &er.final_values,
+        _ => {
+            return Err(EngineError::InvalidModel(format!(
+                "target element '{target_id}' produced no output"
+            )))
+        }
+    };
+    let objective = reduce(samples, stat);
+    let extras = extra_ids
+        .iter()
+        .map(|id| {
+            let v = results
+                .elements
+                .get(id)
+                .filter(|er| !er.final_values.is_empty())
+                .map(|er| engine::mean(&er.final_values));
+            (id.clone(), v)
+        })
+        .collect();
+    Ok((objective, extras))
 }

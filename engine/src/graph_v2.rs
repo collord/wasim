@@ -137,6 +137,7 @@ fn element_deps(elem: &Element) -> Vec<&str> {
             // These read the current-step value of `input`.
             NodeRule::Filter { input, .. }
             | NodeRule::Hysteresis { input, .. }
+            | NodeRule::PidController { input, .. }
             | NodeRule::Convolution { input, .. } => {
                 let mut d = vec![input.as_str()];
                 d.extend(elem.base.inputs.iter().map(|s| s.as_str()));

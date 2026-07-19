@@ -1,15 +1,11 @@
-//! v2 engine validation.
+//! v2 engine validation: inline equivalence — deterministic and seeded-stochastic models
+//! produce identical results through the v1 engine and the v2 engine (normalize → run_v2).
 //!
-//! 1. Inline equivalence: deterministic and seeded-stochastic models produce identical
-//!    results through the v1 engine and the v2 engine (normalize → run_v2).
-//! 2. Whole-corpus equivalence: every corpus model runs through the v2 core; on the
-//!    unchanged-semantics subset (no delays, no skipped cycles) v2 output matches v1
-//!    bit-for-bit. Delay/cycle models are run-only (v2 intentionally diverges).
+//! A whole-corpus v1-vs-v2 equivalence test used to live here; it was retired when the
+//! corpus went v2-native (the v1 `WasimModel` shape can no longer represent it). The v2
+//! corpus is covered by the parse/run tests in `integration.rs`, `v2_parse.rs`, and the
+//! frontend corpus smoke suites.
 
-use std::fs;
-use std::path::PathBuf;
-
-use wasim_engine::model::ElementKind;
 use wasim_engine::{
     normalize_v1, run, run_v2, ModelGraph, ModelGraphV2, RunConfig, SimulationResults, WasimModel,
 };
@@ -18,17 +14,8 @@ fn load(json: &str) -> WasimModel {
     serde_json::from_str(json).expect("parse failed")
 }
 
-fn openvsim_examples_dir() -> PathBuf {
-    std::env::var("WASIM_SCHEMA_EXAMPLES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").expect("HOME not set");
-            PathBuf::from(home).join("openvsim/wasim/schema_examples")
-        })
-}
-
 fn cfg() -> RunConfig {
-    RunConfig { n_realizations: Some(4), seed: Some(12345), duration_override: None, timestep_override: None }
+    RunConfig { n_realizations: Some(4), seed: Some(12345), duration_override: None, timestep_override: None, results_spec: None }
 }
 
 /// Run a model through both engines with identical config.
@@ -156,92 +143,4 @@ fn v2_chained_lag_is_exact_delay() {
     // elapsed = [0,1,2,3,4]; 2-step delay with initial -1 → [-1,-1,0,1,2].
     let d = &r2.elements["d"].time_history.as_ref().unwrap().mean;
     assert!(vecs_close(d, &[-1.0, -1.0, 0.0, 1.0, 2.0]).is_none(), "got {d:?}");
-}
-
-// ── Whole-corpus equivalence ──────────────────────────────────────────────────
-
-#[test]
-#[ignore = "slow (~9min): runs v1+v2 over the full corpus; run with `cargo test -- --ignored`"]
-fn v2_engine_matches_v1_on_corpus() {
-    let dir = openvsim_examples_dir();
-    if !dir.exists() {
-        eprintln!("skipping: {} not present", dir.display());
-        return;
-    }
-
-    let mut compared = 0;
-    let mut ran_only = 0;
-    let mut v1_skipped = 0;
-    let mut failures: Vec<String> = vec![];
-
-    for entry in fs::read_dir(&dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let json = fs::read_to_string(&path).unwrap();
-        let model: WasimModel = match serde_json::from_str(&json) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        // v1 reference run; skip models the v1 engine itself rejects (bad corpus data).
-        let g1 = match ModelGraph::build(&model) {
-            Ok(g) => g,
-            Err(_) => { v1_skipped += 1; continue; }
-        };
-        let r1 = match run(&model, &g1, &cfg()) {
-            Ok(r) => r,
-            Err(_) => { v1_skipped += 1; continue; }
-        };
-
-        // v2 must at least run wherever v1 ran.
-        let m2 = normalize_v1(&model);
-        let g2 = match ModelGraphV2::build(&m2) {
-            Ok(g) => g,
-            Err(e) => { failures.push(format!("{name}: v2 graph error: {e}")); continue; }
-        };
-        let r2 = match run_v2(&m2, &g2, &cfg()) {
-            Ok(r) => r,
-            Err(e) => { failures.push(format!("{name}: v2 run error: {e}")); continue; }
-        };
-
-        // Intentional-divergence models are run-only.
-        let has_delay = model.elements.iter().any(|e| matches!(e.kind, ElementKind::Delay { .. }));
-        if has_delay || !g1.skipped_cycle_ids.is_empty() {
-            ran_only += 1;
-            continue;
-        }
-
-        // Exact compare on shared element ids (final values + history mean).
-        let mut model_diffs = 0;
-        for (id, e1) in &r1.elements {
-            let Some(e2) = r2.elements.get(id) else { continue };
-            if let Some(d) = vecs_close(&e1.final_values, &e2.final_values) {
-                if model_diffs < 3 {
-                    failures.push(format!("{name} [{id}] final: {d}"));
-                }
-                model_diffs += 1;
-            }
-            if let (Some(h1), Some(h2)) = (&e1.time_history, &e2.time_history) {
-                if let Some(d) = vecs_close(&h1.mean, &h2.mean) {
-                    if model_diffs < 3 {
-                        failures.push(format!("{name} [{id}] hist.mean: {d}"));
-                    }
-                    model_diffs += 1;
-                }
-            }
-        }
-        compared += 1;
-    }
-
-    eprintln!(
-        "v2-vs-v1 corpus: {compared} compared exact, {ran_only} run-only (delay/cycle), \
-         {v1_skipped} skipped (v1 rejects)"
-    );
-    if !failures.is_empty() {
-        panic!("v2≠v1 on {} check(s):\n{}", failures.len(), failures.join("\n"));
-    }
-    assert!(compared >= 50, "expected ≥50 exact comparisons, got {compared}");
 }

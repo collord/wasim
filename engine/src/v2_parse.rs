@@ -146,6 +146,27 @@ struct RawElement {
     #[serde(default)]
     semantics: Option<String>,
 
+    // status (§2): independent set/reset triggers
+    #[serde(default)]
+    set: Option<RawTrigger>,
+    #[serde(default)]
+    reset: Option<RawTrigger>,
+    // pid controller (§2)
+    #[serde(default)]
+    setpoint: Option<QuantityOrFormula>,
+    #[serde(default)]
+    kp: Option<f64>,
+    #[serde(default)]
+    ki: Option<f64>,
+    #[serde(default)]
+    kd: Option<f64>,
+    #[serde(default)]
+    output_min: Option<f64>,
+    #[serde(default)]
+    output_max: Option<f64>,
+    #[serde(default)]
+    deadband: Option<f64>,
+
     // stock
     #[serde(default)]
     initial_value: Option<Quantity>,
@@ -279,6 +300,8 @@ struct RawRepair {
 
 #[derive(Deserialize)]
 struct RawEffect {
+    // Optional so an `interrupt` effect (which ends the realization and has no target) parses.
+    #[serde(default)]
     target: String,
     #[serde(default)]
     change: Option<RawQexpr>,
@@ -536,6 +559,8 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
                 y_unit: t.y_unit.clone(),
                 z_unit: t.z_unit.clone(),
                 interpolation: lower_interp(e.interpolation.as_deref()),
+                // `log_linear` interpolation lowers to linear interpolation of ln(y) (§10).
+                log_result: matches!(e.interpolation.as_deref(), Some("log_linear")),
                 extrapolation: Default::default(),
             })
         }
@@ -585,14 +610,34 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             output_above: e.output_above.clone().ok_or_else(|| missing("output_above"))?,
             output_below: e.output_below.clone().ok_or_else(|| missing("output_below"))?,
         },
+        // A filter without an `input` is schema-valid (emit's unresolvable-signal case):
+        // tolerate it per the dangling-ref policy — the empty id resolves to no output,
+        // so the filter runs over a 0.0 signal instead of rejecting the model at load.
         "filter" => v2::NodeRule::Filter {
-            input: e.input.clone().ok_or_else(|| missing("input"))?,
+            input: e.input.clone().unwrap_or_default(),
             window: e.window.ok_or_else(|| missing("window"))?,
             statistic: lower_filter_stat(e.statistic.as_deref(), &e.id)?,
         },
         "gate_logic" => v2::NodeRule::GateLogic {
             root: lower_gate(e.root.as_ref().ok_or_else(|| missing("root"))?),
             semantics: lower_semantics(e.semantics.as_deref()),
+        },
+        "status" => v2::NodeRule::Status {
+            set: lower_trigger(e.set.as_ref().ok_or_else(|| missing("set"))?),
+            reset: lower_trigger(e.reset.as_ref().ok_or_else(|| missing("reset"))?),
+        },
+        "milestone" => v2::NodeRule::Milestone {
+            trigger: lower_trigger(e.trigger.as_ref().ok_or_else(|| missing("trigger"))?),
+        },
+        "pid" | "controller" => v2::NodeRule::PidController {
+            input: e.input.clone().ok_or_else(|| missing("input"))?,
+            setpoint: e.setpoint.clone().ok_or_else(|| missing("setpoint"))?,
+            kp: e.kp.unwrap_or(0.0),
+            ki: e.ki.unwrap_or(0.0),
+            kd: e.kd.unwrap_or(0.0),
+            output_min: e.output_min,
+            output_max: e.output_max,
+            deadband: e.deadband.unwrap_or(0.0),
         },
         // A linked-Excel element (§20): the workbook is external, so the engine cannot evaluate
         // it. Parse it as a fixed-0 placeholder (the cells/external_file binding is preserved in
@@ -687,6 +732,7 @@ fn lower_effect(e: &RawEffect) -> v2::EffectSpec {
         mode: match e.mode.as_deref() {
             Some("multiplicative") => v2::EffectMode::Multiplicative,
             Some("replace") => v2::EffectMode::Replace,
+            Some("interrupt") => v2::EffectMode::Interrupt,
             _ => v2::EffectMode::Additive,
         },
         label: e.label.clone(),

@@ -4,12 +4,14 @@
 //!
 //! The schema carries the problem definition; the search algorithm is an engine concern.
 
+use std::collections::HashMap;
+
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::error::EngineError;
-use crate::eval_harness::evaluate_point;
-use crate::model::OptDirection;
+use crate::eval_harness::{evaluate_point, evaluate_point_with_extras};
+use crate::model::{AstNode, OptConstraint, OptDirection, QuantityOrFormula};
 use crate::model_v2::Model;
 use crate::RunConfig;
 
@@ -32,18 +34,157 @@ pub struct VariableResult {
     pub value: f64,
 }
 
-/// Evaluate a candidate point: set variables, run, reduce the objective. Returns the
-/// minimization cost (objective negated when the direction is maximize) so the solver always
-/// minimizes. Infeasible/failed candidates return +∞ so they're rejected by the search.
+/// Collect every `Ref` element id appearing in a constraint condition AST, so the run can
+/// save + return those elements' values (they must be evaluated in the same run).
+fn collect_refs(ast: &AstNode, out: &mut Vec<String>) {
+    use AstNode::*;
+    match ast {
+        Ref { element_id, .. } => out.push(element_id.clone()),
+        Add { left, right }
+        | Subtract { left, right }
+        | Multiply { left, right }
+        | Divide { left, right }
+        | Power { left, right }
+        | Lt { left, right }
+        | Gt { left, right }
+        | Lte { left, right }
+        | Gte { left, right }
+        | Eq { left, right }
+        | Neq { left, right }
+        | And { left, right }
+        | Or { left, right } => {
+            collect_refs(left, out);
+            collect_refs(right, out);
+        }
+        Neg { operand } | Not { operand } => collect_refs(operand, out),
+        If { cond, then, else_ } => {
+            collect_refs(cond, out);
+            collect_refs(then, out);
+            collect_refs(else_, out);
+        }
+        Call { args, .. } => args.iter().for_each(|a| collect_refs(a, out)),
+        _ => {}
+    }
+}
+
+/// Every element id a constraint set references, deduplicated. Only `Expression`
+/// conditions carry an AST; `Quantity`/`Formula` conditions contribute none.
+fn constraint_refs(constraints: &[OptConstraint]) -> Vec<String> {
+    let mut ids = Vec::new();
+    for c in constraints {
+        if let QuantityOrFormula::Expression(e) = &c.condition {
+            collect_refs(&e.ast, &mut ids);
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// Evaluate a constraint condition AST to a number, resolving each `Ref` from the run's
+/// reduced element values (`extras`). This is a deliberately small deterministic subset —
+/// literals, refs, arithmetic, comparisons, boolean ops, `abs/min/max`, and `if` — which
+/// covers every realistic feasibility predicate. Anything outside it (or a `Ref` to an
+/// element that produced no output) yields `NaN`, which the caller treats as *unverifiable*
+/// rather than *violated*, so a constraint the engine can't evaluate never spuriously
+/// rejects a candidate.
+fn eval_condition(ast: &AstNode, extras: &HashMap<String, Option<f64>>) -> f64 {
+    use crate::model::BuiltinFn;
+    use AstNode::*;
+    let bin = |l: &AstNode, r: &AstNode| (eval_condition(l, extras), eval_condition(r, extras));
+    match ast {
+        Literal { value, .. } => *value,
+        Ref { element_id, .. } => extras.get(element_id).copied().flatten().unwrap_or(f64::NAN),
+        Add { left, right } => { let (l, r) = bin(left, right); l + r }
+        Subtract { left, right } => { let (l, r) = bin(left, right); l - r }
+        Multiply { left, right } => { let (l, r) = bin(left, right); l * r }
+        Divide { left, right } => { let (l, r) = bin(left, right); l / r }
+        Power { left, right } => { let (l, r) = bin(left, right); l.powf(r) }
+        Lt { left, right } => { let (l, r) = bin(left, right); (l < r) as u8 as f64 }
+        Gt { left, right } => { let (l, r) = bin(left, right); (l > r) as u8 as f64 }
+        Lte { left, right } => { let (l, r) = bin(left, right); (l <= r) as u8 as f64 }
+        Gte { left, right } => { let (l, r) = bin(left, right); (l >= r) as u8 as f64 }
+        Eq { left, right } => { let (l, r) = bin(left, right); (l == r) as u8 as f64 }
+        Neq { left, right } => { let (l, r) = bin(left, right); (l != r) as u8 as f64 }
+        And { left, right } => { let (l, r) = bin(left, right); ((l != 0.0) && (r != 0.0)) as u8 as f64 }
+        Or { left, right } => { let (l, r) = bin(left, right); ((l != 0.0) || (r != 0.0)) as u8 as f64 }
+        Neg { operand } => -eval_condition(operand, extras),
+        Not { operand } => (eval_condition(operand, extras) == 0.0) as u8 as f64,
+        If { cond, then, else_ } => {
+            if eval_condition(cond, extras) != 0.0 {
+                eval_condition(then, extras)
+            } else {
+                eval_condition(else_, extras)
+            }
+        }
+        Call { func, args } => {
+            let v: Vec<f64> = args.iter().map(|a| eval_condition(a, extras)).collect();
+            match (func, v.as_slice()) {
+                (BuiltinFn::Abs, [x]) => x.abs(),
+                (BuiltinFn::Min, xs) if !xs.is_empty() => xs.iter().cloned().fold(f64::INFINITY, f64::min),
+                (BuiltinFn::Max, xs) if !xs.is_empty() => xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                _ => f64::NAN,
+            }
+        }
+        _ => f64::NAN,
+    }
+}
+
+/// Is a single constraint satisfied given the run's reduced element values? A condition is
+/// *satisfied* when it evaluates truthy (≥ 0.5, so a comparison's 1.0 passes and 0.0 fails).
+/// An unverifiable condition (NaN — unparsed formula, bare quantity, or a ref with no output)
+/// is treated as satisfied so the engine never rejects a candidate on a constraint it cannot
+/// actually evaluate.
+fn constraint_satisfied(c: &OptConstraint, extras: &HashMap<String, Option<f64>>) -> bool {
+    let v = match &c.condition {
+        QuantityOrFormula::Expression(e) => eval_condition(&e.ast, extras),
+        // A bare quantity is a constant flag; a raw formula string is unparsed → unverifiable.
+        QuantityOrFormula::Quantity(q) => q.value,
+        QuantityOrFormula::Formula(_) => f64::NAN,
+    };
+    !v.is_finite() || v >= 0.5
+}
+
+/// Evaluate a candidate point: set variables, run, reduce the objective, and reject the point
+/// (+∞) if any optimization constraint is violated. Returns the minimization cost (objective
+/// negated when the direction is maximize) so the solver always minimizes. Infeasible/failed
+/// candidates return +∞ so they're rejected by the search (Box's complex treats implicit
+/// constraints exactly this way).
 ///
 /// The point-evaluation body is shared with the sensitivity sweep via `eval_harness`; only
-/// the ∞-on-failure coercion and the maximize flip are optimizer-specific.
+/// the ∞-on-failure coercion, constraint check, and the maximize flip are optimizer-specific.
 fn evaluate(base: &Model, var_ids: &[String], point: &[f64], config: &RunConfig) -> f64 {
-    let obj = &base.optimization.as_ref().unwrap().objective;
-    let value = match evaluate_point(base, var_ids, point, &obj.element_id, obj.statistic.as_ref(), config) {
-        Ok(v) if v.is_finite() => v,
-        _ => return f64::INFINITY,
+    let spec = base.optimization.as_ref().unwrap();
+    let obj = &spec.objective;
+
+    let value = if spec.constraints.is_empty() {
+        // No constraints: the single-run objective path, unchanged.
+        match evaluate_point(base, var_ids, point, &obj.element_id, obj.statistic.as_ref(), config) {
+            Ok(v) if v.is_finite() => v,
+            _ => return f64::INFINITY,
+        }
+    } else {
+        // One run serves objective + constraints: fetch each constraint-referenced element's
+        // value from the same run, then reject the point if any constraint is violated.
+        let extra_ids = constraint_refs(&spec.constraints);
+        let (v, extras) = match evaluate_point_with_extras(
+            base,
+            var_ids,
+            point,
+            &obj.element_id,
+            obj.statistic.as_ref(),
+            &extra_ids,
+            config,
+        ) {
+            Ok((v, e)) if v.is_finite() => (v, e),
+            _ => return f64::INFINITY,
+        };
+        if spec.constraints.iter().any(|c| !constraint_satisfied(c, &extras)) {
+            return f64::INFINITY;
+        }
+        v
     };
+
     // Solver minimizes; flip for maximize.
     match obj.direction {
         OptDirection::Minimize => value,

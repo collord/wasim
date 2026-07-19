@@ -238,6 +238,12 @@ pub struct OutputSpec {
     /// Empty = scalar. See wasim-engine-semantics.md §15.
     #[serde(default)]
     pub dimensions: Vec<String>,
+    /// Semantic role of a stock's secondary output port (§1c): `addition_rate`,
+    /// `withdrawal_rate`, `overflow_rate`, or `net_change`. The engine publishes a value
+    /// for secondary outputs that declare a role; role-less secondaries resolve to the
+    /// element's primary value (the pre-0.9.2 behavior).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// A named, ordered dimension (ordinal set) — `size` members, optionally labeled.
@@ -418,7 +424,7 @@ fn default_min_zero() -> Option<f64> {
     Some(0.0)
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InterpolationMethod {
     #[default]
@@ -693,6 +699,11 @@ pub enum BuiltinFn {
     GetHour,
     GetMinute,
     GetSecond,
+    // Event predicate functions (§2). `occurs(event_id)` = 1.0 if the referenced event fired
+    // this step (from the step's fired-event set); `changed(ref)` = 1.0 if the referenced
+    // element's value differs from its previous-step value.
+    Occurs,
+    Changed,
     // Finance factors.
     /// Present-to-future value factor `(1 + rate)^n` — `pv_factor(rate, n)`.
     PvFactor,
@@ -876,7 +887,95 @@ pub enum DistributionKind {
     External {
         #[serde(default)]
         definition: Option<String>,
+        /// Optional inline empirical fallback: if present, an `external` distribution samples
+        /// this weighted empirical table instead of erroring (§6). Absent → load/sample error.
+        #[serde(default)]
+        fallback: Option<EmpiricalTable>,
     },
+
+    // ── A4 roster additions (GoldSim parity, §6) ──
+    /// Log-Uniform: ln(X) ~ Uniform(ln min, ln max). Params are real-space bounds (> 0).
+    LogUniform {
+        min: QuantityOrFormula,
+        max: QuantityOrFormula,
+    },
+    /// Log-Triangular: ln(X) ~ Triangular(ln min, ln mode, ln max). Real-space params (> 0).
+    LogTriangular {
+        min: QuantityOrFormula,
+        mode: QuantityOrFormula,
+        max: QuantityOrFormula,
+    },
+    /// Log-Cumulative: a piecewise-linear CDF whose `x` breakpoints are interpolated in log
+    /// space (the GoldSim log-cumulative). `x` values must be > 0.
+    LogCumulative {
+        points: Vec<CumulativePoint>,
+    },
+    /// Triangular specified by its 10th and 90th percentiles (+ mode), GoldSim's alternate
+    /// parameterization. Reparameterized to (min, mode, max) at resolve time.
+    Triangular1090 {
+        p10: QuantityOrFormula,
+        mode: QuantityOrFormula,
+        p90: QuantityOrFormula,
+    },
+    /// Log-Triangular specified by its 10th/90th percentiles (+ mode), all real-space.
+    /// Reparameterized in log space, then exponentiated.
+    LogTriangular1090 {
+        p10: QuantityOrFormula,
+        mode: QuantityOrFormula,
+        p90: QuantityOrFormula,
+    },
+    /// Binomial(n, p): number of successes in `n` independent Bernoulli(`p`) trials.
+    Binomial {
+        n: QuantityOrFormula,
+        prob: QuantityOrFormula,
+    },
+    /// Negative Binomial(r, p): number of failures before the `r`-th success (each trial
+    /// succeeds with probability `p`).
+    NegativeBinomial {
+        r: QuantityOrFormula,
+        prob: QuantityOrFormula,
+    },
+    /// Poisson(λ): count with mean `lambda`. (Distinct from event `rate` Poisson generation.)
+    Poisson {
+        lambda: QuantityOrFormula,
+    },
+    /// Extreme Probability: the distribution of the min or max of `n` draws from a base
+    /// distribution. Sampled via the order-statistic ICDF transform (u → u^(1/n) for max,
+    /// 1−(1−u)^(1/n) for min) applied through the base's inverse CDF.
+    ExtremeProbability {
+        base: Box<DistributionKind>,
+        n: QuantityOrFormula,
+        /// "max" (default) or "min".
+        #[serde(default)]
+        extreme: ExtremeKind,
+    },
+    /// Beta specified by observed (successes, failures): Beta(successes + 1, failures + 1),
+    /// optionally affine-scaled onto [min, max]. GoldSim's Beta(succ/fail) parameterization.
+    BetaSuccessFailure {
+        successes: QuantityOrFormula,
+        failures: QuantityOrFormula,
+        #[serde(default)]
+        min: Option<QuantityOrFormula>,
+        #[serde(default)]
+        max: Option<QuantityOrFormula>,
+    },
+}
+
+/// Which extreme an `extreme_probability` distribution takes.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtremeKind {
+    #[default]
+    Max,
+    Min,
+}
+
+/// Weighted empirical table — the inline `external` fallback (mirrors the `sampled` family).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EmpiricalTable {
+    pub samples: Vec<f64>,
+    #[serde(default)]
+    pub weights: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

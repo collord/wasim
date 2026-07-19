@@ -1,9 +1,12 @@
 use rand::Rng;
-use rand_distr::{Beta, Exp, Gamma, LogNormal, Normal, StudentT, Triangular, Uniform, Weibull};
+use rand_distr::{
+    Beta, Binomial, Exp, Gamma, LogNormal, Normal, Poisson, StudentT, Triangular, Uniform, Weibull,
+};
 
 use crate::error::EngineError;
 use crate::model::{
-    CumulativePoint, DistributionKind, ProcessMeanType, ProcessSpec, Quantity, Truncation,
+    CumulativePoint, DistributionKind, ExtremeKind, ProcessMeanType, ProcessSpec, Quantity,
+    Truncation,
 };
 
 /// Keep a uniform draw strictly inside (0, 1) for inverse-CDF transforms.
@@ -204,9 +207,129 @@ pub fn sample<R: Rng>(kind: &DistributionKind, truncation: &Option<Truncation>, 
             sampled_inverse(samples, weights, rng.sample(Uniform::new(0.0_f64, 1.0)))
         }
 
-        DistributionKind::External { .. } => {
-            eprintln!("warn: 'external' distribution cannot be sampled by the engine; using 0.0");
-            0.0
+        // ── A4 roster additions ──
+        DistributionKind::LogUniform { min, max } => {
+            let (a, b) = (min.value(), max.value());
+            if a <= 0.0 || b <= 0.0 || a >= b {
+                return Err(EngineError::Sampling(format!(
+                    "log_uniform: require 0 < min ({a}) < max ({b})"
+                )));
+            }
+            let u = rng.sample(Uniform::new(0.0_f64, 1.0));
+            (a.ln() + (b.ln() - a.ln()) * u).exp()
+        }
+
+        DistributionKind::LogTriangular { min, mode, max } => {
+            let (a, m, b) = (min.value(), mode.value(), max.value());
+            if a <= 0.0 || m <= 0.0 || b <= 0.0 {
+                return Err(EngineError::Sampling("log_triangular: params must be > 0".into()));
+            }
+            let dist = Triangular::new(a.ln(), b.ln(), m.ln())
+                .map_err(|e| EngineError::Sampling(e.to_string()))?;
+            rng.sample(dist).exp()
+        }
+
+        DistributionKind::LogCumulative { points } => {
+            if points.is_empty() {
+                return Err(EngineError::Sampling("log_cumulative: no points".into()));
+            }
+            log_cumulative_inverse(points, rng.sample(Uniform::new(0.0_f64, 1.0)))?
+        }
+
+        DistributionKind::Triangular1090 { p10, mode, p90 } => {
+            let (a, b) = triangular_from_1090(p10.value(), mode.value(), p90.value())?;
+            let dist = Triangular::new(a, b, mode.value())
+                .map_err(|e| EngineError::Sampling(e.to_string()))?;
+            rng.sample(dist)
+        }
+
+        DistributionKind::LogTriangular1090 { p10, mode, p90 } => {
+            let (lp10, lm, lp90) = (p10.value().ln(), mode.value().ln(), p90.value().ln());
+            let (a, b) = triangular_from_1090(lp10, lm, lp90)?;
+            let dist = Triangular::new(a, b, lm)
+                .map_err(|e| EngineError::Sampling(e.to_string()))?;
+            rng.sample(dist).exp()
+        }
+
+        DistributionKind::Binomial { n, prob } => {
+            let trials = n.value().round().max(0.0) as u64;
+            let p = prob.value().clamp(0.0, 1.0);
+            let dist = Binomial::new(trials, p).map_err(|e| EngineError::Sampling(e.to_string()))?;
+            rng.sample(dist) as f64
+        }
+
+        DistributionKind::NegativeBinomial { r, prob } => {
+            // Number of failures before the r-th success, via a Gamma-Poisson mixture:
+            // λ ~ Gamma(r, (1-p)/p), then draw Poisson(λ). Handles non-integer r.
+            let r_v = r.value().max(1e-9);
+            let p = prob.value().clamp(1e-9, 1.0 - 1e-12);
+            let gamma = Gamma::new(r_v, (1.0 - p) / p)
+                .map_err(|e| EngineError::Sampling(e.to_string()))?;
+            let lambda: f64 = rng.sample(gamma);
+            let pois = Poisson::new(lambda.max(1e-12)).map_err(|e| EngineError::Sampling(e.to_string()))?;
+            rng.sample(pois)
+        }
+
+        DistributionKind::Poisson { lambda } => {
+            let l = lambda.value();
+            if l <= 0.0 {
+                return Err(EngineError::Sampling(format!("poisson: lambda ({l}) must be > 0")));
+            }
+            let dist = Poisson::new(l).map_err(|e| EngineError::Sampling(e.to_string()))?;
+            rng.sample(dist)
+        }
+
+        DistributionKind::ExtremeProbability { base, n, extreme } => {
+            let count = n.value().round().max(1.0);
+            let u = rng.sample(Uniform::new(0.0_f64, 1.0));
+            // Order-statistic transform: the max of N iid draws has CDF F(x)^N, so its ICDF is
+            // F⁻¹(u^(1/N)); the min has ICDF F⁻¹(1 − (1−u)^(1/N)).
+            let u_ext = match extreme {
+                ExtremeKind::Max => u.powf(1.0 / count),
+                ExtremeKind::Min => 1.0 - (1.0 - u).powf(1.0 / count),
+            };
+            match icdf(base, open_unit(u_ext)) {
+                Some(v) => v,
+                None => {
+                    return Err(EngineError::Sampling(
+                        "extreme_probability: base distribution has no closed-form inverse CDF".into(),
+                    ))
+                }
+            }
+        }
+
+        DistributionKind::BetaSuccessFailure { successes, failures, min, max } => {
+            // Beta(successes + 1, failures + 1) — the Bayesian posterior with a uniform prior.
+            let a = successes.value().max(0.0) + 1.0;
+            let b = failures.value().max(0.0) + 1.0;
+            let dist = Beta::new(a, b).map_err(|e| EngineError::Sampling(e.to_string()))?;
+            let s = rng.sample(dist);
+            match (min, max) {
+                (Some(lo), Some(hi)) => lo.value() + (hi.value() - lo.value()) * s,
+                _ => s,
+            }
+        }
+
+        DistributionKind::External { fallback, .. } => {
+            match fallback {
+                Some(tbl) if !tbl.samples.is_empty() => {
+                    sampled_inverse(&tbl.samples, &tbl.weights, rng.sample(Uniform::new(0.0_f64, 1.0)))
+                }
+                // No inline fallback: the engine cannot sample a DLL/spreadsheet distribution.
+                // Degrade to 0.0 with a warning rather than erroring, so corpus models that
+                // still emit `external` as a placeholder for a now-supported family (Poisson,
+                // Binomial, Beta(succ/fail), Extreme Probability, …) keep running. Emit should
+                // re-emit these as their real family — see EMIT_ISSUES_0.9.1_CORPUS.md. A future
+                // round can flip this to a hard error once the corpus no longer relies on it.
+                _ => {
+                    eprintln!(
+                        "warn: 'external' distribution cannot be sampled by the engine (no inline \
+                         fallback table); using 0.0. Re-emit as a concrete family or supply a \
+                         `fallback` empirical table."
+                    );
+                    0.0
+                }
+            }
         }
     };
 
@@ -369,15 +492,7 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
             min.value() + (max.value() - min.value()) * u
         }
         DistributionKind::Triangular { min, mode, max } => {
-            let a = min.value();
-            let b = max.value();
-            let c = mode.value();
-            let f = (c - a) / (b - a);
-            if u < f {
-                a + ((b - a) * (c - a) * u).sqrt()
-            } else {
-                b - ((b - a) * (b - c) * (1.0 - u)).sqrt()
-            }
+            triangular_icdf(min.value(), mode.value(), max.value(), u)
         }
         DistributionKind::Trapezoidal { min, lower, upper, max } => {
             match trapezoid_icdf(min.value(), lower.value(), upper.value(), max.value(), u) {
@@ -425,17 +540,234 @@ pub fn icdf(kind: &DistributionKind, u: f64) -> Option<f64> {
             if samples.is_empty() { return None; }
             sampled_inverse(samples, weights, u)
         }
+        // ── A4 roster additions with closed-form ICDFs ──
+        DistributionKind::LogUniform { min, max } => {
+            let (a, b) = (min.value(), max.value());
+            if a <= 0.0 || b <= 0.0 || a >= b { return None; }
+            (a.ln() + (b.ln() - a.ln()) * u).exp()
+        }
+        DistributionKind::LogTriangular { min, mode, max } => {
+            let (a, m, b) = (min.value().ln(), mode.value().ln(), max.value().ln());
+            triangular_icdf(a, m, b, u).exp()
+        }
+        DistributionKind::LogCumulative { points } => {
+            if points.is_empty() { return None; }
+            match log_cumulative_inverse(points, u) { Ok(v) => v, Err(_) => return None }
+        }
+        DistributionKind::Triangular1090 { p10, mode, p90 } => {
+            let (a, b) = match triangular_from_1090(p10.value(), mode.value(), p90.value()) {
+                Ok(ab) => ab, Err(_) => return None,
+            };
+            triangular_icdf(a, mode.value(), b, u)
+        }
+        DistributionKind::LogTriangular1090 { p10, mode, p90 } => {
+            let lm = mode.value().ln();
+            let (a, b) = match triangular_from_1090(p10.value().ln(), lm, p90.value().ln()) {
+                Ok(ab) => ab, Err(_) => return None,
+            };
+            triangular_icdf(a, lm, b, u).exp()
+        }
+        DistributionKind::ExtremeProbability { base, n, extreme } => {
+            let count = n.value().round().max(1.0);
+            let u_ext = match extreme {
+                ExtremeKind::Max => u.powf(1.0 / count),
+                ExtremeKind::Min => 1.0 - (1.0 - u).powf(1.0 / count),
+            };
+            return icdf(base, open_unit(u_ext));
+        }
         // No closed-form inverse CDF; caller falls back to iid.
         DistributionKind::Gamma { .. }
         | DistributionKind::Beta { .. }
+        | DistributionKind::BetaSuccessFailure { .. }
         | DistributionKind::Weibull { .. }
         | DistributionKind::PearsonV { .. }
         | DistributionKind::PearsonIii { .. }
         | DistributionKind::Pert { .. }
         | DistributionKind::StudentT { .. }
+        | DistributionKind::Binomial { .. }
+        | DistributionKind::NegativeBinomial { .. }
+        | DistributionKind::Poisson { .. }
         | DistributionKind::External { .. } => return None,
     };
     Some(raw)
+}
+
+/// True when `kind` has a closed-form inverse CDF (so it can be sampled by Latin Hypercube).
+/// Mirrors the `icdf` match: distributions that return `None` there are false here.
+pub fn has_icdf(kind: &DistributionKind) -> bool {
+    icdf(kind, 0.5).is_some()
+}
+
+/// The forward CDF F(x) of a distribution that has a closed-form ICDF, recovered by
+/// bisection over u ∈ [0,1] (icdf is monotone increasing). Used only to map a truncation
+/// bound into probability space for stratified (LHS) truncated sampling. Returns 0.0 / 1.0
+/// at the extremes and `None` if the distribution has no closed-form ICDF.
+fn cdf_from_icdf(kind: &DistributionKind, x: f64) -> Option<f64> {
+    icdf(kind, 0.5)?; // ensure closed-form ICDF exists
+    let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+    // 60 bisections → u resolved to ~1e-18; icdf is monotone so this brackets F(x).
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        match icdf(kind, mid) {
+            Some(v) if v <= x => lo = mid,
+            _ => hi = mid,
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
+/// Map a stratified uniform `u ∈ [0,1)` through a distribution's inverse CDF, honoring a
+/// truncation window by scaling `u` into `[F(lo), F(hi)]` first (the standard LHS treatment
+/// of truncated draws — no rejection, so stratification is preserved). Returns `None` if the
+/// distribution has no closed-form ICDF, so the caller falls back to Monte Carlo for it.
+pub fn icdf_truncated(kind: &DistributionKind, truncation: &Option<Truncation>, u: f64) -> Option<f64> {
+    let lo = truncation.as_ref().and_then(|t| t.min);
+    let hi = truncation.as_ref().and_then(|t| t.max);
+    let u_scaled = match (lo, hi) {
+        (None, None) => u,
+        (l, h) => {
+            let f_lo = match l {
+                Some(x) => cdf_from_icdf(kind, x)?,
+                None => 0.0,
+            };
+            let f_hi = match h {
+                Some(x) => cdf_from_icdf(kind, x)?,
+                None => 1.0,
+            };
+            if f_hi <= f_lo {
+                // Degenerate window (bounds cross, or narrower than ICDF resolution): pin to lo.
+                f_lo
+            } else {
+                f_lo + u * (f_hi - f_lo)
+            }
+        }
+    };
+    icdf(kind, open_unit(u_scaled))
+}
+
+/// Inverse CDF of a triangular distribution on [a, b] with mode c (a ≤ c ≤ b).
+fn triangular_icdf(a: f64, c: f64, b: f64, u: f64) -> f64 {
+    if b <= a {
+        return a;
+    }
+    let f = (c - a) / (b - a);
+    if u < f {
+        a + ((b - a) * (c - a) * u).sqrt()
+    } else {
+        b - ((b - a) * (b - c) * (1.0 - u)).sqrt()
+    }
+}
+
+/// Forward CDF of a triangular on [a, b] with mode c, evaluated at x.
+fn triangular_cdf(a: f64, c: f64, b: f64, x: f64) -> f64 {
+    if x <= a {
+        0.0
+    } else if x >= b {
+        1.0
+    } else if x <= c {
+        (x - a).powi(2) / ((b - a) * (c - a))
+    } else {
+        1.0 - (b - x).powi(2) / ((b - a) * (b - c))
+    }
+}
+
+/// Reparameterize a triangular given by (10th percentile, mode, 90th percentile) into its
+/// (min, max) support. Two unknowns (a, b) constrained by F(p10) = 0.10 and F(p90) = 0.90 with
+/// the mode fixed. The equations are coupled through the shared (b − a) factor, so solve by
+/// coordinate descent: hold `b`, minimize the squared error of F(p10) over `a` by golden
+/// section; hold `a`, do the same for `b`; alternate until both stabilize. Golden section makes
+/// no monotonicity assumption, so it is robust to the arm the percentile falls in.
+fn triangular_from_1090(p10: f64, mode: f64, p90: f64) -> Result<(f64, f64), EngineError> {
+    if !(p10 < mode && mode < p90) {
+        return Err(EngineError::Sampling(format!(
+            "triangular 10-90: require p10 ({p10}) < mode ({mode}) < p90 ({p90})"
+        )));
+    }
+    let width = p90 - p10;
+    // Golden-section minimize `f` over [lo, hi]; returns the argmin.
+    let golden = |lo: f64, hi: f64, f: &dyn Fn(f64) -> f64| -> f64 {
+        const INV_PHI: f64 = 0.618_033_988_749_895;
+        let (mut a, mut b) = (lo, hi);
+        let mut c = b - INV_PHI * (b - a);
+        let mut d = a + INV_PHI * (b - a);
+        let (mut fc, mut fd) = (f(c), f(d));
+        for _ in 0..200 {
+            if (b - a).abs() < 1e-12 {
+                break;
+            }
+            if fc < fd {
+                b = d;
+                d = c;
+                fd = fc;
+                c = b - INV_PHI * (b - a);
+                fc = f(c);
+            } else {
+                a = c;
+                c = d;
+                fc = fd;
+                d = a + INV_PHI * (b - a);
+                fd = f(d);
+            }
+        }
+        0.5 * (a + b)
+    };
+
+    let mut a = p10 - width;
+    let mut b = p90 + width;
+    for _ in 0..80 {
+        let b_fixed = b;
+        // `a` ranges well below p10 (support must contain it); minimize |F(p10) − 0.10|.
+        let a_new = golden(p10 - 200.0 * width, p10 - 1e-9, &move |aa| {
+            (triangular_cdf(aa, mode, b_fixed, p10) - 0.10).abs()
+        });
+        let a_fixed = a_new;
+        let b_new = golden(p90 + 1e-9, p90 + 200.0 * width, &move |bb| {
+            (triangular_cdf(a_fixed, mode, bb, p90) - 0.90).abs()
+        });
+        let done = (a_new - a).abs() < 1e-9 && (b_new - b).abs() < 1e-9;
+        a = a_new;
+        b = b_new;
+        if done {
+            break;
+        }
+    }
+
+    // Verify the fit — coordinate descent can stall if the percentiles are inconsistent.
+    let f10 = triangular_cdf(a, mode, b, p10);
+    let f90 = triangular_cdf(a, mode, b, p90);
+    if !(a <= mode && mode <= b) || b <= a || (f10 - 0.10).abs() > 1e-3 || (f90 - 0.90).abs() > 1e-3 {
+        return Err(EngineError::Sampling(format!(
+            "triangular 10-90: could not reparameterize (a={a}, b={b}, F(p10)={f10}, F(p90)={f90})"
+        )));
+    }
+    Ok((a, b))
+}
+
+/// Inverse CDF of a log-cumulative distribution: interpolate the `x` breakpoints in log space
+/// (all `x` must be > 0), i.e. exp of the piecewise-linear interpolation of ln(x) vs cumulative
+/// probability. Errors if any breakpoint x ≤ 0.
+fn log_cumulative_inverse(points: &[CumulativePoint], u: f64) -> Result<f64, EngineError> {
+    let mut pts: Vec<&CumulativePoint> = points.iter().collect();
+    pts.sort_by(|a, b| a.cumulative_probability.total_cmp(&b.cumulative_probability));
+    if pts.iter().any(|p| p.x <= 0.0) {
+        return Err(EngineError::Sampling("log_cumulative: all x breakpoints must be > 0".into()));
+    }
+    if u <= pts[0].cumulative_probability {
+        return Ok(pts[0].x);
+    }
+    let last = *pts.last().unwrap();
+    if u >= last.cumulative_probability {
+        return Ok(last.x);
+    }
+    for w in pts.windows(2) {
+        let (lo, hi) = (w[0], w[1]);
+        if u >= lo.cumulative_probability && u <= hi.cumulative_probability {
+            let dp = hi.cumulative_probability - lo.cumulative_probability;
+            let t = if dp.abs() < 1e-12 { 0.0 } else { (u - lo.cumulative_probability) / dp };
+            return Ok((lo.x.ln() + t * (hi.x.ln() - lo.x.ln())).exp());
+        }
+    }
+    Ok(last.x)
 }
 
 /// Inverse CDF of a trapezoidal distribution with breakpoints min ≤ lower ≤ upper ≤ max.

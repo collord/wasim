@@ -6,7 +6,7 @@ use wasim_engine::{parse_v2, run_v2, ModelGraphV2, RunConfig};
 fn hist2(json: &str, a: &str, b: &str) -> (Vec<f64>, Vec<f64>) {
     let m = parse_v2(json).expect("parse");
     let g = ModelGraphV2::build(&m).expect("graph");
-    let cfg = RunConfig { n_realizations: Some(1), seed: Some(1), duration_override: None, timestep_override: None };
+    let cfg = RunConfig { n_realizations: Some(1), seed: Some(1), duration_override: None, timestep_override: None, results_spec: None };
     let r = run_v2(&m, &g, &cfg).expect("run");
     let h = |id: &str| r.elements[id].time_history.as_ref().unwrap().mean.clone();
     (h(a), h(b))

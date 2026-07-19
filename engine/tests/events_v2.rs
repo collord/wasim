@@ -6,7 +6,7 @@ use wasim_engine::{parse_v2, run_v2, ModelGraphV2, RunConfig, SimulationResults}
 fn run(json: &str, n: Option<u32>) -> SimulationResults {
     let m = parse_v2(json).expect("parse");
     let g = ModelGraphV2::build(&m).expect("graph");
-    let cfg = RunConfig { n_realizations: n, seed: Some(7), duration_override: None, timestep_override: None };
+    let cfg = RunConfig { n_realizations: n, seed: Some(7), duration_override: None, timestep_override: None, results_spec: None };
     run_v2(&m, &g, &cfg).expect("run")
 }
 

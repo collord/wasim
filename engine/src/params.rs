@@ -56,6 +56,8 @@ impl ModelParams {
             seed: self.run_config.seed.or(base.seed),
             duration_override: self.run_config.duration_override.or(base.duration_override),
             timestep_override: self.run_config.timestep_override.or(base.timestep_override),
+            // results_spec is a runtime analysis config, not a params-file override; carry base.
+            results_spec: base.results_spec,
         }
     }
 }

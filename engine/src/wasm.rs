@@ -27,6 +27,10 @@ struct JsRunConfig {
     seed: Option<u64>,
     duration_override: Option<f64>,
     timestep_override: Option<f64>,
+    /// Optional A3 analysis config (custom percentiles, PDF/CDF/CCDF, capture times, final
+    /// stats). Absent → the default fixed summary.
+    #[serde(default)]
+    results_spec: Option<crate::results_spec::ResultsSpec>,
 }
 
 // ── WasmEngine ────────────────────────────────────────────────────────────────
@@ -69,6 +73,7 @@ impl WasmEngine {
             seed: js.seed,
             duration_override: js.duration_override,
             timestep_override: js.timestep_override,
+            results_spec: js.results_spec,
         };
         let mut results = run_v2(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;

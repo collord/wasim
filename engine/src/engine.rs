@@ -20,11 +20,21 @@ pub struct RunConfig {
     pub duration_override: Option<f64>,
     /// Override model's timestep (in the model's declared timestep unit).
     pub timestep_override: Option<f64>,
+    /// Optional richer results/analysis (A3, gap #3). None = the default fixed summary; when
+    /// set, opted-in elements gain custom percentile bands, PDF/CDF/CCDF, capture-time
+    /// snapshots, and final-value stats. Additive — default output is byte-identical.
+    pub results_spec: Option<crate::results_spec::ResultsSpec>,
 }
 
 impl Default for RunConfig {
     fn default() -> Self {
-        RunConfig { n_realizations: None, seed: None, duration_override: None, timestep_override: None }
+        RunConfig {
+            n_realizations: None,
+            seed: None,
+            duration_override: None,
+            timestep_override: None,
+            results_spec: None,
+        }
     }
 }
 
@@ -54,6 +64,10 @@ pub struct ElementResults {
     pub final_values: Vec<f64>,
     /// Per-timestep summary stats (saved if save_results.time_history).
     pub time_history: Option<TimeHistoryStats>,
+    /// Optional richer analysis (A3): present only when a `RunConfig.results_spec` opts this
+    /// element in. `skip_serializing_if` keeps default output byte-identical for existing consumers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<crate::results_spec::ElementAnalysis>,
 }
 
 #[derive(serde::Serialize)]
@@ -242,6 +256,9 @@ pub fn run(
     let dim_sizes_empty: HashMap<String, usize> = HashMap::new();
     let index_stack_empty: std::cell::RefCell<Vec<usize>> = std::cell::RefCell::new(Vec::new());
     let submodel_outputs_empty: HashMap<(String, String), Vec<f64>> = HashMap::new();
+    // The v1 path has no events; supply an always-empty fired-event set for the shared EvalCtx.
+    let fired_events_empty: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
     let lookups: HashMap<String, crate::eval::LookupData> = model.elements.iter()
         .filter_map(|e| match &e.kind {
             ElementKind::Lookup { x, y, columns, extrapolation, .. } => Some((
@@ -251,6 +268,11 @@ pub fn run(
                     y: y.clone(),
                     columns: columns.clone(),
                     extrapolation: extrapolation.clone(),
+                    // v1 tables are 1-D linear; the §10 extras are v2-only.
+                    interpolation: crate::model::InterpolationMethod::Linear,
+                    log_result: false,
+                    extra_axes: Vec::new(),
+                    nd_values: Vec::new(),
                 },
             )),
             _ => None,
@@ -346,7 +368,7 @@ pub fn run(
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
@@ -368,7 +390,7 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
                     let v = match sampling::icdf(&resolved.kind, u) {
@@ -428,7 +450,7 @@ pub fn run(
         for elem_id in &graph.topo_order {
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let ElementKind::Expression { expression, .. } = &elem.kind {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                 if let Ok(v) = eval_ast(&expression.ast, &ctx) {
                     init_ctx_outputs.insert(elem_id.clone(), v);
                 }
@@ -442,7 +464,7 @@ pub fn run(
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
                 let init = match initial_expression {
                     Some(expr) => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(initial_value.value),
@@ -526,7 +548,7 @@ pub fn run(
                     }
 
                     ElementKind::Expression { expression, .. } => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None,
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty,
                             lookups: &lookups, dt_unit: &dt_unit,
                             outputs: &outputs,
                             prev_outputs: &prev_outputs,
@@ -544,7 +566,7 @@ pub fn run(
                                 if *procedural {
                                     eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
-                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
                             }
                         }
@@ -559,7 +581,7 @@ pub fn run(
                             None => !expressions.is_empty(),
                         };
                         if is_expression {
-                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None,
+                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty,
                                 lookups: &lookups, dt_unit: &dt_unit,
                                 outputs: &outputs,
                                 prev_outputs: &prev_outputs,
@@ -585,7 +607,7 @@ pub fn run(
             for &id in &acc_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Accumulator { rate, min_value, capacity, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None,
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty,
                         lookups: &lookups, dt_unit: &dt_unit,
                         outputs: &outputs,
                         prev_outputs: &prev_outputs,
@@ -633,7 +655,7 @@ pub fn run(
 
             // Evaluate time_history_displays against the finalized step outputs.
             for d in &model.time_history_displays {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {
@@ -694,6 +716,8 @@ pub fn run(
             unit: elem.primary_unit().to_string(),
             final_values,
             time_history,
+            // The v1 reference engine does not compute the A3 analysis layer.
+            analysis: None,
         });
     }
 
@@ -714,6 +738,7 @@ pub fn run(
             unit: "1".to_string(),
             final_values,
             time_history,
+            analysis: None,
         });
     }
 

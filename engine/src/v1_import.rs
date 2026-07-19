@@ -128,6 +128,7 @@ fn normalize_element(elem: &v1::Element, dt: f64) -> Vec<v2::Element> {
                     y_unit: Some(y_unit.clone()),
                     z_unit: None,
                     interpolation: v1::InterpolationMethod::Linear,
+                    log_result: false,
                     extrapolation: extrapolation.clone(),
                 }),
             })

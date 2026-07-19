@@ -17,6 +17,18 @@ pub struct LookupData {
     /// `y` is ignored and the column index comes from `lookup_call`'s `input2`.
     pub columns: Vec<Vec<f64>>,
     pub extrapolation: ExtrapolationMethod,
+    /// Interpolation between knots: linear (default), step (piecewise-constant), or monotone
+    /// cubic (Fritsch-Carlson — no overshoot). Applies to the 1-D interpolation path.
+    pub interpolation: crate::model::InterpolationMethod,
+    /// Log-result interpolation (§10): interpolate ln(y) linearly and return exp. Requires
+    /// y > 0 at the bracketing knots; falls back to linear where a knot is ≤ 0.
+    pub log_result: bool,
+    /// N-D table axes beyond x (§10): `extra_axes[0]` = 2nd-axis breakpoints, `extra_axes[1]`
+    /// = 3rd-axis breakpoints. Empty for a 1-D table. When present, `nd_values` holds the
+    /// flattened value grid (row-major over x, then each extra axis) and multilinear
+    /// interpolation is used via a `lookup_call` with the extra-axis coordinates in `input2`.
+    pub extra_axes: Vec<Vec<f64>>,
+    pub nd_values: Vec<f64>,
 }
 
 // ── Value ─────────────────────────────────────────────────────────────────────
@@ -96,6 +108,8 @@ pub struct EvalCtx<'a> {
     /// The local lag value (seconds) bound while sampling a convolution response expression
     /// (§17); read by `extern_call fn:"lag"`. None outside convolution-response sampling.
     pub lag: Option<f64>,
+    /// Ids of events that fired this step (§2), read by the `occurs(event_id)` builtin.
+    pub fired_events: &'a std::cell::RefCell<std::collections::HashSet<String>>,
 }
 
 impl<'a> EvalCtx<'a> {
@@ -168,12 +182,25 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
     match node {
         AstNode::Literal { value, .. } => Ok(Value::Scalar(*value)),
 
-        AstNode::Ref { element_id, .. } => {
+        AstNode::Ref { element_id, output } => {
             // Lookup elements don't self-evaluate; return their y-column as a vector
             // so that sum_array/interp_array/dot_product work on lookup refs.
             if let Some(lk) = ctx.lookups.get(element_id.as_str()) {
                 let data = if !lk.columns.is_empty() { lk.columns[0].clone() } else { lk.y.clone() };
                 return Ok(Value::Vector(data));
+            }
+            // Output-qualified ref (§1c): a secondary port "<Name>#k" is published under
+            // "<element_id>#k" (stocks with role-declared outputs). Unpublished ports fall
+            // through to the element's primary value (pre-0.9.2 behavior).
+            if let Some((_, suffix)) = output.rsplit_once('#') {
+                let key = format!("{element_id}#{suffix}");
+                if let Some(v) = ctx
+                    .outputs
+                    .get(key.as_str())
+                    .or_else(|| ctx.prev_outputs.get(key.as_str()))
+                {
+                    return Ok(v.clone());
+                }
             }
             Ok(ctx.outputs.get(element_id.as_str())
                 .or_else(|| ctx.prev_outputs.get(element_id.as_str()))
@@ -237,15 +264,53 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         // Built-in function call
         AstNode::Call { func, args } => eval_call(func, args, ctx),
 
-        // Lookup table call — element-wise when input is a vector
+        // Lookup table call — element-wise when input is a vector. The second argument is
+        // either a column selector (multi-column tables) or a reserved TBL_* mode name
+        // (semantics §1b): TBL_Integral / TBL_Inverse / TBL_Inv_Integral.
         AstNode::LookupCall { element_id, input, input2 } => {
             let x_val = eval_ast(input, ctx)?;
-            let col = input2.as_deref().map(|n| eval_ast_scalar(n, ctx)).transpose()?;
+            let mode = match input2.as_deref() {
+                Some(AstNode::Ref { element_id: name, .. }) if name == "TBL_Integral" => {
+                    LookupMode::Integral
+                }
+                Some(AstNode::Ref { element_id: name, .. }) if name == "TBL_Inverse" => {
+                    LookupMode::Inverse
+                }
+                Some(AstNode::Ref { element_id: name, .. }) if name == "TBL_Inv_Integral" => {
+                    LookupMode::InvIntegral
+                }
+                Some(AstNode::Ref { element_id: name, .. }) if name == "TBL_Derivative" => {
+                    LookupMode::Derivative
+                }
+                Some(n) => LookupMode::Column(Some(eval_ast_scalar(n, ctx)?)),
+                None => LookupMode::Column(None),
+            };
+            // N-D tables (§10): when the target table declares extra axes and `input2` is a
+            // numeric coordinate (a plain column selector, not a TBL_* mode), interpolate
+            // bilinearly with `input2` as the 2nd-axis coordinate. Tables without extra axes
+            // keep the legacy column/1-D behavior unchanged.
+            let nd_coord = match &mode {
+                LookupMode::Column(Some(c)) => ctx
+                    .lookups
+                    .get(element_id)
+                    .filter(|lk| !lk.extra_axes.is_empty())
+                    .map(|_| *c),
+                _ => None,
+            };
             match x_val {
-                Value::Scalar(x) => Ok(Value::Scalar(eval_lookup(element_id, x, col, ctx)?)),
+                Value::Scalar(x) => {
+                    let v = match nd_coord {
+                        Some(c) => eval_lookup_nd(element_id, x, &[c], ctx)?,
+                        None => eval_lookup(element_id, x, &mode, ctx)?,
+                    };
+                    Ok(Value::Scalar(v))
+                }
                 Value::Vector(xs) => {
                     let ys: Result<Vec<f64>, _> = xs.iter()
-                        .map(|&x| eval_lookup(element_id, x, col, ctx))
+                        .map(|&x| match nd_coord {
+                            Some(c) => eval_lookup_nd(element_id, x, &[c], ctx),
+                            None => eval_lookup(element_id, x, &mode, ctx),
+                        })
                         .collect();
                     Ok(Value::Vector(ys?))
                 }
@@ -425,6 +490,57 @@ pub fn resolve_distribution(dist: &Distribution, ctx: &EvalCtx) -> Result<Distri
             location: location.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
             scale: scale.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
         },
+        // ── A4 roster additions with formula-valued params ──
+        DistributionKind::LogUniform { min, max } => DistributionKind::LogUniform {
+            min: resolve_qof(min, ctx)?,
+            max: resolve_qof(max, ctx)?,
+        },
+        DistributionKind::LogTriangular { min, mode, max } => DistributionKind::LogTriangular {
+            min: resolve_qof(min, ctx)?,
+            mode: resolve_qof(mode, ctx)?,
+            max: resolve_qof(max, ctx)?,
+        },
+        DistributionKind::Triangular1090 { p10, mode, p90 } => DistributionKind::Triangular1090 {
+            p10: resolve_qof(p10, ctx)?,
+            mode: resolve_qof(mode, ctx)?,
+            p90: resolve_qof(p90, ctx)?,
+        },
+        DistributionKind::LogTriangular1090 { p10, mode, p90 } => DistributionKind::LogTriangular1090 {
+            p10: resolve_qof(p10, ctx)?,
+            mode: resolve_qof(mode, ctx)?,
+            p90: resolve_qof(p90, ctx)?,
+        },
+        DistributionKind::Binomial { n, prob } => DistributionKind::Binomial {
+            n: resolve_qof(n, ctx)?,
+            prob: resolve_qof(prob, ctx)?,
+        },
+        DistributionKind::NegativeBinomial { r, prob } => DistributionKind::NegativeBinomial {
+            r: resolve_qof(r, ctx)?,
+            prob: resolve_qof(prob, ctx)?,
+        },
+        DistributionKind::Poisson { lambda } => DistributionKind::Poisson {
+            lambda: resolve_qof(lambda, ctx)?,
+        },
+        DistributionKind::ExtremeProbability { base, n, extreme } => DistributionKind::ExtremeProbability {
+            // The nested base distribution's params may themselves be formula-valued.
+            base: Box::new(
+                resolve_distribution(
+                    &Distribution { kind: (**base).clone(), truncation: None, correlation_group: None },
+                    ctx,
+                )?
+                .kind,
+            ),
+            n: resolve_qof(n, ctx)?,
+            extreme: *extreme,
+        },
+        DistributionKind::BetaSuccessFailure { successes, failures, min, max } => {
+            DistributionKind::BetaSuccessFailure {
+                successes: resolve_qof(successes, ctx)?,
+                failures: resolve_qof(failures, ctx)?,
+                min: min.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+                max: max.as_ref().map(|q| resolve_qof(q, ctx)).transpose()?,
+            }
+        }
         other => other.clone(),
     };
     Ok(Distribution {
@@ -522,6 +638,35 @@ fn bool_val(b: bool) -> f64 { if b { 1.0 } else { 0.0 } }
 fn is_true(v: f64) -> bool  { v != 0.0 }
 
 fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value, EngineError> {
+    // Event predicate functions (§2). Their argument names an element/event id, so it is read
+    // as a `Ref` rather than evaluated to a scalar.
+    match func {
+        BuiltinFn::Occurs => {
+            require_args("occurs", args.len(), 1, 1)?;
+            let id = match &args[0] {
+                AstNode::Ref { element_id, .. } => element_id.as_str(),
+                _ => return Ok(Value::Scalar(0.0)),
+            };
+            return Ok(Value::Scalar(if ctx.fired_events.borrow().contains(id) { 1.0 } else { 0.0 }));
+        }
+        BuiltinFn::Changed => {
+            require_args("changed", args.len(), 1, 1)?;
+            let id = match &args[0] {
+                AstNode::Ref { element_id, .. } => element_id.as_str(),
+                // A non-ref argument: compare the evaluated value against nothing → unchanged.
+                _ => return Ok(Value::Scalar(0.0)),
+            };
+            let cur = ctx.outputs.get(id).or_else(|| ctx.prev_outputs.get(id)).map(|v| v.as_scalar());
+            let prev = ctx.prev_outputs.get(id).map(|v| v.as_scalar());
+            let changed = match (cur, prev) {
+                (Some(c), Some(p)) => c != p,
+                // No previous value (step 0) → treat as unchanged.
+                _ => false,
+            };
+            return Ok(Value::Scalar(if changed { 1.0 } else { 0.0 }));
+        }
+        _ => {}
+    }
     // Array-consuming functions: evaluate first arg as a vector, return scalar.
     match func {
         BuiltinFn::SumArray => {
@@ -641,7 +786,9 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::TableMin | BuiltinFn::TableMax | BuiltinFn::ColumnCount
         | BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
-        | BuiltinFn::MaxArray | BuiltinFn::DotProduct => unreachable!(),
+        | BuiltinFn::MaxArray | BuiltinFn::DotProduct
+        // Event predicates are handled by the early return above; never reach the scalar path.
+        | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };
     Ok(Value::Scalar(result))
 }
@@ -655,7 +802,28 @@ fn require_args(name: &str, got: usize, min: usize, max: usize) -> Result<(), En
     Ok(())
 }
 
-fn eval_lookup(element_id: &str, x: f64, col: Option<f64>, ctx: &EvalCtx) -> Result<f64, EngineError> {
+/// How a `lookup_call` interprets its table (selected by the second argument, §1b).
+enum LookupMode {
+    /// Plain interpolation; the value selects a column on multi-column tables.
+    Column(Option<f64>),
+    /// ∫y dx from the first knot to x (cumulative trapezoid), x clamped into the x-range.
+    Integral,
+    /// Inverse table: given a y-value, return the x that maps to it (y must be monotonic).
+    Inverse,
+    /// Inverse of the integral: given v = ∫y dx, return the x where the integral reaches v
+    /// (the stage-storage pattern: table is stage→area, v is a volume, result is the stage).
+    InvIntegral,
+    /// Derivative dy/dx of the interpolated table at x (slope of the bracketing segment;
+    /// step interpolation → 0). §10.
+    Derivative,
+}
+
+fn eval_lookup(
+    element_id: &str,
+    x: f64,
+    mode: &LookupMode,
+    ctx: &EvalCtx,
+) -> Result<f64, EngineError> {
     let lk = match ctx.lookups.get(element_id) {
         Some(l) => l,
         // Non-lookup or missing target: degrade to 0.0 (matches v1's non-lookup branch).
@@ -664,6 +832,11 @@ fn eval_lookup(element_id: &str, x: f64, col: Option<f64>, ctx: &EvalCtx) -> Res
 
     if lk.x.is_empty() { return Ok(0.0); }
 
+    let col = match mode {
+        LookupMode::Column(c) => *c,
+        // TBL_* modes operate on the first (only meaningful) column.
+        _ => None,
+    };
     let ys: &[f64] = if !lk.columns.is_empty() {
         let idx = col.unwrap_or(1.0) as usize;
         let col_idx = idx.saturating_sub(1);
@@ -677,7 +850,188 @@ fn eval_lookup(element_id: &str, x: f64, col: Option<f64>, ctx: &EvalCtx) -> Res
         lk.y.as_slice()
     };
 
-    interp1d(&lk.x, ys, x, &lk.extrapolation, element_id)
+    match mode {
+        LookupMode::Column(_) => {
+            interp1d(&lk.x, ys, x, &lk.extrapolation, lk.interpolation, lk.log_result, element_id)
+        }
+        LookupMode::Integral => Ok(table_integral_at(&lk.x, ys, x)),
+        LookupMode::Inverse => {
+            // Invert the table: interpolate x as a function of y. Requires monotonic y;
+            // a descending table is reversed into ascending order first. (Inverse always
+            // interpolates linearly in y — log-result/cubic apply to the forward direction.)
+            let linear = crate::model::InterpolationMethod::Linear;
+            if ys.len() >= 2 && ys[0] > ys[ys.len() - 1] {
+                let ys_r: Vec<f64> = ys.iter().rev().copied().collect();
+                let xs_r: Vec<f64> = lk.x.iter().rev().copied().collect();
+                interp1d(&ys_r, &xs_r, x, &lk.extrapolation, linear, false, element_id)
+            } else {
+                interp1d(ys, &lk.x, x, &lk.extrapolation, linear, false, element_id)
+            }
+        }
+        LookupMode::InvIntegral => Ok(table_inv_integral(&lk.x, ys, x)),
+        LookupMode::Derivative => Ok(table_derivative_at(&lk.x, ys, x, lk.interpolation)),
+    }
+}
+
+/// Multidimensional (2-D bilinear / 3-D trilinear) table lookup. `coords` holds the extra-axis
+/// coordinates (2nd axis, then 3rd) supplied via `lookup_call input2`; `x` is the first-axis
+/// coordinate. Values are stored row-major over (x, axis2, axis3). Falls back to the 1-D path
+/// if the table has no extra axes.
+fn eval_lookup_nd(element_id: &str, x: f64, coords: &[f64], ctx: &EvalCtx) -> Result<f64, EngineError> {
+    let lk = match ctx.lookups.get(element_id) {
+        Some(l) => l,
+        None => return Ok(0.0),
+    };
+    if lk.extra_axes.is_empty() || lk.nd_values.is_empty() {
+        // Not an N-D table: treat the first coord as a plain column selector / ignore.
+        let mode = LookupMode::Column(coords.first().copied());
+        return eval_lookup(element_id, x, &mode, ctx);
+    }
+    let axes: Vec<&[f64]> = std::iter::once(lk.x.as_slice())
+        .chain(lk.extra_axes.iter().map(|a| a.as_slice()))
+        .collect();
+    let mut pt = Vec::with_capacity(axes.len());
+    pt.push(x);
+    for (i, _) in lk.extra_axes.iter().enumerate() {
+        pt.push(coords.get(i).copied().unwrap_or(0.0));
+    }
+    Ok(multilinear(&axes, &lk.nd_values, &pt))
+}
+
+/// Multilinear interpolation over `axes` (each an ascending breakpoint vector) of a value grid
+/// `values` flattened row-major (axis 0 outermost). `pt[i]` is clamped into axis i's range.
+/// Interpolates over all 2^d corners of the bracketing hypercube.
+fn multilinear(axes: &[&[f64]], values: &[f64], pt: &[f64]) -> f64 {
+    let d = axes.len();
+    // Per-axis: lower index `i0`, and fractional weight `t` toward `i0+1`.
+    let mut i0 = vec![0usize; d];
+    let mut frac = vec![0.0f64; d];
+    let mut strides = vec![1usize; d];
+    for a in (0..d - 1).rev() {
+        strides[a] = strides[a + 1] * axes[a + 1].len();
+    }
+    for a in 0..d {
+        let ax = axes[a];
+        let n = ax.len();
+        if n == 1 {
+            i0[a] = 0;
+            frac[a] = 0.0;
+            continue;
+        }
+        let v = pt[a].clamp(ax[0], ax[n - 1]);
+        // Binary search for the bracketing interval.
+        let mut lo = 0usize;
+        let mut hi = n - 1;
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2;
+            if ax[mid] <= v { lo = mid; } else { hi = mid; }
+        }
+        i0[a] = lo;
+        let denom = ax[hi] - ax[lo];
+        frac[a] = if denom.abs() < 1e-300 { 0.0 } else { (v - ax[lo]) / denom };
+    }
+    // Sum over the 2^d corners.
+    let mut acc = 0.0;
+    for corner in 0..(1usize << d) {
+        let mut weight = 1.0;
+        let mut idx = 0usize;
+        for a in 0..d {
+            let bit = (corner >> a) & 1;
+            let n = axes[a].len();
+            let hi_here = (bit == 1) && (n > 1);
+            let ai = if hi_here { i0[a] + 1 } else { i0[a] };
+            weight *= if hi_here { frac[a] } else if n > 1 { 1.0 - frac[a] } else { 1.0 };
+            idx += ai * strides[a];
+        }
+        if weight != 0.0 {
+            acc += weight * values.get(idx).copied().unwrap_or(0.0);
+        }
+    }
+    acc
+}
+
+/// dy/dx of the table at x: slope of the bracketing segment (linear/cubic → segment slope,
+/// step → 0). At or beyond the ends, uses the nearest interior segment slope.
+fn table_derivative_at(xs: &[f64], ys: &[f64], x: f64, interp: crate::model::InterpolationMethod) -> f64 {
+    use crate::model::InterpolationMethod;
+    let n = xs.len().min(ys.len());
+    if n < 2 {
+        return 0.0;
+    }
+    if matches!(interp, InterpolationMethod::Step) {
+        return 0.0;
+    }
+    // Bracketing segment index.
+    let mut i = 0usize;
+    while i + 1 < n && xs[i + 1] < x {
+        i += 1;
+    }
+    if i + 1 >= n {
+        i = n - 2;
+    }
+    let dx = xs[i + 1] - xs[i];
+    if dx.abs() < 1e-300 { 0.0 } else { (ys[i + 1] - ys[i]) / dx }
+}
+
+/// Cumulative trapezoid integral of the table evaluated at `x` (clamped into the x-range,
+/// so below-range → 0 and above-range → the full integral).
+fn table_integral_at(xs: &[f64], ys: &[f64], x: f64) -> f64 {
+    let n = xs.len().min(ys.len());
+    if n < 2 {
+        return 0.0;
+    }
+    let x = x.clamp(xs[0], xs[n - 1]);
+    let mut acc = 0.0;
+    for i in 0..n - 1 {
+        if x <= xs[i] {
+            break;
+        }
+        let seg_hi = x.min(xs[i + 1]);
+        let dx_full = xs[i + 1] - xs[i];
+        let t = seg_hi - xs[i];
+        let slope = if dx_full != 0.0 { (ys[i + 1] - ys[i]) / dx_full } else { 0.0 };
+        // ∫ over the (partial) segment: linear y ⇒ y_i·t + slope·t²/2.
+        acc += ys[i] * t + 0.5 * slope * t * t;
+    }
+    acc
+}
+
+/// Inverse of the cumulative trapezoid integral: the x where ∫y dx reaches `v`.
+/// `v` is clamped into [0, full integral]; within a segment the integral is quadratic in x,
+/// solved in closed form (falling back to the linear solution for a flat slope).
+fn table_inv_integral(xs: &[f64], ys: &[f64], v: f64) -> f64 {
+    let n = xs.len().min(ys.len());
+    if n < 2 {
+        return xs.first().copied().unwrap_or(0.0);
+    }
+    if v <= 0.0 {
+        return xs[0];
+    }
+    let mut acc = 0.0;
+    for i in 0..n - 1 {
+        let dx = xs[i + 1] - xs[i];
+        let seg = 0.5 * (ys[i] + ys[i + 1]) * dx;
+        if acc + seg >= v || i == n - 2 {
+            let want = (v - acc).min(seg.max(0.0));
+            let slope = if dx != 0.0 { (ys[i + 1] - ys[i]) / dx } else { 0.0 };
+            // Solve y_i·t + slope·t²/2 = want for t ∈ [0, dx].
+            let t = if slope.abs() < 1e-12 {
+                if ys[i].abs() < 1e-12 { 0.0 } else { want / ys[i] }
+            } else {
+                let disc = ys[i] * ys[i] + 2.0 * slope * want;
+                if disc >= 0.0 {
+                    (-ys[i] + disc.sqrt()) / slope
+                } else if ys[i].abs() > 1e-12 {
+                    want / ys[i]
+                } else {
+                    0.0
+                }
+            };
+            return xs[i] + t.clamp(0.0, dx.max(0.0));
+        }
+        acc += seg;
+    }
+    xs[n - 1]
 }
 
 fn interp1d(
@@ -685,13 +1039,23 @@ fn interp1d(
     ys: &[f64],
     x: f64,
     extrap: &crate::model::ExtrapolationMethod,
+    interp: crate::model::InterpolationMethod,
+    log_result: bool,
     elem_id: &str,
 ) -> Result<f64, EngineError> {
-    use crate::model::ExtrapolationMethod;
+    use crate::model::{ExtrapolationMethod, InterpolationMethod};
 
     let n = xs.len();
     let x_lo = xs[0];
     let x_hi = xs[n - 1];
+
+    // Log-result interpolation (§10): interpolate ln(y) linearly, return exp. Only valid where
+    // the bracketing knots are > 0; otherwise fall through to ordinary interpolation.
+    if log_result && ys.iter().all(|&y| y > 0.0) {
+        let lys: Vec<f64> = ys.iter().map(|y| y.ln()).collect();
+        let ln_val = interp1d(xs, &lys, x, extrap, InterpolationMethod::Linear, false, elem_id)?;
+        return Ok(ln_val.exp());
+    }
 
     if x <= x_lo {
         return match extrap {
@@ -722,6 +1086,65 @@ fn interp1d(
         let mid = (lo + hi) / 2;
         if xs[mid] <= x { lo = mid; } else { hi = mid; }
     }
-    let t = (x - xs[lo]) / (xs[hi] - xs[lo]);
-    Ok(ys[lo] + t * (ys[hi] - ys[lo]))
+
+    match interp {
+        InterpolationMethod::Step => Ok(ys[lo]),
+        InterpolationMethod::Linear => {
+            let t = (x - xs[lo]) / (xs[hi] - xs[lo]);
+            Ok(ys[lo] + t * (ys[hi] - ys[lo]))
+        }
+        InterpolationMethod::Cubic => Ok(monotone_cubic(xs, ys, x, lo)),
+    }
+}
+
+/// Fritsch-Carlson monotone cubic Hermite interpolation on the segment [lo, lo+1]. Produces a
+/// C¹ curve that never overshoots the data (no ringing), unlike a natural cubic spline — this
+/// replaces the old silent cubic→linear downgrade. Tangents are limited per Fritsch & Carlson
+/// (1980) so monotonicity of the data is preserved on each segment.
+fn monotone_cubic(xs: &[f64], ys: &[f64], x: f64, lo: usize) -> f64 {
+    let n = xs.len();
+    // Secant slopes Δ_k = (y_{k+1} − y_k)/(x_{k+1} − x_k).
+    let delta = |k: usize| -> f64 {
+        let dx = xs[k + 1] - xs[k];
+        if dx.abs() < 1e-300 { 0.0 } else { (ys[k + 1] - ys[k]) / dx }
+    };
+    // Endpoint-aware tangent m_k at knot k (one-sided at the ends; monotone-limited interior).
+    let tangent = |k: usize| -> f64 {
+        if n < 2 {
+            return 0.0;
+        }
+        if k == 0 {
+            return delta(0);
+        }
+        if k == n - 1 {
+            return delta(n - 2);
+        }
+        let (d0, d1) = (delta(k - 1), delta(k));
+        if d0 * d1 <= 0.0 {
+            0.0 // local extremum → flat tangent, prevents overshoot
+        } else {
+            // Weighted harmonic mean (Fritsch-Carlson), weights from the interval widths.
+            let (h0, h1) = (xs[k] - xs[k - 1], xs[k + 1] - xs[k]);
+            let w0 = 2.0 * h1 + h0;
+            let w1 = h1 + 2.0 * h0;
+            (w0 + w1) / (w0 / d0 + w1 / d1)
+        }
+    };
+
+    let (x0, x1) = (xs[lo], xs[lo + 1]);
+    let (y0, y1) = (ys[lo], ys[lo + 1]);
+    let h = x1 - x0;
+    if h.abs() < 1e-300 {
+        return y0;
+    }
+    let (m0, m1) = (tangent(lo), tangent(lo + 1));
+    let t = (x - x0) / h;
+    let t2 = t * t;
+    let t3 = t2 * t;
+    // Hermite basis.
+    let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    let h10 = t3 - 2.0 * t2 + t;
+    let h01 = -2.0 * t3 + 3.0 * t2;
+    let h11 = t3 - t2;
+    h00 * y0 + h10 * h * m0 + h01 * y1 + h11 * h * m1
 }

@@ -158,6 +158,32 @@ pub enum NodeRule {
         root: GateNode,
         semantics: GateSemantics,
     },
+    /// [status] Latching status flag (§2): a `set` trigger latches the output to 1, an
+    /// independent `reset` trigger latches it back to 0. Differs from hysteresis (triggers,
+    /// not thresholds). Set takes precedence on a step where both fire.
+    Status {
+        set: TriggerSpec,
+        reset: TriggerSpec,
+    },
+    /// [milestone] Records the elapsed time at which `trigger` first fires; outputs that time
+    /// (NaN before the first fire, per the documented sentinel policy). Achievement
+    /// probability falls out of A3's final-value distribution over realizations.
+    Milestone {
+        trigger: TriggerSpec,
+    },
+    /// [pid] PID / deadband controller (§2): Euler-discretized proportional-integral-derivative
+    /// control of `input` toward `setpoint`, with optional output clamps and a deadband inside
+    /// which the error is treated as zero. Carries integral + previous-error per-realization state.
+    PidController {
+        input: String,
+        setpoint: QuantityOrFormula,
+        kp: f64,
+        ki: f64,
+        kd: f64,
+        output_min: Option<f64>,
+        output_max: Option<f64>,
+        deadband: f64,
+    },
 }
 
 /// `fixed` node payload: scalar (carries its own unit) or an array sharing one unit.
@@ -179,6 +205,8 @@ pub struct LookupTable {
     pub interpolation: InterpolationMethod,
     /// v1-import compat: v1 lookups carried an explicit out-of-range policy.
     pub extrapolation: crate::model::ExtrapolationMethod,
+    /// Log-result interpolation (§10): interpolate ln(y), return exp. Default false.
+    pub log_result: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,6 +357,9 @@ pub enum EffectMode {
     Additive,
     Multiplicative,
     Replace,
+    /// [interrupt] Ends the realization at the end of the current step (§2). Remaining steps
+    /// report the last-held values. `target`/`change` are ignored for this mode.
+    Interrupt,
 }
 
 /// `quantity_expr`: a fixed quantity or a bare AST (no formula-string fallback).

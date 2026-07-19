@@ -96,6 +96,9 @@ pub fn run(
     let dim_sizes: HashMap<String, usize> =
         model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+    // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
+    // repopulated each step by the event pass; shared through ArrayEnv via interior mutability.
+    let fired_events: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
     // SubModel pre-pass (§12): run each referenced submodel once and collect its output
     // samples, so `submodel_stat` nodes reduce real data instead of degrading to 0.0.
     let submodel_outputs = crate::submodel_v2::run_submodels(model, config)?;
@@ -103,9 +106,27 @@ pub fn run(
         dims: &dim_sizes,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
+        fired_events: &fired_events,
     };
 
     let lookups = lookups_map(model);
+
+    // Reserved global identifiers (semantics §1b): seeded into every outputs map so refs to
+    // GoldSim run properties resolve instead of degrading to 0.0 as dangling. Seeded before
+    // elements are evaluated, so a model element with the same id shadows the global.
+    // Time quantities are SI seconds, matching the SI-normalized values emit produces.
+    let dt_seconds = crate::units::convert(dt, &dt_unit, "s").unwrap_or(dt);
+    let duration_seconds = crate::units::convert(
+        duration,
+        &model.simulation_settings.duration.unit,
+        "s",
+    )
+    .unwrap_or(duration);
+    let run_globals: [(&str, f64); 3] = [
+        ("gee", 9.80665), // standard gravity, m/s²
+        ("TimestepLength", dt_seconds),
+        ("SimDuration", duration_seconds),
+    ];
 
     let save_final: Vec<&str> =
         model.elements.iter().filter(|e| should_save_final(e)).map(|e| e.id()).collect();
@@ -204,8 +225,32 @@ pub fn run(
 
     let corr_groups = build_corr_groups(model)?;
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
+    let use_lhs = model.simulation_settings.sampling_method == crate::model::SamplingMethod::Lhs;
     // Iman-Conover rank correlation: reorder per-realization draws up front (semantics §8).
-    let ic_samples = iman_conover_samples(model, &corr_groups, n_real, seed, &lookups, dt, &dt_unit, &arr)?;
+    // Under LHS the marginals inside each group are stratified before reordering.
+    let ic_samples = iman_conover_samples(model, &corr_groups, n_real, seed, use_lhs, &lookups, dt, &dt_unit, &arr)?;
+
+    // Latin Hypercube pre-pass (semantics §8): stratified columns for the independent,
+    // once-per-realization sample nodes (not correlated, not autocorrelated, not resampled).
+    // Empty under Monte Carlo, so the independent-sampling loop below is unchanged by default.
+    let lhs_ids: Vec<&str> = if use_lhs {
+        model
+            .elements
+            .iter()
+            .filter_map(|e| match &e.primitive {
+                Primitive::Node(n) => matches!(
+                    &n.rule,
+                    NodeRule::Sample { autocorrelation: None, resampling: None, .. }
+                )
+                .then(|| e.id()),
+                _ => None,
+            })
+            .filter(|id| !corr_ids.contains(*id))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let lhs_cols = lhs_samples(model, &lhs_ids, n_real, seed, &lookups, dt, &dt_unit, &arr)?;
 
     // Dynamic (per-timestep) optimization (§13a): if THIS model carries an optimization spec
     // (only a submodel-scoped one reaches engine_v2::run — extract_submodel plants it, the
@@ -242,14 +287,20 @@ pub fn run(
         }
         let empty_prev: HashMap<String, Value> = HashMap::new();
 
-        // Independent sample nodes (correlated ones handled by the copula below).
+        // Independent sample nodes (correlated ones handled by the copula below). Under LHS,
+        // a node with a stratified column takes this realization's pre-drawn value; all others
+        // (Monte Carlo, or LHS distributions with no closed-form ICDF) draw iid here as before.
         for elem in &model.elements {
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Sample { distribution, .. } = &n.rule {
                     if !corr_ids.contains(elem.id()) {
-                        let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
-                        let resolved = resolve_distribution(distribution, &ctx)?;
-                        let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
+                        let v = if let Some(col) = lhs_cols.get(elem.id()) {
+                            col[real_idx as usize]
+                        } else {
+                            let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
+                            let resolved = resolve_distribution(distribution, &ctx)?;
+                            sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?
+                        };
                         rv_samples.insert(elem.id().to_string(), v);
                         dist_ctx.insert(elem.id().to_string(), Value::Scalar(v));
                     }
@@ -302,9 +353,22 @@ pub fn run(
             z_state.insert(id.to_string(), z0);
         }
 
+        // Per-realization reserved globals (§1b): the run-wide constants plus the 1-based
+        // realization index. Inserted first at every outputs-map creation site so real
+        // elements (evaluated after) shadow them.
+        let global_seed: Vec<(String, Value)> = run_globals
+            .iter()
+            .map(|(id, v)| (id.to_string(), Value::Scalar(*v)))
+            .chain(std::iter::once((
+                "Realization".to_string(),
+                Value::Scalar((real_idx + 1) as f64),
+            )))
+            .collect();
+
         // t=0 snapshot for stock initial_expression evaluation.
         let empty_map: HashMap<String, Value> = HashMap::new();
         let mut init_outputs: HashMap<String, Value> = HashMap::new();
+        init_outputs.extend(global_seed.iter().cloned());
         for elem in &model.elements {
             let id = elem.id();
             match &elem.primitive {
@@ -359,6 +423,14 @@ pub fn run(
         let mut filter_ema: HashMap<String, f64> = HashMap::new();
         let mut markov_state: HashMap<String, usize> = HashMap::new();
         let mut conv_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
+        // Status latch (§2): id → current latched bool. Milestone (§2): id → first-fire elapsed
+        // time (absent until it fires). PID (§2): id → (integral accumulator, previous error).
+        let mut status_state: HashMap<String, bool> = HashMap::new();
+        let mut milestone_time: HashMap<String, f64> = HashMap::new();
+        let mut pid_state: HashMap<String, (f64, f64)> = HashMap::new();
+        // Interrupt (§2): once set, the realization holds its last-computed outputs for all
+        // remaining steps instead of recomputing.
+        let mut interrupted = false;
         // Transit buffers: per link, a map of release_step → scheduled amount.
         let mut link_buf: HashMap<String, HashMap<usize, f64>> = HashMap::new();
         // failure_state_machine state per event.
@@ -417,9 +489,44 @@ pub fn run(
         }
 
         let mut prev_outputs: HashMap<String, Value> = HashMap::new();
+        prev_outputs.extend(global_seed.iter().cloned());
 
         for step_idx in 0..n_steps {
             let elapsed = step_idx as f64 * dt;
+
+            // Interrupt (§2): once a realization is interrupted, every remaining step holds the
+            // last-computed values — record them and advance without recomputing anything.
+            if interrupted {
+                for &id in &save_hist {
+                    if let Some(v) = prev_outputs.get(id) {
+                        hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
+                    }
+                }
+                if step_idx == n_steps - 1 {
+                    for &id in &save_final {
+                        if let Some(v) = prev_outputs.get(id) {
+                            final_store.get_mut(id).unwrap().push(v.as_scalar());
+                        }
+                    }
+                }
+                for id in &cell_species_ids {
+                    if let Some(v) = prev_outputs.get(id) {
+                        hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
+                        if step_idx == n_steps - 1 {
+                            final_store.get_mut(id).unwrap().push(v.as_scalar());
+                        }
+                    }
+                }
+                for d in &model.time_history_displays {
+                    let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                    let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
+                    hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
+                    if step_idx == n_steps - 1 {
+                        final_store.get_mut(&d.id).unwrap().push(v);
+                    }
+                }
+                continue;
+            }
 
             for &id in &process_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
@@ -474,6 +581,30 @@ pub fn run(
             }
 
             let mut outputs: HashMap<String, Value> = HashMap::new();
+            outputs.extend(global_seed.iter().cloned());
+
+            // Event fired-set pre-pass (§2, for `occurs`): determine which events fire this step
+            // BEFORE the node topo eval, so a node reading `occurs(ev)` sees the current step's
+            // fire (GoldSim causality ordering). Triggers are evaluated against the previous
+            // step's outputs; rate/failure events (whose fire needs current-step draws) are
+            // resolved authoritatively in the event pass and reflected there for the next step.
+            {
+                let mut fe = fired_events.borrow_mut();
+                fe.clear();
+                let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                for elem in &model.elements {
+                    if let Primitive::Event(ev) = &elem.primitive {
+                        // Only trigger-driven events are predicted here (rate/failure need draws).
+                        if ev.rate.is_none() && ev.failure_process.is_none() {
+                            if let Some(t) = &ev.trigger {
+                                if trigger_fires(t, &ctx, dt, step_idx)? {
+                                    fe.insert(elem.id().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
@@ -519,6 +650,57 @@ pub fn run(
                                 }
                             };
                             Value::Scalar(val)
+                        }
+                        NodeRule::Status { set, reset } => {
+                            // Latch: set fires → 1, reset fires → 0; set wins a simultaneous
+                            // fire. Triggers evaluated against current-step outputs so far.
+                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                            let cur = *status_state.get(elem_id.as_str()).unwrap_or(&false);
+                            let latched = if trigger_fires(set, &ctx, dt, step_idx)? {
+                                true
+                            } else if trigger_fires(reset, &ctx, dt, step_idx)? {
+                                false
+                            } else {
+                                cur
+                            };
+                            status_state.insert(elem_id.clone(), latched);
+                            Value::Scalar(if latched { 1.0 } else { 0.0 })
+                        }
+                        NodeRule::Milestone { trigger } => {
+                            // Record the elapsed time of the first fire; output that time. NaN
+                            // until it fires (the documented sentinel — an unachieved milestone).
+                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                            if !milestone_time.contains_key(elem_id.as_str())
+                                && trigger_fires(trigger, &ctx, dt, step_idx)?
+                            {
+                                milestone_time.insert(elem_id.clone(), elapsed);
+                            }
+                            Value::Scalar(milestone_time.get(elem_id.as_str()).copied().unwrap_or(f64::NAN))
+                        }
+                        NodeRule::PidController {
+                            input, setpoint, kp, ki, kd, output_min, output_max, deadband,
+                        } => {
+                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                            let measured = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                            let sp = eval_qof_value(setpoint, &ctx)?.as_scalar();
+                            let mut error = sp - measured;
+                            // Deadband: treat |error| ≤ deadband as zero to avoid chattering.
+                            if error.abs() <= *deadband {
+                                error = 0.0;
+                            }
+                            let (mut integral, prev_error) =
+                                pid_state.get(elem_id.as_str()).copied().unwrap_or((0.0, 0.0));
+                            integral += error * dt;
+                            let derivative = if dt > 0.0 { (error - prev_error) / dt } else { 0.0 };
+                            let mut out = kp * error + ki * integral + kd * derivative;
+                            if let Some(lo) = output_min {
+                                out = out.max(*lo);
+                            }
+                            if let Some(hi) = output_max {
+                                out = out.min(*hi);
+                            }
+                            pid_state.insert(elem_id.clone(), (integral, error));
+                            Value::Scalar(out)
                         }
                         NodeRule::Markov { transition_matrix, output_values, .. } => {
                             let cur = *markov_state.get(elem_id.as_str()).unwrap_or(&0);
@@ -683,6 +865,11 @@ pub fn run(
             let mut stock_event: HashMap<String, (f64, f64, Option<f64>)> = HashMap::new(); // (add, mul, set)
             let mut node_effects: Vec<(String, Value)> = Vec::new();
             let mut event_out: Vec<(String, f64)> = Vec::new();
+            // `fired_events` was populated by the pre-pass before node eval (§2); the event pass
+            // below additionally records rate/failure fires so `occurs` sees them next step.
+            // Interrupt effect (§2): if an event with an interrupt effect fires this step, end
+            // the realization after this step completes (remaining steps hold last values).
+            let mut interrupt_now = false;
             for elem in &model.elements {
                 let Primitive::Event(ev) = &elem.primitive else { continue };
                 let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
@@ -776,7 +963,19 @@ pub fn run(
                 event_out.push((elem.id().to_string(), out_val));
 
                 if let Some((reverse, count)) = action {
+                    // Record this event as fired this step (for the `occurs` builtin). A reversed
+                    // (failure-repair) transition is not a fire.
+                    if !reverse {
+                        fired_events.borrow_mut().insert(elem.id().to_string());
+                    }
                     for effect in &ev.effects {
+                        // Interrupt effect (§2): schedule end-of-realization; no target/change.
+                        if matches!(effect.mode, EffectMode::Interrupt) {
+                            if !reverse {
+                                interrupt_now = true;
+                            }
+                            continue;
+                        }
                         let change = match &effect.change {
                             Some(qe) => eval_qexpr(qe, &ctx)?,
                             None => 0.0,
@@ -818,6 +1017,8 @@ pub fn run(
                                     }
                                 }
                             }
+                            // Handled above (scheduled the interrupt, no target write).
+                            EffectMode::Interrupt => {}
                         }
                     }
                 }
@@ -835,10 +1036,16 @@ pub fn run(
             let mut cap_vals: HashMap<String, f64> = HashMap::new();
             let mut overflow_in: HashMap<String, f64> = HashMap::new();
             let mut withdrawal_allocs: Vec<(String, f64)> = Vec::new();
+            // Applied per-stock rates this step, for secondary output ports (§1c):
+            // (addition_rate, withdrawal_rate, overflow_rate) + the pre-integration level
+            // (net_change is derived after the level settles).
+            let mut stock_rates: HashMap<String, (f64, f64, f64)> = HashMap::new();
+            let mut stock_prev_level: HashMap<String, f64> = HashMap::new();
             for &id in &stock_ids {
                 let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive else { continue };
                 let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                 let current = stock_state[id].clone();
+                stock_prev_level.insert(id.to_string(), current.as_scalar());
 
                 // Trait priority_withdrawal: allocate available stock by priority. `request`/
                 // `limit` are rates (amount = rate·dt); each target outputs its allocation.
@@ -864,14 +1071,18 @@ pub fn run(
                 }
 
                 // External (non-return) flow: explicit rate, else Σinflows − Σoutflows.
-                let external = match &s.rate {
-                    Some(qof) => eval_qof_value(qof, &ctx)?,
+                let (external, add_rate, wd_rate) = match &s.rate {
+                    Some(qof) => {
+                        let r = eval_qof_value(qof, &ctx)?;
+                        let rs = r.as_scalar();
+                        (r, rs.max(0.0), (-rs).max(0.0))
+                    }
                     None => {
                         let infl: f64 = s.inflows.iter()
                             .map(|i| outputs.get(i).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
                         let outf: f64 = s.outflows.iter()
                             .map(|o| outputs.get(o).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
-                        Value::Scalar(infl - outf)
+                        (Value::Scalar(infl - outf), infl, outf)
                     }
                 };
                 // Trait compound_growth: multiplicative self-referential return term.
@@ -903,18 +1114,24 @@ pub fn run(
                     next = next.map(|v| v.max(lo));
                 }
                 // Trait capacity_clamp (+ overflow_routing): clamp to capacity, route excess.
+                let mut ovf_rate = 0.0;
                 if let Some(cap) = &s.capacity {
                     let cap_val = eval_qof_value(cap, &ctx)?.as_scalar();
                     cap_vals.insert(id.to_string(), cap_val);
                     let cur = next.as_scalar();
                     if cur > cap_val {
                         let excess = cur - cap_val;
+                        ovf_rate = excess / dt;
                         next = next.map(|v| v.min(cap_val));
                         if let Some(target) = &s.overflow_target {
                             *overflow_in.entry(target.clone()).or_default() += excess;
                         }
                     }
                 }
+                stock_rates.insert(
+                    id.to_string(),
+                    (add_rate, wd_rate + withdrawal_outflow / dt, ovf_rate),
+                );
                 next_vals.insert(id.to_string(), next);
             }
 
@@ -940,6 +1157,30 @@ pub fn run(
             }
             for (target, alloc) in &withdrawal_allocs {
                 outputs.insert(target.clone(), Value::Scalar(*alloc));
+            }
+            // Publish stock secondary output ports (§1c): outputs[k] (k ≥ 1) that declare a
+            // role get this step's applied rate under the key "<id>#<k+1>", resolvable via a
+            // `ref` with an output qualifier (same-step consumers see the previous step's
+            // value, matching how stock levels are read).
+            for &id in &stock_ids {
+                let base = &model.elements[elem_idx[id]].base;
+                if base.outputs.len() < 2 {
+                    continue;
+                }
+                let (add, wd, ovf) = stock_rates.get(id).copied().unwrap_or((0.0, 0.0, 0.0));
+                let net = stock_state.get(id).map(|v| v.as_scalar()).unwrap_or(0.0)
+                    - stock_prev_level.get(id).copied().unwrap_or(0.0);
+                for (k, spec) in base.outputs.iter().enumerate().skip(1) {
+                    let Some(role) = &spec.role else { continue };
+                    let v = match role.as_str() {
+                        "addition_rate" => add,
+                        "withdrawal_rate" => wd,
+                        "overflow_rate" => ovf,
+                        "net_change" => net / dt,
+                        _ => continue,
+                    };
+                    outputs.insert(format!("{id}#{}", k + 1), Value::Scalar(v));
+                }
             }
 
             // ── Cell mass transport: source_release, species_transport links, partitioning
@@ -1166,6 +1407,11 @@ pub fn run(
             }
 
             prev_outputs = outputs;
+            // An interrupt fired this step: the current step completed and was recorded above;
+            // from the next step on, hold these values.
+            if interrupt_now {
+                interrupted = true;
+            }
         }
     }
 
@@ -1186,21 +1432,33 @@ pub fn run(
         } else {
             None
         };
+        // A3: richer analysis when a results_spec opts this element in (empty hist if not saved).
+        let empty_hist: Vec<Vec<f64>> = Vec::new();
+        let hist_ref = if has_hist { &hist_store[id] } else { &empty_hist };
+        let analysis = config
+            .results_spec
+            .as_ref()
+            .and_then(|spec| crate::results_spec::compute_analysis(spec, id, &final_values, hist_ref, dt));
         results_map.insert(id.to_string(), ElementResults {
             label: elem.base.name.clone(),
             unit: primary_unit(elem).to_string(),
             final_values,
             time_history,
+            analysis,
         });
     }
 
     for d in &model.time_history_displays {
         let final_values = final_store.get(&d.id).cloned().unwrap_or_default();
+        let analysis = config.results_spec.as_ref().and_then(|spec| {
+            crate::results_spec::compute_analysis(spec, &d.id, &final_values, &hist_store[&d.id], dt)
+        });
         results_map.insert(d.id.clone(), ElementResults {
             label: d.name.clone(),
             unit: "1".to_string(),
             final_values,
             time_history: Some(stats(&hist_store[&d.id])),
+            analysis,
         });
     }
 
@@ -1236,11 +1494,15 @@ pub fn run(
     for id in &cell_species_ids {
         let final_values = final_store.get(id).cloned().unwrap_or_default();
         let time_history = Some(stats(&hist_store[id]));
+        let analysis = config.results_spec.as_ref().and_then(|spec| {
+            crate::results_spec::compute_analysis(spec, id, &final_values, &hist_store[id], dt)
+        });
         results_map.insert(id.clone(), ElementResults {
             label: id.clone(),
             unit: "mass".to_string(),
             final_values,
             time_history,
+            analysis,
         });
     }
 
@@ -1323,6 +1585,9 @@ pub(crate) struct ArrayEnv<'a> {
     pub dims: &'a HashMap<String, usize>,
     pub index_stack: &'a RefCell<Vec<usize>>,
     pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
+    /// Ids of events that fired during the current step (§2, for the `occurs` builtin). The
+    /// event pass repopulates this each step via interior mutability.
+    pub fired_events: &'a RefCell<HashSet<String>>,
 }
 
 fn ctx_at<'a>(
@@ -1337,7 +1602,8 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs, lag: None,
+        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        lag: None, fired_events: arr.fired_events,
     }
 }
 
@@ -1351,7 +1617,8 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs, lag: None,
+        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        lag: None, fired_events: arr.fired_events,
     }
 }
 
@@ -1616,16 +1883,39 @@ fn lookups_map(model: &Model) -> HashMap<String, LookupData> {
     model.elements.iter().filter_map(|e| {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Lookup(t) = &n.rule {
+                let (columns, extra_axes, nd_values) = decode_table_z(&t.x, &t.z);
                 return Some((e.id().to_string(), LookupData {
                     x: t.x.clone(),
                     y: t.y.clone(),
-                    columns: t.z.clone(),
+                    columns,
                     extrapolation: t.extrapolation.clone(),
+                    interpolation: t.interpolation.clone(),
+                    log_result: t.log_result,
+                    extra_axes,
+                    nd_values,
                 }));
             }
         }
         None
     }).collect()
+}
+
+/// Decode the emit `table.z` payload (§10). Emit packs an N-D table as
+/// `z = [axis2_breakpoints, (axis3_breakpoints)?, flat_values]`, where `flat_values` is
+/// row-major over (x, axis2, axis3) and its length equals `|x| · |axis2| · |axis3|`. When `z`
+/// matches that shape it is an N-D table → return `(no columns, extra axes, flat values)`.
+/// Otherwise `z` is treated as legacy columns-of-y (the pre-0.9.2 behavior) and returned as-is.
+fn decode_table_z(x: &[f64], z: &[Vec<f64>]) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>) {
+    if z.len() >= 2 && !x.is_empty() {
+        let (axes, flat) = z.split_at(z.len() - 1);
+        let flat = &flat[0];
+        let expected: usize = axes.iter().map(|a| a.len()).product::<usize>() * x.len();
+        if expected > 0 && flat.len() == expected {
+            return (Vec::new(), axes.to_vec(), flat.clone());
+        }
+    }
+    // Not the N-D packing → legacy columns.
+    (z.to_vec(), Vec::new(), Vec::new())
 }
 
 /// Scalar value of a `fixed`-scalar node (the v1 `constant` analog), else None.
@@ -1680,6 +1970,9 @@ fn rule_name(rule: &NodeRule) -> &'static str {
         NodeRule::Hysteresis { .. } => "hysteresis",
         NodeRule::Filter { .. } => "filter",
         NodeRule::GateLogic { .. } => "gate_logic",
+        NodeRule::Status { .. } => "status",
+        NodeRule::Milestone { .. } => "milestone",
+        NodeRule::PidController { .. } => "pid",
     }
 }
 
@@ -1787,6 +2080,85 @@ fn build_corr_groups(model: &Model) -> Result<Vec<CorrGroup>, EngineError> {
     Ok(groups)
 }
 
+/// Latin Hypercube pre-pass (semantics §8). For each **independent, once-per-realization**
+/// sample node, produce a stratified column of `n_real` draws: partition [0,1) into `n_real`
+/// equal-probability bins, draw one uniform inside each bin, shuffle the bin order (seeded),
+/// and map through the distribution's inverse CDF (truncation-aware). This guarantees the
+/// marginal is evenly covered across realizations — LHS's variance-reduction property.
+///
+/// Scope (matches GoldSim): LHS applies only to once-per-realization draws. Per-step
+/// autocorrelated / resampled nodes stay Monte Carlo (their `run`-loop draws are untouched),
+/// and correlated groups are stratified separately inside `iman_conover_samples` so LHS and
+/// Iman-Conover compose. A distribution with no closed-form inverse CDF (Gamma/Beta/Weibull/
+/// Pearson/PERT/StudentT/External) is skipped here and falls back to Monte Carlo in `run`.
+///
+/// Returns a map from element id → its stratified per-realization column. Only populated when
+/// `sampling_method == Lhs`; under Monte Carlo the returned map is empty and `run` samples as
+/// before (default behavior bit-identical).
+fn lhs_samples(
+    model: &Model,
+    lhs_ids: &[&str],
+    n_real: u32,
+    seed: u64,
+    lookups: &HashMap<String, LookupData>,
+    dt: f64,
+    dt_unit: &str,
+    arr: &ArrayEnv,
+) -> Result<HashMap<String, Vec<f64>>, EngineError> {
+    let mut out = HashMap::new();
+    let k = n_real as usize;
+    if lhs_ids.is_empty() || k == 0 {
+        return Ok(out);
+    }
+
+    // Dedicated rng stream, disjoint from the realization streams (0..n_real) and from
+    // Iman-Conover's stream (u64::MAX). Each variable gets its own sub-stream so adding or
+    // removing one variable does not reshuffle the others.
+    let elem_idx: HashMap<&str, usize> =
+        model.elements.iter().enumerate().map(|(i, e)| (e.id(), i)).collect();
+    let mut dist_ctx: HashMap<String, Value> = HashMap::new();
+    for elem in &model.elements {
+        if let Some(q) = fixed_scalar(elem) {
+            dist_ctx.insert(elem.id().to_string(), Value::Scalar(q));
+        }
+    }
+    let empty: HashMap<String, Value> = HashMap::new();
+
+    for (var_i, &id) in lhs_ids.iter().enumerate() {
+        let elem = &model.elements[elem_idx[id]];
+        let Primitive::Node(node) = &elem.primitive else { continue };
+        let NodeRule::Sample { distribution, .. } = &node.rule else { continue };
+        let ctx = dist_ctx_eval(lookups, &dist_ctx, &empty, dt, dt_unit, arr);
+        let resolved = resolve_distribution(distribution, &ctx)?;
+
+        // Skip (→ MC fallback) any distribution without a closed-form ICDF.
+        if !sampling::has_icdf(&resolved.kind) {
+            continue;
+        }
+
+        // Distinct sub-stream per variable, disjoint from realization/IC streams.
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        rng.set_stream(u64::MAX - 1 - var_i as u64);
+
+        // Stratified uniforms: one per [i/k, (i+1)/k) bin, then permute the bin order.
+        let mut strata: Vec<f64> = (0..k)
+            .map(|i| (i as f64 + rng.gen::<f64>()) / k as f64)
+            .collect();
+        shuffle(&mut strata, &mut rng);
+
+        let col: Result<Vec<f64>, EngineError> = strata
+            .iter()
+            .map(|&u| {
+                sampling::icdf_truncated(&resolved.kind, &resolved.truncation, u).ok_or_else(|| {
+                    EngineError::Sampling(format!("lhs: no inverse CDF for '{id}'"))
+                })
+            })
+            .collect();
+        out.insert(id.to_string(), col?);
+    }
+    Ok(out)
+}
+
 /// Iman-Conover rank correlation. For each group, draw independent marginals for all
 /// realizations, build a score matrix with the target rank structure, then reorder each
 /// marginal to match — inducing the target rank correlation while preserving marginals.
@@ -1796,6 +2168,7 @@ fn iman_conover_samples(
     groups: &[CorrGroup],
     n_real: u32,
     seed: u64,
+    use_lhs: bool,
     lookups: &HashMap<String, LookupData>,
     dt: f64,
     dt_unit: &str,
@@ -1835,8 +2208,23 @@ fn iman_conover_samples(
             let NodeRule::Sample { distribution, .. } = &node.rule else { continue };
             let ctx = dist_ctx_eval(lookups, &dist_ctx, &empty, dt, dt_unit, arr);
             let resolved = resolve_distribution(distribution, &ctx)?;
-            let col: Result<Vec<f64>, _> =
-                (0..k).map(|_| sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)).collect();
+            // Under LHS, draw the marginal stratified (evenly covering [0,1)) when the
+            // distribution has a closed-form ICDF; Iman-Conover then reorders it to induce
+            // the rank correlation without disturbing the (now stratified) marginal — the
+            // standard LHS + Iman-Conover pairing. Otherwise fall back to iid draws.
+            let col: Result<Vec<f64>, EngineError> = if use_lhs && sampling::has_icdf(&resolved.kind) {
+                let mut strata: Vec<f64> = (0..k).map(|i| (i as f64 + rng.gen::<f64>()) / k as f64).collect();
+                shuffle(&mut strata, &mut rng);
+                strata
+                    .iter()
+                    .map(|&u| {
+                        sampling::icdf_truncated(&resolved.kind, &resolved.truncation, u)
+                            .ok_or_else(|| EngineError::Sampling(format!("lhs: no inverse CDF for '{id}'")))
+                    })
+                    .collect()
+            } else {
+                (0..k).map(|_| sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)).collect()
+            };
             r_samples.push(col?);
         }
 
