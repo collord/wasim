@@ -114,7 +114,7 @@ pub struct EvalCtx<'a> {
 
 impl<'a> EvalCtx<'a> {
     fn calendar(&self) -> CalendarState {
-        CalendarState::from_step(self.step_index, self.dt, self.dt_unit)
+        CalendarState::from_elapsed(self.elapsed, self.dt_unit)
     }
 }
 
@@ -129,10 +129,14 @@ struct CalendarState {
 static DAYS_PER_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 impl CalendarState {
-    fn from_step(step_index: usize, dt: f64, dt_unit: &str) -> Self {
+    /// Derive the (fixed 365-day) calendar from **elapsed time in `dt_unit`** rather than a step
+    /// count. On a uniform grid `elapsed == step_index * dt`, so this is behavior-identical to the
+    /// former step-based derivation; deriving from elapsed makes it correct at sub-interval times
+    /// too (B1). `elapsed` is in the declared timestep unit: months for `mo`, days for `d`.
+    fn from_elapsed(elapsed: f64, dt_unit: &str) -> Self {
         match dt_unit {
             "mo" | "month" => {
-                let total_months = step_index as u32;
+                let total_months = elapsed.floor().max(0.0) as u32;
                 let year_offset = total_months / 12;
                 let month = (total_months % 12) + 1;
                 let days_in_month = DAYS_PER_MONTH[(month - 1) as usize];
@@ -145,7 +149,7 @@ impl CalendarState {
                 }
             }
             "d" | "day" => {
-                let total_days = (step_index as f64 * dt) as u32;
+                let total_days = elapsed.max(0.0) as u32;
                 let day_of_year = total_days % 365;
                 let year_offset = total_days / 365;
                 let mut remaining = day_of_year;
@@ -164,12 +168,14 @@ impl CalendarState {
                     year_offset,
                 }
             }
+            // Fallback: year_offset from elapsed treated as a year count (matches the old
+            // step-index behavior when dt is in years / an unrecognized unit with 1 step = 1 unit).
             _ => CalendarState {
                 month: 1,
                 day_of_month: 1,
                 days_in_month: 31,
                 day_of_year: 1,
-                year_offset: step_index as u32,
+                year_offset: elapsed.max(0.0) as u32,
             },
         }
     }

@@ -14,6 +14,7 @@ pub mod sampling;
 pub mod sensitivity_v2;
 pub mod submodel_v2;
 pub mod summary;
+pub mod timebase;
 pub mod units;
 pub mod v1_import;
 pub mod v2_parse;
