@@ -24,6 +24,20 @@ pub struct RunConfig {
     /// set, opted-in elements gain custom percentile bands, PDF/CDF/CCDF, capture-time
     /// snapshots, and final-value stats. Additive — default output is byte-identical.
     pub results_spec: Option<crate::results_spec::ResultsSpec>,
+    /// Timebase mode (B1, gap #1). `Fixed` (default) = the original fixed-grid Euler evaluator,
+    /// bit-identical. `EventAccurate` inserts unscheduled sub-step updates at scheduled event
+    /// instants and stock bound crossings to refine integration within each grid step (the grid
+    /// stays the statistical/state/reporting lattice — sub-steps consume no randomness and the
+    /// results contract is unchanged).
+    pub timebase: TimebaseMode,
+}
+
+/// Timebase selection for a run (B1). See `RunConfig.timebase`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum TimebaseMode {
+    #[default]
+    Fixed,
+    EventAccurate,
 }
 
 impl Default for RunConfig {
@@ -34,6 +48,7 @@ impl Default for RunConfig {
             duration_override: None,
             timestep_override: None,
             results_spec: None,
+            timebase: TimebaseMode::Fixed,
         }
     }
 }

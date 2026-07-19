@@ -31,6 +31,9 @@ struct JsRunConfig {
     /// stats). Absent → the default fixed summary.
     #[serde(default)]
     results_spec: Option<crate::results_spec::ResultsSpec>,
+    /// Timebase mode (B1): "fixed" (default) or "event_accurate".
+    #[serde(default)]
+    timebase: Option<String>,
 }
 
 // ── WasmEngine ────────────────────────────────────────────────────────────────
@@ -74,6 +77,10 @@ impl WasmEngine {
             duration_override: js.duration_override,
             timestep_override: js.timestep_override,
             results_spec: js.results_spec,
+            timebase: match js.timebase.as_deref() {
+                Some("event_accurate") => crate::engine::TimebaseMode::EventAccurate,
+                _ => crate::engine::TimebaseMode::Fixed,
+            },
         };
         let mut results = run_v2(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;

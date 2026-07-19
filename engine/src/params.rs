@@ -58,6 +58,8 @@ impl ModelParams {
             timestep_override: self.run_config.timestep_override.or(base.timestep_override),
             // results_spec is a runtime analysis config, not a params-file override; carry base.
             results_spec: base.results_spec,
+            // timebase is a runtime mode, not a params-file override; carry base.
+            timebase: base.timebase,
         }
     }
 }

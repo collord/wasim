@@ -272,6 +272,42 @@ pub fn run(
         })
     });
 
+    // Timebase (B1): under EventAccurate, collect the exact scheduled instants from every
+    // schedule-typed trigger (event/link/resampling) once, converted into the timestep unit so
+    // they share the grid's clock. These + stock bound crossings drive sub-step refinement.
+    // Under Fixed (default) the provider yields no split points → bit-identical.
+    let use_event_accurate = config.timebase == crate::TimebaseMode::EventAccurate;
+    let scheduled_times: Vec<f64> = if use_event_accurate {
+        let mut ts: Vec<f64> = Vec::new();
+        let mut push_sched = |t: &crate::model_v2::TriggerSpec| {
+            for q in &t.schedule {
+                // Schedule quantities are absolute times; convert into the timestep unit.
+                let v = crate::units::convert(q.value, &q.unit, &dt_unit).unwrap_or(q.value);
+                if v.is_finite() && v > 0.0 {
+                    ts.push(v);
+                }
+            }
+        };
+        for elem in &model.elements {
+            match &elem.primitive {
+                Primitive::Event(ev) => {
+                    if let Some(t) = &ev.trigger { push_sched(t); }
+                }
+                Primitive::Link(l) => {
+                    if let Some(t) = &l.schedule { push_sched(t); }
+                }
+                Primitive::Node(n) => {
+                    if let NodeRule::Sample { resampling: Some(t), .. } = &n.rule { push_sched(t); }
+                }
+                _ => {}
+            }
+        }
+        crate::timebase::dedup_sorted(&mut ts);
+        ts
+    } else {
+        Vec::new()
+    };
+
     for real_idx in 0..n_real {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         rng.set_stream(real_idx as u64);
@@ -583,6 +619,26 @@ pub fn run(
             let mut outputs: HashMap<String, Value> = HashMap::new();
             outputs.extend(global_seed.iter().cloned());
 
+            // ── Sub-interval boundaries for this grid step (B1). Under Fixed timebase this is
+            // just [elapsed, elapsed+dt] (one sub-interval, sub_dt == dt) → bit-identical. Under
+            // EventAccurate, scheduled instants that fall strictly inside the step split it; stock
+            // bound crossings add further splits dynamically inside the loop. The grid step's
+            // statistics / state / history are unaffected — only integration is refined. ──
+            let grid_end = elapsed + dt;
+            let sub_splits: Vec<f64> = if use_event_accurate {
+                scheduled_times
+                    .iter()
+                    .copied()
+                    .filter(|&t| t > elapsed + crate::timebase::EPS && t < grid_end - crate::timebase::EPS)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            // Ordered list of upcoming scheduled boundaries within this step (ascending).
+            let mut pending_splits = sub_splits;
+            crate::timebase::dedup_sorted(&mut pending_splits);
+            let mut split_iter = pending_splits.into_iter().peekable();
+
             // Event fired-set pre-pass (§2, for `occurs`): determine which events fire this step
             // BEFORE the node topo eval, so a node reading `occurs(ev)` sees the current step's
             // fire (GoldSim causality ordering). Triggers are evaluated against the previous
@@ -606,8 +662,37 @@ pub fn run(
                 }
             }
 
+            // Sub-interval integration loop (B1). `sub_t` is the current sub-interval start;
+            // `sub_dt` its length (== dt under Fixed timebase, one pass). `is_last` gates the
+            // grid-only node rules (filter/status/milestone/pid/markov/convolution/hysteresis) so
+            // they advance state / consume RNG exactly once per grid step, on the final outputs.
+            // Interrupt (§2): an interrupt effect firing in any sub-interval ends the realization
+            // after this grid step; declared here so it survives the inner loop.
+            let mut interrupt_now = false;
+            let mut sub_t = elapsed;
+            loop {
+                // Next scheduled boundary (if any) inside this step, else the grid end.
+                let next_sched = split_iter.peek().copied().unwrap_or(grid_end);
+                let sub_end = next_sched.min(grid_end);
+                let sub_dt = (sub_end - sub_t).max(0.0);
+                let is_last = sub_end >= grid_end - crate::timebase::EPS;
+
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
+                // Grid-only node rules (hysteresis/filter/status/milestone/pid/markov/convolution)
+                // advance per-step state and may consume randomness (markov) — evaluate them ONCE
+                // per grid step, on the final sub-interval. On non-final sub-intervals they hold
+                // their carried value (from this step's outputs if already set, else the previous
+                // grid step) without mutating state or drawing RNG (B1 invariant).
+                if !is_last && is_grid_only_rule(elem) {
+                    let held = outputs
+                        .get(elem_id.as_str())
+                        .or_else(|| prev_outputs.get(elem_id.as_str()))
+                        .cloned()
+                        .unwrap_or(Value::Scalar(0.0));
+                    outputs.insert(elem_id.clone(), held);
+                    continue;
+                }
                 let value = match &elem.primitive {
                     Primitive::Node(node) => match &node.rule {
                         NodeRule::Hysteresis {
@@ -781,7 +866,10 @@ pub fn run(
                     if l.species.is_some() {
                         continue;
                     }
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                    // Link transfer is integration → sub-interval clock. Its `schedule` trigger
+                    // stays grid-quantized in phase 1 (condition/schedule trigger firing is
+                    // fenced to the grid; see the timebase semantics §).
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, sub_t, sub_dt, &dt_unit, step_idx, &arr);
                     let fires = match &l.schedule {
                         Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
                         None => true,
@@ -789,11 +877,15 @@ pub fn run(
                     let requested = if !fires {
                         0.0
                     } else if let Some(rate) = &l.rate {
-                        (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0)
+                        (eval_qof_value(rate, &ctx)?.as_scalar() * sub_dt).max(0.0)
                     } else if let Some(frac) = &l.fraction {
                         let src_val = l.source.as_ref()
                             .and_then(|s| outputs.get(s)).map(|v| v.as_scalar()).unwrap_or(0.0);
-                        (eval_qof_value(frac, &ctx)?.as_scalar() * src_val).max(0.0)
+                        // Fraction transfers move a fraction of the source per firing; under
+                        // sub-stepping, scale by sub_dt/dt so the per-grid-step fraction is
+                        // preserved (N sub-intervals each move frac·(sub_dt/dt) of source).
+                        let frac_scale = if dt > 0.0 { sub_dt / dt } else { 1.0 };
+                        (eval_qof_value(frac, &ctx)?.as_scalar() * src_val * frac_scale).max(0.0)
                     } else {
                         0.0
                     };
@@ -869,7 +961,13 @@ pub fn run(
             // below additionally records rate/failure fires so `occurs` sees them next step.
             // Interrupt effect (§2): if an event with an interrupt effect fires this step, end
             // the realization after this step completes (remaining steps hold last values).
-            let mut interrupt_now = false;
+            //
+            // The event pass is GRID-ONLY (B1): event firing consumes randomness (Poisson,
+            // failure draws) and advances FSM clocks, all of which must happen once per grid step
+            // per the timebase invariant. It runs on the final sub-interval, so its effects fold
+            // into that sub-interval's stock/node integration. (Scheduled-event-instant effect
+            // timing within a step is a documented phase-1 limitation — see the timebase §.)
+            if is_last {
             for elem in &model.elements {
                 let Primitive::Event(ev) = &elem.primitive else { continue };
                 let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
@@ -1029,6 +1127,7 @@ pub fn run(
             for (target, v) in node_effects {
                 outputs.insert(target, v);
             }
+            } // if is_last (grid-only event pass)
 
             // Stock integration pass. Computes each stock's next level (with traits) but
             // defers writing into `outputs` so a single shared ctx can borrow it.
@@ -1043,12 +1142,14 @@ pub fn run(
             let mut stock_prev_level: HashMap<String, f64> = HashMap::new();
             for &id in &stock_ids {
                 let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive else { continue };
-                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                // Integration uses the SUB-interval clock (sub_t/sub_dt); == elapsed/dt on a
+                // fixed grid, so this pass is bit-identical there.
+                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, sub_t, sub_dt, &dt_unit, step_idx, &arr);
                 let current = stock_state[id].clone();
                 stock_prev_level.insert(id.to_string(), current.as_scalar());
 
                 // Trait priority_withdrawal: allocate available stock by priority. `request`/
-                // `limit` are rates (amount = rate·dt); each target outputs its allocation.
+                // `limit` are rates (amount = rate·sub_dt); each target outputs its allocation.
                 let mut withdrawal_outflow = 0.0;
                 if !s.withdrawals.is_empty() {
                     let floor = s.floor.as_ref().map(|q| q.value).unwrap_or(0.0);
@@ -1057,11 +1158,11 @@ pub fn run(
                     ws.sort_by_key(|w| w.priority.unwrap_or(i64::MAX));
                     for w in ws {
                         let mut amount = match &w.request {
-                            Some(q) => (eval_qof_value(q, &ctx)?.as_scalar() * dt).max(0.0),
+                            Some(q) => (eval_qof_value(q, &ctx)?.as_scalar() * sub_dt).max(0.0),
                             None => 0.0,
                         };
                         if let Some(lim) = &w.limit {
-                            amount = amount.min((eval_qof_value(lim, &ctx)?.as_scalar() * dt).max(0.0));
+                            amount = amount.min((eval_qof_value(lim, &ctx)?.as_scalar() * sub_dt).max(0.0));
                         }
                         let alloc = amount.min(available);
                         available -= alloc;
@@ -1090,10 +1191,10 @@ pub fn run(
                     let rr = eval_qof_value(rr_qof, &ctx)?.as_scalar();
                     current.zip_with(external, move |c, e| {
                         let e = if e.is_nan() { 0.0 } else { e };
-                        c * (1.0 + rr * dt) + e * dt
+                        c * (1.0 + rr * sub_dt) + e * sub_dt
                     })
                 } else {
-                    current.zip_with(external, |c, r| if r.is_nan() { c } else { c + r * dt })
+                    current.zip_with(external, |c, r| if r.is_nan() { c } else { c + r * sub_dt })
                 };
                 if withdrawal_outflow != 0.0 {
                     next = next.map(move |v| v - withdrawal_outflow);
@@ -1121,7 +1222,7 @@ pub fn run(
                     let cur = next.as_scalar();
                     if cur > cap_val {
                         let excess = cur - cap_val;
-                        ovf_rate = excess / dt;
+                        ovf_rate = if sub_dt > 0.0 { excess / sub_dt } else { 0.0 };
                         next = next.map(|v| v.min(cap_val));
                         if let Some(target) = &s.overflow_target {
                             *overflow_in.entry(target.clone()).or_default() += excess;
@@ -1130,7 +1231,7 @@ pub fn run(
                 }
                 stock_rates.insert(
                     id.to_string(),
-                    (add_rate, wd_rate + withdrawal_outflow / dt, ovf_rate),
+                    (add_rate, wd_rate + if sub_dt > 0.0 { withdrawal_outflow / sub_dt } else { 0.0 }, ovf_rate),
                 );
                 next_vals.insert(id.to_string(), next);
             }
@@ -1176,7 +1277,7 @@ pub fn run(
                         "addition_rate" => add,
                         "withdrawal_rate" => wd,
                         "overflow_rate" => ovf,
-                        "net_change" => net / dt,
+                        "net_change" => if sub_dt > 0.0 { net / sub_dt } else { 0.0 },
                         _ => continue,
                     };
                     outputs.insert(format!("{id}#{}", k + 1), Value::Scalar(v));
@@ -1189,7 +1290,8 @@ pub fn run(
                 let mut cell_delta: HashMap<(String, String, String), f64> = HashMap::new();
                 let mut st_link_out: Vec<(String, f64)> = Vec::new();
                 {
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                    // Cell transport is integration → sub-interval clock (== grid on a fixed grid).
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, sub_t, sub_dt, &dt_unit, step_idx, &arr);
                     let first_medium = |cell: &str| -> String {
                         cell_media.get(cell).and_then(|m| m.first()).map(|(id, _)| id.clone()).unwrap_or_default()
                     };
@@ -1204,7 +1306,7 @@ pub fn run(
                                 if !fires {
                                     continue;
                                 }
-                                let want = (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0);
+                                let want = (eval_qof_value(rate, &ctx)?.as_scalar() * sub_dt).max(0.0);
                                 let released = match source_inv.get_mut(elem.id()) {
                                     Some(b) => {
                                         let r = want.min(*b);
@@ -1226,9 +1328,10 @@ pub fn run(
                             let tgt_medium = l.medium.clone().unwrap_or_else(|| first_medium(tgt));
                             let src_mass = cell_mass.get(&(src.clone(), species.clone(), src_medium.clone())).copied().unwrap_or(0.0);
                             let want = if let Some(rate) = &l.rate {
-                                (eval_qof_value(rate, &ctx)?.as_scalar() * dt).max(0.0)
+                                (eval_qof_value(rate, &ctx)?.as_scalar() * sub_dt).max(0.0)
                             } else if let Some(frac) = &l.fraction {
-                                (eval_qof_value(frac, &ctx)?.as_scalar() * src_mass).max(0.0)
+                                let frac_scale = if dt > 0.0 { sub_dt / dt } else { 1.0 };
+                                (eval_qof_value(frac, &ctx)?.as_scalar() * src_mass * frac_scale).max(0.0)
                             } else {
                                 0.0
                             };
@@ -1247,7 +1350,7 @@ pub fn run(
                 }
                 // Trait partitioning_equilibrium: redistribute each species across media by Kd.
                 {
-                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, sub_t, sub_dt, &dt_unit, step_idx, &arr);
                     for elem in &model.elements {
                         if let Primitive::Cell(c) = &elem.primitive {
                             if c.partitioning.is_empty() {
@@ -1288,7 +1391,7 @@ pub fn run(
                         let media = cell_media.get(cell).cloned().unwrap_or_else(|| vec![(String::new(), 1.0)]);
                         for sp in &decay_order {
                             if let Some((Some(hl), products)) = species_info.get(sp) {
-                                let factor = (-std::f64::consts::LN_2 / *hl * dt).exp();
+                                let factor = (-std::f64::consts::LN_2 / *hl * sub_dt).exp();
                                 for (med, _) in &media {
                                     let key = (cell.to_string(), sp.clone(), med.clone());
                                     let mass = match cell_mass.get(&key) {
@@ -1330,6 +1433,17 @@ pub fn run(
                     }
                 }
             }
+
+                // ── End of this sub-interval: advance. Consume the scheduled boundary we just
+                // integrated up to, and stop once we reach the grid end.
+                if is_last {
+                    break;
+                }
+                if split_iter.peek().map(|&t| t <= sub_end + crate::timebase::EPS).unwrap_or(false) {
+                    split_iter.next();
+                }
+                sub_t = sub_end;
+            } // sub-interval loop
 
             // Dynamic (per-timestep) optimization (§13a): after the topo pass has filled this
             // step's `outputs` (drivers, non-variable elements), re-solve the submodel's
@@ -1954,6 +2068,25 @@ fn primary_unit(elem: &Element) -> &str {
         }
     }
     elem.base.outputs.first().map(|o| o.unit.as_str()).unwrap_or("1")
+}
+
+/// True when an element is a grid-only stateful node rule (B1): it advances per-grid-step state
+/// and/or consumes randomness, so it must evaluate once per grid step (on the final sub-interval),
+/// not per integration sub-interval.
+fn is_grid_only_rule(elem: &Element) -> bool {
+    matches!(
+        &elem.primitive,
+        Primitive::Node(n) if matches!(
+            &n.rule,
+            NodeRule::Hysteresis { .. }
+                | NodeRule::Filter { .. }
+                | NodeRule::Status { .. }
+                | NodeRule::Milestone { .. }
+                | NodeRule::PidController { .. }
+                | NodeRule::Markov { .. }
+                | NodeRule::Convolution { .. }
+        )
+    )
 }
 
 fn rule_name(rule: &NodeRule) -> &'static str {
