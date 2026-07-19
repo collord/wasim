@@ -396,7 +396,7 @@ pub fn run(
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
@@ -418,7 +418,7 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
                     let v = match sampling::icdf(&resolved.kind, u) {
@@ -478,7 +478,7 @@ pub fn run(
         for elem_id in &graph.topo_order {
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let ElementKind::Expression { expression, .. } = &elem.kind {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                 if let Ok(v) = eval_ast(&expression.ast, &ctx) {
                     init_ctx_outputs.insert(elem_id.clone(), v);
                 }
@@ -492,7 +492,7 @@ pub fn run(
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
                 let init = match initial_expression {
                     Some(expr) => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(initial_value.value),
@@ -576,7 +576,7 @@ pub fn run(
                     }
 
                     ElementKind::Expression { expression, .. } => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty,
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                             lookups: &lookups, dt_unit: &dt_unit,
                             outputs: &outputs,
                             prev_outputs: &prev_outputs,
@@ -594,7 +594,7 @@ pub fn run(
                                 if *procedural {
                                     eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
-                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
                             }
                         }
@@ -609,7 +609,7 @@ pub fn run(
                             None => !expressions.is_empty(),
                         };
                         if is_expression {
-                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty,
+                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                                 lookups: &lookups, dt_unit: &dt_unit,
                                 outputs: &outputs,
                                 prev_outputs: &prev_outputs,
@@ -635,7 +635,7 @@ pub fn run(
             for &id in &acc_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Accumulator { rate, min_value, capacity, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty,
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                         lookups: &lookups, dt_unit: &dt_unit,
                         outputs: &outputs,
                         prev_outputs: &prev_outputs,
@@ -683,7 +683,7 @@ pub fn run(
 
             // Evaluate time_history_displays against the finalized step outputs.
             for d in &model.time_history_displays {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {

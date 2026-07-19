@@ -43,6 +43,12 @@ pub struct SimulationSettings {
     #[serde(default)]
     pub sampling_method: SamplingMethod,
     pub seed: Option<u64>,
+    /// Calendar anchor (B6): the model clock's start time as seconds since the Unix epoch
+    /// (1970-01-01). When present, `time_ref` calendar properties (year/month/day/…) use a real
+    /// proleptic-Gregorian calendar **with leap years** anchored here. Absent = the fixed 365-day
+    /// calendar (behavior unchanged).
+    #[serde(default)]
+    pub calendar_start: Option<f64>,
 }
 
 fn default_n_realizations() -> u32 {

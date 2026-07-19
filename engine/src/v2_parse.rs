@@ -55,6 +55,9 @@ struct RawSimSettings {
     seed: Option<u64>,
     #[serde(default)]
     reporting_periods: Vec<Quantity>,
+    /// Calendar anchor (B6): model-clock start as seconds since the Unix epoch.
+    #[serde(default)]
+    calendar_start: Option<f64>,
 }
 
 fn default_one() -> u32 {
@@ -426,6 +429,7 @@ fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
             n_realizations: raw.simulation_settings.n_realizations,
             sampling_method: raw.simulation_settings.sampling_method,
             seed: raw.simulation_settings.seed,
+            calendar_start: raw.simulation_settings.calendar_start,
         },
         reporting_periods: raw.simulation_settings.reporting_periods,
         dimensions: raw.dimensions,

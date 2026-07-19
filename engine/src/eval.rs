@@ -110,11 +110,37 @@ pub struct EvalCtx<'a> {
     pub lag: Option<f64>,
     /// Ids of events that fired this step (§2), read by the `occurs(event_id)` builtin.
     pub fired_events: &'a std::cell::RefCell<std::collections::HashSet<String>>,
+    /// Calendar anchor (B6): model-clock start as seconds since the Unix epoch. When `Some`,
+    /// `time_ref` calendar properties use a real proleptic-Gregorian calendar (leap years);
+    /// `None` = the fixed 365-day calendar.
+    pub calendar_start: Option<f64>,
 }
 
 impl<'a> EvalCtx<'a> {
     fn calendar(&self) -> CalendarState {
-        CalendarState::from_elapsed(self.elapsed, self.dt_unit)
+        match self.calendar_start {
+            // B6: real proleptic-Gregorian calendar (leap years) anchored at `start` seconds.
+            Some(start) => {
+                let elapsed_secs = self.elapsed * dt_unit_seconds(self.dt_unit);
+                CalendarState::from_epoch_secs(start + elapsed_secs)
+            }
+            // Fixed 365-day calendar (behavior unchanged).
+            None => CalendarState::from_elapsed(self.elapsed, self.dt_unit),
+        }
+    }
+}
+
+/// Seconds per one unit of the declared timestep unit (for converting elapsed → absolute secs).
+fn dt_unit_seconds(unit: &str) -> f64 {
+    match unit.trim() {
+        "yr" | "year" | "years" => 365.25 * 86400.0,
+        "mo" | "month" | "months" => 365.25 * 86400.0 / 12.0,
+        "wk" | "week" | "weeks" => 7.0 * 86400.0,
+        "d" | "day" | "days" => 86400.0,
+        "h" | "hr" | "hour" | "hours" => 3600.0,
+        "min" | "minute" | "minutes" => 60.0,
+        "s" | "sec" | "second" | "seconds" => 1.0,
+        _ => 1.0,
     }
 }
 
@@ -178,6 +204,36 @@ impl CalendarState {
                 year_offset: elapsed.max(0.0) as u32,
             },
         }
+    }
+
+    /// Real proleptic-Gregorian calendar (B6) from seconds since the Unix epoch — leap-year
+    /// aware. `year_offset` here carries the *actual* calendar year (e.g. 2024), not an offset.
+    fn from_epoch_secs(secs: f64) -> Self {
+        let (year, month, day) = civil_from_secs(secs);
+        // Day of year: sum of prior months' lengths (leap-aware) + day.
+        let doy: u32 = (1..month).map(|m| days_in_month(year, m)).sum::<u32>() + day;
+        CalendarState {
+            month,
+            day_of_month: day,
+            days_in_month: days_in_month(year, month),
+            day_of_year: doy,
+            // Store the actual calendar year; TimeProperty::Year reads this.
+            year_offset: year.max(0) as u32,
+        }
+    }
+}
+
+/// True if `year` is a leap year in the proleptic Gregorian calendar.
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+/// Days in `month` (1–12) of `year`, leap-aware (February = 29 in a leap year).
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        2 => if is_leap_year(year) { 29 } else { 28 },
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
     }
 }
 

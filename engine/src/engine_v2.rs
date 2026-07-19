@@ -120,6 +120,7 @@ pub fn run(
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
         fired_events: &fired_events,
+        calendar_start: model.simulation_settings.calendar_start,
     };
 
     let lookups = lookups_map(model);
@@ -1815,6 +1816,9 @@ pub(crate) struct ArrayEnv<'a> {
     /// Ids of events that fired during the current step (§2, for the `occurs` builtin). The
     /// event pass repopulates this each step via interior mutability.
     pub fired_events: &'a RefCell<HashSet<String>>,
+    /// Calendar anchor (B6): model-clock start as seconds since the Unix epoch (None = fixed
+    /// 365-day calendar).
+    pub calendar_start: Option<f64>,
 }
 
 fn ctx_at<'a>(
@@ -1830,7 +1834,7 @@ fn ctx_at<'a>(
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
         dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
-        lag: None, fired_events: arr.fired_events,
+        lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
 
@@ -1845,7 +1849,7 @@ fn dist_ctx_eval<'a>(
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
         dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
-        lag: None, fired_events: arr.fired_events,
+        lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
 
