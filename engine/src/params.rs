@@ -62,6 +62,8 @@ impl ModelParams {
             timebase: base.timebase,
             // units mode is a runtime mode, not a params-file override; carry base.
             units: base.units,
+            // realization weights are a runtime analysis input, not a params override; carry base.
+            realization_weights: base.realization_weights,
         }
     }
 }

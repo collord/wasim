@@ -176,19 +176,23 @@ pub struct FinalStats {
 
 /// Compute the analysis block for one element from its stored samples. `final_values` are the
 /// per-realization finals; `hist` is `[step][realization]` (empty if history wasn't saved).
-/// Returns `None` when the spec doesn't cover this element or requests nothing.
+/// `weights` are per-realization importance weights (B7); empty = unweighted (all reductions fall
+/// back to their standard forms). Returns `None` when the spec doesn't cover this element or
+/// requests nothing.
 pub fn compute_analysis(
     spec: &ResultsSpec,
     id: &str,
     final_values: &[f64],
     hist: &[Vec<f64>],
+    weights: &[f64],
     dt: f64,
 ) -> Option<ElementAnalysis> {
+    use crate::engine::weighted_percentile;
     if !spec.covers(id) || !spec.is_active() {
         return None;
     }
 
-    // Custom percentile bands over the time history.
+    // Custom percentile bands over the time history (weighted when weights are supplied).
     let percentile_bands = if spec.percentiles.is_empty() || hist.is_empty() {
         Vec::new()
     } else {
@@ -196,7 +200,7 @@ pub fn compute_analysis(
             .iter()
             .map(|&p| PercentileBand {
                 percentile: p,
-                values: hist.iter().map(|step| percentile(step, p)).collect(),
+                values: hist.iter().map(|step| weighted_percentile(step, weights, p)).collect(),
             })
             .collect()
     };
@@ -223,19 +227,20 @@ pub fn compute_analysis(
             Some(CaptureSnapshot {
                 time: t,
                 step,
-                mean: mean(vals),
-                p05: percentile(vals, 5.0),
-                p50: percentile(vals, 50.0),
-                p95: percentile(vals, 95.0),
+                mean: crate::engine::weighted_mean(vals, weights),
+                p05: weighted_percentile(vals, weights, 5.0),
+                p50: weighted_percentile(vals, weights, 50.0),
+                p95: weighted_percentile(vals, weights, 95.0),
                 values: vals.clone(),
             })
         })
         .collect();
 
-    // Final-value summary stats.
+    // Final-value summary stats (weighted mean/std/percentile/CTE when weights supplied).
     let final_stats = if spec.final_stats && !final_values.is_empty() {
         Some(build_final_stats(
             final_values,
+            weights,
             if spec.confidence > 0.0 { spec.confidence } else { 0.95 },
             if spec.cte_percentile > 0.0 { spec.cte_percentile } else { 95.0 },
         ))
@@ -328,18 +333,20 @@ fn build_distribution(values: &[f64], bins: usize) -> Distribution {
 }
 
 /// Confidence interval on the mean (t-interval), skewness, excess kurtosis, and the upper-tail
-/// conditional tail expectation.
-fn build_final_stats(values: &[f64], confidence: f64, cte_pct: f64) -> FinalStats {
+/// conditional tail expectation. `weights` (B7) makes the mean/std/percentile/CTE weighted;
+/// empty weights fall back to the unweighted forms. Skewness/kurtosis stay unweighted.
+fn build_final_stats(values: &[f64], weights: &[f64], confidence: f64, cte_pct: f64) -> FinalStats {
+    use crate::engine::{weighted_mean, weighted_percentile, weighted_std};
     let n = values.len();
-    let m = mean(values);
-    let s = std(values);
+    let m = weighted_mean(values, weights);
+    let s = weighted_std(values, weights);
 
     // t-interval half-width = t_{α/2, n−1} · s/√n. Use a normal-quantile approximation for the
     // t critical value (adequate at the realization counts Monte Carlo uses; exact for large n).
     let z = crate::sampling::standard_normal_quantile(0.5 + confidence / 2.0);
     let ci_half_width = if n >= 2 { z * s / (n as f64).sqrt() } else { 0.0 };
 
-    // Skewness / excess kurtosis (population moments about the sample mean).
+    // Skewness / excess kurtosis (population moments about the weighted mean; moments unweighted).
     let (skewness, excess_kurtosis) = if n >= 2 && s > 0.0 {
         let m2: f64 = values.iter().map(|x| (x - m).powi(2)).sum::<f64>() / n as f64;
         let m3: f64 = values.iter().map(|x| (x - m).powi(3)).sum::<f64>() / n as f64;
@@ -350,10 +357,16 @@ fn build_final_stats(values: &[f64], confidence: f64, cte_pct: f64) -> FinalStat
         (0.0, 0.0)
     };
 
-    // Conditional tail expectation: mean of samples strictly beyond the cte percentile.
-    let threshold = percentile(values, cte_pct);
-    let tail: Vec<f64> = values.iter().cloned().filter(|&x| x >= threshold).collect();
-    let cte = if tail.is_empty() { threshold } else { mean(&tail) };
+    // Conditional tail expectation: weighted mean of samples beyond the (weighted) cte percentile.
+    let threshold = weighted_percentile(values, weights, cte_pct);
+    let (tail, tail_w): (Vec<f64>, Vec<f64>) = values
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, x)| *x >= threshold)
+        .map(|(i, x)| (x, weights.get(i).copied().unwrap_or(1.0)))
+        .unzip();
+    let cte = if tail.is_empty() { threshold } else { weighted_mean(&tail, &tail_w) };
 
     FinalStats {
         mean: m,
@@ -378,8 +391,15 @@ mod tests {
         // Samples 1..=10. The 80th percentile (nearest-rank on 0-based idx round((0.8)·9)=7) is
         // 8.0; the CTE is the mean of samples ≥ 8 = mean(8,9,10) = 9.0.
         let vals: Vec<f64> = (1..=10).map(|x| x as f64).collect();
-        let fs = build_final_stats(&vals, 0.95, 80.0);
+        let fs = build_final_stats(&vals, &[], 0.95, 80.0);
         assert!((fs.cte - 9.0).abs() < 1e-9, "CTE(80th) of 1..=10 should be 9.0, got {}", fs.cte);
+    }
+
+    #[test]
+    fn weighted_final_stats_hand_check() {
+        // Values [0,0,10] with weights [1,1,2]: weighted mean = (0+0+20)/4 = 5.
+        let fs = build_final_stats(&[0.0, 0.0, 10.0], &[1.0, 1.0, 2.0], 0.95, 90.0);
+        assert!((fs.mean - 5.0).abs() < 1e-9, "weighted mean should be 5, got {}", fs.mean);
     }
 
     #[test]

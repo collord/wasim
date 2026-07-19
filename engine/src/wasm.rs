@@ -37,6 +37,9 @@ struct JsRunConfig {
     /// Units mode (B5): "warn" (default) or "strict".
     #[serde(default)]
     units: Option<String>,
+    /// Per-realization importance weights (B7). Empty = unweighted.
+    #[serde(default)]
+    realization_weights: Vec<f64>,
 }
 
 // ── WasmEngine ────────────────────────────────────────────────────────────────
@@ -88,6 +91,7 @@ impl WasmEngine {
                 Some("strict") => crate::engine::UnitsMode::Strict,
                 _ => crate::engine::UnitsMode::Warn,
             },
+            realization_weights: js.realization_weights,
         };
         let mut results = run_v2(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;

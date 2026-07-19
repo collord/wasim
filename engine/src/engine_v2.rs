@@ -65,6 +65,18 @@ pub fn run(
     let n_real = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations);
     let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
 
+    // Realization weights (B7): normalized to sum 1 for the weighted stat reductions. Only used
+    // when the length matches `n_real`; otherwise empty (unweighted, behavior unchanged).
+    let realization_weights: Vec<f64> = {
+        let w = &config.realization_weights;
+        if w.len() == n_real as usize {
+            let sw: f64 = w.iter().sum();
+            if sw > 0.0 { w.iter().map(|x| x / sw).collect() } else { Vec::new() }
+        } else {
+            Vec::new()
+        }
+    };
+
     // Strict dimensional analysis (B5): reject a model with any dimensional inconsistency before
     // running. `Warn` (default) leaves the pre-B5 behavior unchanged (warnings are logged in lib.rs).
     if config.units == crate::UnitsMode::Strict {
@@ -1666,7 +1678,7 @@ pub fn run(
         let analysis = config
             .results_spec
             .as_ref()
-            .and_then(|spec| crate::results_spec::compute_analysis(spec, id, &final_values, hist_ref, dt));
+            .and_then(|spec| crate::results_spec::compute_analysis(spec, id, &final_values, hist_ref, &realization_weights, dt));
         results_map.insert(id.to_string(), ElementResults {
             label: elem.base.name.clone(),
             unit: primary_unit(elem).to_string(),
@@ -1679,7 +1691,7 @@ pub fn run(
     for d in &model.time_history_displays {
         let final_values = final_store.get(&d.id).cloned().unwrap_or_default();
         let analysis = config.results_spec.as_ref().and_then(|spec| {
-            crate::results_spec::compute_analysis(spec, &d.id, &final_values, &hist_store[&d.id], dt)
+            crate::results_spec::compute_analysis(spec, &d.id, &final_values, &hist_store[&d.id], &realization_weights, dt)
         });
         results_map.insert(d.id.clone(), ElementResults {
             label: d.name.clone(),
@@ -1723,7 +1735,7 @@ pub fn run(
         let final_values = final_store.get(id).cloned().unwrap_or_default();
         let time_history = Some(stats(&hist_store[id]));
         let analysis = config.results_spec.as_ref().and_then(|spec| {
-            crate::results_spec::compute_analysis(spec, id, &final_values, &hist_store[id], dt)
+            crate::results_spec::compute_analysis(spec, id, &final_values, &hist_store[id], &realization_weights, dt)
         });
         results_map.insert(id.clone(), ElementResults {
             label: id.clone(),

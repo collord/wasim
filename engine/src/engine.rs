@@ -34,6 +34,11 @@ pub struct RunConfig {
     /// and continues (numeric behavior unchanged). `Strict` turns any inconsistency into a hard
     /// load error before the run. Unknown units / unresolved refs are always exempt.
     pub units: UnitsMode,
+    /// Per-realization importance weights (B7, gap #5). Empty = every realization weighted
+    /// equally (unweighted, behavior unchanged). When set, its length must equal `n_realizations`;
+    /// weights are normalized to sum 1 and applied to weighted statistics (mean/percentile/std/CTE
+    /// and the A3 analysis layer). Weighted reductions on uniform weights equal the unweighted ones.
+    pub realization_weights: Vec<f64>,
 }
 
 /// Dimensional-analysis strictness for a run (B5). See `RunConfig.units`.
@@ -62,6 +67,7 @@ impl Default for RunConfig {
             results_spec: None,
             timebase: TimebaseMode::Fixed,
             units: UnitsMode::Warn,
+            realization_weights: Vec::new(),
         }
     }
 }
@@ -864,4 +870,59 @@ pub(crate) fn std(vs: &[f64]) -> f64 {
 pub(crate) fn cumulative_prob(vs: &[f64], threshold: f64) -> f64 {
     if vs.is_empty() { return 0.0; }
     vs.iter().filter(|&&x| x <= threshold).count() as f64 / vs.len() as f64
+}
+
+// ── Weighted statistics (B7, importance/realization weights) ──────────────────
+//
+// Each takes parallel `vs` (samples) and `w` (weights). When `w` is empty or its length differs
+// from `vs`, they fall back to the unweighted helpers above — so uniform/absent weights reproduce
+// the standard statistics exactly.
+
+/// Weighted mean Σ(wᵢ·xᵢ) / Σwᵢ.
+pub(crate) fn weighted_mean(vs: &[f64], w: &[f64]) -> f64 {
+    if w.len() != vs.len() || vs.is_empty() {
+        return mean(vs);
+    }
+    let sw: f64 = w.iter().sum();
+    if sw <= 0.0 {
+        return mean(vs);
+    }
+    vs.iter().zip(w).map(|(x, wi)| x * wi).sum::<f64>() / sw
+}
+
+/// Weighted sample percentile via the weighted empirical CDF (samples sorted; the value whose
+/// cumulative weight first reaches `p/100`). Matches `percentile` on equal weights.
+pub(crate) fn weighted_percentile(vs: &[f64], w: &[f64], p: f64) -> f64 {
+    if w.len() != vs.len() || vs.is_empty() {
+        return percentile(vs, p);
+    }
+    let mut pairs: Vec<(f64, f64)> = vs.iter().copied().zip(w.iter().copied()).collect();
+    pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let total: f64 = pairs.iter().map(|(_, wi)| wi).sum();
+    if total <= 0.0 {
+        return percentile(vs, p);
+    }
+    let target = (p / 100.0).clamp(0.0, 1.0) * total;
+    let mut cum = 0.0;
+    for (x, wi) in &pairs {
+        cum += wi;
+        if cum >= target - 1e-12 {
+            return *x;
+        }
+    }
+    pairs.last().map(|(x, _)| *x).unwrap_or(0.0)
+}
+
+/// Weighted (population) standard deviation √(Σwᵢ(xᵢ−μ_w)² / Σwᵢ).
+pub(crate) fn weighted_std(vs: &[f64], w: &[f64]) -> f64 {
+    if w.len() != vs.len() || vs.len() < 2 {
+        return std(vs);
+    }
+    let sw: f64 = w.iter().sum();
+    if sw <= 0.0 {
+        return std(vs);
+    }
+    let m = weighted_mean(vs, w);
+    let var = vs.iter().zip(w).map(|(x, wi)| wi * (x - m).powi(2)).sum::<f64>() / sw;
+    var.sqrt()
 }
