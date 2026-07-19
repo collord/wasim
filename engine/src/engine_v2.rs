@@ -477,6 +477,17 @@ pub fn run(
         let mut status_state: HashMap<String, bool> = HashMap::new();
         let mut milestone_time: HashMap<String, f64> = HashMap::new();
         let mut pid_state: HashMap<String, (f64, f64)> = HashMap::new();
+        // Queue (§B3): per queue node, a map of release_step → amount scheduled to exit then.
+        let mut queue_buf: HashMap<String, HashMap<usize, f64>> = HashMap::new();
+        // Resource (§B3): per-realization balance, seeded from each Resource's initial amount.
+        // `borrowed` tracks outstanding borrow so a return event can restore it.
+        let mut resource_balance: HashMap<String, f64> = HashMap::new();
+        let mut resource_borrowed: HashMap<String, f64> = HashMap::new();
+        for elem in &model.elements {
+            if let Primitive::Resource(r) = &elem.primitive {
+                resource_balance.insert(elem.id().to_string(), r.initial.value);
+            }
+        }
         // Interrupt (§2): once set, the realization holds its last-computed outputs for all
         // remaining steps instead of recomputing.
         let mut interrupted = false;
@@ -631,6 +642,8 @@ pub fn run(
 
             let mut outputs: HashMap<String, Value> = HashMap::new();
             outputs.extend(global_seed.iter().cloned());
+            // Per-step queue levels (§B3), published as each queue's `num_in_queue` secondary port.
+            let mut queue_level: HashMap<String, f64> = HashMap::new();
 
             // ── Sub-interval boundaries for this grid step (B1). Under Fixed timebase this is
             // just [elapsed, elapsed+dt] (one sub-interval, sub_dt == dt) → bit-identical. Under
@@ -840,6 +853,33 @@ pub fn run(
                             let val: f64 = buf.iter().zip(weights.iter()).map(|(b, w)| b * w).sum();
                             Value::Scalar(val)
                         }
+                        NodeRule::Queue { input, delay_time, capacity, .. } => {
+                            // Event/discrete-change delay (§B3). Arrivals wait `delay_time` then
+                            // exit; `capacity` caps the number waiting (excess arrivals blocked).
+                            let arrivals = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0).max(0.0);
+                            let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
+                            let delay = eval_qof_value(delay_time, &ctx)?.as_scalar().max(0.0);
+                            let delay_steps = (delay / dt).round().max(0.0) as usize;
+                            let buf = queue_buf.entry(elem_id.clone()).or_default();
+                            // Release what is scheduled to exit this step.
+                            let released = buf.remove(&step_idx).unwrap_or(0.0);
+                            // Current queue level (amount still waiting) after release.
+                            let in_queue: f64 = buf.values().sum();
+                            // Capacity: block arrivals that would exceed the cap (dropped this step).
+                            let admitted = match capacity {
+                                Some(cap) => {
+                                    let cap_val = eval_qof_value(cap, &ctx)?.as_scalar().max(0.0);
+                                    arrivals.min((cap_val - in_queue).max(0.0))
+                                }
+                                None => arrivals,
+                            };
+                            if admitted > 0.0 {
+                                *buf.entry(step_idx + delay_steps.max(1)).or_default() += admitted;
+                            }
+                            // Publish the queue level (post-admit) as the secondary `num_in_queue` port.
+                            queue_level.insert(elem_id.clone(), in_queue + admitted);
+                            Value::Scalar(released)
+                        }
                         NodeRule::GateLogic { root, .. } => {
                             let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                             Value::Scalar(if eval_gate(root, &ctx)? { 1.0 } else { 0.0 })
@@ -853,6 +893,11 @@ pub fn run(
                         let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                         Value::Scalar(if eval_gate(&g.root, &ctx)? { 1.0 } else { 0.0 })
                     }
+                    // A Resource's output is its current balance (§B3); updated in the event pass,
+                    // so during topo it reads the prior step's balance (like a stock level).
+                    Primitive::Resource(_) => {
+                        Value::Scalar(resource_balance.get(elem_id.as_str()).copied().unwrap_or(0.0))
+                    }
                     // Links/events/cells are resolved in their own passes; definitions are inert.
                     Primitive::Link(_) | Primitive::Event(_) | Primitive::Cell(_)
                     | Primitive::Species(_) | Primitive::Medium(_) => {
@@ -864,6 +909,17 @@ pub fn run(
                     )?,
                 };
                 outputs.insert(elem_id.clone(), value);
+            }
+
+            // Publish queue `num_in_queue` secondary ports (§B3): a queue node's secondary output
+            // declaring role `num_in_queue` reports the current queue level under "<id>#<k+1>".
+            for (qid, level) in &queue_level {
+                let base = &model.elements[elem_idx[qid.as_str()]].base;
+                for (k, spec) in base.outputs.iter().enumerate().skip(1) {
+                    if spec.role.as_deref() == Some("num_in_queue") {
+                        outputs.insert(format!("{qid}#{}", k + 1), Value::Scalar(*level));
+                    }
+                }
             }
 
             // ── Link transfers: move quantity source→target, with priority allocation,
@@ -1130,6 +1186,43 @@ pub fn run(
                             }
                             // Handled above (scheduled the interrupt, no target write).
                             EffectMode::Interrupt => {}
+                            // ── Resource effects (§B3). Adjust the target Resource's balance. ──
+                            EffectMode::Spend => {
+                                let bal = resource_balance.entry(target.clone()).or_insert(0.0);
+                                if reverse {
+                                    *bal += change; // reverse a spend = give it back
+                                } else {
+                                    let want = change * count;
+                                    *bal = (*bal - want).max(0.0); // limited to available (partial when short)
+                                }
+                            }
+                            EffectMode::Deposit => {
+                                let cap = elem_idx.get(target.as_str()).and_then(|&i| {
+                                    if let Primitive::Resource(r) = &model.elements[i].primitive {
+                                        r.capacity.as_ref().map(|c| eval_qof_value(c, &ctx).map(|v| v.as_scalar()))
+                                    } else { None }
+                                });
+                                let cap = match cap { Some(Ok(c)) => Some(c), _ => None };
+                                let bal = resource_balance.entry(target.clone()).or_insert(0.0);
+                                let delta = if reverse { -change } else { change * count };
+                                *bal += delta;
+                                if let Some(c) = cap { *bal = bal.min(c); }
+                                *bal = bal.max(0.0);
+                            }
+                            EffectMode::Borrow => {
+                                let bal = resource_balance.entry(target.clone()).or_insert(0.0);
+                                if reverse {
+                                    // Return what was borrowed.
+                                    let owed = resource_borrowed.get(&target).copied().unwrap_or(0.0).min(change);
+                                    *bal += owed;
+                                    if let Some(b) = resource_borrowed.get_mut(&target) { *b -= owed; }
+                                } else {
+                                    let want = change * count;
+                                    let got = want.min(*bal);
+                                    *bal -= got;
+                                    *resource_borrowed.entry(target.clone()).or_insert(0.0) += got;
+                                }
+                            }
                         }
                     }
                 }
@@ -1139,6 +1232,13 @@ pub fn run(
             }
             for (target, v) in node_effects {
                 outputs.insert(target, v);
+            }
+            // Publish updated Resource balances (§B3) so end-of-step recording sees them.
+            for elem in &model.elements {
+                if let Primitive::Resource(_) = &elem.primitive {
+                    let bal = resource_balance.get(elem.id()).copied().unwrap_or(0.0);
+                    outputs.insert(elem.id().to_string(), Value::Scalar(bal));
+                }
             }
             } // if is_last (grid-only event pass)
 
@@ -2098,6 +2198,7 @@ fn is_grid_only_rule(elem: &Element) -> bool {
                 | NodeRule::PidController { .. }
                 | NodeRule::Markov { .. }
                 | NodeRule::Convolution { .. }
+                | NodeRule::Queue { .. }
         )
     )
 }
@@ -2119,6 +2220,7 @@ fn rule_name(rule: &NodeRule) -> &'static str {
         NodeRule::Status { .. } => "status",
         NodeRule::Milestone { .. } => "milestone",
         NodeRule::PidController { .. } => "pid",
+        NodeRule::Queue { .. } => "queue",
     }
 }
 
@@ -2132,6 +2234,7 @@ fn primitive_name(p: &Primitive) -> &'static str {
         Primitive::Cell(_) => "cell",
         Primitive::Species(_) => "species",
         Primitive::Medium(_) => "medium",
+        Primitive::Resource(_) => "resource",
     }
 }
 

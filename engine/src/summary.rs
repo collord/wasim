@@ -148,6 +148,7 @@ pub fn primitive_name(p: &Primitive) -> &'static str {
         Primitive::Cell(_) => "cell",
         Primitive::Species(_) => "species",
         Primitive::Medium(_) => "medium",
+        Primitive::Resource(_) => "resource",
     }
 }
 
@@ -168,6 +169,7 @@ fn value_rule_str(rule: &NodeRule) -> &'static str {
         NodeRule::Status { .. } => "status",
         NodeRule::Milestone { .. } => "milestone",
         NodeRule::PidController { .. } => "pid",
+        NodeRule::Queue { .. } => "queue",
     }
 }
 

@@ -138,6 +138,7 @@ fn element_deps(elem: &Element) -> Vec<&str> {
             NodeRule::Filter { input, .. }
             | NodeRule::Hysteresis { input, .. }
             | NodeRule::PidController { input, .. }
+            | NodeRule::Queue { input, .. }
             | NodeRule::Convolution { input, .. } => {
                 let mut d = vec![input.as_str()];
                 d.extend(elem.base.inputs.iter().map(|s| s.as_str()));

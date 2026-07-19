@@ -166,6 +166,11 @@ struct RawElement {
     output_max: Option<f64>,
     #[serde(default)]
     deadband: Option<f64>,
+    // queue (§B3)
+    #[serde(default)]
+    delay_time: Option<QuantityOrFormula>,
+    #[serde(default)]
+    discipline: Option<String>,
 
     // stock
     #[serde(default)]
@@ -462,6 +467,12 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             density: e.density.clone(),
             porosity: e.porosity.clone(),
         }),
+        "resource" => v2::Primitive::Resource(v2::Resource {
+            initial: e.initial_value.clone().or_else(|| e.initial.clone()).ok_or_else(|| {
+                EngineError::InvalidModel(format!("resource '{}' missing 'initial_value'", e.id))
+            })?,
+            capacity: e.capacity.clone(),
+        }),
         "link" => v2::Primitive::Link(v2::Link {
             source: e.source.clone(),
             target: e.target.clone(),
@@ -639,6 +650,15 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             output_max: e.output_max,
             deadband: e.deadband.unwrap_or(0.0),
         },
+        "queue" => v2::NodeRule::Queue {
+            input: e.input.clone().ok_or_else(|| missing("input"))?,
+            delay_time: e.delay_time.clone().ok_or_else(|| missing("delay_time"))?,
+            capacity: e.capacity.clone(),
+            discipline: match e.discipline.as_deref() {
+                Some("fixed_at_entry") => v2::QueueDiscipline::FixedAtEntry,
+                _ => v2::QueueDiscipline::Conveyor,
+            },
+        },
         // A linked-Excel element (§20): the workbook is external, so the engine cannot evaluate
         // it. Parse it as a fixed-0 placeholder (the cells/external_file binding is preserved in
         // the JSON for round-trip/inspection but not executed). Loads and runs, yields 0.0.
@@ -733,6 +753,9 @@ fn lower_effect(e: &RawEffect) -> v2::EffectSpec {
             Some("multiplicative") => v2::EffectMode::Multiplicative,
             Some("replace") => v2::EffectMode::Replace,
             Some("interrupt") => v2::EffectMode::Interrupt,
+            Some("spend") => v2::EffectMode::Spend,
+            Some("deposit") => v2::EffectMode::Deposit,
+            Some("borrow") => v2::EffectMode::Borrow,
             _ => v2::EffectMode::Additive,
         },
         label: e.label.clone(),

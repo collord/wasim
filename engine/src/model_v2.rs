@@ -82,6 +82,17 @@ pub enum Primitive {
     Cell(Cell),
     Species(Species),
     Medium(Medium),
+    /// A limited-supply resource (§B3): a per-realization balance that events Spend/Deposit/Borrow.
+    Resource(Resource),
+}
+
+/// A Resource / Resource Store (§B3): a finite balance with an initial amount and an optional
+/// upper `capacity`. Event effects with mode `spend`/`deposit`/`borrow` adjust it, allocated by
+/// event priority when supply is short. The element's output is its current balance.
+#[derive(Debug, Clone, Serialize)]
+pub struct Resource {
+    pub initial: Quantity,
+    pub capacity: Option<QuantityOrFormula>,
 }
 
 // ── NODE ──────────────────────────────────────────────────────────────────────
@@ -184,6 +195,28 @@ pub enum NodeRule {
         output_max: Option<f64>,
         deadband: f64,
     },
+    /// [queue] Event / discrete-change delay (§B3): entities/amount arriving via `input` each
+    /// step wait `delay_time` then exit. `capacity` caps the number waiting (arrivals above it are
+    /// blocked/dropped that step). The node's primary output is this step's throughput (amount
+    /// exiting); a secondary output with role `num_in_queue` reports the current queue level.
+    /// `conveyor` discipline = fixed transit from entry (plug flow); the delay is sampled once at
+    /// entry for `fixed_at_entry`. Per-realization queue-schedule state.
+    Queue {
+        input: String,
+        delay_time: QuantityOrFormula,
+        capacity: Option<QuantityOrFormula>,
+        discipline: QueueDiscipline,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq)]
+pub enum QueueDiscipline {
+    /// Fixed transit: every entity waits exactly `delay_time` from entry (plug flow / conveyor).
+    #[default]
+    Conveyor,
+    /// The delay is fixed at the value sampled/evaluated when the entity enters (same as conveyor
+    /// for a constant `delay_time`; differs when `delay_time` varies over time).
+    FixedAtEntry,
 }
 
 /// `fixed` node payload: scalar (carries its own unit) or an array sharing one unit.
@@ -360,6 +393,14 @@ pub enum EffectMode {
     /// [interrupt] Ends the realization at the end of the current step (§2). Remaining steps
     /// report the last-held values. `target`/`change` are ignored for this mode.
     Interrupt,
+    /// [spend] Withdraw `change` from the target Resource's balance (§B3), limited to what is
+    /// available (partial when supply is short; allocation ordered by event priority).
+    Spend,
+    /// [deposit] Add `change` to the target Resource's balance (clamped to its capacity).
+    Deposit,
+    /// [borrow] Like spend, but records the borrowed amount for later return (a repair/return
+    /// event deposits it back). Modeled as a spend with a tracked outstanding balance.
+    Borrow,
 }
 
 /// `quantity_expr`: a fixed quantity or a bare AST (no formula-string fallback).

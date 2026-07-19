@@ -500,3 +500,15 @@ unresolved refs / bare unit-less literals, so what remains is signal.
 the checker-gap items (reserved-global dims, Volume≡Length³) are a follow-up checker refinement
 before strict could ever default on. No corpus model is *blocked* — warn mode is unchanged and
 all 213 still run.
+
+---
+
+## Tier-B B3 emit deltas (schema 0.9.4: queues + resources)
+
+- **Queue / Event-Delay decode.** GoldSim Event Delay / Discrete-Change Delay elements map to
+  `value_rule: "queue"` (`{input, delay_time, capacity?, discipline}`). Emit a secondary output
+  with `role: "num_in_queue"` for the queue-level signal; throughput is the primary output.
+- **Resource decode.** GoldSim Resource / Resource Store → `primitive: "resource"`
+  (`{initial_value, capacity?}`). Spend/Borrow/Deposit actions on it → event `effect_spec.mode`
+  `spend`/`borrow`/`deposit`. Borrow pairs with a return/repair event (a reverse transition
+  restores it) — wire the return to a `failure_state_machine` repair or a triggered deposit.
