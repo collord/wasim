@@ -30,6 +30,18 @@ pub struct RunConfig {
     /// stays the statistical/state/reporting lattice — sub-steps consume no randomness and the
     /// results contract is unchanged).
     pub timebase: TimebaseMode,
+    /// Dimensional analysis mode (B5, gap #6). `Warn` (default) logs dimensional inconsistencies
+    /// and continues (numeric behavior unchanged). `Strict` turns any inconsistency into a hard
+    /// load error before the run. Unknown units / unresolved refs are always exempt.
+    pub units: UnitsMode,
+}
+
+/// Dimensional-analysis strictness for a run (B5). See `RunConfig.units`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum UnitsMode {
+    #[default]
+    Warn,
+    Strict,
 }
 
 /// Timebase selection for a run (B1). See `RunConfig.timebase`.
@@ -49,6 +61,7 @@ impl Default for RunConfig {
             timestep_override: None,
             results_spec: None,
             timebase: TimebaseMode::Fixed,
+            units: UnitsMode::Warn,
         }
     }
 }

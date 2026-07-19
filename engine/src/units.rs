@@ -11,6 +11,75 @@ use std::collections::BTreeSet;
 use crate::model::QuantityOrFormula;
 use crate::model_v2::{FixedValue, Model, NodeRule, Primitive};
 
+pub mod dim {
+    //! Full dimensional signature as an exponent vector over the independent base dimensions
+    //! {Time, Length, Mass, Volume, Temperature}. Composes correctly under ×, ÷, and integer
+    //! powers — unlike the single num/denom `UnitDim`, which cannot represent m², mass²/vol, etc.
+    //! Used by the B5 static dimension checker (`infer_dim`). Dimensionless = all exponents zero.
+
+    /// Exponent per base dimension: [Time, Length, Mass, Volume, Temperature].
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub struct Dim(pub [i8; 5]);
+
+    pub const DIMENSIONLESS: Dim = Dim([0, 0, 0, 0, 0]);
+    pub const TIME: Dim = Dim([1, 0, 0, 0, 0]);
+    pub const LENGTH: Dim = Dim([0, 1, 0, 0, 0]);
+    pub const MASS: Dim = Dim([0, 0, 1, 0, 0]);
+    pub const VOLUME: Dim = Dim([0, 0, 0, 1, 0]);
+    pub const TEMPERATURE: Dim = Dim([0, 0, 0, 0, 1]);
+
+    impl Dim {
+        pub fn is_dimensionless(&self) -> bool {
+            self.0 == [0; 5]
+        }
+        pub fn mul(self, other: Dim) -> Dim {
+            let mut d = self.0;
+            for i in 0..5 {
+                d[i] += other.0[i];
+            }
+            Dim(d)
+        }
+        pub fn div(self, other: Dim) -> Dim {
+            let mut d = self.0;
+            for i in 0..5 {
+                d[i] -= other.0[i];
+            }
+            Dim(d)
+        }
+        /// Raise to an integer power (used for `pow` with a literal integer exponent).
+        pub fn powi(self, n: i8) -> Dim {
+            let mut d = self.0;
+            for e in d.iter_mut() {
+                *e *= n;
+            }
+            Dim(d)
+        }
+        /// Halve each exponent (for `sqrt`). `None` if any exponent is odd (non-integer result).
+        pub fn sqrt(self) -> Option<Dim> {
+            let mut d = self.0;
+            for e in d.iter_mut() {
+                if *e % 2 != 0 {
+                    return None;
+                }
+                *e /= 2;
+            }
+            Some(Dim(d))
+        }
+    }
+
+    /// The full dimension of a base dimension from the `super::BaseDim` enum.
+    pub fn of_base(b: super::BaseDim) -> Dim {
+        use super::BaseDim::*;
+        match b {
+            Time => TIME,
+            Length => LENGTH,
+            Mass => MASS,
+            Volume => VOLUME,
+            Dimensionless => DIMENSIONLESS,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BaseDim {
     Time,
@@ -144,6 +213,217 @@ fn celsius_to_temp(unit: &str) -> Option<(f64, f64)> {
     }
 }
 
+/// Full dimensional signature of a unit string (temperature-aware; supports one `/`).
+/// `None` = unrecognized unit → the checker treats that subtree as exempt (warn, don't reject).
+pub fn dim_of_unit(unit: &str) -> Option<dim::Dim> {
+    let u = unit.trim();
+    if matches!(u, "1" | "" | "-" | "frac" | "fraction" | "%") {
+        return Some(dim::DIMENSIONLESS);
+    }
+    if temp_to_celsius(u).is_some() {
+        return Some(dim::TEMPERATURE);
+    }
+    // Composite num/denom (one slash).
+    if let Some(slash) = u.find('/') {
+        let (n, d) = (u[..slash].trim(), u[slash + 1..].trim());
+        let nd = if n.is_empty() || n == "1" {
+            dim::DIMENSIONLESS
+        } else {
+            dim::of_base(simple(n)?.1)
+        };
+        let dd = dim::of_base(simple(d)?.1);
+        return Some(nd.div(dd));
+    }
+    simple(u).map(|(_, b)| dim::of_base(b))
+}
+
+/// The declared output dimension of an element (its primary output unit / fixed-scalar unit).
+/// `None` if the unit is unrecognized (exempt from checking).
+fn element_dim(elem: &crate::model_v2::Element) -> Option<dim::Dim> {
+    let unit = match &elem.primitive {
+        Primitive::Node(n) => match &n.rule {
+            NodeRule::Fixed { value: FixedValue::Scalar(q), .. } => q.unit.as_str(),
+            NodeRule::Fixed { value: FixedValue::Array { unit, .. }, .. } => unit.as_str(),
+            _ => elem.base.outputs.first().map(|o| o.unit.as_str()).unwrap_or("1"),
+        },
+        Primitive::Stock(s) => s.initial_value.unit.as_str(),
+        _ => elem.base.outputs.first().map(|o| o.unit.as_str()).unwrap_or("1"),
+    };
+    dim_of_unit(unit)
+}
+
+/// Outcome of inferring an AST subtree's dimension.
+enum DimResult {
+    /// A definite dimension.
+    Known(dim::Dim),
+    /// Unknown/unresolvable (unrecognized unit, external call, unresolved ref) — exempt.
+    Exempt,
+    /// A dimensional inconsistency inside the subtree, with a message.
+    Mismatch(String),
+}
+
+/// Statically infer an AST's dimension, resolving `ref`s against `elem_dims` (element id →
+/// declared output dim). Detects: add/sub/compare of unequal dims, transcendentals of a
+/// dimensioned argument, sqrt of an odd-exponent dim, and `if` branches of unequal dims.
+/// Unknown units / external calls / unresolved refs make the subtree Exempt (never a hard error),
+/// so partially-emitted models still load under strict mode.
+fn infer_dim(
+    ast: &crate::model::AstNode,
+    elem_dims: &std::collections::HashMap<String, Option<dim::Dim>>,
+    lookups: &std::collections::HashMap<String, (Option<dim::Dim>, Option<dim::Dim>)>,
+) -> DimResult {
+    use crate::model::{AstNode::*, TimeProperty};
+    use DimResult::*;
+
+    // Combine two subtrees, propagating Mismatch/Exempt.
+    let both = |l: &crate::model::AstNode, r: &crate::model::AstNode| -> Result<(dim::Dim, dim::Dim), DimResult> {
+        let (ld, rd) = (infer_dim(l, elem_dims, lookups), infer_dim(r, elem_dims, lookups));
+        match (ld, rd) {
+            (Mismatch(m), _) | (_, Mismatch(m)) => Err(Mismatch(m)),
+            (Exempt, _) | (_, Exempt) => Err(Exempt),
+            (Known(a), Known(b)) => Ok((a, b)),
+        }
+    };
+
+    match ast {
+        // A literal WITH an explicit unit carries that dimension. A bare (unit-less) literal is
+        // dimension-agnostic — it takes on whatever dimension its context needs (a constant `5`
+        // may be a count, a rate multiplier, or a dimensioned magnitude the emitter left unitless).
+        // Treat it as Exempt so a pure-constant expression never trips the declared-vs-inferred
+        // check; the real bugs (dimensioned args to transcendentals, add/compare of mismatched
+        // *dimensioned* operands) still surface.
+        Literal { unit, .. } => match unit {
+            Some(u) => dim_of_unit(u).map(Known).unwrap_or(Exempt),
+            None => Exempt,
+        },
+        Ref { element_id, .. } => match elem_dims.get(element_id) {
+            Some(Some(d)) => Known(*d),
+            Some(None) => Exempt, // referenced element's unit is unrecognized
+            None => Exempt,       // unresolved ref (reserved global, submodel port, …)
+        },
+        TimeRef { property } => match property {
+            // Elapsed/timestep carry Time; calendar fields are dimensionless counts.
+            TimeProperty::Elapsed | TimeProperty::Timestep => Known(dim::TIME),
+            _ => Known(dim::DIMENSIONLESS),
+        },
+        Add { left, right } | Subtract { left, right } => match both(left, right) {
+            Ok((a, b)) if a == b => Known(a),
+            Ok((a, b)) => Mismatch(format!("add/subtract of incompatible dimensions {a:?} and {b:?}")),
+            Err(e) => e,
+        },
+        Multiply { left, right } => match both(left, right) {
+            Ok((a, b)) => Known(a.mul(b)),
+            Err(e) => e,
+        },
+        Divide { left, right } => match both(left, right) {
+            Ok((a, b)) => Known(a.div(b)),
+            Err(e) => e,
+        },
+        Power { left, right } => {
+            // Only a literal integer exponent yields a definite dimension.
+            let base = infer_dim(left, elem_dims, lookups);
+            match (&base, &**right) {
+                (Mismatch(_), _) | (Exempt, _) => base,
+                (Known(d), Literal { value, .. }) if value.fract() == 0.0 && value.abs() <= 8.0 => {
+                    if d.is_dimensionless() { Known(dim::DIMENSIONLESS) } else { Known(d.powi(*value as i8)) }
+                }
+                // Dimensionless base to any power stays dimensionless; else exempt (non-integer/var exponent).
+                (Known(d), _) if d.is_dimensionless() => Known(dim::DIMENSIONLESS),
+                _ => Exempt,
+            }
+        }
+        // Comparisons and boolean ops yield a dimensionless 1/0; operands must be comparable.
+        Lt { left, right } | Gt { left, right } | Lte { left, right }
+        | Gte { left, right } | Eq { left, right } | Neq { left, right } => match both(left, right) {
+            Ok((a, b)) if a == b => Known(dim::DIMENSIONLESS),
+            Ok((a, b)) => Mismatch(format!("comparison of incompatible dimensions {a:?} and {b:?}")),
+            Err(e) => e,
+        },
+        And { left, right } | Or { left, right } => match both(left, right) {
+            Ok(_) => Known(dim::DIMENSIONLESS),
+            Err(e) => e,
+        },
+        Neg { operand } | Not { operand } => infer_dim(operand, elem_dims, lookups),
+        If { cond, then, else_ } => {
+            if let Mismatch(m) = infer_dim(cond, elem_dims, lookups) {
+                return Mismatch(m);
+            }
+            match both(then, else_) {
+                Ok((a, b)) if a == b => Known(a),
+                Ok((a, b)) => Mismatch(format!("if branches have incompatible dimensions {a:?} and {b:?}")),
+                Err(e) => e,
+            }
+        }
+        Call { func, args } => infer_call(func, args, elem_dims, lookups),
+        LookupCall { element_id, input, input2 } => {
+            // The lookup's declared y (output) dim, adjusted by TBL_* mode.
+            if let Mismatch(m) = infer_dim(input, elem_dims, lookups) {
+                return Mismatch(m);
+            }
+            let (x_dim, y_dim) = lookups.get(element_id).copied().unwrap_or((None, None));
+            let mode = match input2.as_deref() {
+                Some(Ref { element_id: n, .. }) => n.as_str(),
+                _ => "",
+            };
+            match (y_dim, x_dim) {
+                (Some(y), x) => match mode {
+                    // ∫y dx → y·x ; d/dx → y/x ; inverse → x ; else y.
+                    "TBL_Integral" => x.map(|xd| Known(y.mul(xd))).unwrap_or(Exempt),
+                    "TBL_Derivative" => x.map(|xd| Known(y.div(xd))).unwrap_or(Exempt),
+                    "TBL_Inverse" | "TBL_Inv_Integral" => x.map(Known).unwrap_or(Exempt),
+                    _ => Known(y),
+                },
+                _ => Exempt,
+            }
+        }
+        // Arrays/comprehensions/submodel-stats/extern: not dimension-checked (exempt).
+        _ => Exempt,
+    }
+}
+
+/// Dimension of a builtin call. Transcendentals require a dimensionless argument; abs/min/max
+/// pass the (shared) operand dimension; sqrt halves; math on angles etc. is dimensionless.
+fn infer_call(
+    func: &crate::model::BuiltinFn,
+    args: &[crate::model::AstNode],
+    elem_dims: &std::collections::HashMap<String, Option<dim::Dim>>,
+    lookups: &std::collections::HashMap<String, (Option<dim::Dim>, Option<dim::Dim>)>,
+) -> DimResult {
+    use crate::model::BuiltinFn::*;
+    use DimResult::*;
+
+    let arg = |i: usize| -> DimResult {
+        args.get(i).map(|a| infer_dim(a, elem_dims, lookups)).unwrap_or(Exempt)
+    };
+
+    match func {
+        // Transcendental / dimensionless-argument functions: argument must be dimensionless.
+        Exp | Ln | Log | Log2 | Sin | Cos | Tan | Asin | Acos | Atan | Sinh | Cosh | Tanh
+        | Erf | Erfc | Gamma => match arg(0) {
+            Known(d) if d.is_dimensionless() => Known(dim::DIMENSIONLESS),
+            Known(d) => Mismatch(format!("{func:?} requires a dimensionless argument, got {d:?}")),
+            other => other,
+        },
+        // Abs/Min/Max/Round/Floor/Ceil preserve the operand dimension (min/max require equal dims).
+        Abs | Floor | Ceil | Round | Int | Sign => arg(0),
+        Min | Max => {
+            let (a, b) = (arg(0), arg(1));
+            match (a, b) {
+                (Mismatch(m), _) | (_, Mismatch(m)) => Mismatch(m),
+                (Exempt, x) | (x, Exempt) => x,
+                (Known(x), Known(y)) if x == y => Known(x),
+                (Known(x), Known(y)) => Mismatch(format!("{func:?} of incompatible dimensions {x:?} and {y:?}")),
+            }
+        }
+        Sqrt => match arg(0) {
+            Known(d) => d.sqrt().map(Known).unwrap_or(Exempt),
+            other => other,
+        },
+        // Everything else (atan2, pv/annuity, array ops, table introspection): exempt.
+        _ => Exempt,
+    }
+}
+
 /// Load-time dimensional validation. Returns human-readable warnings; the engine continues
 /// with declared values regardless.
 pub fn validate(model: &Model) -> Vec<String> {
@@ -176,6 +456,64 @@ pub fn validate(model: &Model) -> Vec<String> {
         warnings.push(format!("unrecognized unit '{u}' (not in the SI registry)"));
     }
     warnings
+}
+
+/// Static dimensional analysis (B5): infer each expression element's AST dimension and check it
+/// against the element's declared output dimension. Returns a list of dimensional errors (empty =
+/// consistent). Unknown units / unresolved refs / unsupported nodes are exempt (never reported),
+/// so a partially-emitted model produces no false positives.
+///
+/// The engine calls this at graph-build time; `RunConfig.units == Strict` turns a non-empty list
+/// into a hard load error, `Warn` (default) logs each and continues.
+pub fn check_dimensions(model: &Model) -> Vec<String> {
+    use std::collections::HashMap;
+
+    // Element id → declared output dimension (None = unrecognized unit → exempt).
+    let elem_dims: HashMap<String, Option<dim::Dim>> = model
+        .elements
+        .iter()
+        .map(|e| (e.id().to_string(), element_dim(e)))
+        .collect();
+
+    // Lookup id → (x-axis dim, y/output dim) for TBL_* dimension adjustment.
+    let lookups: HashMap<String, (Option<dim::Dim>, Option<dim::Dim>)> = model
+        .elements
+        .iter()
+        .filter_map(|e| {
+            if let Primitive::Node(n) = &e.primitive {
+                if let NodeRule::Lookup(t) = &n.rule {
+                    let xd = t.x_unit.as_deref().and_then(dim_of_unit);
+                    let yd = t.y_unit.as_deref().and_then(dim_of_unit);
+                    return Some((e.id().to_string(), (xd, yd)));
+                }
+            }
+            None
+        })
+        .collect();
+
+    let mut errors = Vec::new();
+    for elem in &model.elements {
+        let Primitive::Node(n) = &elem.primitive else { continue };
+        let NodeRule::Expression(ef) = &n.rule else { continue };
+        match infer_dim(&ef.ast, &elem_dims, &lookups) {
+            DimResult::Mismatch(m) => {
+                errors.push(format!("element '{}': {m}", elem.id()));
+            }
+            DimResult::Known(inferred) => {
+                // Compare against the declared output dim, when both are known.
+                if let Some(Some(declared)) = elem_dims.get(elem.id()) {
+                    if inferred != *declared {
+                        errors.push(format!(
+                            "element '{}': expression dimension {inferred:?} ≠ declared output dimension {declared:?}",
+                            elem.id()
+                        ));
+                    }
+                }
+            }
+            DimResult::Exempt => {}
+        }
+    }
+    errors
 }
 
 fn note(unit: &str, unknown: &mut BTreeSet<String>) {

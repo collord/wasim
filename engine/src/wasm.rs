@@ -34,6 +34,9 @@ struct JsRunConfig {
     /// Timebase mode (B1): "fixed" (default) or "event_accurate".
     #[serde(default)]
     timebase: Option<String>,
+    /// Units mode (B5): "warn" (default) or "strict".
+    #[serde(default)]
+    units: Option<String>,
 }
 
 // ── WasmEngine ────────────────────────────────────────────────────────────────
@@ -80,6 +83,10 @@ impl WasmEngine {
             timebase: match js.timebase.as_deref() {
                 Some("event_accurate") => crate::engine::TimebaseMode::EventAccurate,
                 _ => crate::engine::TimebaseMode::Fixed,
+            },
+            units: match js.units.as_deref() {
+                Some("strict") => crate::engine::UnitsMode::Strict,
+                _ => crate::engine::UnitsMode::Warn,
             },
         };
         let mut results = run_v2(&self.model, &self.graph, &config)

@@ -60,6 +60,8 @@ impl ModelParams {
             results_spec: base.results_spec,
             // timebase is a runtime mode, not a params-file override; carry base.
             timebase: base.timebase,
+            // units mode is a runtime mode, not a params-file override; carry base.
+            units: base.units,
         }
     }
 }

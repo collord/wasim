@@ -462,3 +462,41 @@ The engine now executes the Tier-A GoldSim-parity features. Emit-facing hooks:
    now *enforced* from the existing `optimization.constraints[].condition` (encode a
    feasibility predicate as a comparison AST that evaluates to 1.0/0.0); the richer
    results/analysis layer is a `RunConfig.results_spec` (host-configured), no schema.
+
+---
+
+## Tier-B B5 strict-units corpus triage (2026-07-19, schema unchanged — runtime flag)
+
+`units::check_dimensions` (static AST dimension propagation) run over all 213 corpus models.
+Result: **21 models / 48 dimensional inconsistencies.** Strict mode (`RunConfig.units: strict`)
+stays **default-OFF (warn)** until these are triaged; the checker is exempt on unknown units /
+unresolved refs / bare unit-less literals, so what remains is signal.
+
+**Classification of the residual errors:**
+
+1. **Real findings (emit or model-declaration bugs) — the high-value ones B5 exists to catch:**
+   - `previousvalue.json`: `Sin`/`Cos` of a **Time**-dimensioned argument (an ETime), which is
+     dimensionally undefined — emit should feed a dimensionless phase (`2π·t/period`), not raw t.
+     This is the same *class* as the OU/GBM basis explosion (emit-issues §1).
+   - `salmon.json` `Surviving_Juveniles`, `work_under_pressure.json` `Frac_WorkRemaining`:
+     inferred **1/Time** for an output declared **dimensionless (fraction)** — a rate is being
+     used where a fraction is expected (missing a ·dt or a normalization). Likely real.
+   - `extrema.json` `X2`: add/subtract of Time and dimensionless — mixed operands.
+   - `discreteevents.json` `Status1`: comparison of Time vs dimensionless.
+
+2. **Checker gaps / benign (fix the checker, or accept) — mostly the residual
+   "inferred-dimensionless ≠ declared-dimensioned" and unit-declaration slack:**
+   - `monod.json`, `residence_time.json`, several concentration/Kd models: the expression
+     divides by an element the checker resolved to Exempt (submodel port / reserved global), so
+     the numerator's dimension is lost → inferred dimensionless. Not a real bug; a checker
+     limitation (unresolved-ref propagation). Widening ref resolution to reserved-global dims
+     (gee=accel, TimestepLength=Time, …) would clear these.
+   - `demonstration_llw_sa_model_v1_15.json` (11): Kd/porosity/density declarations where the
+     emitted `unit` string and the expression's composed dimension disagree by a benign factor
+     (e.g. `L/kg` vs `m3/kg`) — same dimension family, different registry base (Volume vs
+     Length³). A checker refinement (treat Volume ≡ Length³) would reconcile most.
+
+**Action:** keep strict OFF by default; the real findings above go to emit as declaration fixes;
+the checker-gap items (reserved-global dims, Volume≡Length³) are a follow-up checker refinement
+before strict could ever default on. No corpus model is *blocked* — warn mode is unchanged and
+all 213 still run.

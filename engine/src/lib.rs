@@ -22,7 +22,7 @@ pub mod v2_parse;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-pub use engine::{run, ElementResults, RunConfig, SimulationResults, TimebaseMode, TimeHistoryStats};
+pub use engine::{run, ElementResults, RunConfig, SimulationResults, TimebaseMode, TimeHistoryStats, UnitsMode};
 pub use engine_v2::run as run_v2;
 pub use error::EngineError;
 pub use graph::ModelGraph;

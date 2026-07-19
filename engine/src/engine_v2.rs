@@ -65,6 +65,19 @@ pub fn run(
     let n_real = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations);
     let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
 
+    // Strict dimensional analysis (B5): reject a model with any dimensional inconsistency before
+    // running. `Warn` (default) leaves the pre-B5 behavior unchanged (warnings are logged in lib.rs).
+    if config.units == crate::UnitsMode::Strict {
+        let errs = crate::units::check_dimensions(model);
+        if !errs.is_empty() {
+            return Err(EngineError::InvalidModel(format!(
+                "strict dimensional analysis found {} inconsistency(ies):\n  - {}",
+                errs.len(),
+                errs.join("\n  - ")
+            )));
+        }
+    }
+
     let dt = config.timestep_override.unwrap_or(model.simulation_settings.timestep.value);
     let duration = config.duration_override.unwrap_or(model.simulation_settings.duration.value);
     if !dt.is_finite() || dt <= 0.0 {
