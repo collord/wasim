@@ -660,6 +660,19 @@ pub enum TimeProperty {
     DayOfYear,
     DayOfMonth,
     DaysInMonth,
+    // Calendar-of-day components (GoldSim Hour/Minute/Second). Calendar-aware: derived from the
+    // absolute clock (needs a `simulation_settings.calendar_start` anchor; 0 without one).
+    Hour,
+    Minute,
+    Second,
+    /// The simulation's calendar start (`calendar_start`, seconds since the Unix epoch); 0 when
+    /// no anchor is declared. GoldSim's `StartTime`.
+    Start,
+    /// Whole calendar months elapsed since the start (GoldSim `EMonth`) — NOT derivable from
+    /// `elapsed` because month lengths vary; requires the real calendar (anchor).
+    ElapsedMonths,
+    /// Whole calendar years elapsed since the start (GoldSim `EYear`); requires the anchor.
+    ElapsedYears,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

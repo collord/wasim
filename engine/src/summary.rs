@@ -403,6 +403,12 @@ fn time_prop_name(p: &TimeProperty) -> &'static str {
         TimeProperty::DayOfYear => "day_of_year",
         TimeProperty::DayOfMonth => "day_of_month",
         TimeProperty::DaysInMonth => "days_in_month",
+        TimeProperty::Hour => "hour",
+        TimeProperty::Minute => "minute",
+        TimeProperty::Second => "second",
+        TimeProperty::Start => "start",
+        TimeProperty::ElapsedMonths => "elapsed_months",
+        TimeProperty::ElapsedYears => "elapsed_years",
     }
 }
 

@@ -128,6 +128,27 @@ impl<'a> EvalCtx<'a> {
             None => CalendarState::from_elapsed(self.elapsed, self.dt_unit),
         }
     }
+
+    /// Absolute clock time (seconds since the Unix epoch) at the current step — only meaningful
+    /// with a `calendar_start` anchor. `None` without one (calendar-of-day is undefined).
+    fn abs_epoch_secs(&self) -> Option<f64> {
+        self.calendar_start
+            .map(|start| start + self.elapsed * dt_unit_seconds(self.dt_unit))
+    }
+
+    /// Calendar (years, months) elapsed since the anchor date, counting **field boundaries
+    /// crossed** (GoldSim EYear/EMonth): years = (year_now − year_start); months = the total
+    /// month-field difference (year·12 + month). Not `elapsed/30` — month/year lengths vary.
+    /// `None` without an anchor.
+    fn elapsed_calendar(&self) -> Option<(i64, i64)> {
+        let start = self.calendar_start?;
+        let now = start + self.elapsed * dt_unit_seconds(self.dt_unit);
+        let (y0, m0, _) = civil_from_secs(start);
+        let (y1, m1, _) = civil_from_secs(now);
+        let months = (y1 - y0) * 12 + (m1 as i64 - m0 as i64);
+        let years = y1 - y0;
+        Some((years, months))
+    }
 }
 
 /// Seconds per one unit of the declared timestep unit (for converting elapsed → absolute secs).
@@ -281,6 +302,14 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 TimeProperty::DayOfYear  => cal.day_of_year as f64,
                 TimeProperty::DayOfMonth => cal.day_of_month as f64,
                 TimeProperty::DaysInMonth => cal.days_in_month as f64,
+                // Calendar-of-day components (calendar-aware; 0 without an anchor).
+                TimeProperty::Hour   => ctx.abs_epoch_secs().map(|s| secs_of_day(s).0 as f64).unwrap_or(0.0),
+                TimeProperty::Minute => ctx.abs_epoch_secs().map(|s| secs_of_day(s).1 as f64).unwrap_or(0.0),
+                TimeProperty::Second => ctx.abs_epoch_secs().map(|s| secs_of_day(s).2 as f64).unwrap_or(0.0),
+                TimeProperty::Start  => ctx.calendar_start.unwrap_or(0.0),
+                // Whole calendar months/years elapsed since the anchor date.
+                TimeProperty::ElapsedMonths => ctx.elapsed_calendar().map(|(_, m)| m as f64).unwrap_or(0.0),
+                TimeProperty::ElapsedYears  => ctx.elapsed_calendar().map(|(y, _)| y as f64).unwrap_or(0.0),
             };
             Ok(Value::Scalar(v))
         }
