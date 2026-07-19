@@ -36,6 +36,26 @@ pub struct ResultsSpec {
     /// Percentile (0–100) beyond which the conditional tail expectation is computed (upper tail).
     /// Default 95.0 if final_stats set.
     pub cte_percentile: f64,
+    /// Reporting-period aggregation (B4): fixed-length period (in the timestep unit) over which
+    /// the time history is reduced (accumulated / average / change / rate). 0 = disabled. True
+    /// calendar months/years arrive with B6; pre-B6 this is a fixed length.
+    pub reporting_period: f64,
+    /// Which reductions to emit for each reporting period. Empty (with a non-zero period) = all.
+    pub reporting_reductions: Vec<ReportingReduction>,
+}
+
+/// Reporting-period reductions (B4, GoldSim's accumulated/average/change/rate).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportingReduction {
+    /// Time-integral over the period: Σ(value·dt) — for a rate, the total over the period.
+    Accumulated,
+    /// Mean of the period's step values.
+    Average,
+    /// Last minus first value in the period.
+    Change,
+    /// Change divided by the period length — the average rate of change over the period.
+    RateOfChange,
 }
 
 impl ResultsSpec {
@@ -46,7 +66,11 @@ impl ResultsSpec {
 
     /// True when the spec requests any analysis at all.
     pub fn is_active(&self) -> bool {
-        !self.percentiles.is_empty() || self.distribution || !self.capture_times.is_empty() || self.final_stats
+        !self.percentiles.is_empty()
+            || self.distribution
+            || !self.capture_times.is_empty()
+            || self.final_stats
+            || self.reporting_period > 0.0
     }
 }
 
@@ -65,6 +89,36 @@ pub struct ElementAnalysis {
     /// Final-value summary statistics.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub final_stats: Option<FinalStats>,
+    /// Reporting-period aggregation (B4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reporting_periods: Option<ReportingPeriods>,
+}
+
+/// Reporting-period aggregation result (B4): the time history reduced into fixed-length periods.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportingPeriods {
+    /// The period length (timestep units) used.
+    pub period: f64,
+    /// One entry per period (in order), each covering `[period_start, period_end)`.
+    pub periods: Vec<PeriodResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PeriodResult {
+    /// Elapsed time at the period's start (timestep units).
+    pub start: f64,
+    /// Time-integral Σ(value·dt) over the period (present if `accumulated` requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accumulated: Option<f64>,
+    /// Mean of the period's step values (present if `average` requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average: Option<f64>,
+    /// Last minus first value in the period (present if `change` requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change: Option<f64>,
+    /// Change / period length (present if `rate_of_change` requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_of_change: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,7 +243,60 @@ pub fn compute_analysis(
         None
     };
 
-    Some(ElementAnalysis { percentile_bands, distribution, captures, final_stats })
+    // Reporting-period aggregation (B4): reduce the per-step mean series into fixed-length periods.
+    let reporting_periods = if spec.reporting_period > 0.0 && !hist.is_empty() && dt > 0.0 {
+        Some(build_reporting_periods(hist, dt, spec.reporting_period, &spec.reporting_reductions))
+    } else {
+        None
+    };
+
+    Some(ElementAnalysis { percentile_bands, distribution, captures, final_stats, reporting_periods })
+}
+
+/// Reduce the per-step mean series into fixed-length reporting periods (B4). Each step is
+/// assigned to the period containing its elapsed time `step_idx·dt`; a period covers
+/// `[k·period, (k+1)·period)`. Empty periods (no steps) are skipped.
+fn build_reporting_periods(
+    hist: &[Vec<f64>],
+    dt: f64,
+    period: f64,
+    reductions: &[ReportingReduction],
+) -> ReportingPeriods {
+    use ReportingReduction::*;
+    // `want(r)` = whether reduction r is requested (empty list = all).
+    let want = |r: ReportingReduction| reductions.is_empty() || reductions.contains(&r);
+
+    // Group step indices by period.
+    let steps_per_period = (period / dt).round().max(1.0) as usize;
+    let n_steps = hist.len();
+    let mut periods = Vec::new();
+    let mut k = 0usize;
+    while k * steps_per_period < n_steps {
+        let lo = k * steps_per_period;
+        let hi = ((k + 1) * steps_per_period).min(n_steps);
+        // Period step means (mean across realizations at each step in the period).
+        let means: Vec<f64> = (lo..hi).map(|s| mean(&hist[s])).collect();
+        if means.is_empty() {
+            k += 1;
+            continue;
+        }
+        let accumulated = want(Accumulated).then(|| means.iter().map(|v| v * dt).sum());
+        let average = want(Average).then(|| mean(&means));
+        let change = want(Change).then(|| means[means.len() - 1] - means[0]);
+        let rate_of_change = want(RateOfChange).then(|| {
+            let span = (hi - lo) as f64 * dt;
+            if span > 0.0 { (means[means.len() - 1] - means[0]) / span } else { 0.0 }
+        });
+        periods.push(PeriodResult {
+            start: lo as f64 * dt,
+            accumulated,
+            average,
+            change,
+            rate_of_change,
+        });
+        k += 1;
+    }
+    ReportingPeriods { period, periods }
 }
 
 /// Build PDF (binned density), CDF, and CCDF (exceedance) from sample values.
