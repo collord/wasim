@@ -442,13 +442,34 @@ fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
     })
 }
 
+/// Normalize stock secondary-output roles into the 0.9.7 orthogonal form (§1c): split each
+/// fused `*_rate` alias into `(role: <flow>, output_kind: "rate")`, and default a flow role's
+/// `output_kind` to `"rate"` (0.9.6 back-compat, where every stock role was a rate). After this,
+/// the engine only ever matches on flow-only names + an explicit kind — the aliases can't drift.
+fn normalize_output_roles(outputs: &mut [OutputSpec]) {
+    for o in outputs.iter_mut() {
+        let Some(role) = o.role.as_deref() else { continue };
+        let (flow, kind) = match role {
+            "addition_rate" => ("addition", "rate"),
+            "withdrawal_rate" => ("withdrawal", "rate"),
+            "overflow_rate" => ("overflow", "rate"),
+            // Already a flow-only name: keep the flow, default the kind to `rate` if unset.
+            other => (other, o.output_kind.as_deref().unwrap_or("rate")),
+        };
+        o.role = Some(flow.to_string());
+        o.output_kind = Some(kind.to_string());
+    }
+}
+
 fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
+    let mut outputs = e.outputs.clone();
+    normalize_output_roles(&mut outputs);
     let base = v2::ElementBase {
         id: e.id.clone(),
         name: e.name.clone(),
         container: e.container.clone(),
         description: e.description.clone(),
-        outputs: e.outputs.clone(),
+        outputs,
         save_results: e.save_results.clone(),
         inputs: e.inputs.clone(),
         source_type: e.source_type.clone(),

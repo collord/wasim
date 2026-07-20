@@ -479,6 +479,12 @@ pub fn run(
             }
         }
 
+        // Cumulative flow totals per stock (§1c, `output_kind: cumulative`): the running total of
+        // each flow (addition / withdrawal / overflow / net_change) since the run start, in level
+        // units. Incremented by the applied *amount* (rate · sub_dt) each sub-interval, so the sum
+        // is correct under B1 sub-stepping and consumes no RNG. Keyed by (stock id, flow name).
+        let mut stock_cumulative: HashMap<(String, &'static str), f64> = HashMap::new();
+
         // Per-realization state for stateful node rules.
         let mut hyst_state: HashMap<String, bool> = HashMap::new();
         let mut filter_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
@@ -709,12 +715,40 @@ pub fn run(
             // after this grid step; declared here so it survives the inner loop.
             let mut interrupt_now = false;
             let mut sub_t = elapsed;
+            // Bound-crossing sub-splitting (B1 gap #1). When a bounded stock crosses its
+            // floor/capacity strictly inside a sub-interval under `EventAccurate`, we shorten this
+            // sub-interval to land exactly on the bound and re-run the body from `sub_t`, so the
+            // *next* sub-interval re-evaluates coupled downstream elements at the crossing instant.
+            // `forced_sub_end` carries the shortened end across the retry `continue`; the snapshot
+            // (below) restores the mutable state the aborted try touched. `splits_this_step` caps
+            // the number of crossing subdivisions per grid step (pathological-rate backstop).
+            let mut forced_sub_end: Option<f64> = None;
+            let mut splits_this_step: usize = 0;
+            const MAX_SPLITS_PER_STEP: usize = 64;
             loop {
-                // Next scheduled boundary (if any) inside this step, else the grid end.
+                // Next scheduled boundary (if any) inside this step, else the grid end. A pending
+                // forced crossing end (from an aborted try at this same `sub_t`) takes precedence.
                 let next_sched = split_iter.peek().copied().unwrap_or(grid_end);
-                let sub_end = next_sched.min(grid_end);
+                let sub_end = match forced_sub_end {
+                    Some(fc) => fc,
+                    None => next_sched.min(grid_end),
+                };
                 let sub_dt = (sub_end - sub_t).max(0.0);
                 let is_last = sub_end >= grid_end - crate::timebase::EPS;
+
+                // Snapshot the state a crossing re-run must roll back: stock levels, published
+                // outputs, cell masses, and drained source inventories. Everything else the body
+                // mutates (`link_delta`, `stock_event`, `next_vals`, …) is rebuilt each sub-interval,
+                // and grid-only rules / the event pass run only when `is_last` (never on a shortened,
+                // crossing-truncated try), so no RNG or grid-only state is captured or replayed.
+                // Under Fixed timebase (no crossings possible) these clones are never restored.
+                let snap_stock_state = if use_event_accurate { Some(stock_state.clone()) } else { None };
+                let snap_outputs = if use_event_accurate { Some(outputs.clone()) } else { None };
+                let snap_cell_mass = if use_event_accurate { Some(cell_mass.clone()) } else { None };
+                let snap_source_inv = if use_event_accurate { Some(source_inv.clone()) } else { None };
+                // Cumulative flow totals are incremented in the publish loop each sub-interval; a
+                // crossing re-run must roll them back too, or the aborted try's amounts double-count.
+                let snap_stock_cumulative = if use_event_accurate { Some(stock_cumulative.clone()) } else { None };
 
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
@@ -1266,13 +1300,19 @@ pub fn run(
             // (net_change is derived after the level settles).
             let mut stock_rates: HashMap<String, (f64, f64, f64)> = HashMap::new();
             let mut stock_prev_level: HashMap<String, f64> = HashMap::new();
+            // Bound-crossing inputs (B1 gap #1): for each bounded stock, the level at sub-interval
+            // start and the net Euler rate over this sub-interval (from the *unclamped* trajectory),
+            // so `BoundCrossing` can solve the closed-form crossing time after the pass. Populated
+            // only under EventAccurate; empty (and unused) under Fixed.
+            let mut stock_bound_views: Vec<crate::timebase::StockBoundView> = Vec::new();
             for &id in &stock_ids {
                 let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive else { continue };
                 // Integration uses the SUB-interval clock (sub_t/sub_dt); == elapsed/dt on a
                 // fixed grid, so this pass is bit-identical there.
                 let ctx = ctx_at(&lookups, &outputs, &prev_outputs, sub_t, sub_dt, &dt_unit, step_idx, &arr);
                 let current = stock_state[id].clone();
-                stock_prev_level.insert(id.to_string(), current.as_scalar());
+                let level_start = current.as_scalar();
+                stock_prev_level.insert(id.to_string(), level_start);
 
                 // Trait priority_withdrawal: allocate available stock by priority. `request`/
                 // `limit` are rates (amount = rate·sub_dt); each target outputs its allocation.
@@ -1336,15 +1376,38 @@ pub fn run(
                         next = next.map(move |_| s);
                     }
                 }
+                // Evaluate the capacity bound (if any) before clamping, so the bound-crossing view
+                // below and the clamp below share one value. `cap_vals` is consumed by the overflow
+                // re-clamp pass.
+                let cap_val_opt: Option<f64> = if let Some(cap) = &s.capacity {
+                    let cv = eval_qof_value(cap, &ctx)?.as_scalar();
+                    cap_vals.insert(id.to_string(), cv);
+                    Some(cv)
+                } else {
+                    None
+                };
+                // Bound-crossing view (B1 gap #1): record the *unclamped* trajectory (level at
+                // sub-interval start, net Euler rate) against this stock's floor/capacity, so the
+                // provider can solve the closed-form crossing time. Capture BEFORE the clamps below,
+                // since it is the unclamped trajectory that reaches the bound. Scalar stocks only —
+                // array stocks are not bound-split in phase 1 (their `as_scalar` is the mean/first).
+                if use_event_accurate && sub_dt > 0.0 && (s.floor.is_some() || cap_val_opt.is_some()) {
+                    let pre_clamp_next = next.as_scalar();
+                    let net_rate = (pre_clamp_next - level_start) / sub_dt;
+                    stock_bound_views.push(crate::timebase::StockBoundView {
+                        level: level_start,
+                        rate: net_rate,
+                        floor: s.floor.as_ref().map(|f| f.value),
+                        capacity: cap_val_opt,
+                    });
+                }
                 if let Some(floor) = &s.floor {
                     let lo = floor.value;
                     next = next.map(|v| v.max(lo));
                 }
                 // Trait capacity_clamp (+ overflow_routing): clamp to capacity, route excess.
                 let mut ovf_rate = 0.0;
-                if let Some(cap) = &s.capacity {
-                    let cap_val = eval_qof_value(cap, &ctx)?.as_scalar();
-                    cap_vals.insert(id.to_string(), cap_val);
+                if let Some(cap_val) = cap_val_opt {
                     let cur = next.as_scalar();
                     if cur > cap_val {
                         let excess = cur - cap_val;
@@ -1395,16 +1458,33 @@ pub fn run(
                     continue;
                 }
                 let (add, wd, ovf) = stock_rates.get(id).copied().unwrap_or((0.0, 0.0, 0.0));
-                let net = stock_state.get(id).map(|v| v.as_scalar()).unwrap_or(0.0)
-                    - stock_prev_level.get(id).copied().unwrap_or(0.0);
+                let level = stock_state.get(id).map(|v| v.as_scalar()).unwrap_or(0.0);
+                let net = level - stock_prev_level.get(id).copied().unwrap_or(0.0);
                 for (k, spec) in base.outputs.iter().enumerate().skip(1) {
-                    let Some(role) = &spec.role else { continue };
-                    let v = match role.as_str() {
-                        "addition_rate" => add,
-                        "withdrawal_rate" => wd,
-                        "overflow_rate" => ovf,
-                        "net_change" => if sub_dt > 0.0 { net / sub_dt } else { 0.0 },
+                    let Some(role) = spec.role.as_deref() else { continue };
+                    // After parse-normalization `role` is a flow name and `output_kind` is set
+                    // (defaulting to "rate"); the per-step `rate` for each flow, plus the flow's
+                    // applied amount this sub-interval (rate · sub_dt) for the cumulative total.
+                    let (rate, flow): (f64, &'static str) = match role {
+                        "addition" => (add, "addition"),
+                        "withdrawal" => (wd, "withdrawal"),
+                        "overflow" => (ovf, "overflow"),
+                        "net_change" => (if sub_dt > 0.0 { net / sub_dt } else { 0.0 }, "net_change"),
                         _ => continue,
+                    };
+                    let kind = spec.output_kind.as_deref().unwrap_or("rate");
+                    let v = match kind {
+                        "level" => level,
+                        "cumulative" => {
+                            // `net_change` is already the level delta over the sub-interval; the
+                            // other flows are rates → amount = rate · sub_dt.
+                            let amount = if flow == "net_change" { net } else { rate * sub_dt };
+                            let entry = stock_cumulative.entry((id.to_string(), flow)).or_default();
+                            *entry += amount;
+                            *entry
+                        }
+                        // "rate" (and any unknown kind → rate, back-compat).
+                        _ => rate,
                     };
                     outputs.insert(format!("{id}#{}", k + 1), Value::Scalar(v));
                 }
@@ -1559,6 +1639,51 @@ pub fn run(
                     }
                 }
             }
+
+                // ── Bound-crossing detection (B1 gap #1). Under EventAccurate, if a bounded stock
+                // crossed its floor/capacity strictly inside this sub-interval, roll back this try
+                // (restore the snapshot) and re-run shortened to the crossing instant, so the next
+                // sub-interval re-evaluates coupled downstream elements against the clamped level.
+                // The re-run consumes no RNG and does not touch grid-only state: those run only when
+                // `is_last`, and a crossing-truncated interval ends before `grid_end` (never last).
+                if use_event_accurate && !stock_bound_views.is_empty() {
+                    use crate::timebase::TimebaseProvider as _;
+                    let view = crate::timebase::StepView {
+                        step_idx,
+                        t_start: sub_t,
+                        dt: sub_dt,
+                        stock_bounds: &stock_bound_views,
+                    };
+                    let crossing = crate::timebase::BoundCrossing
+                        .split_points(&view)
+                        .into_iter()
+                        .next();
+                    if let Some(t_c) = crossing {
+                        if t_c > sub_t + crate::timebase::EPS && t_c < sub_end - crate::timebase::EPS {
+                            if splits_this_step < MAX_SPLITS_PER_STEP {
+                                // Roll back this aborted try and re-run shortened to the crossing.
+                                stock_state = snap_stock_state.unwrap();
+                                outputs = snap_outputs.unwrap();
+                                cell_mass = snap_cell_mass.unwrap();
+                                source_inv = snap_source_inv.unwrap();
+                                stock_cumulative = snap_stock_cumulative.unwrap();
+                                forced_sub_end = Some(t_c);
+                                splits_this_step += 1;
+                                continue;
+                            } else {
+                                // Pathological always-crossing rate: cap the subdivisions and let
+                                // this (grid-quantized) sub-interval commit so the run completes.
+                                eprintln!(
+                                    "warn: bound-crossing splits exceeded {MAX_SPLITS_PER_STEP} at \
+                                     step {step_idx}; integrating remainder grid-quantized"
+                                );
+                            }
+                        }
+                    }
+                }
+                // Committed for real: clear any forced crossing end so the next sub-interval picks
+                // its boundary from the scheduled splits / grid end again.
+                forced_sub_end = None;
 
                 // ── End of this sub-interval: advance. Consume the scheduled boundary we just
                 // integrated up to, and stop once we reach the grid end.

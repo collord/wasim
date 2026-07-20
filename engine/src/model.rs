@@ -244,12 +244,18 @@ pub struct OutputSpec {
     /// Empty = scalar. See wasim-engine-semantics.md §15.
     #[serde(default)]
     pub dimensions: Vec<String>,
-    /// Semantic role of a stock's secondary output port (§1c): `addition_rate`,
-    /// `withdrawal_rate`, `overflow_rate`, or `net_change`. The engine publishes a value
-    /// for secondary outputs that declare a role; role-less secondaries resolve to the
-    /// element's primary value (the pre-0.9.2 behavior).
+    /// Flow a stock's secondary output port reports (§1c). Flow-only names (0.9.7):
+    /// `addition`, `withdrawal`, `overflow`, `net_change`. The fused `*_rate` names
+    /// (`addition_rate`/`withdrawal_rate`/`overflow_rate`) are 0.9.6 aliases and are
+    /// normalized at parse into `<flow>` + `output_kind: rate` (see `normalize_output_roles`).
+    /// Role-less secondaries resolve to the element's primary value (pre-0.9.2 behavior).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// How the roled flow accumulates (§1c): `level` (the stock's own value), `rate`
+    /// (per-step applied flow), or `cumulative` (running total since run start). Absent on
+    /// plain outputs; defaults to `rate` when a flow `role` is present (0.9.6 back-compat).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_kind: Option<String>,
 }
 
 /// A named, ordered dimension (ordinal set) — `size` members, optionally labeled.
