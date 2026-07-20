@@ -228,16 +228,40 @@ pub fn run(
         }
     }).collect();
 
+    // Cell pore-volume inputs for concentration outputs (S2, §5): cell bulk volume and each
+    // medium's porosity. Concentration C = mass / (volume · medium_fraction · porosity). Volume
+    // absent → concentration is undefined for that cell (mass-only, skipped). Porosity/fraction
+    // default to 1.0 (a bulk medium). Static (qof_const) — matches how `fraction` is resolved above.
+    let cell_volume: HashMap<String, f64> = model.elements.iter().filter_map(|e| {
+        if let Primitive::Cell(c) = &e.primitive {
+            c.volume.as_ref().map(|v| (e.id().to_string(), qof_const(v)))
+        } else {
+            None
+        }
+    }).collect();
+    let medium_porosity: HashMap<String, f64> = model.elements.iter().filter_map(|e| {
+        if let Primitive::Medium(m) = &e.primitive {
+            Some((e.id().to_string(), m.porosity.as_ref().map(qof_const).unwrap_or(1.0)))
+        } else {
+            None
+        }
+    }).collect();
+
     // Result ids: per-(cell, species) total, plus per-medium for multi-medium cells.
     let mut cell_species_ids: Vec<String> = Vec::new();
     for elem in &model.elements {
         if let Primitive::Cell(c) = &elem.primitive {
             if should_save_history(elem) || should_save_final(elem) {
+                let has_volume = c.volume.as_ref().map(qof_const).map(|v| v > 0.0).unwrap_or(false);
                 for sp in &c.species {
                     cell_species_ids.push(format!("{}:{}", elem.id(), sp.species));
                     if !c.media.is_empty() {
                         for m in &c.media {
                             cell_species_ids.push(format!("{}:{}@{}", elem.id(), sp.species, m.medium));
+                            // Concentration result id (S2), only when the cell has a bulk volume.
+                            if has_volume {
+                                cell_species_ids.push(format!("{}:{}@{}:C", elem.id(), sp.species, m.medium));
+                            }
                         }
                     }
                 }
@@ -1632,13 +1656,26 @@ pub fn run(
                     if let Primitive::Cell(c) = &elem.primitive {
                         let cell = elem.id();
                         let media = cell_media.get(cell).cloned().unwrap_or_else(|| vec![(String::new(), 1.0)]);
+                        // Concentration is published only when the cell has a (positive) bulk
+                        // volume (S2, §5); otherwise cells emit mass only, as before.
+                        let vol = cell_volume.get(cell).copied().filter(|&v| v > 0.0);
                         for sp in &c.species {
                             let mut sp_total = 0.0;
-                            for (med, _) in &media {
+                            for (med, frac) in &media {
                                 let m = cell_mass.get(&(cell.to_string(), sp.species.clone(), med.clone())).copied().unwrap_or(0.0);
                                 sp_total += m;
                                 if !c.media.is_empty() {
                                     outputs.insert(format!("{cell}:{}@{}", sp.species, med), Value::Scalar(m));
+                                }
+                                // Per-(cell,species,medium) concentration C = mass / pore volume,
+                                // pore volume = cell_volume · medium_fraction · porosity. Published
+                                // under a parallel `:C` result id alongside the `@medium` mass.
+                                if let Some(v) = vol {
+                                    let phi = medium_porosity.get(med).copied().unwrap_or(1.0);
+                                    let pore_vol = v * frac * phi;
+                                    if pore_vol > 0.0 {
+                                        outputs.insert(format!("{cell}:{}@{}:C", sp.species, med), Value::Scalar(m / pore_vol));
+                                    }
                                 }
                             }
                             outputs.insert(format!("{cell}:{}", sp.species), Value::Scalar(sp_total));
