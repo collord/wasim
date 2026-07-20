@@ -949,6 +949,141 @@ fn time_unit_to_seconds(unit: &str) -> f64 {
     }
 }
 
+/// Probability density of `kind` at `x` — the closed-form PDF, for importance sampling's
+/// likelihood ratio w = pdf_f(x)/pdf_g(x) (§ importance_sampling). Deliberately supports only the
+/// families with a hand-verified closed form (Normal, Lognormal, Uniform, Exponential); any other
+/// family errors rather than silently returning a wrong density (which would bias every estimate).
+/// Densities are of the *untruncated* distribution — importance sampling here does not truncate.
+pub fn pdf(kind: &DistributionKind, x: f64) -> Result<f64, EngineError> {
+    match kind {
+        DistributionKind::Uniform { min, max } => {
+            let (a, b) = (min.value(), max.value());
+            if a >= b {
+                return Err(EngineError::Sampling(format!(
+                    "uniform pdf: min ({a}) must be < max ({b})"
+                )));
+            }
+            // Uniform density is 1/(b−a) on [a,b], else 0.
+            Ok(if x >= a && x <= b { 1.0 / (b - a) } else { 0.0 })
+        }
+        DistributionKind::Normal { mean, stddev } => {
+            let (mu, sigma) = (mean.value(), stddev.value());
+            if sigma <= 0.0 {
+                return Err(EngineError::Sampling(format!("normal pdf: stddev must be > 0, got {sigma}")));
+            }
+            // (1/(σ√(2π))) · exp(−½((x−μ)/σ)²)
+            let z = (x - mu) / sigma;
+            Ok((-0.5 * z * z).exp() / (sigma * (2.0 * std::f64::consts::PI).sqrt()))
+        }
+        DistributionKind::Lognormal { mean, stddev } => {
+            // `mean`/`stddev` are the log-space parameters (μ, σ) — matching `sample`'s Lognormal.
+            let (mu, sigma) = (mean.value(), stddev.value());
+            if sigma <= 0.0 {
+                return Err(EngineError::Sampling(format!("lognormal pdf: stddev must be > 0, got {sigma}")));
+            }
+            if x <= 0.0 {
+                return Ok(0.0); // support is x > 0
+            }
+            // (1/(xσ√(2π))) · exp(−½((ln x−μ)/σ)²)
+            let z = (x.ln() - mu) / sigma;
+            Ok((-0.5 * z * z).exp() / (x * sigma * (2.0 * std::f64::consts::PI).sqrt()))
+        }
+        DistributionKind::Exponential { mean } => {
+            let m = mean.value();
+            if m <= 0.0 {
+                return Err(EngineError::Sampling(format!("exponential pdf: mean must be > 0, got {m}")));
+            }
+            let lambda = 1.0 / m; // `sample` uses λ = 1/mean
+            // λ·exp(−λx) for x ≥ 0, else 0.
+            Ok(if x >= 0.0 { lambda * (-lambda * x).exp() } else { 0.0 })
+        }
+        other => Err(EngineError::Sampling(format!(
+            "importance sampling PDF not implemented for distribution family {}; \
+             supported: normal, lognormal, uniform, exponential",
+            crate::sampling::family_name(other)
+        ))),
+    }
+}
+
+/// Short family name for error messages (importance-sampling PDF coverage).
+fn family_name(kind: &DistributionKind) -> &'static str {
+    match kind {
+        DistributionKind::Uniform { .. } => "uniform",
+        DistributionKind::Normal { .. } => "normal",
+        DistributionKind::Lognormal { .. } => "lognormal",
+        DistributionKind::LognormalMoments { .. } => "lognormal_moments",
+        DistributionKind::Triangular { .. } => "triangular",
+        DistributionKind::Trapezoidal { .. } => "trapezoidal",
+        DistributionKind::Exponential { .. } => "exponential",
+        DistributionKind::Gamma { .. } => "gamma",
+        DistributionKind::Beta { .. } => "beta",
+        DistributionKind::Weibull { .. } => "weibull",
+        DistributionKind::PearsonV { .. } => "pearson_v",
+        DistributionKind::PearsonIii { .. } => "pearson_iii",
+        _ => "other",
+    }
+}
+
+#[cfg(test)]
+mod pdf_tests {
+    use super::pdf;
+    use crate::model::{DistributionKind, QuantityOrFormula};
+
+    fn q(v: f64) -> QuantityOrFormula {
+        QuantityOrFormula::Quantity(crate::model::Quantity { value: v, unit: "1".into(), display_unit: None })
+    }
+
+    #[test]
+    fn normal_pdf_matches_closed_form() {
+        // Standard normal at 0 = 1/√(2π) ≈ 0.3989422804; at 1 = that · e^{−0.5}.
+        let n = DistributionKind::Normal { mean: q(0.0), stddev: q(1.0) };
+        assert!((pdf(&n, 0.0).unwrap() - 0.39894228040143265).abs() < 1e-12);
+        assert!((pdf(&n, 1.0).unwrap() - 0.24197072451914337).abs() < 1e-12);
+        // Symmetric.
+        assert!((pdf(&n, -1.0).unwrap() - pdf(&n, 1.0).unwrap()).abs() < 1e-15);
+        // Integrates to ~1 over a fine grid (sanity).
+        let (mut area, mut xx, h) = (0.0, -8.0, 0.001);
+        while xx < 8.0 { area += pdf(&n, xx).unwrap() * h; xx += h; }
+        assert!((area - 1.0).abs() < 1e-4, "normal pdf integral {area}");
+    }
+
+    #[test]
+    fn uniform_pdf_is_reciprocal_width_inside_zero_outside() {
+        let u = DistributionKind::Uniform { min: q(2.0), max: q(6.0) };
+        assert!((pdf(&u, 4.0).unwrap() - 0.25).abs() < 1e-15); // 1/(6−2)
+        assert_eq!(pdf(&u, 1.9).unwrap(), 0.0);
+        assert_eq!(pdf(&u, 6.1).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn exponential_pdf_matches_lambda_form() {
+        // mean 2 → λ=0.5: pdf(0)=0.5, pdf(2)=0.5·e^{−1}.
+        let e = DistributionKind::Exponential { mean: q(2.0) };
+        assert!((pdf(&e, 0.0).unwrap() - 0.5).abs() < 1e-15);
+        assert!((pdf(&e, 2.0).unwrap() - 0.5 * (-1.0_f64).exp()).abs() < 1e-15);
+        assert_eq!(pdf(&e, -1.0).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn lognormal_pdf_matches_closed_form_and_zero_support() {
+        // μ=0, σ=1: at x=1, pdf = 1/√(2π) ≈ 0.3989422804 (ln1=0).
+        let ln = DistributionKind::Lognormal { mean: q(0.0), stddev: q(1.0) };
+        assert!((pdf(&ln, 1.0).unwrap() - 0.39894228040143265).abs() < 1e-12);
+        assert_eq!(pdf(&ln, 0.0).unwrap(), 0.0);
+        assert_eq!(pdf(&ln, -3.0).unwrap(), 0.0);
+        // Integrates to ~1.
+        let (mut area, mut xx, h) = (0.0, 1e-6, 0.001);
+        while xx < 40.0 { area += pdf(&ln, xx).unwrap() * h; xx += h; }
+        assert!((area - 1.0).abs() < 2e-3, "lognormal pdf integral {area}");
+    }
+
+    #[test]
+    fn unsupported_family_errors() {
+        let g = DistributionKind::Gamma { shape: q(2.0), scale: q(1.0) };
+        assert!(pdf(&g, 1.0).is_err(), "gamma pdf must error (not silently wrong)");
+    }
+}
+
 #[cfg(test)]
 mod trapezoid_tests {
     use super::trapezoid_icdf;

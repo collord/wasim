@@ -616,7 +616,7 @@ pub fn resolve_distribution(dist: &Distribution, ctx: &EvalCtx) -> Result<Distri
             // The nested base distribution's params may themselves be formula-valued.
             base: Box::new(
                 resolve_distribution(
-                    &Distribution { kind: (**base).clone(), truncation: None, correlation_group: None },
+                    &Distribution { kind: (**base).clone(), truncation: None, correlation_group: None, importance: None },
                     ctx,
                 )?
                 .kind,
@@ -638,6 +638,9 @@ pub fn resolve_distribution(dist: &Distribution, ctx: &EvalCtx) -> Result<Distri
         kind,
         truncation: dist.truncation.clone(),
         correlation_group: dist.correlation_group.clone(),
+        // The importance spec (biased distribution g) is carried through unresolved here; the
+        // engine resolves `bias` separately when it draws the importance node.
+        importance: dist.importance.clone(),
     })
 }
 

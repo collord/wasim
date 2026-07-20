@@ -65,9 +65,9 @@ pub fn run(
     let n_real = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations);
     let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
 
-    // Realization weights (B7): normalized to sum 1 for the weighted stat reductions. Only used
-    // when the length matches `n_real`; otherwise empty (unweighted, behavior unchanged).
-    let realization_weights: Vec<f64> = {
+    // User-supplied realization weights (B7): normalized to sum 1 for the weighted stat
+    // reductions. Only used when the length matches `n_real`; otherwise empty (unweighted).
+    let user_weights: Vec<f64> = {
         let w = &config.realization_weights;
         if w.len() == n_real as usize {
             let sw: f64 = w.iter().sum();
@@ -76,6 +76,13 @@ pub fn run(
             Vec::new()
         }
     };
+    // Per-realization importance-sampling weights (§ importance_sampling), the product of each
+    // importance node's likelihood ratio f(x)/g(x) drawn that realization. Starts at 1 (no bias);
+    // combined with `user_weights` after the run and normalized into the final reduction weights.
+    let mut importance_weights: Vec<f64> = vec![1.0; n_real as usize];
+    let mut any_importance = false;
+    // The reduction weights, finalized after the realization loop (see below).
+    let mut realization_weights: Vec<f64> = user_weights.clone();
 
     // Strict dimensional analysis (B5): reject a model with any dimensional inconsistency before
     // running. `Warn` (default) leaves the pre-B5 behavior unchanged (warnings are logged in lib.rs).
@@ -380,7 +387,29 @@ pub fn run(
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Sample { distribution, .. } = &n.rule {
                     if !corr_ids.contains(elem.id()) {
-                        let v = if let Some(col) = lhs_cols.get(elem.id()) {
+                        let v = if let Some(imp) = &distribution.importance {
+                            // Importance sampling (§ importance_sampling): draw plain Monte Carlo
+                            // from the biased distribution g (skips LHS stratification for this
+                            // node — a documented phase-1 limitation), and multiply the likelihood
+                            // ratio w = pdf_f(x)/pdf_g(x) into this realization's importance weight.
+                            // Both f and g are resolved (formula params allowed); the PDFs support
+                            // only normal/lognormal/uniform/exponential and error otherwise.
+                            any_importance = true;
+                            let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
+                            let f = resolve_distribution(distribution, &ctx)?;
+                            let g = resolve_distribution(&imp.bias, &ctx)?;
+                            let x = sampling::sample(&g.kind, &g.truncation, &mut rng)?;
+                            let pf = sampling::pdf(&f.kind, x)?;
+                            let pg = sampling::pdf(&g.kind, x)?;
+                            if pg <= 0.0 || !pg.is_finite() {
+                                return Err(EngineError::Sampling(format!(
+                                    "importance sampling: biased density g({x}) = {pg} for node {}; \
+                                     g must have positive density everywhere its draws land", elem.id()
+                                )));
+                            }
+                            importance_weights[real_idx as usize] *= pf / pg;
+                            x
+                        } else if let Some(col) = lhs_cols.get(elem.id()) {
                             col[real_idx as usize]
                         } else {
                             let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
@@ -1827,6 +1856,26 @@ pub fn run(
                 interrupted = true;
             }
         }
+    }
+
+    // Finalize reduction weights (§ importance_sampling). If any importance node biased the draws,
+    // the per-realization importance weight (product of likelihood ratios) is combined with the
+    // user weights (elementwise; uniform user weights = all 1) and normalized to sum 1, then used
+    // for every weighted statistic. So E_g[w·h] estimates E_f[h] and rare-event tails are reduced-
+    // variance. Without importance nodes this leaves `realization_weights` = the user weights.
+    if any_importance {
+        let mut w: Vec<f64> = importance_weights.clone();
+        if user_weights.len() == n_real as usize {
+            for (wi, ui) in w.iter_mut().zip(&user_weights) {
+                *wi *= *ui;
+            }
+        }
+        let sw: f64 = w.iter().sum();
+        realization_weights = if sw > 0.0 && sw.is_finite() {
+            w.iter().map(|x| x / sw).collect()
+        } else {
+            Vec::new()
+        };
     }
 
     // ── Aggregate ─────────────────────────────────────────────────────────────

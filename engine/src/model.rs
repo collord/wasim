@@ -803,6 +803,21 @@ pub struct Distribution {
     pub kind: DistributionKind,
     pub truncation: Option<Truncation>,
     pub correlation_group: Option<String>,
+    /// Importance-sampling override (§ importance_sampling): sample from `importance.bias`
+    /// (the biased distribution g) instead of this declared distribution (the target f), and
+    /// weight each realization by the likelihood ratio f(x)/g(x). Absent = ordinary sampling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance: Option<ImportanceSpec>,
+}
+
+/// Importance-sampling specification on a `sample` node's distribution. The declared distribution
+/// is the target `f`; `bias` is the biased distribution `g` actually drawn from. The engine carries
+/// the per-realization likelihood ratio w = pdf_f(x)/pdf_g(x) and weights every statistic by it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ImportanceSpec {
+    /// The biased distribution g to sample from. Boxed to break the Distribution→ImportanceSpec
+    /// →Distribution type recursion.
+    pub bias: Box<Distribution>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
