@@ -602,6 +602,214 @@ them*; a run debugger; collaborative/URL-shared models.
 
 ---
 
+## 17. LLM-assisted authoring — the "describe it in words" copilot
+
+**What this adds.** A configurable LLM endpoint and an **interactive loop** that turns a
+natural-language problem description ("model a two-tank system that overflows into a
+creek", "30-year retirement projection with lognormal returns and tax-aware
+withdrawals") into a schema-valid WASiM `model.json`, then refines it through
+conversation. This is the highest-leverage on-ramp for the authoring environment:
+it lets a domain expert start from intent instead of from an empty canvas.
+
+**Design thesis — the engine is the ground truth, the LLM is a drafting aid.** The
+copilot never gets the last word on correctness. Every model the LLM proposes is
+**parsed, validated, and (optionally) run by the WASM engine** before it reaches the
+canvas, and the engine's structured diagnostics are fed back to the LLM to fix. This
+is the same reconcile loop as §13.2, with the LLM as one more producer of candidate
+models. It means the copilot can be genuinely useful without the LLM having perfectly
+memorized the schema — hallucinated fields, bad references, and unit errors are caught
+by the engine and corrected in-loop, not shipped.
+
+### 17.1 Configuring the LLM endpoint
+
+A **Settings → AI** panel configures a provider. The config is a small object held in
+the store (extending `store.ts`) and persisted to browser storage
+(`localStorage`/IndexedDB) — **never** committed to `model.json` and never sent
+anywhere except the chosen provider:
+
+```ts
+type LlmConfig =
+  | { provider: 'anthropic';     model: string; apiKey: string }
+  | { provider: 'openai';        model: string; apiKey: string; baseUrl?: string }
+  | { provider: 'azure-openai';  deployment: string; apiKey: string;
+      resource: string; apiVersion: string }
+```
+
+- **Anthropic** — Messages API (`POST https://api.anthropic.com/v1/messages`, headers
+  `x-api-key`, `anthropic-version: 2023-06-01`). Model picker defaults to
+  **`claude-opus-4-8`** (most capable; best at one-shot schema-faithful generation),
+  with **`claude-sonnet-5`** offered as a faster/cheaper option and
+  **`claude-haiku-4-5`** for cheap iterative edits.
+- **OpenAI** — Chat Completions/Responses (`Authorization: Bearer …`), optional
+  `baseUrl` override for compatible gateways; user selects the model.
+- **Azure OpenAI** — deployment-based endpoint
+  (`https://{resource}.openai.azure.com/openai/deployments/{deployment}/…?api-version={ver}`,
+  header `api-key`).
+
+A thin **provider abstraction** normalizes these to one internal interface — a
+`chat(messages, tools)` call returning text and/or tool calls — so the copilot loop
+(§17.3) is provider-agnostic. A **"Test connection"** button issues a trivial
+completion and reports latency/model/errors. Config is validated before use; a missing
+or rejected key surfaces inline, not at first prompt.
+
+### 17.2 What the LLM is given as context (the schema question)
+
+The model needs to know the WASiM model format — but the tool does **not** paste the
+raw JSON Schema on every turn. The context is layered, cheapest-first:
+
+1. **A compact "authoring guide"** *generated from the schema* (so it can't drift): the
+   primitive/`NodeRule` catalog, trait fields, the distribution roster, the builtin
+   function and time-ref list, the expression-AST shape, and the simulation-settings
+   fields — each with a one-line description. This is far more token-efficient and
+   semantically richer than raw JSON Schema, and regenerating it from the schema on
+   build keeps it honest.
+2. **A short set of few-shot exemplars** — 2–3 complete, engine-validated `model.json`
+   documents (e.g. the repo's `retirement_planning.json` and `two_tank_hydraulic.json`)
+   that show idiomatic structure end-to-end.
+3. **The engine's fidelity constraints (§14)** stated explicitly: no Script element, no
+   `OnEvent` trigger, Cell outputs are mass not concentration, External distributions
+   need a fallback table, etc. — so the LLM does not propose constructs the engine
+   can't run.
+4. **The current model** (when editing an existing document) and the **conversation**.
+
+**Prompt caching makes "bundle the schema" cheap.** On Anthropic, items 1–3 are stable
+across a session, so they go in a **cached prefix** (`cache_control: {type:
+"ephemeral"}`, in the `tools`→`system`→`messages` render order, stable content first).
+The first call pays to write the cache; every subsequent turn in the interactive loop
+reads it at ~0.1× cost. (Mind the minimum cacheable prefix — 4096 tokens on Opus 4.8,
+2048 on Sonnet 5 — which the authoring guide comfortably exceeds.) OpenAI/Azure apply
+automatic prefix caching to the same stable-first layout. Use the provider's
+token-counting endpoint to keep the guide within a sane budget; if the schema ever
+outgrows the context window, retrieve only the relevant slices per turn (a
+`get_schema_section` tool, §17.3) instead of sending all of it.
+
+**Why not rely on structured-output/JSON-schema constraints?** Providers can constrain
+a response to a JSON Schema, but WASiM's schema is **recursive** (nested
+containers/submodels, a self-referential expression AST) and uses constructs those
+constrained-decoding features don't support. So the copilot does **not** lean on
+one-shot constrained generation for the whole document — it relies on **tool-calling +
+engine validation** (§17.3), which handles recursion and gives precise, correctable
+errors. Constrained output is still useful for *small, flat* sub-tasks (e.g. emitting a
+single distribution object).
+
+### 17.3 The interactive loop
+
+The copilot is an **agentic loop** orchestrated by a controller (a dedicated worker or
+the main thread) that bridges the LLM (network) and the engine (the existing sim
+worker):
+
+```
+user: NL description ─▶ LLM ─▶ (tool call) propose_model / apply_edit
+                                   │
+                     controller ──┼─▶ sim worker: reconcile → { summary, validation, topo }
+                                   │                     (and optionally: run → results)
+                                   ▼
+        LLM ◀── tool results (validation errors, run summary) ── iterate until clean
+                                   │
+                                   ▼
+        ◀── proposed model + rationale ──▶  user reviews diff, Accept / Reject / refine
+```
+
+**Tools exposed to the LLM** (each backed by the engine or the store):
+
+| Tool | Purpose |
+|---|---|
+| `get_schema_section(topic)` | Retrieve the authoring-guide slice for a primitive/distribution/function on demand (keeps the base prompt small) |
+| `propose_model(model_json)` | Submit a full candidate model |
+| `apply_edit(patch)` | Submit an incremental change to the current model (add/modify/remove elements) — preferred for edits, cheaper and more precise than regenerating the whole doc |
+| `validate()` | Run the engine's parse + dimensional + graph validation → structured diagnostics (dangling refs, cycles, unit errors, unknown fields) |
+| `run(config?)` | Run a quick simulation → a compact results summary (means/percentiles for key outputs) so the LLM can sanity-check behavior |
+
+The loop runs the LLM's tool calls, returns **engine truth** (not the LLM's own
+belief) as tool results, and repeats until `validate()` is clean (and, if the user
+asked, `run()` looks sane). Cap iterations to avoid runaway loops; surface a spinner
+with a cancel that terminates the in-flight request.
+
+**Turn types the loop supports:**
+- **Cold start** — "build me X" → the LLM drafts a full `propose_model`, self-corrects
+  against `validate()`, and returns a working model.
+- **Refinement** — "make the tank bigger and add a second inflow", "why does the
+  balance go negative?" → `apply_edit` / explanation grounded in `run()` results.
+- **Explain / review** — "what does this element do?", "is this dimensionally
+  consistent?" — read-only, no model mutation.
+
+### 17.4 UX and human-in-the-loop
+
+- A **Copilot panel** (docked beside the Inspector) with the conversation and a
+  prominent **model-diff preview** (JSON diff + a canvas overlay highlighting
+  added/changed elements) for every proposal.
+- **Nothing auto-applies.** The user explicitly **Accepts** a proposal (it enters the
+  canonical model via the normal reconcile path, undoable) or **Rejects/refines** it.
+  The copilot is a drafting surface, not an autonomous editor of the user's document.
+- **`run()` is read-only and sandboxed** — a simulation has no external effects, so the
+  LLM may call it freely; but the copilot never triggers anything outside the sandbox
+  (no file writes, no network beyond the provider, no publishing).
+- **Provenance** — accepted proposals can be tagged in the `view` metadata (§13.3) as
+  LLM-assisted, and the conversation is exportable, so a reviewer can see how a model
+  was derived. The generated `model.json` remains the same diffable artifact regardless
+  of how it was authored.
+
+### 17.5 Security & privacy
+
+This feature sends data to a third-party provider and handles a secret, so it is
+called out explicitly:
+
+- **Bring-your-own-key, stored locally.** The API key is the user's own, kept in
+  browser storage and sent **only** to the configured provider. It is never written to
+  `model.json`, never committed, never sent to any WASiM-controlled server (there is
+  none).
+- **Browser-direct-call caveat (state it plainly).** Calling a provider's API directly
+  from the browser exposes the key to any script running on the page and requires the
+  provider's browser-access opt-in (e.g. Anthropic's
+  `anthropic-dangerous-direct-browser-access` header / the SDK's
+  `dangerouslyAllowBrowser` flag; OpenAI's equivalent). This is acceptable for a
+  **local, single-user, BYO-key** tool and is consistent with WASiM's no-server thesis
+  — but the Settings panel must say so, and teams who can't accept it are offered an
+  **optional thin proxy** (the one place a server may appear) that holds the key and
+  forwards requests.
+- **Model content leaves the machine.** The problem description and the `model.json`
+  are sent to the provider. The panel makes this explicit and offers a **"description
+  only — don't send the model"** mode for sensitive models, plus an optional redaction
+  pass for element names/descriptions.
+- **Prompt-injection hygiene.** Text the LLM produces is treated as an *untrusted
+  proposal*: it only ever flows into the model through `propose_model`/`apply_edit` →
+  engine validation, never executed as code and never applied without the user's
+  Accept. The engine's schema/validation is the security boundary.
+
+### 17.6 Fidelity — the copilot cannot exceed the engine
+
+The same rule as the rest of the tool (§14): the copilot is told the engine's
+capabilities and **non-goals**, and — crucially — any construct it hallucinates that
+the engine can't parse is rejected by `validate()` and corrected in-loop. So the copilot
+can never smuggle in a Script element, an unsupported trigger, or an invented field: the
+engine is the gate. When a user asks for something the engine genuinely can't do, the
+copilot says so and points at the roadmap item rather than emitting a model that
+silently misbehaves.
+
+### 17.7 Phasing
+
+- **Phase 1 — Generate & validate.** Endpoint config + provider abstraction; cold-start
+  `propose_model` with the `validate()` loop; diff-preview + Accept/Reject. This alone
+  delivers "describe it → get a working model."
+- **Phase 2 — Converse & refine.** `apply_edit`, `run()`-grounded explanations, and
+  multi-turn refinement over the current model.
+- **Phase 3 — Depth.** On-demand `get_schema_section` retrieval for very large schemas;
+  provenance metadata; the optional key-holding proxy; redaction/"description-only"
+  privacy modes.
+
+### 17.8 Copilot non-goals
+
+- It does **not** autonomously edit or run the user's document — every change is
+  user-Accepted, and it triggers no effect outside the simulation sandbox.
+- It does **not** bypass engine validation — the engine, not the LLM, decides what is a
+  valid model.
+- It does **not** exfiltrate or embed the API key anywhere but the configured provider,
+  and the key never enters `model.json`.
+- It does **not** replace the direct authoring surfaces (§2–§6) — it is an on-ramp and
+  an assistant beside them, not the only way in.
+
+---
+
 ### Appendix — mapping summary (GoldSim authoring pattern → WASiM tool surface)
 
 | GoldSim authoring pattern | WASiM tool surface | Section |
