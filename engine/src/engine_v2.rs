@@ -690,16 +690,20 @@ pub fn run(
             // step's outputs; rate/failure events (whose fire needs current-step draws) are
             // resolved authoritatively in the event pass and reflected there for the next step.
             {
-                let mut fe = fired_events.borrow_mut();
-                fe.clear();
+                fired_events.borrow_mut().clear();
                 let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                 for elem in &model.elements {
                     if let Primitive::Event(ev) = &elem.primitive {
                         // Only trigger-driven events are predicted here (rate/failure need draws).
                         if ev.rate.is_none() && ev.failure_process.is_none() {
                             if let Some(t) = &ev.trigger {
+                                // `trigger_fires` may itself borrow `fired_events` (an `on_event`
+                                // trigger reads the set), so do NOT hold a mutable borrow across
+                                // the call — evaluate first, then insert under a short-lived borrow.
+                                // A prior event's fire is visible to a later `on_event` in the same
+                                // pass (declaration order), which is the documented chaining rule.
                                 if trigger_fires(t, &ctx, dt, step_idx)? {
-                                    fe.insert(elem.id().to_string());
+                                    fired_events.borrow_mut().insert(elem.id().to_string());
                                 }
                             }
                         }
@@ -1114,8 +1118,16 @@ pub fn run(
                                 }
                                 _ => false,
                             },
-                            // capacity_demand / event bases not yet modeled → never fail.
-                            _ => false,
+                            // Event basis: fail deterministically the step the FSM's triggering
+                            // event fires (its `on_event`/condition trigger evaluates true). Uses
+                            // the same `fired_events` path as the `on_event` trigger mode.
+                            FailureBasis::Event => match &ev.trigger {
+                                Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
+                                None => false,
+                            },
+                            // capacity_demand basis needs demand/capacity fields (schema) — not
+                            // yet modeled → never fail. (Deferred S1 follow-up.)
+                            FailureBasis::CapacityDemand => false,
                         };
                         if fail_now {
                             st.failed = true;
@@ -2134,8 +2146,16 @@ fn trigger_fires(t: &TriggerSpec, ctx: &EvalCtx, dt: f64, step_idx: usize) -> Re
         TriggerMode::OnSchedule => {
             t.schedule.iter().any(|q| (q.value / dt).round() as usize == step_idx)
         }
-        // External-event triggers require the event primitive (M3).
-        TriggerMode::OnEvent => false,
+        // Fires when the referenced source event is in this step's fired set (§2, same
+        // semantics as the `occurs(ev)` builtin). Causality: `fired_events` holds trigger-driven
+        // fires from the pre-pass (same-step) and rate/failure fires from the previous step's
+        // event pass (next-step). Chaining two `on_event` events in one step is declaration-order
+        // dependent (the pre-pass is a single linear pass, not a fixpoint) — documented in §2.
+        TriggerMode::OnEvent => t
+            .source
+            .as_ref()
+            .map(|s| ctx.fired_events.borrow().contains(s))
+            .unwrap_or(false),
     })
 }
 
