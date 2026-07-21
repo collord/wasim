@@ -281,7 +281,9 @@ struct RawMediumRef {
 
 #[derive(Deserialize)]
 struct RawPartition {
-    species: String,
+    /// Optional: `null`/absent = applies to all species in the cell's set (set-wide Kd).
+    #[serde(default)]
+    species: Option<String>,
     from_medium: String,
     to_medium: String,
     coefficient: QuantityOrFormula,

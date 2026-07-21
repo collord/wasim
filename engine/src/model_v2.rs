@@ -490,7 +490,10 @@ pub struct SpeciesRef {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PartitionEntry {
-    pub species: String,
+    /// The species this Kd applies to. `None` = the coefficient applies to **every** species in the
+    /// cell's species set (GoldSim models a single Kd per medium pair for a whole species set — the
+    /// set is an array dimension, not per-nuclide entries; see EMIT_PATHOLOGIES resolution #4).
+    pub species: Option<String>,
     pub from_medium: String,
     pub to_medium: String,
     pub coefficient: QuantityOrFormula,

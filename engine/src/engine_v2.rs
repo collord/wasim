@@ -1642,7 +1642,11 @@ pub fn run(
                             let cell = elem.id();
                             let mut species_set: HashSet<String> = c.species.iter().map(|s| s.species.clone()).collect();
                             for p in &c.partitioning {
-                                species_set.insert(p.species.clone());
+                                // A species-specific entry adds its species to the set; a set-wide
+                                // entry (`species: None`) applies to the species already present.
+                                if let Some(sp) = &p.species {
+                                    species_set.insert(sp.clone());
+                                }
                             }
                             for sp in &species_set {
                                 let m_total: f64 = media.iter()
@@ -2135,7 +2139,8 @@ fn partition_ratios(
     r[0] = 1.0;
     for _ in 0..n {
         let mut changed = false;
-        for e in entries.iter().filter(|e| e.species == species) {
+        // A partition entry applies to this species if it names it, or is set-wide (`species: None`).
+        for e in entries.iter().filter(|e| e.species.as_deref().map_or(true, |s| s == species)) {
             let (Some(&fi), Some(&ti)) = (idx.get(e.from_medium.as_str()), idx.get(e.to_medium.as_str())) else {
                 continue;
             };

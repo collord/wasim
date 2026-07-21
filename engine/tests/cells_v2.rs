@@ -98,6 +98,30 @@ fn partitioning_equilibrium_two_phase() {
     close(&hist(&r, "C:X"), &[100.0, 100.0]);
 }
 
+/// A set-wide partition entry (`species` omitted / null) applies its Kd to every species in the
+/// cell's set — the GoldSim "one Kd per medium pair for the whole species set" shape (a single Kd
+/// element bound to a species OrdinalSet). Here two species share one `species`-less Kd=4 entry;
+/// both must partition solid:fluid = 4:1 identically.
+#[test]
+fn partitioning_set_wide_species_null() {
+    let r = run(
+        r#"{"wasim_version": "0.9.7",
+        "simulation_settings": {"duration": {"value": 2, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1},
+        "elements": [
+          {"id": "C", "name": "C", "primitive": "cell",
+           "media": [{"medium": "solid", "fraction": {"value": 0.5, "unit": "1"}}, {"medium": "fluid", "fraction": {"value": 0.5, "unit": "1"}}],
+           "species": [{"species": "X", "initial_inventory": {"value": 100, "unit": "kg"}}, {"species": "Y", "initial_inventory": {"value": 100, "unit": "kg"}}],
+           "partitioning": [{"species": null, "from_medium": "fluid", "to_medium": "solid", "coefficient": {"value": 4, "unit": "1"}}],
+           "save_results": {"time_history": true}}
+        ]}"#,
+    );
+    // Both species follow the same set-wide Kd=4 → solid 80 / fluid 20 each.
+    close(&hist(&r, "C:X@solid"), &[80.0, 80.0]);
+    close(&hist(&r, "C:X@fluid"), &[20.0, 20.0]);
+    close(&hist(&r, "C:Y@solid"), &[80.0, 80.0]);
+    close(&hist(&r, "C:Y@fluid"), &[20.0, 20.0]);
+}
+
 #[test]
 fn species_transport_moves_mass_between_cells() {
     // A species_transport link carries X from cell A to cell B at 10/step.
