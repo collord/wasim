@@ -28,10 +28,11 @@ test.describe('sensitivity sweep', () => {
     await page.goto('/')
     await page.setInputFiles('input[type=file]', path.join(CORPUS_DIR, MODEL))
 
-    // Model loaded once the graph svg renders.
-    await expect(page.locator('svg').first()).toBeVisible({ timeout: 20_000 })
+    // Model loaded once the status bar settles to valid.
+    await expect(page.getByText('● valid')).toBeVisible({ timeout: 20_000 })
 
-    // Go to the Sensitivity tab.
+    // Go to the Sensitivity tab (a Result-mode view).
+    await page.getByRole('button', { name: 'Result', exact: true }).click()
     await page.getByRole('button', { name: 'Sensitivity', exact: true }).click()
 
     // The tab must offer at least one sweepable input (fixed scalar). If it says "No

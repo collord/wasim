@@ -201,6 +201,41 @@ impl WasmEngine {
     }
 }
 
+// ── Standalone validation (authoring reconcile loop) ────────────────────────────
+
+/// Validate a candidate model without constructing a persistent engine. Returns a JSON
+/// `{ ok, errors, warnings, topo }` document — never throws — so the authoring UI can
+/// surface structured diagnostics on every edit (spec §8, §13.2). `errors` are hard
+/// parse/graph failures (dangling refs, illegal cycles); `warnings` are dimensional /
+/// unit smells from [`crate::units::validate`]. `topo` is the evaluation order when the
+/// graph builds (the causality-sequence view), else empty.
+#[wasm_bindgen]
+pub fn validate_json(model_json: &str) -> String {
+    #[derive(serde::Serialize)]
+    struct Diag {
+        ok: bool,
+        errors: Vec<String>,
+        warnings: Vec<String>,
+        topo: Vec<String>,
+    }
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let mut topo = Vec::new();
+
+    match load_v2(model_json) {
+        Ok(model) => {
+            warnings = crate::units::validate(&model);
+            match ModelGraphV2::build(&model) {
+                Ok(graph) => topo = graph.topo_order.clone(),
+                Err(e) => errors.push(format!("graph error: {e}")),
+            }
+        }
+        Err(e) => errors.push(e),
+    }
+    serde_json::to_string(&Diag { ok: errors.is_empty(), errors, warnings, topo })
+        .unwrap_or_else(|_| "{\"ok\":false,\"errors\":[\"validation serialization failed\"],\"warnings\":[],\"topo\":[]}".to_string())
+}
+
 // ── Loading ───────────────────────────────────────────────────────────────────
 
 fn load_v2(json: &str) -> Result<v2::Model, String> {

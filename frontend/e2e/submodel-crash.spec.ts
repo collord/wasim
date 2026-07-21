@@ -17,16 +17,17 @@ test('probabilisticoptimization: dashboard + submodel-box click do not crash', a
   // Load the model via the file input.
   await page.setInputFiles('input[type=file]', MODEL)
 
-  // Model loads → lands on the Graph tab. Wait for the graph svg.
-  await page.waitForSelector('svg', { timeout: 10_000 })
+  // Model loads → status bar settles. Enter Result mode to reach the original tabs.
+  await expect(page.getByText('● valid')).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('button', { name: 'Result', exact: true }).click()
 
   // (1) Dashboard tab must not crash.
-  await page.getByRole('button', { name: 'Dashboard' }).click()
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
   await page.waitForTimeout(300)
   expect(errors, `Dashboard crashed: ${errors.join('\n')}`).toHaveLength(0)
 
-  // (2) Back to Graph, click the submodel box (the dashed box with a ▸/▾ affordance).
-  await page.getByRole('button', { name: 'Graph' }).click()
+  // (2) The Graph tab renders the original graph; click the submodel box (dashed, ▸/▾).
+  await page.getByRole('button', { name: 'Graph', exact: true }).click()
   await page.waitForSelector('svg', { timeout: 5_000 })
   // The submodel box header carries the submodel name text "SubModel1".
   const box = page.locator('svg text', { hasText: 'SubModel1' }).first()

@@ -12,5 +12,8 @@ declare module '@engine/wasim_engine' {
     topo_order_json(): string
     free(): void
   }
+  /** Validate a candidate model without a persistent engine (authoring reconcile loop).
+   *  Returns JSON `{ ok, errors, warnings, topo }`; never throws. */
+  export function validate_json(model_json: string): string
   export default function init(): Promise<void>
 }
