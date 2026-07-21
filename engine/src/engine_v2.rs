@@ -492,7 +492,10 @@ pub fn run(
                         init_outputs.insert(id.to_string(), Value::Scalar(q.value));
                     }
                     NodeRule::Sample { .. } => {
-                        init_outputs.insert(id.to_string(), Value::Scalar(rv_samples[id]));
+                        // `.get().unwrap_or` (not `[id]`): a sample node's draw is normally present,
+                        // but a correlated node skipped upstream could be absent — degrade to 0.0
+                        // rather than panic (matches the Process branch below).
+                        init_outputs.insert(id.to_string(), Value::Scalar(rv_samples.get(id).copied().unwrap_or(0.0)));
                     }
                     NodeRule::Process { .. } => {
                         init_outputs.insert(id.to_string(), Value::Scalar(sp_state.get(id).copied().unwrap_or(0.0)));
@@ -2727,6 +2730,18 @@ fn iman_conover_samples(
                 (0..k).map(|_| sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)).collect()
             };
             r_samples.push(col?);
+        }
+
+        // Every correlation-group member must be a `sample` node (the `continue`s above skip
+        // non-sample elements). If one was skipped, `r_samples` is shorter than `group.ids` and the
+        // positional indexing below (`r_samples[j]`) would panic — bail with a diagnosable error
+        // instead. (build_corr_groups normally prevents this; this guards a model/graph desync.)
+        if r_samples.len() != n {
+            return Err(EngineError::InvalidModel(format!(
+                "correlation group has {} members but only {} are sample nodes; \
+                 all correlated elements must be `sample` nodes",
+                n, r_samples.len()
+            )));
         }
 
         if k < 2 {

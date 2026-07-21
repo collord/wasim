@@ -997,6 +997,17 @@ fn eval_lookup_nd(element_id: &str, x: f64, coords: &[f64], ctx: &EvalCtx) -> Re
 /// Interpolates over all 2^d corners of the bracketing hypercube.
 fn multilinear(axes: &[&[f64]], values: &[f64], pt: &[f64]) -> f64 {
     let d = axes.len();
+    // Guard degenerate grids from an incomplete emit: no axes, an empty axis (would panic on
+    // `ax[0]`/`ax[n-1]` below), or a value grid too small for the axis product (corner indices
+    // would go out of bounds). Degrade to 0.0 — the same graceful policy this function already
+    // uses for out-of-range points (which it clamps) — rather than panicking mid-run.
+    if d == 0 || axes.iter().any(|ax| ax.is_empty()) {
+        return 0.0;
+    }
+    let expected: usize = axes.iter().map(|ax| ax.len()).product();
+    if values.len() < expected {
+        return 0.0;
+    }
     // Per-axis: lower index `i0`, and fractional weight `t` toward `i0+1`.
     let mut i0 = vec![0usize; d];
     let mut frac = vec![0.0f64; d];
@@ -1140,6 +1151,15 @@ fn interp1d(
     use crate::model::{ExtrapolationMethod, InterpolationMethod};
 
     let n = xs.len();
+    // Guard malformed lookup tables (an emitter may omit points, or emit x/y of unequal length):
+    // an empty table has no value to return, and index math below (`xs[0]`, `xs[n-1]`) would panic
+    // or underflow. Return a diagnosable error instead of aborting the run.
+    if n == 0 || ys.len() != n {
+        return Err(EngineError::Eval(format!(
+            "lookup '{elem_id}': malformed table (x has {n} points, y has {})",
+            ys.len()
+        )));
+    }
     let x_lo = xs[0];
     let x_hi = xs[n - 1];
 
