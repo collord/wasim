@@ -1526,16 +1526,21 @@ pub fn run(
                 let level = stock_state.get(id).map(|v| v.as_scalar()).unwrap_or(0.0);
                 let net = level - stock_prev_level.get(id).copied().unwrap_or(0.0);
                 for (k, spec) in base.outputs.iter().enumerate().skip(1) {
-                    let Some(role) = spec.role.as_deref() else { continue };
-                    // After parse-normalization `role` is a flow name and `output_kind` is set
-                    // (defaulting to "rate"); the per-step `rate` for each flow, plus the flow's
-                    // applied amount this sub-interval (rate · sub_dt) for the cumulative total.
-                    let (rate, flow): (f64, &'static str) = match role {
-                        "addition" => (add, "addition"),
-                        "withdrawal" => (wd, "withdrawal"),
-                        "overflow" => (ovf, "overflow"),
-                        "net_change" => (if sub_dt > 0.0 { net / sub_dt } else { 0.0 }, "net_change"),
-                        _ => continue,
+                    // A secondary output publishes when it declares a `role` (flow) and/or an
+                    // `output_kind` (accumulation). The flow selects which per-step rate to report;
+                    // a role-less output has no flow, so it defaults to `net_change` — the natural
+                    // referent for a bare `level` (the stock value) or `cumulative` (running net).
+                    // An output with neither role nor kind is inert (pre-0.9.2 role-less fallback).
+                    if spec.role.is_none() && spec.output_kind.is_none() {
+                        continue;
+                    }
+                    let (rate, flow): (f64, &'static str) = match spec.role.as_deref() {
+                        Some("addition") => (add, "addition"),
+                        Some("withdrawal") => (wd, "withdrawal"),
+                        Some("overflow") => (ovf, "overflow"),
+                        // Explicit net_change, or a role-less output (kind-only): net rate.
+                        Some("net_change") | None => (if sub_dt > 0.0 { net / sub_dt } else { 0.0 }, "net_change"),
+                        Some(_) => continue,
                     };
                     let kind = spec.output_kind.as_deref().unwrap_or("rate");
                     let v = match kind {
