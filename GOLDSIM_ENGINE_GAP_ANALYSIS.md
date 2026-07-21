@@ -7,521 +7,520 @@ inferred from the GoldSim User Guide. This document is deliberately scoped to
 graphical editing, dashboards, or the fact that WASiM has no model-authoring
 front end yet — those are out of scope by request.
 
+> ## Revision 2 — re-run against the updated engine
+>
+> **This is a re-analysis.** Revision 1 (the original) drove a substantial round
+> of engine work — `WORKPLAN_TIER_A.md`, `WORKPLAN_TIER_B.md`, `WORKPLAN_TIER_C.md`
+> are the workplans it spawned, and **Tier A + Tier B have essentially all landed**
+> (schema line advanced 0.9.1 → 0.9.6 per commit history; the engine parses
+> `wasim_version` version-agnostically). Tier C (the "big bets") is per-item
+> go/no-go gated and **not yet started**. This revision re-surveys the current
+> Rust source (`engine/src/*.rs`, `engine/tests/*`) and marks every gap
+> **CLOSED / PARTIAL / OPEN / BY-DESIGN**.
+>
+> Two claims in Revision 1 were already stale when written and are corrected here:
+> **sensitivity analysis** (one-at-a-time + tornado) and **running-lifetime
+> extrema** were already implemented.
+>
+> Net movement since Revision 1: of the five headline gaps, **two are largely
+> closed** (results/analysis engine; discrete-event depth), **two are partially
+> closed** (the time engine; probabilistic tooling), and **one remains open by
+> design** (external interop). The single largest *remaining* engine gap is now
+> **procedural scripting** (Tier C1).
+
 **Sources.**
 - WASiM: direct survey of the Rust engine (`engine/src/*.rs`, `engine/tests/*`,
-  and the design notes at repo root). The canonical path is the **v2** model
-  (`model_v2.rs` `Primitive`, executed by `engine_v2.rs`); v1 JSON is normalized
-  into v2 via `v1_import.rs`.
+  the workplans, and the design notes at repo root). The canonical path is the
+  **v2** model (`model_v2.rs` `Primitive`, executed by `engine_v2.rs`); v1 JSON is
+  normalized into v2 via `v1_import.rs`. Capability status below is stated as
+  **FULL / PARTIAL / ABSENT** against the current code, with `file` citations.
 - GoldSim: the 7-part User Guide (≈1,280 pp.). Extraction reached the full table
   of contents, the Appendix D–F reference (units, database formats, **integration
   & timestepping algorithm**), the Glossary and Index (which enumerate every
   element type and built-in function), and detailed chapter slices for input
   elements, stocks, delays, the discrete-event engine, and the results/analysis
-  engine. A few mid-document mechanical sections were not machine-extractable
-  (noted as *low-confidence* where relevant), but the capability **surface** is
-  fully pinned down by the TOC + Glossary + Index.
+  engine. The capability **surface** is fully pinned down by the TOC + Glossary +
+  Index; a few mechanical sections were not machine-extractable and are flagged
+  *low-confidence* where relevant.
 
 **How to read this.** Each section states what GoldSim's engine does, what WASiM's
-engine does, and the delta. A consolidated, severity-ranked gap table appears at
-the end, followed by "Where WASiM already matches or leads."
+engine does *now*, and the delta. A consolidated, severity-ranked gap table with a
+**Status** column appears at the end, followed by "Where WASiM already matches or
+leads."
 
 ---
 
-## 0. Executive summary — the five gaps that matter most
+## 0. Executive summary
 
-1. **The time engine itself.** GoldSim is a **variable-timestep, event-driven,
-   causality-ordered hybrid simulator**. It inserts *unscheduled updates* at the
-   exact instant of any between-timestep event (a scheduled event, a stock hitting
-   a bound, a resource exhausting, an `At Date`/`At ETime`/`At Stock Test`
-   trigger), supports scheduled timestep changes, dynamically-adjusted timesteps,
-   per-container internal clocks, and reporting-period aggregation. **WASiM is a
-   fixed-step explicit-Euler evaluator over a single global `dt`.** Everything
-   snaps to the grid; there are no unscheduled updates and no multi-rate clocks.
-   This is the deepest architectural gap and it colors everything below (event
-   timing accuracy, mass conservation at bound crossings, stiff subsystems).
+### 0.1 What Revision 1 flagged and where it stands now
 
-2. **The discrete-event layer.** GoldSim has a rich transactional layer —
-   Timed/Triggered Events, Decision, Random Choice, Discrete Change (Add/Replace/
-   Push), Status, Milestone, Interrupt, Event/Discrete-Change Delays with
-   **queues and capacity**, and a **Resource** system (Spend/Borrow/Deposit) — all
-   ordered by an explicit causality sequence. WASiM has a genuine but *thinner*
-   event primitive (triggers + Poisson + effects) and no resources, no queue
-   modeling, no Milestone/Interrupt, and a narrower trigger vocabulary.
+| Rev 1 "top-5" gap | Rev 2 status | What landed |
+|---|---|---|
+| **1. The time engine** (unscheduled updates, variable/multi-rate timesteps) | **PARTIAL** | Event-accurate **sub-interval integration** at scheduled (`on_schedule`) instants **and stock floor/capacity crossings** landed, opt-in (`TimebaseMode::EventAccurate`); a mid-step bound crossing splits the step at the closed-form crossing instant so coupled downstream elements re-evaluate there (RNG-invariant; 64-split/step guard). **Remaining**: periodic-trigger sub-stepping absent; no variable/scheduled *global* timestep (Tier B2 deferred). The grid is still the fixed statistical/reporting lattice. |
+| **2. Discrete-event layer** | **LARGELY CLOSED** | **Queues** (capacity, `num_in_queue`), **Resources** (Spend/Deposit/Borrow, priority, overdraw protection), **Milestone**, **Interrupt**, **Status** latch, **PID controller**, `OnEvent` trigger all FULL. Remaining: aging-chain **Push** primitive, richer Timed-Event types. |
+| **3. Procedural scripting** | **OPEN** | Not started (Tier C1, gated). Still the largest remaining engine gap. |
+| **4. Probabilistic breadth** | **PARTIAL** | **LHS now real**; distribution roster expanded (Log-Uniform/-Triangular/-Cumulative, 10-90 variants, Binomial, Negative Binomial, Poisson, Extreme Probability, Beta(succ/fail)); **results/analysis engine** now rich (custom percentiles, PDF/CDF/CCDF/exceedance, capture times, CI/skew/kurtosis/CTE); realization **weights** added (post-hoc); **importance sampling** landed (biased draws + likelihood-ratio weighting, S4, normal/lognormal/uniform/exponential PDFs). **Still absent**: Bayesian updating, realization classification/screening, scenarios. |
+| **5. Dimensional analysis & interop** | **SPLIT** | Dimensional analysis **CLOSED** (static strict-units mode can hard-fail a run); true **leap-year calendar** + new time refs **CLOSED** (anchor-gated). External **interop** (DLL/Excel/ODBC) remains **OPEN but is an explicit non-goal** (contradicts the open-JSON/WASM thesis; `WORKPLAN_TIER_C.md` non-goals). |
 
-3. **Procedural scripting.** GoldSim's Script element is a full mini-language
-   (local variables, assignment, `if/else`, `for`/`do`/`while`/`repeat-until`,
-   `break`/`continue`). WASiM has **no procedural execution** — a v1 `script`
-   element evaluates only `expressions[0]`; the only iteration is the functional
-   `vector_map` array comprehension.
+### 0.2 The gaps that matter most now
 
-4. **Probabilistic breadth.** GoldSim ships Latin Hypercube sampling, importance
-   sampling (with user-defined realization weights), simulated Bayesian updating,
-   a larger distribution roster, and a deep results/statistics layer
-   (PDF/CDF/CCDF, arbitrary percentiles, capture times, tail extrapolation,
-   confidence bounds, conditional tail expectation, correlation/regression/
-   importance-measure sensitivity). WASiM implements Monte Carlo with
-   Iman-Conover rank correlation and AR(1) autocorrelation, but **LHS is declared
-   and not implemented**, there is no importance sampling / realization weighting
-   / Bayesian updating, and results expose only `mean + p05/p25/p50/p75/p95` plus
-   per-realization final values.
+1. **Procedural Script execution** (Tier C1) — GoldSim's Script element is a full
+   imperative mini-language; WASiM still has no procedural executor. Highest corpus
+   pressure (script-heavy models currently evaluate to 0.0).
+2. **Finish the time engine** — wire `BoundCrossing` into the step loop (the code
+   exists, unused), let periodic triggers sub-step, and land scheduled non-uniform
+   *global* timesteps (Tier B2). Today's event-accuracy only covers explicit
+   `on_schedule` instants.
+3. **Results: realization classification/screening + scenarios** — the statistics
+   layer is now strong, but there is no "categorize/screen realizations by
+   condition" facility and no scenario comparison.
+4. **Sampling depth** — importance sampling **now landed** (S4: biased draws +
+   likelihood-ratio weighting, normal/lognormal/uniform/exponential PDFs); the
+   External distribution still yields 0.0 unless an inline fallback table is
+   supplied; LHS falls back to plain MC for non-closed-form-ICDF distributions,
+   and an importance node draws plain MC (LHS/IC skipped for it, phase-1 limit).
+5. **Statistical sensitivity measures** — OAT + tornado landed, but correlation /
+   regression (SRC) / partial-correlation / importance measures did not.
+6. **Known stubs to close** — `Link.fluxes`/`geometry` still not parsed;
+   `CapacityDemand` failure basis is a no-op (needs schema fields). *(`OnEvent`
+   triggers and the `Event` failure basis are now wired — S1,
+   `failure_bases_v2.rs`. Cell **concentration** output is computed in the
+   engine — S2, `cell_concentration_v2.rs`. Cell bodies **are** now decoded by
+   the emitter (volume/species/media populated); the remaining cell gap is the
+   **mass-delivery + decay layer** — see §10a.)*
 
-5. **Dimensional analysis & interop.** GoldSim is a **dimensionally-enforced**
-   engine (mismatched units are a hard error, conversions are automatic) with
-   first-class external coupling (Excel spreadsheet element, external **DLL**
-   elements, ODBC database linkage). WASiM has a unit registry but performs **no
-   runtime dimensional checking** (only warnings), and has **no external coupling**
-   (JSON model in, JSON results out).
-
-The good news, stated up front: WASiM already covers a surprising amount of
-GoldSim's *core* — Euler stocks with bounds/overflow/priority-withdrawal, links
-with transit/dispersion/decay, a multi-cell **mass-transport** layer with species
-decay chains and Kd partitioning, nested-Monte-Carlo submodels, an optimizer, a
-failure/repair state machine, Markov chains, and fault-tree gates. The gaps are
-concentrated in (a) the time/event engine, (b) scripting, (c) probabilistic
-tooling and results analysis, and (d) interop.
+The mass-transport core, transport physics on links, fault-tree gates,
+failure/repair FSM, nested-Monte-Carlo submodels, the Box's-complex optimizer
+(now with **enforced constraints**), Markov chains, convolution, and SELDM parity
+remain WASiM strengths — several are genuine subsets of GoldSim's *paid* modules.
 
 ---
 
 ## 1. Simulation paradigm & the time engine
 
-| Capability | GoldSim | WASiM | Gap |
+| Capability | GoldSim | WASiM (now) | Status |
 |---|---|---|---|
-| Core paradigm | Dynamic + probabilistic + discrete-event **hybrid** | Dynamic + probabilistic; discrete events as effects on a fixed grid | Partial |
-| Integration method | **Euler only**, by deliberate design (rejects Runge-Kutta/variable-order because uncertainty dwarfs integration error & higher-order methods can't handle discontinuities/coupled transport) | **Euler only** (`engine_v2.rs`) | **None — WASiM matches GoldSim's stated philosophy exactly** |
-| Timestep model | Basic Step **+ unscheduled updates + scheduled timestep changes + dynamic adaptive timestep + per-Container internal clocks** | Single fixed global `dt`; `n_steps = round(duration/dt)` | **Large** |
-| Unscheduled updates | Auto-inserted at exact event/bound-crossing/resource-exhaustion times to preserve accuracy & mass conservation | None — events and crossings resolve on the next grid step | **Large** |
-| Reporting periods | Accumulated / average / change / rate-of-change over monthly/annual periods, independent of Basic Step | None | Medium |
-| Element evaluation order | Explicit **causality sequence** (state analysis, upstream-before-downstream), user-inspectable/adjustable, with defined feedback-loop semantics | Topological sort (`graph_v2.rs`, petgraph); cycles rejected (v2) / warn-skipped (v1); `lag` & stocks are back-edges | Small (functionally similar; GoldSim's is richer around discrete-change ordering) |
-| Deterministic vs probabilistic runs | Yes | Yes (`n_realizations`) | None |
-| Calendar vs elapsed-time basis | Both; calendar dates referenceable | Elapsed-time; a fixed 365-day non-leap calendar for `year/month/day` time functions | Medium (**no leap years**, no true calendar/date arithmetic) |
+| Core paradigm | Dynamic + probabilistic + discrete-event **hybrid** | Same, with discrete events resolved on the grid + opt-in sub-interval integration | PARTIAL |
+| Integration method | **Euler only**, by deliberate design | **Euler only** (`engine_v2.rs`) | **Match (by shared philosophy)** |
+| Sub-timestep event accuracy | Unscheduled updates at *any* between-step event (scheduled events, bound crossings, resource exhaustion, `At Date/ETime/Stock Test`) | **Sub-interval integration at `on_schedule` instants and stock bound crossings** (`TimebaseMode::EventAccurate`, opt-in; split points from `schedule[]` on Events/Links/resampling plus closed-form floor/capacity crossings). Grid stays the statistical/state/reporting lattice; sub-steps consume no RNG and keep results `n_steps`-shaped. (Resource-exhaustion and condition-`Stock Test` sub-stepping still grid-quantized.) | **PARTIAL** |
+| Bound-crossing accuracy | Overflow/withdrawal + coupled downstream re-eval computed at exact crossing time | `BoundCrossing` provider **wired into the step loop** (`engine_v2.rs`): a mid-step floor/capacity crossing splits the step at `t_c`, pins the stock to the bound, and re-runs so downstream elements reading the stock re-evaluate at the crossing for the remainder of the step. RNG-invariant across the re-run; 64-split/step guard. Tested in `timebase_boundcrossing_v2.rs` | **CLOSED (EventAccurate)** |
+| Periodic-trigger / condition-trigger sub-stepping | Yes (`At Stock Test`, periodic) | **Absent** — only explicit `schedule` vectors split steps; periodic and condition crossings stay grid-quantized | ABSENT |
+| Variable / scheduled *global* timestep | Scheduled timestep changes; dynamic adaptive; per-container internal clocks | **Absent** — single fixed global `dt` (Tier B2 deferred; per-container clocks are a documented non-goal) | ABSENT |
+| Reporting periods | Accumulated / average / change / rate over periods | **FULL for fixed-length periods** (`results_spec.rs` `ReportingReduction`); **not yet calendar-month/year aware** | PARTIAL |
+| Element evaluation order | Explicit **causality sequence** | Topological sort (`graph_v2.rs`); grid-only stateful rules fenced to run once per grid step under the sub-interval loop | Small delta |
+| Deterministic vs probabilistic | Yes | Yes | Match |
+| Calendar vs elapsed-time; leap years | Both; real calendar | **True proleptic-Gregorian leap-year calendar** when `calendar_start` anchor set; legacy fixed 365-day when not (`eval.rs`) | **CLOSED (anchor-gated)** |
 
-**The central point.** GoldSim treats time as a continuum onto which it projects a
-*dynamically chosen* set of update points; WASiM treats time as a fixed lattice.
-Consequences that a WASiM modeler cannot currently reproduce:
-- An event scheduled for t = 33.65 d executes *at* 33.65 d in GoldSim; in WASiM it
-  is quantized to a grid step.
-- A reservoir that overflows partway through a step has its overflow computed at
-  the exact crossing time in GoldSim (mass-conserving); WASiM computes it at step
-  end.
-- Stiff subsystems can run on a finer internal clock in GoldSim without forcing the
-  whole model to a small `dt`; WASiM must shrink the global `dt` (or push the fast
-  dynamics into a duration-0 submodel).
+**Net:** the deepest architectural gap is *narrower* but not closed. WASiM can now
+place event *effects* and integration at exact scheduled instants and conserve mass
+across a partial step — but only for explicitly scheduled times, only as opt-in
+integration refinement, and still on one fixed global grid. Wiring the existing
+`BoundCrossing` provider and landing Tier B2 (scheduled non-uniform grid) are the
+two concrete steps left.
 
 ---
 
 ## 2. Element / object library
 
-GoldSim exposes ~50 element typeIDs. WASiM v2 reorganizes into **6 primitives
-(Node, Stock, Link, Event, Gate, Cell) + 2 definitions (Species, Medium)**, where
-"traits" activate by field presence. The mapping below is the heart of the gap.
+WASiM v2 primitives are now **7 (Node, Stock, Link, Event, Gate, Cell, Resource)
++ 2 definitions (Species, Medium)** — `Resource` is new (`model_v2.rs`).
 
 ### 2.1 Input elements
 
-| GoldSim | WASiM equivalent | Delta |
+| GoldSim | WASiM (now) | Status |
 |---|---|---|
-| **Data** (scalar/vector/matrix constant) | `Node::Fixed` (`Scalar` or `Array`) | Match |
-| **Stochastic** (distribution; vector; resamplable) | `Node::Sample` (distribution, `autocorrelation`, `resampling`, `correlations`) | Near-match; roster & resampling detail differ (see §6) |
-| **Time Series** | `Node::Series` (timestamps/values, interpolation) | **Partial.** WASiM lacks: average-over-timestep output (flow conservation), `Rate_of_Change` output, discrete-change output mode, time-shifting (random start / align-years / periodic wrap), and **record-and-play-back** of another element's output |
-| **Lookup Table** (1-D/2-D/**3-D**; derivative, integral, inverse lookup; log result interp) | `Node::Lookup` (1-D/2-D; linear/step; extrapolate/clamp) | **Partial.** No 3-D tables, no table derivative/integral/inverse-lookup, no log result interpolation; `cubic`/`spline` requested → **mapped to linear** at the engine boundary |
-| **History Generator** (geometric growth, random walk, reversion to median/target, correlated stochastic histories) | Approximated by `Node::Process` (GBM) + expressions | **Gap** as a first-class element; some cases expressible |
+| **Data** (scalar/vector/matrix constant) | `Node::Fixed` | Match (scalar/vector; no true matrix — see §9.3) |
+| **Stochastic** (distribution; resamplable) | `Node::Sample` (+`autocorrelation`, `resampling`, `correlations`) | Match |
+| **Time Series** | `Node::Series` | **Partial** — still lacks average-over-timestep output, `Rate_of_Change` output, discrete-change output mode, time-shifting (random start / align-years / periodic), and record-and-play-back |
+| **Lookup Table** (1-D/2-D/**3-D**; derivative/integral/inverse; log interp) | `Node::Lookup` — now with **`TBL_Derivative`** mode, **log-result interpolation**, monotone-cubic (spline no longer downgraded to linear at parse), and reserved `TBL_*` names | **Largely closed** — verify 3-D table + true cubic *evaluation* fidelity in `eval.rs`; inverse-lookup coverage to confirm |
+| **History Generator** (growth, random walk, reversion) | `Node::Process` now includes **reversion** (`process_reversion_v2.rs` test) + expressions | Partial (closer; not a 1:1 element) |
 
 ### 2.2 Function elements
 
-| GoldSim | WASiM equivalent | Delta |
+| GoldSim | WASiM (now) | Status |
 |---|---|---|
-| **Expression** | `Node::Expression` (AST) | Match |
-| **Selector** (nested if/then) | nested `If` in an expression | Match (composable) |
-| **Sum** | `+` / `sum_array` | Match |
-| **Extrema** (running lifetime peak/valley) | `Node::Filter` is **windowed** (Min/Max over N), not lifetime | **Gap** — no running-since-start extrema without a hand-built stock |
-| **Allocator** (allocate a signal by demands & priorities) | Link `priority` allocation / Stock `withdrawals` priority | Partial-match |
-| **Splitter** (split by fractions/amounts; route discrete changes) | Link `fraction`; no discrete-change routing | Partial |
-| **Controller** (Deadband / Proportional / **PID**) | none built-in (expressible w/ stock + expression, laboriously) | **Gap** — no built-in feedback controller |
-| **Convolution** (solves convolution integral) | `Node::Convolution` (inline or ref response) | **Match** |
-| **Previous Value** (prior-timestep output; closes recursive loops) | `Node::Lag` (strict 1-step) + accumulator self-reference reads previous step | Match |
+| Expression / Selector / Sum | `Expression` / nested `If` / `+`,`sum_array` | Match |
+| **Extrema** (running lifetime peak/valley) | Running-extremum via the `Filter` whole-run-window encoding | **Match** (corrects Rev 1) |
+| Allocator / Splitter | Link `priority` / `fraction`; Stock priority `withdrawals` | Partial |
+| **Controller** (Deadband / Proportional / **PID**) | **`Node::PidController`** — all three modes: `pid` (setpoint, kp/ki/kd, deadband, clamps), `proportional` (kp only), **`on_off`** (stateful bang-bang hysteresis latch, §2.15) | **CLOSED** |
+| **Convolution** | `Node::Convolution` | Match |
+| **Previous Value** | `Node::Lag` + accumulator self-reference | Match |
 
 ### 2.3 Stock (integrator) elements
 
-| GoldSim | WASiM `Stock` | Delta |
+| GoldSim | WASiM `Stock` (now) | Status |
 |---|---|---|
-| **Integrator** (integrate a rate; up to 3 moving-average outputs; `Pushed_Out` for aging chains; "rate applies to previous step" option) | `rate`/`inflows`−`outflows`, Euler | Partial — **no built-in moving-average outputs, no aging-chain Push** |
-| **Reservoir** (Additions vs Withdrawal Requests; Upper/Lower bounds; `Overflow_Rate`, `Withdrawal_Rate`, `Is_Full`; **`Is_Full` is a state variable usable to close feedback loops**) | `floor`, `capacity` + `overflow_target`, `withdrawals` (priority), `return_rate` (compound growth) | Near-match on mechanics; **no `Is_Full` state-variable feedback idiom**, no separate actual-withdrawal output semantics surfaced the same way |
-| **Pool** (scalar; multiple named inflows/outflows each with priority; `Total_Inflow/Request/Outflow`) | `inflows`/`outflows` element lists + link priority | Partial-match |
-| **Aging chains** (Integrator + discrete `Push`) | none | **Gap** |
+| **Integrator** (+ moving-average outputs; aging-chain Push) | `rate`/`inflows`−`outflows`, Euler; secondary port publication (grid-step aggregate rates) | Partial — no built-in moving-average outputs; **no aging-chain Push** |
+| **Reservoir** (bounds; `Overflow_Rate`/`Withdrawal_Rate`/`Is_Full`; state-var feedback) | `floor`, `capacity`+`overflow_target`, priority `withdrawals`, `return_rate` | Near-match on mechanics; no `Is_Full` state-var feedback idiom |
+| **Pool** (multiple named in/outflows w/ priority) | `inflows`/`outflows` lists + link priority | Partial-match |
 
 ### 2.4 Delay elements
 
-| GoldSim | WASiM | Delta |
+| GoldSim | WASiM (now) | Status |
 |---|---|---|
-| **Material Delay** (conveyor/pipeline, conserves, dispersion) | Link `transit_time` (plug flow) + `dispersion` (Ogata-Banks RTD) + `decay_rate` | **Match / arguably richer** on transport physics |
-| **Information Delay** (exponential smoothing/forecasting, no conservation) | `Node::Filter::Ema` approximates; v1 `Delay` (ring buffer) | Partial |
-| **Event Delay / Discrete Change Delay** (queue, capacity, `Num_in_Queue`, `Mean_Time`, `Current_Service_Time`, conveyor-belt vs fixed-at-entry) | none | **Gap — no queue/service modeling** |
+| **Material Delay** (conveyor, dispersion) | Link `transit_time` + `dispersion` (Ogata-Banks) + `decay_rate` | Match / richer |
+| **Information Delay** (exp smoothing) | `Filter::Ema`; v1 `Delay` ring buffer | Partial |
+| **Event / Discrete-Change Delay** (queue, capacity, service metrics) | **`Node::Queue`** (`delay_time`, `capacity`, `num_in_queue`, throughput; Conveyor/FixedAtEntry parsed) | **Largely closed** — disciplines parsed but both currently treated as fixed transit; `Mean_Time`/`Current_Service_Time` metrics not surfaced |
 
 ### 2.5 Discrete-event elements
 
-| GoldSim | WASiM | Delta |
+| GoldSim | WASiM (now) | Status |
 |---|---|---|
-| **Timed Event** (Regular / Poisson / Stochastic-interval / cumulative-count / remaining-time types) | `Event` with `rate` (Poisson) or trigger; `Periodic` trigger | Partial — Poisson & periodic yes; stochastic-interval / remaining-time / cumulative-count types no |
+| **Timed Event** (5 occurrence types) | `Event` + `rate` (Poisson) / `Periodic` / `OnSchedule` triggers | Partial — stochastic-interval / remaining-time / cumulative-count types absent |
 | **Triggered Event** | `Event` + `TriggerSpec` | Match |
-| **Discrete Change** (Add / Replace / Push) | `EffectSpec` modes `Additive` / `Multiplicative` / `Replace` | Near-match (**no Push**) |
-| **Decision** (branch to one of N named outputs) | expressible via `If` | Composable |
-| **Random Choice** (event tree; importance sampling) | expressible via `Sample`+`If`; no importance sampling | Partial |
-| **Status** (latching condition, separate true/false triggers) | `Node::Hysteresis` (Schmitt) approximates | Partial |
-| **Milestone** (records event time; achievement probability, mean lag) | none | **Gap** |
-| **Interrupt** (terminate/skip realization on event) | none | **Gap** |
+| **Discrete Change** (Add/Replace/**Push**) | `EffectMode` `Additive`/`Multiplicative`/`Replace` (+ new `Spend`/`Deposit`/`Borrow`/`Interrupt`) | Near-match (**no Push**) |
+| **Decision / Random Choice** | Composable via `If`/`Sample`; no importance sampling on choice | Partial |
+| **Status** (latch) | **`Node::Status`** (set/reset triggers, set-wins) | **CLOSED** |
+| **Milestone** (records event time) | **`Node::Milestone`** (first-fire elapsed; achieved-probability falls out of final-value distributions) | **CLOSED** |
+| **Interrupt** (end realization) | **`EffectMode::Interrupt`** (holds last values for remaining steps) | **CLOSED** |
 
 ### 2.6 Logical elements
 
-| GoldSim | WASiM | Delta |
+| GoldSim | WASiM | Status |
 |---|---|---|
-| **And / Or / Not / Logic Tree (N-Vote)** | `Gate` (`And/Or/Not/NVote/Reference/Condition/Input`, Success/Failure semantics) + inline `GateLogic` node | **Match / arguably richer** (explicit fault-tree primitive) |
+| And/Or/Not/Logic Tree (N-Vote) | `Gate` (+ inline `GateLogic`), Success/Failure semantics | Match / richer |
 
 ### 2.7 Structural / advanced elements
 
-| GoldSim | WASiM | Delta |
+| GoldSim | WASiM (now) | Status |
 |---|---|---|
-| **Container** (hierarchy) | `container` field / `ContainerDef` | Match (semantic, not just visual) |
-| **Conditional Container** (dormant when inactive — not recalculated) | none | **Gap** |
-| **Looping Container** (iterate contained elements each step until convergence) | none | **Gap** (matters for simultaneous/implicit equations) |
-| **Localized Container** (namespace scoping, aliases, globalizing) | flat IDs; no scoping | **Gap** |
-| **SubModel** (embed a full model; nested Monte Carlo) | `ContainerDef{kind:Submodel}` + `SubmodelStat` (`submodel_v2.rs`) | **Match** (see §7) |
-| **Script** (procedural language) | none (single-expression only) | **Gap** (see §3) |
-| **Spreadsheet / External(DLL) / File** (interop) | none | **Gap** (see §9) |
-| **Resource / Resource Store** (limited supply; Spend/Borrow/Deposit) | none | **Gap** |
-| **Clone** (referenced copy) | none | Gap (authoring convenience; low engine impact) |
+| Container (hierarchy) | `container` / `ContainerDef` | Match |
+| **Conditional Container** (dormant) | none | ABSENT (Tier C2, gated) |
+| **Looping Container** (iterate-to-convergence) | none (v2 rejects cycles) | ABSENT (Tier C2, gated) |
+| **Localized Container** (namespace scoping) | flat IDs | **BY-DESIGN non-goal** (emit-side id-qualification, per Tier C non-goals) |
+| **SubModel** (nested Monte Carlo) | `ContainerDef{kind:Submodel}` + `SubmodelStat` + per-step dynamic optimization | Match |
+| **Script** (procedural language) | none (single expression only) | **ABSENT — largest remaining gap (Tier C1)** |
+| **Resource / Resource Store** | **`Primitive::Resource`** + Spend/Deposit/Borrow effects, priority, overdraw protection | **CLOSED** |
+| **Spreadsheet / External(DLL) / File** | none (`spreadsheet` lowers to fixed-0 placeholder; `ExternCall`→0.0) | **BY-DESIGN non-goal** (Tier C4 salvageable slice = read snapshotted cell values, gated) |
+| **Clone**, distributed processing, per-container clocks | none | **BY-DESIGN non-goals** |
 
 ### 2.8 Extension-module elements
 
-GoldSim's paid modules add engine capability that WASiM partially reimplements in
-its core:
-
-| GoldSim module | Capability | WASiM |
+| GoldSim module | WASiM (now) | Status |
 |---|---|---|
-| **Contaminant Transport / Flow** | `Cell` elements: multi-media mass/heat transport, species, sources, Kd partitioning, decay chains, coupled stiff ODEs | **Substantial partial match**: `Cell` primitive with `media`/`species`, `partitioning_equilibrium` (Kd), `source_release`, radioactive **decay chains with daughter ingrowth**, advective/dispersive transport. **But**: cell output is **mass, not concentration** (no `C = mass/(volume·porosity)`); `Link.fluxes`/`geometry` are structurally defined but **not populated by the v2 parser**; no coupled-link stiff solver (WASiM is Euler on the global grid) |
-| **Reliability** | Action & Function elements, failure modes, fault trees | **Partial match**: `Event.failure_process` FSM (bases ExposureTime/OperatingTime/Demand/Condition; repair policies None/Repair/Replace/PM) + `Gate` fault trees. **But** `CapacityDemand`/`Event` failure bases are **no-ops** |
-| **Financial** | Fund elements, annuity/PV/FV functions, insurance/investment/option | **Gap** (expressible via stocks/expressions, but no financial primitives/functions) |
+| **Contaminant Transport / Flow** (Cell, Kd partitioning, decay chains, coupled ODEs) | `Cell` primitive: multi-media/species mass balance, `partitioning_equilibrium` (Kd, incl. **set-wide `species:null`** entries), `source_release`, radioactive **decay chains + daughter ingrowth**, advective/dispersive transport, **concentration output** `C=mass/(volume·fraction·porosity)` (S2, additive `:C` result id) | **Substantial partial match** — engine mechanisms exist and cell bodies now decode (volume/species/media populated), but **cell mass is ~0 corpus-wide**: no `initial_inventory`/`source` mass and 111/119 links are bare `{source,target}` shells (no species/rate), and **all 26 species have `half_life:null`** so no decay runs. `Link.fluxes`/`geometry` types exist but are **hard-coded empty in `v2_parse`**; no coupled-link stiff solver. **See §10a (emit-gated cell physics).** |
+| **Reliability** (Action/Function, fault trees) | `Event.failure_process` FSM (ExposureTime/OperatingTime/Condition/Demand/**Event** bases + repair None/Repair/Replace/PM) + `Gate` fault trees | **Partial** — only `CapacityDemand` basis remains a **no-op** (needs schema fields) |
+| **Financial** (Fund, annuity/PV/FV) | none (expressible via stocks/expressions) | ABSENT (low priority) |
 
 ---
 
-## 3. Procedural scripting & control flow
+## 3. Procedural scripting & control flow — **STILL OPEN**
 
-- **GoldSim Script element**: local variable declarations & assignment, `if/else`,
-  `for`, `do`, `while`, `repeat-until`, `break`/`continue`, with debugging. This is
-  a Turing-complete per-element computation.
-- **WASiM**: **no procedural execution.** The v1 `script` element is imported and
-  only `expressions[0]` is evaluated; `procedural` control flow emits a warning
-  (README and `model.rs` confirm). The only iteration construct is the functional
-  **array comprehension** (`VectorMap`/`IndexRef`/`Index`, fully implemented in
-  `eval.rs`), and there are no user-defined functions. Raw
-  `QuantityOrFormula::Formula` strings that were never parsed to an AST evaluate to
-  **0.0**.
+- **GoldSim**: Script element = local variables, assignment, `if/else`, `for`,
+  `do`, `while`, `repeat-until`, `break`/`continue`.
+- **WASiM**: still **no procedural executor.** The only iteration is the functional
+  array comprehension (`VectorMap`/`IndexRef`/`Index`); v1 `script` evaluates only
+  `expressions[0]`; unparsed `Formula` strings evaluate to **0.0**. `WORKPLAN_TIER_C.md`
+  C1 designs a `NodeRule::Script` + `script_v2.rs` interpreter with a step budget,
+  no-RNG determinism, and per-realization static locals — **gated, not started.**
 
-**Gap: large.** Any GoldSim model that relies on a Script element for imperative
-logic (iterative solvers, bespoke allocation, string/array building loops,
-stateful bookkeeping) has no direct WASiM expression. Note the transpiler notes
-(`notes_to_transpiler.md`, `WASIM_ARRAY_COMPREHENSION_GAP.md`) show this is a known
-Tier-1/Tier-2 boundary.
+**Gap: large — now the #1 remaining engine gap** by corpus pressure (script-heavy
+models such as `sac_sma`, `water_hammer`, `wind_model`, `precipgen_par` currently
+evaluate to 0.0 where they use script logic).
 
 ---
 
 ## 4. Dynamics, integration & feedback
 
-- **Integration**: both are **explicit Euler, fixed-rate-over-step** — WASiM
-  matches GoldSim's Appendix-F design decision exactly, including the "rate applies
-  to previous step" subtlety (GoldSim's optional flag; WASiM's accumulator
-  self-reference reads the previous step). **Not a gap.**
-- **Discrete/continuous coupling**: GoldSim adds discrete changes *instantaneously*
-  on top of the continuous Euler sum, inserting unscheduled updates so a
-  mid-step discrete change is timed exactly. WASiM folds event effects into the
-  per-step integration pass (order: link transfer → event pass → stock
-  integration → overflow re-clamp → cell transport). Same *net* semantics on a
-  step boundary; **different (coarser) timing** off the grid.
-- **Feedback vs recursive loops**: GoldSim distinguishes *feedback loops* (contain
-  ≥1 state variable, solved directly via causality ordering) from *recursive
-  loops* (instantaneous circular logic, solved via **Previous Value** elements or
-  **Looping Containers** that iterate to convergence). WASiM breaks cycles at
-  `Lag` and stock back-edges and otherwise **rejects cyclic graphs** (v2). **Gap**:
-  no iterate-to-convergence facility for simultaneous/implicit equations within a
-  timestep (GoldSim's Looping Container).
+- **Integration**: both explicit Euler, fixed-rate-over-step — WASiM matches
+  GoldSim's Appendix-F decision. Not a gap.
+- **Discrete/continuous coupling**: WASiM now integrates stocks piecewise across
+  sub-intervals when event-accurate mode is on, applying scheduled event *effects*
+  at their instant (RNG-free), while event *firing* / Poisson counts stay grid-fenced
+  for determinism. Off the scheduled set, timing is still grid-coarse.
+- **Feedback vs recursive loops**: GoldSim distinguishes feedback loops (state
+  variable, causality-ordered) from recursive loops (solved via Previous Value or
+  **Looping Containers**). WASiM breaks cycles at `Lag`/stock back-edges and rejects
+  other cycles. **Gap**: no iterate-to-convergence facility (Tier C2, gated).
 
 ---
 
 ## 5. Stocks, flows & mass balance
 
-This is one of WASiM's strongest areas and close to parity:
+Still one of WASiM's strongest areas, near parity:
 
-- **Match/near-match**: bounded reservoirs (`floor`, `capacity`), overflow routing
-  to a target, priority-ordered withdrawals/allocations, compound growth
-  (`return_rate`), mass-conserving link transfers with plug-flow transit,
-  dispersion (Ogata-Banks residence-time kernel), and first-order decay in transit.
-  The `stock_traits_v2` tests confirm priority allocation and overflow routing.
-- **Multi-cell mass transport** (GoldSim CT module territory): WASiM tracks mass
-  per `(cell, species, medium)`, does Kd equilibrium partitioning across media, and
-  runs **radioactive decay chains with daughter ingrowth** — a real subset of
-  GoldSim's Contaminant Transport engine.
-- **Gaps**: (a) cell state is exposed as **mass, not concentration** (V2_SCOPING
-  M4 known limit); (b) `Link.fluxes`/`geometry` (advective/diffusive/settling/
-  precipitation mechanisms; pipe/aquifer/conduit geometry) are **defined in the
-  model types but not wired up by `v2_parse`**; (c) no bound-crossing unscheduled
-  update, so overflow/withdrawal at a bound is resolved at step end rather than at
-  the exact crossing; (d) no `Is_Full`-style state-variable output for closing
-  control feedback.
+- **Match/near-match**: bounded reservoirs, overflow routing, priority
+  withdrawals/allocations, compound growth, mass-conserving link transfers with
+  plug-flow transit, Ogata-Banks dispersion, first-order transit decay.
+- **Multi-cell mass transport**: mass per `(cell, species, medium)`, Kd
+  partitioning, radioactive decay chains with daughter ingrowth — a real subset of
+  GoldSim's Contaminant Transport module.
+- **Remaining gaps**: (a) Cell **mass-delivery + decay** are emit-gated — the
+  engine mechanisms (concentration S2, partitioning incl. set-wide Kd, decay-chain
+  ingrowth) are in place and cell bodies now decode, but the corpus supplies no mass
+  to move (0/148 cells carry `initial_inventory`/source; 111/119 links are bare) and
+  no decay data (26/26 species `half_life:null`). **See §10a.**
+  (b) `Link.fluxes`/`geometry` (advective/diffusive/settling/precipitation;
+  pipe/aquifer/conduit) **defined in types but not parsed**; (c) no
+  `Is_Full` state-variable output (though a `ref` to the stock compared against its
+  capacity now reflects the mid-step crossing under `EventAccurate`).
+
+  *(Bound-crossing subdivision — formerly listed here as unwired — is now wired into
+  the step loop under `EventAccurate`; coupled downstream re-evaluation at the crossing
+  is delivered.)*
 
 ---
 
 ## 6. Probability, distributions & sampling
 
-### 6.1 Distribution roster
+### 6.1 Distribution roster — **largely closed**
 
-WASiM **has**: Uniform, Normal, Lognormal (log-params and moments), Triangular,
-**Trapezoidal**, Exponential, Gamma, Beta (4-param), Weibull, Pearson V,
-Pearson III, PERT, Pareto, Extreme Value (Gumbel), Student-t, Discrete Uniform,
-Bernoulli (≙ GoldSim Boolean), Discrete, Cumulative, Sampled (weighted empirical).
+WASiM now covers the GoldSim roster the original doc flagged as missing:
+Log-Uniform, Log-Triangular, Triangular/Log-Triangular **10-90**, Log-Cumulative,
+**Binomial**, **Negative Binomial**, **Poisson** (as a sampling distribution),
+**Extreme Probability (min/max)**, **Beta(successes, failures)** — plus its prior
+set and **Trapezoidal** (which GoldSim lacks). (`sampling.rs`,
+`distributions_roster_v2.rs`.)
 
-GoldSim **additionally has** (WASiM gap):
-- **Log-Uniform**, **Log-Triangular**, **Triangular/Log-Triangular 10-90**
-  variants, **Log-Cumulative**
-- **Binomial**, **Negative Binomial**
-- **Poisson as a sampling distribution** (WASiM uses Poisson only for event rates)
-- **Extreme Probability (min/max)** (distribution of the extreme of N samples)
-- **Beta specified by (successes, failures)**
-- **Externally-defined distribution** (via DLL/Spreadsheet). WASiM has an
-  `External` distribution family but it **cannot be sampled — it returns 0.0**,
-  which strands otherwise-valid models.
-
-WASiM has one GoldSim doesn't surface directly: **Trapezoidal** (SELDM-derived).
+- **External distribution**: **PARTIAL** — now samples an inline `fallback`
+  empirical table when present; **still degrades to 0.0** (with a warning) when no
+  fallback is supplied.
 
 ### 6.2 Sampling & correlation
 
-| Capability | GoldSim | WASiM |
-|---|---|---|
-| Monte Carlo | Yes | Yes (ChaCha8, per-realization stream) |
-| **Latin Hypercube** | Yes (stratified) | **Declared (`SamplingMethod::Lhs`) but NOT implemented** — always independent MC |
-| Rank correlation | Copulas / correlation algorithms (Iman et al.) | **Iman-Conover** (v2) / Gaussian copula (v1) — **match** |
-| Autocorrelation | Correlate a Stochastic to its own previous value | **AR(1)** per-step in normal space — **match** |
-| Truncation | Yes | Yes (rejection; clamp under AR(1)) |
-| **Importance sampling** | Yes (rare-event biasing; on Stochastics & Timed Events) | **None** |
-| **User-defined realization weights** | Yes | **None** |
-| **Simulated Bayesian updating** | Yes (dynamically revise distributions) | **None** |
-| Resampling of a stochastic | Trigger-based; correlated stochastics resample with driver | `resampling: TriggerSpec` — match |
+| Capability | GoldSim | WASiM (now) | Status |
+|---|---|---|---|
+| Monte Carlo | Yes | Yes (ChaCha8, per-realization stream) | Match |
+| **Latin Hypercube** | Yes | **FULL** — real stratified pre-pass via `icdf_truncated`, composes with Iman-Conover; **falls back to MC** for non-closed-form-ICDF distributions (Gamma/Beta/Weibull/Pearson/Pert/StudentT/Binomial/NegBinom/Poisson/External) | **CLOSED (with fallback caveat)** |
+| Rank correlation | Copulas / Iman et al. | Iman-Conover (v2) / Gaussian copula (v1) | Match |
+| Autocorrelation | Yes | AR(1) per-step | Match |
+| Truncation | Yes | Rejection; clamp under AR(1); ICDF-scaled under LHS | Match |
+| **Realization weights** | Yes | **PARTIAL** — `RunConfig.realization_weights` reweight output **statistics** (weighted mean/percentile/CTE/bands) post-hoc; they do **not** bias draws | PARTIAL |
+| **Importance sampling** | Yes (rare-event biasing) | **CLOSED (S4)** — `distribution.importance.bias` draws from g, carries w=f(x)/g(x) into the weighted reductions; PDFs for normal/lognormal/uniform/exponential (others error); importance nodes draw plain MC (LHS/IC skipped, phase-1) | CLOSED |
+| **Bayesian updating** | Yes | Absent | ABSENT |
 
-**Gap: medium-large.** The correlation machinery is at parity, but LHS
-(a headline GoldSim efficiency feature) is unimplemented, and importance sampling /
-realization weights / Bayesian updating are entirely absent.
+**Net:** LHS closed; roster closed; weights added as post-hoc reweighting;
+**importance sampling closed (S4)**. Remaining: Bayesian updating.
 
 ---
 
 ## 7. Submodels, nested Monte Carlo & containers
 
-- **Match**: WASiM's `ContainerDef{kind:Submodel}` is a genuine **nested Monte
-  Carlo** ("MC-in-MC") facility with its own `simulation_settings` and an
-  interface (`inputs`/`outputs`); parent expressions pull submodel statistics via
-  `SubmodelStat` (`Mean`, `Percentile`, `Sd`, `CumulativeProb`). Input binding via
-  the `from` driver extracts the driver's dependency closure into the submodel
-  (`SUBMODEL_INTERFACE_INPUT_BINDING.md`) — which is exactly what enables
-  probabilistic optimization (parent search variable → submodel). This maps well to
-  GoldSim's SubModel + Nested Monte Carlo and "separating uncertainty from
-  variability."
-- **Gaps** relative to GoldSim containers: **Conditional Containers** (dormant/
-  not-recalculated when inactive), **Looping Containers** (iterate-to-convergence),
-  **Localized Containers** (namespace scoping/aliases), and **per-container
-  internal clocks**. WASiM containers are organizational + the submodel special
-  case; they do not carry activation state, local iteration, local scope, or a
-  local timestep.
+- **Match**: `ContainerDef{kind:Submodel}` nested Monte Carlo with interface
+  input-binding via `from` dependency-closure extraction; parent expressions pull
+  `SubmodelStat` (`Mean`/`Percentile`/`Sd`/`CumulativeProb`). **New**: per-timestep
+  **dynamic optimization** inside submodels (`Model.dynamic_optimization` +
+  `optimization`).
+- **Gaps** (all Tier C2, gated / non-goal): **Conditional** (dormant), **Looping**
+  (iterate-to-convergence), **Localized** (scoping — non-goal), per-container
+  internal clocks (non-goal).
 
 ---
 
 ## 8. Optimization, sensitivity & results analysis
 
-### 8.1 Optimization
+### 8.1 Optimization — **constraints now enforced**
 
-- WASiM `optimize_v2.rs` implements **Box's complex method** over editable
-  `Fixed` scalar variables, objective `Maximize/Minimize` reduced by
-  `Mean/Percentile/Peak/Valley/Sum`, with probabilistic objectives re-running the
-  nested submodel per candidate. This is a real match for GoldSim's
-  objective/optimization-variable/probabilistic-optimization capability.
-- **Gaps**: GoldSim supports **constraints**; WASiM parses `OptConstraint` but
-  **does not enforce it** (box projection only). GoldSim's calibration framing and
-  "required condition" are not modeled.
+- Box's complex method over editable `Fixed` scalar variables; objective
+  `Maximize`/`Minimize` reduced by `Mean/Percentile/Peak/Valley/Sum`; probabilistic
+  objectives re-run the nested submodel per candidate.
+- **CLOSED**: optimization **constraints are now enforced** — `optimize_v2` collects
+  `constraint_refs`, evaluates them in the same run via
+  `eval_harness::evaluate_point_with_extras`, and coerces cost to +∞ on violation.
+  (A constraint the engine cannot evaluate is treated as satisfied — never
+  spuriously rejects.)
 
-### 8.2 Sensitivity analysis
+### 8.2 Sensitivity analysis — **PARTIAL (was already implemented)**
 
-- GoldSim has two engines: a **deterministic multi-run sweep → tornado / X-Y
-  charts**, and a **statistical** analysis from a probabilistic run computing
-  coefficient of determination, correlation coefficients, standardized regression
-  coefficients, partial correlation coefficients, and importance measures.
-- WASiM has **neither implemented** — there is a `SENSITIVITY_ANALYSIS_SPEC.md`
-  design (one-at-a-time sweep + tornado reusing the optimize harness) but **no
-  `sensitivity_v2.rs` module and no schema encoding**. **Gap: medium.**
+- **FULL**: `sensitivity_v2.rs` implements **one-at-a-time** line sweeps (per-variable
+  `VarCurve`) and **tornado** (`TornadoBar`, sorted by swing), reducing probabilistic
+  targets by the objective-statistic set. Runtime-configured (`SensitivitySpec`),
+  exported from `lib.rs`.
+- **ABSENT**: statistical measures from a probabilistic run — coefficient of
+  determination, correlation coefficients, standardized regression coefficients,
+  partial correlation coefficients, importance measures. GoldSim provides all five.
 
-### 8.3 Results / output analysis
+### 8.3 Results / output analysis — **largely closed**
 
-This is a large, under-appreciated gap.
+`results_spec.rs` + `ElementResults.analysis` (runtime-configured via
+`RunConfig.results_spec`, all additive `Option` fields; default output
+byte-identical):
 
-| GoldSim result capability | WASiM |
-|---|---|
-| Time-history **probability bands** with user-chosen percentile pairs (default 8 pairs + median; mean optional) | Fixed `mean + p05/p25/p50/p75/p95` only |
-| **Arbitrary / custom percentiles**, per-output custom statistic | Not configurable |
-| Distribution results as **PDF / CDF / CCDF** (exceedance) | Only `final_values` array is returned; no PDF/CDF/CCDF/exceedance objects |
-| **Capture Times** (snapshot distributions at arbitrary times) | Only per-timestep bands + final values |
-| **Tail extrapolation** for final-value/distribution stats at small N | None |
-| **Realization classification & screening** (categories by condition, Net/Gross %, include/exclude) | None |
-| **Reporting-period aggregation** (accumulated/average/change/rate) | None |
-| Confidence bounds on the mean & on distributions; **Conditional Tail Expectation**; skewness/kurtosis | `mean`, `percentile`, `std`, `cumulative_prob` helpers exist internally but are not exposed as results |
-| **Scenarios** (store/compare input sets) | None |
-| Importance-weighted statistics | N/A (no importance sampling) |
+| GoldSim result capability | WASiM (now) | Status |
+|---|---|---|
+| Time-history bands, **user-chosen percentiles** | `PercentileBand` per requested percentile (weighted when weights set) | **CLOSED** |
+| **PDF / CDF / CCDF** (exceedance) | `Distribution { bin_centers, pdf, x, cdf, ccdf }` | **CLOSED** |
+| **Capture Times** (snapshot at arbitrary times) | `CaptureSnapshot` at nearest stored step | **CLOSED** |
+| Final-value stats: CI on the mean, skewness, kurtosis, **CTE** | `FinalStats { ci_*, skewness, excess_kurtosis, cte }` | **CLOSED** |
+| **Reporting-period aggregation** (accumulated/average/change/rate) | `ReportingPeriods` / `ReportingReduction` | **CLOSED (fixed-length; not yet calendar-aware)** |
+| **Realization classification & screening** (categories by condition, Net/Gross %, include/exclude) | none | **ABSENT** |
+| **Scenarios** (store/compare input sets) | none | **ABSENT** |
+| Importance-weighted statistics | weights honored in reductions; **importance sampling now produces them** (S4) | Match |
 
-**Gap: medium-large** — WASiM's result surface is a small fixed summary; GoldSim's
-is a full probabilistic-analysis workbench at the engine level.
+**Net:** the statistics layer went from a fixed `mean + 5 percentiles` summary to a
+configurable probabilistic-analysis layer. The two remaining pieces are realization
+**classification/screening** and **scenarios**.
 
 ---
 
 ## 9. Units, expression language & interop
 
-### 9.1 Dimensional analysis
+### 9.1 Dimensional analysis — **CLOSED (static)**
 
-- GoldSim is **dimensionally enforced**: every element has output dimensions, links
-  are unit-checked, compatible units auto-convert (m + ft ok), incompatible units
-  are a **hard error** (m + hr rejected). Rich units DB (`units.dat`), custom
-  units, absolute-vs-difference unit handling (Cdeg/Fdeg, dates).
-- WASiM has an SI unit registry (`units.rs`) with parse/convert/display (including
-  affine temperature), but **`validate()` only emits warnings** — there is **no
-  runtime dimensional analysis** and no hard rejection of unit mismatches.
-- **Gap: medium.** Also: no true calendar/date type (fixed 365-day, **no leap
-  years**); GoldSim supports date/datetime units and calendar-time simulation.
+- **NEW**: `units.rs::check_dimensions` is a real dimensional checker — an exponent
+  vector `Dim([i8;5])` over {Time, Length, Mass, Volume, Temperature}, statically
+  inferring each expression's dimension and comparing to the declared output;
+  flagging add/subtract/compare of unequal dims, transcendentals of dimensioned
+  args, `sqrt` of odd exponents, mismatched `if` branches, and lookup `TBL_*`
+  adjustments. `UnitsMode::Strict` turns any inconsistency into a **hard load
+  error**; `Warn` (default) logs and continues. Unknown units are exempt (no false
+  positives). This is **static/load-time** analysis, not per-step runtime unit
+  tracking, but it can hard-fail a run — closing the Rev 1 gap.
 
-### 9.2 Built-in functions
+### 9.2 Calendar / dates — **CLOSED (anchor-gated)**
 
-WASiM's scalar/array/time builtins (52) largely cover GoldSim's math/trig set and
-add `Log2, Sign, Int, atan2, InterpArray, DotProduct`. **GoldSim additionally
-provides**: `cot`, **Bessel**, **beta function**, **error function (erf)**,
-**standard-normal** and **Student-t distribution functions**, the event functions
-**`occurs`** / **`changed`**, **importance-sampling functions**
-(`ImpOld/ImpProb/ImpWeight/ImpNew`), and **financial functions** (annuity/PV/FV).
-Also table-function operations (derivative/integral/inverse of a lookup) and
-first-class matrix operations (solve systems of equations). **Gap: small-medium**,
-mostly special functions, event-predicate functions, and matrix algebra.
+- True proleptic-Gregorian **leap-year calendar** when `calendar_start` is set;
+  new time refs `Hour/Minute/Second/Start/ElapsedMonths/ElapsedYears` and date
+  builtins `GetYear/Month/Day/Hour/Minute/Second`. Without an anchor, the legacy
+  fixed 365-day calendar is preserved.
 
-### 9.3 Arrays & matrices
+### 9.3 Built-in functions & arrays
 
-- WASiM: first-class scalar/vector values with broadcasting, array literals,
-  **implemented array comprehensions** (`vector_map`), and array builtins. Good
-  coverage of vectors.
-- GoldSim: full **vectors and matrices** with label sets (Named / Indexed),
-  constructor functions (`row`/`col`), whole-array arithmetic, matrix algebra
-  (solve linear systems), vector-as-lookup-table, and arrays up to 60 columns from
-  DB import. **Gap**: true 2-D **matrix** semantics and matrix algebra;
-  label-set-based indexing.
+- Function set still lacks GoldSim's `cot`, **Bessel**, **beta**, **erf**,
+  standard-normal / Student-t **distribution functions**, `occurs`/`changed` —
+  *update*: `occurs(event_id)`/`changed(ref)` **were added** (Tier A5) — importance-
+  sampling functions, and financial functions. Small-medium gap remains on special
+  functions.
+- **Arrays**: first-class vectors with broadcasting, implemented comprehensions,
+  array builtins. **True 2-D matrices and matrix algebra (solve systems) remain
+  absent** (Tier C3, gated) — corpus matrix sites are currently opaque
+  `extern_call`s.
 
-### 9.4 External coupling / data exchange
+### 9.4 External coupling — **OPEN by design**
 
-- GoldSim: **Spreadsheet element** (bidirectional Excel per-timestep), **External
-  (DLL) element** (link C/C++ at runtime; can define lookup tables, distributions,
-  time series; run out-of-process), **ODBC database linkage** (Generic / Simple /
-  Extended GoldSim DB, effective-dated, CRC-verified), text/CSV import/export, XML
-  model inventory, GoldSim Player runtime.
-- WASiM: **JSON model in, JSON results out.** `ExternCall` AST node exists but
-  **evaluates to 0.0** (round-trip preservation only). No spreadsheet/DLL/DB.
-- **Gap: large** for interop — though arguably *by design* (WASiM's thesis is a
-  transparent, diffable open format, and a browser/WASM runtime cannot load DLLs).
-  Worth calling out as a deliberate scope difference rather than a defect.
+- Excel/DLL/ODBC coupling remains absent and is an **explicit non-goal** (Tier C
+  non-goals: contradicts the open-JSON/WASM thesis). `ExternCall` preserves round-trip
+  but evaluates to 0.0; the `spreadsheet` element lowers to a fixed-0 placeholder.
+  The one salvageable slice (reading Excel cell *values* snapshotted at export, Tier
+  C4) is demand-gated. This is a deliberate scope difference, not a defect.
 
 ---
 
-## 10. Consolidated, severity-ranked gap table
+## 10. Consolidated, severity-ranked gap table (Rev 2)
 
-Severity = engine impact for reproducing GoldSim-class models (not authoring
-convenience).
+Severity = engine impact for reproducing GoldSim-class models. **Status** reflects
+the current code.
 
-| # | Gap | Severity | Notes |
+| # | Gap | Severity | **Status** | Notes |
+|---|---|---|---|---|
+| 1 | Full event-accurate / variable timestepping (periodic sub-stepping, scheduled non-uniform *global* grid) | High | **PARTIAL** | Scheduled-instant **and bound-crossing** sub-integration landed; remaining: periodic-trigger sub-stepping, Tier B2 (non-uniform global grid) |
+| 2 | **Procedural Script element** (loops, if/else, locals) | High | **OPEN** | Tier C1, gated, not started — largest remaining gap |
+| 3 | Results/analysis engine | High | **MOSTLY CLOSED** | Custom percentiles, PDF/CDF/CCDF, capture times, CI/skew/kurtosis/CTE, reporting periods all landed; **classification/screening + scenarios still absent** |
+| 4 | Discrete-event depth (queues, resources, milestone, interrupt, status, PID) | High | **MOSTLY CLOSED** | All landed incl. `OnEvent` trigger; remaining: aging-chain **Push**, richer Timed-Event types |
+| 5 | Sampling tooling (LHS, importance sampling, weights, Bayesian) | Med-High | **PARTIAL** | LHS **closed**; weights post-hoc; **importance sampling closed (S4)**; Bayesian absent |
+| 6 | Runtime dimensional analysis; leap-year calendar | Medium | **CLOSED** | Static strict-units mode (hard-fail) + anchor-gated real calendar |
+| 7 | Sensitivity analysis | Medium | **PARTIAL** | OAT + tornado **closed**; statistical measures (correlation/SRC/partial/importance) absent |
+| 8 | Container semantics (Conditional / Looping / Localized) | Medium | **OPEN / BY-DESIGN** | Conditional+Looping = Tier C2 (gated); Localized = non-goal |
+| 9 | Distribution roster; External-dist sampling | Medium | **MOSTLY CLOSED** | Roster expanded; External still 0.0 without an inline fallback table |
+| 10 | Lookup tables (3-D, derivative/integral/inverse, log interp, cubic) | Medium | **MOSTLY CLOSED** | `TBL_Derivative`, log interp, monotone-cubic landed; verify 3-D + true cubic *eval* fidelity |
+| 11 | Feedback controller; running extrema; history generator | Medium | **CLOSED / PARTIAL** | PID + running extrema **closed**; process reversion added; History Generator not a 1:1 element |
+| 12 | Matrix algebra & label-set arrays | Medium | **OPEN** | Tier C3, gated |
+| 13 | External coupling (Excel/DLL/ODBC) | Low-Med | **BY-DESIGN** | Explicit non-goal; C4 read-only cell slice gated |
+| 14 | Known stubs: `Link.fluxes/geometry` unparsed; `CapacityDemand` basis no-op; `Formula` strings→0.0 | Varies | **OPEN** | Each strands specific models; low-effort to close individually. (`OnEvent` trigger + `Event` failure basis closed — S1; cell **concentration**/**set-wide Kd** closed — S2; `on_off`/`proportional` controller modes closed. Emit-gated cell mass/decay: §10a.) |
+| 15 | Financial primitives/functions | Low | OPEN | Expressible via stocks/expressions |
+| 16 | Aging-chain Push; Clone; distributed processing; per-container clocks | Low | **OPEN / BY-DESIGN** | Push is a real small gap; the rest are non-goals |
+
+---
+
+## 10a. Emit-gated capabilities (engine done; blocked upstream in re-gsm)
+
+These are capabilities where the **engine mechanism is implemented and tested**, but no corpus
+model exercises it because the **re-gsm emitter does not yet decode the required input**. They are
+*not* engine gaps and *not* parse blockers — the affected models run clean, they just compute a
+degenerate result (zero mass, no decay, an inert latch) until the emit side lands. Tracked here so
+they are not mistaken for engine work or re-investigated. Corpus figures are from the 0.9.7
+regeneration (220 files); re-verify after any regen.
+
+| Capability | Engine state | Emit gap (the blocker) | Corpus evidence (0.9.7) |
 |---|---|---|---|
-| 1 | **Unscheduled updates / variable & multi-rate timestepping** (scheduled changes, dynamic adaptive, per-container internal clocks, reporting periods) | **High** | Deepest architectural gap; affects event timing & mass conservation |
-| 2 | **Procedural Script element** (loops, if/else, local vars) | **High** | Only functional `vector_map`; no imperative logic |
-| 3 | **Results/analysis engine** (PDF/CDF/CCDF & exceedance, arbitrary percentiles, capture times, classification/screening, tail extrapolation, CTE/confidence bounds, reporting-period aggregation, scenarios) | **High** | WASiM returns a fixed 5-percentile+mean summary |
-| 4 | **Discrete-event richness**: queues/capacity (Event & DC Delays), **Resources** (Spend/Borrow/Deposit), Milestone, Interrupt, Status, aging-chain Push, Random Choice/Decision as primitives | **High** | WASiM has triggers+Poisson+effects but none of these |
-| 5 | **Sampling tooling**: LHS (declared, unimplemented), importance sampling, user realization weights, Bayesian updating | **Medium-High** | Correlation (Iman-Conover/copula) & AR(1) already at parity |
-| 6 | **Runtime dimensional analysis / unit enforcement**; true calendar/dates (leap years) | **Medium** | WASiM only warns; fixed 365-day calendar |
-| 7 | **Sensitivity analysis** (tornado + statistical measures) | **Medium** | Spec exists (`SENSITIVITY_ANALYSIS_SPEC.md`), no module |
-| 8 | **Container semantics**: Conditional (dormant), Looping (iterate-to-convergence), Localized (scoping) | **Medium** | Submodel/nested-MC already covered |
-| 9 | **Distribution roster** gaps (Log-Uniform/Log-Triangular/10-90, Binomial, Negative Binomial, Poisson-as-dist, Extreme Probability, Beta(succ/fail)); **External dist samples 0.0** | **Medium** | WASiM adds Trapezoidal |
-| 10 | **Lookup tables**: 3-D, derivative/integral/inverse-lookup, log result interp; `cubic`→linear | **Medium** | |
-| 11 | **Feedback controller** (PID/Proportional/Deadband); running lifetime **Extrema**; **History Generator** | **Medium** | Partly expressible |
-| 12 | **Matrix algebra & label-set arrays** (solve systems, matrix ops) | **Medium** | Vectors covered; matrices not |
-| 13 | **External coupling** (Excel/DLL/ODBC) | **Low-Medium** | Largely a deliberate scope difference (open JSON format, WASM sandbox) |
-| 14 | **Cell = mass not concentration**; `Link.fluxes/geometry` not parsed; optimization constraints not enforced; `OnEvent`/`CapacityDemand`/`Event` bases no-op; `Formula` strings → 0.0 | **Varies** | WASiM's own known internal caveats (documented in-repo); each strands specific models |
-| 15 | **Financial primitives/functions** (Fund, annuity/PV/FV, insurance/option) | **Low** | Expressible via stocks/expressions |
-| 16 | Aging-chain Push; Clone; distributed processing; versioning | **Low** | Versioning provided externally by git; distributed processing is deployment, not engine semantics |
+| **Cell mass delivery** | `source_release`, `species_transport` links, `inflows`, partitioning (incl. set-wide Kd), concentration (S2) all implemented + tested (`cells_v2.rs`, `cell_concentration_v2.rs`) | re-gsm decodes cell **structure** (volume/species/media) but not the **mass sources**: no `initial_inventory`, no `release_rate`/`inventory` source, and transport **links are bare** (`{source,target}` only — no `species`/`rate`/`fraction`/`fluxes`). So cells have structure but nothing puts mass in them → all cell masses (and thus `:C` concentrations) read ~0. | 0/148 cells carry `initial_inventory`; 0 carry a source `release_rate`/`inventory`; **111/119 links are bare** (only 8 carry transport data). |
+| **Radioactive decay chains** | Per-`(species, medium)` first-order decay + daughter ingrowth, parent-first topo order (`engine_v2.rs`; `cells_v2::decay_chain_ingrowth_conserves_mass`) | re-gsm emits the species set as **one dimension element with `half_life: null`**, not per-nuclide defs carrying each nuclide's half-life/decay_products. With null half-lives no decay runs for any nuclide. This is the "species-set → dimension vs. per-substance defs" question from the emit-pathology thread (#4): the members are a dimension, but decay needs per-member half-life/products to coexist with it. | **26/26 `species` elements have `half_life: null`.** |
+| **`Link.fluxes` / `geometry` transport** | Types exist (`FluxSpec`, `FluxMechanism`, `LinkGeometry`) but execution is **not** wired (`v2_parse` hard-codes `fluxes: Vec::new()`) — this half is *also* an engine gap (§S3, deferred) | re-gsm emits `geometry` (10 links, bare tag) but **no `fluxes[]`** — so even if the engine executed fluxes there is no mechanism/rate data to drive them. Doubly blocked (emit + engine). | 0 links carry `fluxes`; 10 carry a bare `geometry` string. |
+| **Event-driven `status` latches** | The **`OnEvent` trigger and `on_event` trigger *mode* are implemented** (S1, `failure_bases_v2.rs`; a status/event fires when its `source` event is in the fired-set). The engine consumes them fully. | re-gsm cannot yet **bind** the 6 event-driven status nodes' set/reset to their event sources — their triggers come from *drawn event links*, not in-body conditions, so re-gsm emits never-firing `on_condition` placeholders (they parse but the latch never toggles). Needs the re-gsm event-link → `on_event` `source` resolution (tracks with re-gsm `CONNECTION_WIRING`). **No engine work remains** — once re-gsm emits `{mode: on_event, source: <event>}`, the engine already handles it. | 6 status nodes (`discreteevents/Status2`, `option/Exercised`, `simple_stream_diversions/Diversion_ON`, `srm_snowmelt_runoff/{Melt_Transition_Period,RainExceedence}`, `statusmilestone/Status`) emit inert triggers. |
+| **on_off controller output** | Stateful hysteresis-latch handler implemented + tested (`discrete_nodes_v2.rs`); reads top-level `controller_mode`/`output_cap`/`deadband_ref` | **Closed as of re-gsm R3** — the fields are now lifted top-level and the 18 on_off controllers compute the latch. Listed here only for completeness (previously emit-gated; now resolved). | 18/18 on_off carry `controller_mode`; 17 carry `output_cap` (`unscheduledtimesteps` has none → documented 0/1-gate default). |
+
+**Reading this table:** the first two rows (cell mass, decay) are the substantive open items — both are
+**re-gsm decode gaps** on the contaminant-transport line, and both must land before any cell/decay
+model produces non-trivial output. The `Link.fluxes` row is additionally an engine gap (§S3,
+deferred). The last two rows are **closed** (event-`OnEvent` mode + on_off) and shown only so the
+engine side is not re-touched — the residual on `status` is purely re-gsm's event-link binding.
 
 ---
 
 ## 11. Where WASiM already matches or leads GoldSim's engine
 
-To keep the picture honest, WASiM is **not** a strict subset:
-
-- **Euler-only integration** is not a gap — it is exactly GoldSim's deliberate
-  design choice (Appendix F), for the same reasons (uncertainty ≫ integration
-  error; discontinuity handling).
-- **Rank correlation** (Iman-Conover) and **AR(1) autocorrelation** are at parity
-  with GoldSim's copula/correlation machinery.
-- **Mass-transport core**: multi-cell, multi-species, multi-medium mass balance
-  with **Kd partitioning** and **radioactive decay chains + daughter ingrowth** is
-  a genuine slice of GoldSim's *paid* Contaminant Transport module, in WASiM's
-  core.
-- **Transport physics on links** (plug-flow transit, Ogata-Banks dispersion,
-  first-order decay in transit) matches/exceeds the Material Delay element.
-- **Fault-tree gates** (`And/Or/Not/N-Vote`, Success/Failure semantics) and a
-  **failure/repair state machine** cover a real slice of the Reliability module.
-- **Nested-Monte-Carlo submodels** with dependency-closure input binding and an
-  **optimizer** (Box's complex) that drives them — a working analogue of GoldSim's
-  SubModel + probabilistic optimization.
-- **Markov chains, Convolution, Hysteresis, rolling-window Filter** are
-  first-class node rules.
-- **Open, diffable JSON model format** with a WASM runtime — a different (and in
-  some respects stronger) design point than GoldSim's single binary `.gsm`.
-- **SELDM parity** (USGS Stochastic Empirical Loading and Dilution Model):
-  Pearson-III, Trapezoidal ICDF, zero-inflated mixtures, single-timestep storm
-  models — a validated real-world modeling capability.
+- **Euler-only integration** — GoldSim's own deliberate design; not a gap.
+- **Rank correlation (Iman-Conover), AR(1) autocorrelation, and now real LHS** —
+  at or beyond parity with GoldSim's sampling machinery.
+- **Mass-transport core** — multi-cell/species/medium mass balance with Kd
+  partitioning and radioactive decay chains + daughter ingrowth: a genuine slice of
+  GoldSim's *paid* Contaminant Transport module, in WASiM's core.
+- **Transport physics on links** — plug-flow transit, Ogata-Banks dispersion,
+  first-order transit decay: matches/exceeds the Material Delay element.
+- **Fault-tree gates** + **failure/repair FSM** — a real slice of the Reliability
+  module.
+- **Nested-Monte-Carlo submodels** with dependency-closure input binding and a
+  **constraint-enforcing optimizer** (Box's complex), plus **per-step dynamic
+  optimization** inside submodels.
+- **Rich results/analysis layer** (custom percentiles, PDF/CDF/CCDF, capture times,
+  CTE/CI/skew/kurtosis, reporting periods) and a **static dimensional checker** that
+  can hard-fail inconsistent models — both now first-class.
+- **Markov chains, Convolution, Hysteresis, PID, Status/Milestone, Queues,
+  Resources, rolling-window & running-extremum Filters** — first-class primitives.
+- **Open, diffable JSON model format** with a WASM runtime — a deliberate,
+  different design point from GoldSim's binary `.gsm`.
+- **SELDM parity** (USGS) — validated real-world modeling capability.
 
 ---
 
-## 12. Suggested engine roadmap implied by the gaps
+## 12. Suggested engine roadmap (updated)
 
-Ordered to maximize model-coverage per unit of engine work:
+Most of Rev 1's roadmap (Tiers A + B) has landed. What remains, in leverage order:
 
-1. **Variable/event-accurate timestepping** (gap #1): introduce unscheduled
-   updates at event/bound-crossing times and scheduled timestep changes. This is
-   the highest-leverage, highest-effort item and unblocks faithful discrete-event
-   and bound-crossing behavior.
-2. **Results/analysis layer** (gap #3): configurable percentiles, CCDF/exceedance,
-   capture times, reporting-period aggregation. Mostly additive; the stat helpers
-   (`percentile`, `std`, `cumulative_prob`) already exist internally.
-3. **Finish declared-but-unimplemented items** (low-hanging, credibility):
-   implement **LHS**; enforce **optimization constraints**; make the **External
-   distribution** samplable; wire `Link.fluxes`/`geometry`; land the
-   **sensitivity** module per the existing spec.
-4. **Discrete-event depth** (gap #4): Resources, queue/capacity delays, Milestone,
-   Interrupt, Status, aging-chain Push.
-5. **Procedural scripting** (gap #2): a Tier-2 executor for the transpiler's
-   control-flow (the transpiler notes already anticipate this).
-6. **Dimensional enforcement + real calendar** (gap #6); **matrix algebra** and
-   **3-D/analytic lookup tables** (gaps #10, #12); **containers** (Conditional/
-   Looping/Localized, gap #8) and a **feedback controller** (gap #11).
+1. **Procedural Script executor** (Tier C1, gap #2) — the highest-pressure open
+   item; script-heavy corpus models currently evaluate to 0.0. Proposal doc →
+   emit sign-off → interpreter with hand-authored fixtures → schema, per the tier's
+   gate.
+2. **Finish the timebase** (gap #1): wire the existing `BoundCrossing` provider into
+   `engine_v2`'s step loop; allow periodic triggers to sub-step; land Tier B2
+   (scheduled non-uniform global grid, needs frontend coordination).
+3. **Results: realization classification/screening + scenarios** (gap #3 remainder)
+   and **calendar-aware reporting periods** (pair B4 with the B6 calendar).
+4. **Sampling depth** (gap #5 remainder): ~~importance sampling~~ (closed, S4);
+   Bayesian updating; make the External distribution error (or require a fallback)
+   instead of silently yielding 0.0.
+5. **Statistical sensitivity measures** (gap #7 remainder): correlation / SRC /
+   partial-correlation / importance measures from a probabilistic run.
+6. **Close the small stubs** (gap #14): parse `Link.fluxes`/`geometry`, the
+   `CapacityDemand` failure basis (needs schema fields), aging-chain **Push**.
+   *(Done: cell concentration + set-wide Kd — S2; `OnEvent`/`Event` bases — S1;
+   `on_off`/`proportional` controller modes.)*
+7. **Contaminant-transport emit gaps** (§10a, upstream in re-gsm, not engine work):
+   cell **mass delivery** (inventory/source/transport-link decode) and per-nuclide
+   **half-life** for decay chains — the two blockers to any non-trivial cell/decay
+   output.
+7. **Demand-gated big bets**: matrix algebra + label-set arrays (C3), Looping/
+   Conditional containers (C2), spreadsheet cell *reader* (C4) — only when a named
+   model needs them.
+
+Documented **non-goals** (do not re-litigate): DLL/ODBC/external coupling,
+Localized-Container scoping, Clone, distributed processing, per-container internal
+clocks, full adaptive error-controlled timestepping.
 
 ---
 
 ### Appendix — methodology & confidence
 
-- WASiM claims are **high-confidence** (read from source: `model_v2.rs`,
-  `engine_v2.rs`, `eval.rs`, `sampling.rs`, `optimize_v2.rs`, `submodel_v2.rs`,
-  `graph_v2.rs`, `units.rs`, the `engine/tests/*` suite, and the repo design docs).
-- GoldSim claims are **high-confidence for capability existence** (grounded in the
-  User Guide's TOC, Glossary, Index, Appendix D–F, and detailed chapter slices for
-  input/stock/delay/discrete-event/results elements). A few mechanical details in
-  non-extractable page bands (pp. 265–384, 665–784, 800–1104, and the distribution-
-  math / function-reference appendices) are inferred from the Index/Glossary plus
-  the guide's cross-references; these are flagged as *partial/low-confidence* where
-  they occur and do not affect the identification of gaps, only the depth of
-  mechanical detail.
-- "Gap" here means an engine capability present in GoldSim with **no faithful
-  WASiM engine encoding**. "Composable/expressible" items (where a WASiM modeler
-  could hand-build the behavior from existing primitives) are marked as such and
-  rated lower severity.
+- WASiM claims are **high-confidence** (read from `engine/src/*.rs` and
+  `engine/tests/*` at the current `main`; `FULL/PARTIAL/ABSENT` reflect whether a
+  capability is wired into `engine_v2.rs`, not merely present as a type or
+  library function — e.g. `BoundCrossing` is implemented in `timebase.rs` but
+  ABSENT from the run loop, and is marked accordingly).
+- GoldSim claims are **high-confidence for capability existence** (User Guide TOC,
+  Glossary, Index, Appendix D–F, and detailed chapter slices). Mechanical details
+  in non-extractable page bands are inferred from the Index/Glossary + cross-
+  references and do not affect gap identification, only depth.
+- "Gap" means an engine capability present in GoldSim with no faithful WASiM engine
+  encoding. "BY-DESIGN" marks capabilities the project has explicitly chosen not to
+  pursue (`WORKPLAN_TIER_C.md` non-goals). Status labels (CLOSED/PARTIAL/OPEN)
+  are as of this re-run against the current engine.
