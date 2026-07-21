@@ -194,6 +194,17 @@ pub enum NodeRule {
         output_min: Option<f64>,
         output_max: Option<f64>,
         deadband: f64,
+        /// GoldSim controller mode (§2.15). `None`/`"pid"` → the PID law above. `"on_off"` → a
+        /// stateful bang-bang **hysteresis latch** (ON above `setpoint + deadband/2`, OFF below
+        /// `setpoint − deadband/2`, else HOLD), output = `state ? output_cap : 0`. `"proportional"`
+        /// is a P-controller and already equals the PID law with ki=kd=0.
+        mode: Option<String>,
+        /// on_off "ON" output value (the flow cap / pump rate), a `quantity_or_formula` (may be a
+        /// dynamic ref). Only consumed in `on_off` mode.
+        output_cap: Option<QuantityOrFormula>,
+        /// on_off hysteresis band as a `quantity_or_formula` (a ref to a deadband-thickness element),
+        /// distinct from the PID `deadband: f64`. When present it supersedes `deadband` for on_off.
+        deadband_ref: Option<QuantityOrFormula>,
     },
     /// [queue] Event / discrete-change delay (§B3): entities/amount arriving via `input` each
     /// step wait `delay_time` then exit. `capacity` caps the number waiting (arrivals above it are

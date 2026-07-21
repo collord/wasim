@@ -552,6 +552,8 @@ pub fn run(
         let mut status_state: HashMap<String, bool> = HashMap::new();
         let mut milestone_time: HashMap<String, f64> = HashMap::new();
         let mut pid_state: HashMap<String, (f64, f64)> = HashMap::new();
+        // on_off controller latch state (§2.15): ON (true) / OFF (false), held across steps.
+        let mut onoff_state: HashMap<String, bool> = HashMap::new();
         // Queue (§B3): per queue node, a map of release_step → amount scheduled to exit then.
         let mut queue_buf: HashMap<String, HashMap<usize, f64>> = HashMap::new();
         // Resource (§B3): per-realization balance, seeded from each Resource's initial amount.
@@ -897,28 +899,63 @@ pub fn run(
                         }
                         NodeRule::PidController {
                             input, setpoint, kp, ki, kd, output_min, output_max, deadband,
+                            mode, output_cap, deadband_ref,
                         } => {
                             let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                             let measured = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
                             let sp = eval_qof_value(setpoint, &ctx)?.as_scalar();
-                            let mut error = sp - measured;
-                            // Deadband: treat |error| ≤ deadband as zero to avoid chattering.
-                            if error.abs() <= *deadband {
-                                error = 0.0;
+
+                            if mode.as_deref() == Some("on_off") {
+                                // Stateful bang-bang hysteresis latch (§2.15): ON above
+                                // `setpoint + band/2`, OFF below `setpoint − band/2`, else HOLD the
+                                // previous state (this HOLD is why a stateless threshold would
+                                // chatter). Output = state ? output_cap : 0. The band and cap are
+                                // quantity_or_formula (may be dynamic refs). Absent output_cap → the
+                                // latch still tracks state but emits 0/1 (graceful pre-emit-lift
+                                // degradation, since re-gsm lifts these fields in a later round).
+                                let band = match deadband_ref {
+                                    Some(q) => eval_qof_value(q, &ctx)?.as_scalar(),
+                                    None => *deadband,
+                                };
+                                let prev = onoff_state.get(elem_id.as_str()).copied().unwrap_or(false);
+                                let half = band / 2.0;
+                                let state = if measured > sp + half {
+                                    true
+                                } else if measured < sp - half {
+                                    false
+                                } else {
+                                    prev // inside the deadband: hold
+                                };
+                                onoff_state.insert(elem_id.clone(), state);
+                                let cap = match output_cap {
+                                    Some(q) => eval_qof_value(q, &ctx)?.as_scalar(),
+                                    None => 1.0,
+                                };
+                                let mut out = if state { cap } else { 0.0 };
+                                if let Some(lo) = output_min { out = out.max(*lo); }
+                                if let Some(hi) = output_max { out = out.min(*hi); }
+                                Value::Scalar(out)
+                            } else {
+                                // pid / proportional: the PID law (proportional = ki=kd=0).
+                                let mut error = sp - measured;
+                                // Deadband: treat |error| ≤ deadband as zero to avoid chattering.
+                                if error.abs() <= *deadband {
+                                    error = 0.0;
+                                }
+                                let (mut integral, prev_error) =
+                                    pid_state.get(elem_id.as_str()).copied().unwrap_or((0.0, 0.0));
+                                integral += error * dt;
+                                let derivative = if dt > 0.0 { (error - prev_error) / dt } else { 0.0 };
+                                let mut out = kp * error + ki * integral + kd * derivative;
+                                if let Some(lo) = output_min {
+                                    out = out.max(*lo);
+                                }
+                                if let Some(hi) = output_max {
+                                    out = out.min(*hi);
+                                }
+                                pid_state.insert(elem_id.clone(), (integral, error));
+                                Value::Scalar(out)
                             }
-                            let (mut integral, prev_error) =
-                                pid_state.get(elem_id.as_str()).copied().unwrap_or((0.0, 0.0));
-                            integral += error * dt;
-                            let derivative = if dt > 0.0 { (error - prev_error) / dt } else { 0.0 };
-                            let mut out = kp * error + ki * integral + kd * derivative;
-                            if let Some(lo) = output_min {
-                                out = out.max(*lo);
-                            }
-                            if let Some(hi) = output_max {
-                                out = out.min(*hi);
-                            }
-                            pid_state.insert(elem_id.clone(), (integral, error));
-                            Value::Scalar(out)
                         }
                         NodeRule::Markov { transition_matrix, output_values, .. } => {
                             let cur = *markov_state.get(elem_id.as_str()).unwrap_or(&0);
