@@ -151,6 +151,59 @@ fn pid_deadband_suppresses_small_error() {
     assert!(r.elements["ctrl"].final_values[0].abs() < 1e-9, "deadband should suppress the small error");
 }
 
+/// on_off controller (§2.15): a stateful bang-bang **hysteresis latch**. Setpoint 10, deadband 4
+/// (band ±2 → ON above 12, OFF below 8, else HOLD). The measured input steps
+/// `[13, 11, 9, 7, 11]`: 13 → ON; 11 & 9 are inside the band → HOLD ON (this is the load-bearing
+/// no-chatter behavior a stateless threshold would get wrong); 7 → OFF; 11 inside band → HOLD OFF.
+/// Output = state · output_cap (5).
+#[test]
+fn on_off_controller_hysteresis_latch() {
+    let json = r#"{"wasim_version": "0.9.7",
+      "simulation_settings": {"duration": {"value": 5, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "seed": 1},
+      "elements": [
+        {"id": "measured", "name": "M", "primitive": "node", "value_rule": "series",
+         "timestamps": [0,1,2,3,4], "values": [13,11,9,7,11], "interpolation": "step"},
+        {"id": "cap", "name": "Cap", "primitive": "node", "value_rule": "fixed", "value": {"value": 5, "unit": "1"}},
+        {"id": "band", "name": "Band", "primitive": "node", "value_rule": "fixed", "value": {"value": 4, "unit": "1"}},
+        {"id": "ctrl", "name": "Ctrl", "primitive": "node", "value_rule": "pid",
+         "input": "measured", "setpoint": {"value": 10, "unit": "1"},
+         "controller_mode": "on_off",
+         "output_cap": {"ast": {"op": "ref", "element_id": "cap"}},
+         "deadband_ref": {"ast": {"op": "ref", "element_id": "band"}},
+         "save_results": {"time_history": true}}
+      ]}"#;
+    let r = run(json);
+    let out = &r.elements["ctrl"].time_history.as_ref().unwrap().mean;
+    // [13→ON, 11→HOLD ON, 9→HOLD ON, 7→OFF, 11→HOLD OFF] · cap 5.
+    let expected = [5.0, 5.0, 5.0, 0.0, 0.0];
+    for (i, (&got, &exp)) in out.iter().zip(&expected).enumerate() {
+        assert!((got - exp).abs() < 1e-9, "on_off step {i}: got {got}, expected {exp} (series {out:?})");
+    }
+}
+
+/// on_off must not **chatter**: a measured value that oscillates entirely *within* the deadband
+/// after latching ON holds ON the whole time (a stateless `measured < setpoint` threshold would
+/// flip every step). Setpoint 10, band 6 (ON>13, OFF<7); measured `[14, 11, 9, 11, 8]` → ON then
+/// all subsequent values are inside [7,13] → HOLD ON throughout.
+#[test]
+fn on_off_does_not_chatter_inside_band() {
+    let json = r#"{"wasim_version": "0.9.7",
+      "simulation_settings": {"duration": {"value": 5, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "seed": 1},
+      "elements": [
+        {"id": "measured", "name": "M", "primitive": "node", "value_rule": "series",
+         "timestamps": [0,1,2,3,4], "values": [14,11,9,11,8], "interpolation": "step"},
+        {"id": "ctrl", "name": "Ctrl", "primitive": "node", "value_rule": "pid",
+         "input": "measured", "setpoint": {"value": 10, "unit": "1"},
+         "controller_mode": "on_off", "deadband": 6,
+         "output_cap": {"value": 1, "unit": "1"},
+         "save_results": {"time_history": true}}
+      ]}"#;
+    let r = run(json);
+    let out = &r.elements["ctrl"].time_history.as_ref().unwrap().mean;
+    // Latches ON at step 0 (14>13) and holds ON — never chatters back to 0 inside the band.
+    assert_eq!(out, &vec![1.0, 1.0, 1.0, 1.0, 1.0], "on_off held ON inside the band (no chatter)");
+}
+
 /// `occurs(event_id)` returns 1.0 on the step an event fires, 0.0 otherwise.
 #[test]
 fn occurs_builtin_tracks_event_fire() {

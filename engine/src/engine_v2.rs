@@ -65,9 +65,9 @@ pub fn run(
     let n_real = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations);
     let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
 
-    // Realization weights (B7): normalized to sum 1 for the weighted stat reductions. Only used
-    // when the length matches `n_real`; otherwise empty (unweighted, behavior unchanged).
-    let realization_weights: Vec<f64> = {
+    // User-supplied realization weights (B7): normalized to sum 1 for the weighted stat
+    // reductions. Only used when the length matches `n_real`; otherwise empty (unweighted).
+    let user_weights: Vec<f64> = {
         let w = &config.realization_weights;
         if w.len() == n_real as usize {
             let sw: f64 = w.iter().sum();
@@ -76,6 +76,13 @@ pub fn run(
             Vec::new()
         }
     };
+    // Per-realization importance-sampling weights (§ importance_sampling), the product of each
+    // importance node's likelihood ratio f(x)/g(x) drawn that realization. Starts at 1 (no bias);
+    // combined with `user_weights` after the run and normalized into the final reduction weights.
+    let mut importance_weights: Vec<f64> = vec![1.0; n_real as usize];
+    let mut any_importance = false;
+    // The reduction weights, finalized after the realization loop (see below).
+    let mut realization_weights: Vec<f64> = user_weights.clone();
 
     // Strict dimensional analysis (B5): reject a model with any dimensional inconsistency before
     // running. `Warn` (default) leaves the pre-B5 behavior unchanged (warnings are logged in lib.rs).
@@ -228,16 +235,40 @@ pub fn run(
         }
     }).collect();
 
+    // Cell pore-volume inputs for concentration outputs (S2, §5): cell bulk volume and each
+    // medium's porosity. Concentration C = mass / (volume · medium_fraction · porosity). Volume
+    // absent → concentration is undefined for that cell (mass-only, skipped). Porosity/fraction
+    // default to 1.0 (a bulk medium). Static (qof_const) — matches how `fraction` is resolved above.
+    let cell_volume: HashMap<String, f64> = model.elements.iter().filter_map(|e| {
+        if let Primitive::Cell(c) = &e.primitive {
+            c.volume.as_ref().map(|v| (e.id().to_string(), qof_const(v)))
+        } else {
+            None
+        }
+    }).collect();
+    let medium_porosity: HashMap<String, f64> = model.elements.iter().filter_map(|e| {
+        if let Primitive::Medium(m) = &e.primitive {
+            Some((e.id().to_string(), m.porosity.as_ref().map(qof_const).unwrap_or(1.0)))
+        } else {
+            None
+        }
+    }).collect();
+
     // Result ids: per-(cell, species) total, plus per-medium for multi-medium cells.
     let mut cell_species_ids: Vec<String> = Vec::new();
     for elem in &model.elements {
         if let Primitive::Cell(c) = &elem.primitive {
             if should_save_history(elem) || should_save_final(elem) {
+                let has_volume = c.volume.as_ref().map(qof_const).map(|v| v > 0.0).unwrap_or(false);
                 for sp in &c.species {
                     cell_species_ids.push(format!("{}:{}", elem.id(), sp.species));
                     if !c.media.is_empty() {
                         for m in &c.media {
                             cell_species_ids.push(format!("{}:{}@{}", elem.id(), sp.species, m.medium));
+                            // Concentration result id (S2), only when the cell has a bulk volume.
+                            if has_volume {
+                                cell_species_ids.push(format!("{}:{}@{}:C", elem.id(), sp.species, m.medium));
+                            }
                         }
                     }
                 }
@@ -356,7 +387,29 @@ pub fn run(
             if let Primitive::Node(n) = &elem.primitive {
                 if let NodeRule::Sample { distribution, .. } = &n.rule {
                     if !corr_ids.contains(elem.id()) {
-                        let v = if let Some(col) = lhs_cols.get(elem.id()) {
+                        let v = if let Some(imp) = &distribution.importance {
+                            // Importance sampling (§ importance_sampling): draw plain Monte Carlo
+                            // from the biased distribution g (skips LHS stratification for this
+                            // node — a documented phase-1 limitation), and multiply the likelihood
+                            // ratio w = pdf_f(x)/pdf_g(x) into this realization's importance weight.
+                            // Both f and g are resolved (formula params allowed); the PDFs support
+                            // only normal/lognormal/uniform/exponential and error otherwise.
+                            any_importance = true;
+                            let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
+                            let f = resolve_distribution(distribution, &ctx)?;
+                            let g = resolve_distribution(&imp.bias, &ctx)?;
+                            let x = sampling::sample(&g.kind, &g.truncation, &mut rng)?;
+                            let pf = sampling::pdf(&f.kind, x)?;
+                            let pg = sampling::pdf(&g.kind, x)?;
+                            if pg <= 0.0 || !pg.is_finite() {
+                                return Err(EngineError::Sampling(format!(
+                                    "importance sampling: biased density g({x}) = {pg} for node {}; \
+                                     g must have positive density everywhere its draws land", elem.id()
+                                )));
+                            }
+                            importance_weights[real_idx as usize] *= pf / pg;
+                            x
+                        } else if let Some(col) = lhs_cols.get(elem.id()) {
                             col[real_idx as usize]
                         } else {
                             let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
@@ -439,7 +492,10 @@ pub fn run(
                         init_outputs.insert(id.to_string(), Value::Scalar(q.value));
                     }
                     NodeRule::Sample { .. } => {
-                        init_outputs.insert(id.to_string(), Value::Scalar(rv_samples[id]));
+                        // `.get().unwrap_or` (not `[id]`): a sample node's draw is normally present,
+                        // but a correlated node skipped upstream could be absent — degrade to 0.0
+                        // rather than panic (matches the Process branch below).
+                        init_outputs.insert(id.to_string(), Value::Scalar(rv_samples.get(id).copied().unwrap_or(0.0)));
                     }
                     NodeRule::Process { .. } => {
                         init_outputs.insert(id.to_string(), Value::Scalar(sp_state.get(id).copied().unwrap_or(0.0)));
@@ -496,6 +552,8 @@ pub fn run(
         let mut status_state: HashMap<String, bool> = HashMap::new();
         let mut milestone_time: HashMap<String, f64> = HashMap::new();
         let mut pid_state: HashMap<String, (f64, f64)> = HashMap::new();
+        // on_off controller latch state (§2.15): ON (true) / OFF (false), held across steps.
+        let mut onoff_state: HashMap<String, bool> = HashMap::new();
         // Queue (§B3): per queue node, a map of release_step → amount scheduled to exit then.
         let mut queue_buf: HashMap<String, HashMap<usize, f64>> = HashMap::new();
         // Resource (§B3): per-realization balance, seeded from each Resource's initial amount.
@@ -690,16 +748,20 @@ pub fn run(
             // step's outputs; rate/failure events (whose fire needs current-step draws) are
             // resolved authoritatively in the event pass and reflected there for the next step.
             {
-                let mut fe = fired_events.borrow_mut();
-                fe.clear();
+                fired_events.borrow_mut().clear();
                 let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                 for elem in &model.elements {
                     if let Primitive::Event(ev) = &elem.primitive {
                         // Only trigger-driven events are predicted here (rate/failure need draws).
                         if ev.rate.is_none() && ev.failure_process.is_none() {
                             if let Some(t) = &ev.trigger {
+                                // `trigger_fires` may itself borrow `fired_events` (an `on_event`
+                                // trigger reads the set), so do NOT hold a mutable borrow across
+                                // the call — evaluate first, then insert under a short-lived borrow.
+                                // A prior event's fire is visible to a later `on_event` in the same
+                                // pass (declaration order), which is the documented chaining rule.
                                 if trigger_fires(t, &ctx, dt, step_idx)? {
-                                    fe.insert(elem.id().to_string());
+                                    fired_events.borrow_mut().insert(elem.id().to_string());
                                 }
                             }
                         }
@@ -837,28 +899,63 @@ pub fn run(
                         }
                         NodeRule::PidController {
                             input, setpoint, kp, ki, kd, output_min, output_max, deadband,
+                            mode, output_cap, deadband_ref,
                         } => {
                             let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                             let measured = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
                             let sp = eval_qof_value(setpoint, &ctx)?.as_scalar();
-                            let mut error = sp - measured;
-                            // Deadband: treat |error| ≤ deadband as zero to avoid chattering.
-                            if error.abs() <= *deadband {
-                                error = 0.0;
+
+                            if mode.as_deref() == Some("on_off") {
+                                // Stateful bang-bang hysteresis latch (§2.15): ON above
+                                // `setpoint + band/2`, OFF below `setpoint − band/2`, else HOLD the
+                                // previous state (this HOLD is why a stateless threshold would
+                                // chatter). Output = state ? output_cap : 0. The band and cap are
+                                // quantity_or_formula (may be dynamic refs). Absent output_cap → the
+                                // latch still tracks state but emits 0/1 (graceful pre-emit-lift
+                                // degradation, since re-gsm lifts these fields in a later round).
+                                let band = match deadband_ref {
+                                    Some(q) => eval_qof_value(q, &ctx)?.as_scalar(),
+                                    None => *deadband,
+                                };
+                                let prev = onoff_state.get(elem_id.as_str()).copied().unwrap_or(false);
+                                let half = band / 2.0;
+                                let state = if measured > sp + half {
+                                    true
+                                } else if measured < sp - half {
+                                    false
+                                } else {
+                                    prev // inside the deadband: hold
+                                };
+                                onoff_state.insert(elem_id.clone(), state);
+                                let cap = match output_cap {
+                                    Some(q) => eval_qof_value(q, &ctx)?.as_scalar(),
+                                    None => 1.0,
+                                };
+                                let mut out = if state { cap } else { 0.0 };
+                                if let Some(lo) = output_min { out = out.max(*lo); }
+                                if let Some(hi) = output_max { out = out.min(*hi); }
+                                Value::Scalar(out)
+                            } else {
+                                // pid / proportional: the PID law (proportional = ki=kd=0).
+                                let mut error = sp - measured;
+                                // Deadband: treat |error| ≤ deadband as zero to avoid chattering.
+                                if error.abs() <= *deadband {
+                                    error = 0.0;
+                                }
+                                let (mut integral, prev_error) =
+                                    pid_state.get(elem_id.as_str()).copied().unwrap_or((0.0, 0.0));
+                                integral += error * dt;
+                                let derivative = if dt > 0.0 { (error - prev_error) / dt } else { 0.0 };
+                                let mut out = kp * error + ki * integral + kd * derivative;
+                                if let Some(lo) = output_min {
+                                    out = out.max(*lo);
+                                }
+                                if let Some(hi) = output_max {
+                                    out = out.min(*hi);
+                                }
+                                pid_state.insert(elem_id.clone(), (integral, error));
+                                Value::Scalar(out)
                             }
-                            let (mut integral, prev_error) =
-                                pid_state.get(elem_id.as_str()).copied().unwrap_or((0.0, 0.0));
-                            integral += error * dt;
-                            let derivative = if dt > 0.0 { (error - prev_error) / dt } else { 0.0 };
-                            let mut out = kp * error + ki * integral + kd * derivative;
-                            if let Some(lo) = output_min {
-                                out = out.max(*lo);
-                            }
-                            if let Some(hi) = output_max {
-                                out = out.min(*hi);
-                            }
-                            pid_state.insert(elem_id.clone(), (integral, error));
-                            Value::Scalar(out)
                         }
                         NodeRule::Markov { transition_matrix, output_values, .. } => {
                             let cur = *markov_state.get(elem_id.as_str()).unwrap_or(&0);
@@ -1114,8 +1211,16 @@ pub fn run(
                                 }
                                 _ => false,
                             },
-                            // capacity_demand / event bases not yet modeled → never fail.
-                            _ => false,
+                            // Event basis: fail deterministically the step the FSM's triggering
+                            // event fires (its `on_event`/condition trigger evaluates true). Uses
+                            // the same `fired_events` path as the `on_event` trigger mode.
+                            FailureBasis::Event => match &ev.trigger {
+                                Some(t) => trigger_fires(t, &ctx, dt, step_idx)?,
+                                None => false,
+                            },
+                            // capacity_demand basis needs demand/capacity fields (schema) — not
+                            // yet modeled → never fail. (Deferred S1 follow-up.)
+                            FailureBasis::CapacityDemand => false,
                         };
                         if fail_now {
                             st.failed = true;
@@ -1461,16 +1566,21 @@ pub fn run(
                 let level = stock_state.get(id).map(|v| v.as_scalar()).unwrap_or(0.0);
                 let net = level - stock_prev_level.get(id).copied().unwrap_or(0.0);
                 for (k, spec) in base.outputs.iter().enumerate().skip(1) {
-                    let Some(role) = spec.role.as_deref() else { continue };
-                    // After parse-normalization `role` is a flow name and `output_kind` is set
-                    // (defaulting to "rate"); the per-step `rate` for each flow, plus the flow's
-                    // applied amount this sub-interval (rate · sub_dt) for the cumulative total.
-                    let (rate, flow): (f64, &'static str) = match role {
-                        "addition" => (add, "addition"),
-                        "withdrawal" => (wd, "withdrawal"),
-                        "overflow" => (ovf, "overflow"),
-                        "net_change" => (if sub_dt > 0.0 { net / sub_dt } else { 0.0 }, "net_change"),
-                        _ => continue,
+                    // A secondary output publishes when it declares a `role` (flow) and/or an
+                    // `output_kind` (accumulation). The flow selects which per-step rate to report;
+                    // a role-less output has no flow, so it defaults to `net_change` — the natural
+                    // referent for a bare `level` (the stock value) or `cumulative` (running net).
+                    // An output with neither role nor kind is inert (pre-0.9.2 role-less fallback).
+                    if spec.role.is_none() && spec.output_kind.is_none() {
+                        continue;
+                    }
+                    let (rate, flow): (f64, &'static str) = match spec.role.as_deref() {
+                        Some("addition") => (add, "addition"),
+                        Some("withdrawal") => (wd, "withdrawal"),
+                        Some("overflow") => (ovf, "overflow"),
+                        // Explicit net_change, or a role-less output (kind-only): net rate.
+                        Some("net_change") | None => (if sub_dt > 0.0 { net / sub_dt } else { 0.0 }, "net_change"),
+                        Some(_) => continue,
                     };
                     let kind = spec.output_kind.as_deref().unwrap_or("rate");
                     let v = match kind {
@@ -1569,7 +1679,11 @@ pub fn run(
                             let cell = elem.id();
                             let mut species_set: HashSet<String> = c.species.iter().map(|s| s.species.clone()).collect();
                             for p in &c.partitioning {
-                                species_set.insert(p.species.clone());
+                                // A species-specific entry adds its species to the set; a set-wide
+                                // entry (`species: None`) applies to the species already present.
+                                if let Some(sp) = &p.species {
+                                    species_set.insert(sp.clone());
+                                }
                             }
                             for sp in &species_set {
                                 let m_total: f64 = media.iter()
@@ -1620,13 +1734,26 @@ pub fn run(
                     if let Primitive::Cell(c) = &elem.primitive {
                         let cell = elem.id();
                         let media = cell_media.get(cell).cloned().unwrap_or_else(|| vec![(String::new(), 1.0)]);
+                        // Concentration is published only when the cell has a (positive) bulk
+                        // volume (S2, §5); otherwise cells emit mass only, as before.
+                        let vol = cell_volume.get(cell).copied().filter(|&v| v > 0.0);
                         for sp in &c.species {
                             let mut sp_total = 0.0;
-                            for (med, _) in &media {
+                            for (med, frac) in &media {
                                 let m = cell_mass.get(&(cell.to_string(), sp.species.clone(), med.clone())).copied().unwrap_or(0.0);
                                 sp_total += m;
                                 if !c.media.is_empty() {
                                     outputs.insert(format!("{cell}:{}@{}", sp.species, med), Value::Scalar(m));
+                                }
+                                // Per-(cell,species,medium) concentration C = mass / pore volume,
+                                // pore volume = cell_volume · medium_fraction · porosity. Published
+                                // under a parallel `:C` result id alongside the `@medium` mass.
+                                if let Some(v) = vol {
+                                    let phi = medium_porosity.get(med).copied().unwrap_or(1.0);
+                                    let pore_vol = v * frac * phi;
+                                    if pore_vol > 0.0 {
+                                        outputs.insert(format!("{cell}:{}@{}:C", sp.species, med), Value::Scalar(m / pore_vol));
+                                    }
                                 }
                             }
                             outputs.insert(format!("{cell}:{}", sp.species), Value::Scalar(sp_total));
@@ -1778,6 +1905,26 @@ pub fn run(
                 interrupted = true;
             }
         }
+    }
+
+    // Finalize reduction weights (§ importance_sampling). If any importance node biased the draws,
+    // the per-realization importance weight (product of likelihood ratios) is combined with the
+    // user weights (elementwise; uniform user weights = all 1) and normalized to sum 1, then used
+    // for every weighted statistic. So E_g[w·h] estimates E_f[h] and rare-event tails are reduced-
+    // variance. Without importance nodes this leaves `realization_weights` = the user weights.
+    if any_importance {
+        let mut w: Vec<f64> = importance_weights.clone();
+        if user_weights.len() == n_real as usize {
+            for (wi, ui) in w.iter_mut().zip(&user_weights) {
+                *wi *= *ui;
+            }
+        }
+        let sw: f64 = w.iter().sum();
+        realization_weights = if sw > 0.0 && sw.is_finite() {
+            w.iter().map(|x| x / sw).collect()
+        } else {
+            Vec::new()
+        };
     }
 
     // ── Aggregate ─────────────────────────────────────────────────────────────
@@ -2029,7 +2176,8 @@ fn partition_ratios(
     r[0] = 1.0;
     for _ in 0..n {
         let mut changed = false;
-        for e in entries.iter().filter(|e| e.species == species) {
+        // A partition entry applies to this species if it names it, or is set-wide (`species: None`).
+        for e in entries.iter().filter(|e| e.species.as_deref().map_or(true, |s| s == species)) {
             let (Some(&fi), Some(&ti)) = (idx.get(e.from_medium.as_str()), idx.get(e.to_medium.as_str())) else {
                 continue;
             };
@@ -2134,8 +2282,16 @@ fn trigger_fires(t: &TriggerSpec, ctx: &EvalCtx, dt: f64, step_idx: usize) -> Re
         TriggerMode::OnSchedule => {
             t.schedule.iter().any(|q| (q.value / dt).round() as usize == step_idx)
         }
-        // External-event triggers require the event primitive (M3).
-        TriggerMode::OnEvent => false,
+        // Fires when the referenced source event is in this step's fired set (§2, same
+        // semantics as the `occurs(ev)` builtin). Causality: `fired_events` holds trigger-driven
+        // fires from the pre-pass (same-step) and rate/failure fires from the previous step's
+        // event pass (next-step). Chaining two `on_event` events in one step is declaration-order
+        // dependent (the pre-pass is a single linear pass, not a fixpoint) — documented in §2.
+        TriggerMode::OnEvent => t
+            .source
+            .as_ref()
+            .map(|s| ctx.fired_events.borrow().contains(s))
+            .unwrap_or(false),
     })
 }
 
@@ -2616,6 +2772,18 @@ fn iman_conover_samples(
                 (0..k).map(|_| sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)).collect()
             };
             r_samples.push(col?);
+        }
+
+        // Every correlation-group member must be a `sample` node (the `continue`s above skip
+        // non-sample elements). If one was skipped, `r_samples` is shorter than `group.ids` and the
+        // positional indexing below (`r_samples[j]`) would panic — bail with a diagnosable error
+        // instead. (build_corr_groups normally prevents this; this guards a model/graph desync.)
+        if r_samples.len() != n {
+            return Err(EngineError::InvalidModel(format!(
+                "correlation group has {} members but only {} are sample nodes; \
+                 all correlated elements must be `sample` nodes",
+                n, r_samples.len()
+            )));
         }
 
         if k < 2 {

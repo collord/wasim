@@ -126,3 +126,40 @@ fn rate_alias_normalizes() {
     );
     assert!((final_of(&aliased, "reader") - 4.0).abs() < 1e-9, "both publish the 4/d addition rate");
 }
+
+/// **Role-less `output_kind`.** re-gsm emits `output_kind` on outputs with *no* `role` — a bare
+/// `level` (the stock value) and a `cumulative` (running net change). These must publish (a
+/// role-less output defaults to the `net_change` flow), not fall through to the primary value. A
+/// role-less output with *neither* role nor kind stays inert (pre-0.9.2 fallback to primary).
+#[test]
+fn role_less_output_kind_publishes() {
+    let json = r#"{
+      "wasim_version": "0.9.7",
+      "simulation_settings": {"duration": {"value": 4, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+      "elements": [
+        {"id": "in_rate", "name": "InRate", "primitive": "node", "value_rule": "fixed", "value": {"value": 5.0, "unit": "1/d"}},
+        {"id": "s", "name": "S", "primitive": "stock",
+         "outputs": [
+           {"name": "s", "unit": "1"},
+           {"name": "s#2", "unit": "1", "output_kind": "level"},
+           {"name": "s#3", "unit": "1", "output_kind": "cumulative"},
+           {"name": "s#4", "unit": "1"}
+         ],
+         "initial_value": {"value": 0.0, "unit": "1"},
+         "inflows": ["in_rate"]},
+        {"id": "lvl", "name": "L", "primitive": "node", "value_rule": "expression", "inputs": ["s"],
+         "expression": {"ast": {"op": "ref", "element_id": "s", "output": "s#2"}}},
+        {"id": "cum", "name": "C", "primitive": "node", "value_rule": "expression", "inputs": ["s"],
+         "expression": {"ast": {"op": "ref", "element_id": "s", "output": "s#3"}}},
+        {"id": "roleless", "name": "R", "primitive": "node", "value_rule": "expression", "inputs": ["s"],
+         "expression": {"ast": {"op": "ref", "element_id": "s", "output": "s#4"}}}
+      ]
+    }"#;
+    let r = run_json(json);
+    // Reader at final step (step 3) sees end-of-step-2 values: level = 3·5 = 15; cumulative net
+    // through step 2 = 15 (accumulates the net change, = deposits since no outflow).
+    assert!((final_of(&r, "lvl") - 15.0).abs() < 1e-9, "bare level kind = stock value, got {}", final_of(&r, "lvl"));
+    assert!((final_of(&r, "cum") - 15.0).abs() < 1e-9, "bare cumulative kind = running net, got {}", final_of(&r, "cum"));
+    // s#4 has neither role nor kind → inert → the qualified ref falls back to the primary level.
+    assert!((final_of(&r, "roleless") - 15.0).abs() < 1e-9, "role/kind-less port → primary level, got {}", final_of(&r, "roleless"));
+}

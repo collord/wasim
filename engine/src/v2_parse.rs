@@ -169,6 +169,15 @@ struct RawElement {
     output_max: Option<f64>,
     #[serde(default)]
     deadband: Option<f64>,
+    // on_off controller (§2.15): top-level fields re-gsm lifts from the `controller` role map.
+    /// Controller mode: `pid` (default) | `proportional` | `on_off`.
+    #[serde(default, rename = "controller_mode")]
+    controller_mode: Option<String>,
+    #[serde(default)]
+    output_cap: Option<QuantityOrFormula>,
+    /// on_off hysteresis band as a ref/formula (the PID `deadband` above is a plain number).
+    #[serde(default)]
+    deadband_ref: Option<QuantityOrFormula>,
     // queue (§B3)
     #[serde(default)]
     delay_time: Option<QuantityOrFormula>,
@@ -281,7 +290,9 @@ struct RawMediumRef {
 
 #[derive(Deserialize)]
 struct RawPartition {
-    species: String,
+    /// Optional: `null`/absent = applies to all species in the cell's set (set-wide Kd).
+    #[serde(default)]
+    species: Option<String>,
     from_medium: String,
     to_medium: String,
     coefficient: QuantityOrFormula,
@@ -674,6 +685,9 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             output_min: e.output_min,
             output_max: e.output_max,
             deadband: e.deadband.unwrap_or(0.0),
+            mode: e.controller_mode.clone(),
+            output_cap: e.output_cap.clone(),
+            deadband_ref: e.deadband_ref.clone(),
         },
         "queue" => v2::NodeRule::Queue {
             input: e.input.clone().ok_or_else(|| missing("input"))?,
