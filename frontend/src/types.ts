@@ -201,3 +201,49 @@ export interface SensitivityResults {
   /** One bar per variable, sorted by descending swing (tornado); empty for one-at-a-time. */
   tornado: TornadoBar[]
 }
+
+// ── Optimization (runtime-configured, from WasmEngine.optimize_json()) ─────────
+// Spec is transient UI state (never persisted). Mirrors the engine's OptimizationSpec /
+// StudyResults (snake_case discriminants).
+
+export type OptDirection = 'maximize' | 'minimize'
+export type ObjectiveStatKind = 'mean' | 'percentile' | 'peak' | 'valley' | 'sum'
+
+export interface ObjectiveStatistic {
+  kind: ObjectiveStatKind
+  /** Percentile in [0,100], required when kind = 'percentile'. */
+  p?: number
+}
+
+export interface OptObjective {
+  element_id: string
+  direction: OptDirection
+  /** Present for a probabilistic objective; omitted = deterministic (single value). */
+  statistic?: ObjectiveStatistic | null
+}
+
+export interface OptVariable {
+  element_id: string
+  lower: Quantity
+  upper: Quantity
+  initial: Quantity
+  integer?: boolean
+}
+
+export interface OptimizationSpec {
+  objective: OptObjective
+  variables: OptVariable[]
+  constraints?: { condition: unknown; label?: string }[]
+}
+
+export interface VariableResult {
+  element_id: string
+  value: number
+}
+
+export interface StudyResults {
+  variables: VariableResult[]
+  objective: number
+  evaluations: number
+  converged: boolean
+}

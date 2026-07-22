@@ -29,15 +29,16 @@ test.describe('corpus loads without crashing', () => {
       await page.goto('/')
       await page.setInputFiles('input[type=file]', path.join(CORPUS_DIR, name))
 
-      // Terminal state: the graph svg renders (loaded) OR the harness shows an error.
-      const svg = page.locator('svg').first()
-      const errorFlag = page.getByText('Error — see dashboard')
-      await expect(svg.or(errorFlag)).toBeVisible({ timeout: 20_000 })
+      // Terminal state: the reconcile round-trip settles the status bar to valid OR errors.
+      const okFlag = page.getByText('● valid')
+      const errorFlag = page.getByText(/⚠ \d+ error/)
+      await expect(okFlag.or(errorFlag)).toBeVisible({ timeout: 20_000 })
 
-      const loaded = await svg.isVisible().catch(() => false)
-      if (loaded && !(await errorFlag.isVisible().catch(() => false))) {
-        // Visit each tab; a render crash on any tab surfaces as an uncaught pageerror
-        // (there is no React error boundary). Settle after each so the error can propagate.
+      const rejected = await errorFlag.isVisible().catch(() => false)
+      if (!rejected) {
+        // Result mode exposes the original views; visit each — a render crash on any surfaces
+        // as an uncaught pageerror (there is no React error boundary). Settle after each.
+        await page.getByRole('button', { name: 'Result', exact: true }).click()
         for (const tab of ['Model', 'Dashboard', 'Results', 'Graph']) {
           await page.getByRole('button', { name: tab, exact: true }).click()
           await page.waitForTimeout(250)

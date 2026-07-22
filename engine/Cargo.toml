@@ -28,3 +28,8 @@ getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 glob = "0.3"
+
+# wasm-opt (binaryen) is disabled: the build environment can't fetch the binaryen
+# release, and the unoptimized module is fine for local/dev authoring use.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

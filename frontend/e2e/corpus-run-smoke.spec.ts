@@ -31,15 +31,16 @@ test.describe('corpus runs without crashing or hanging', () => {
 
       // Reach a load terminal state. If the model doesn't load (engine-rejected), skip the run
       // — the load-smoke suite covers those; there's nothing to run.
-      const svg = page.locator('svg').first()
-      const errorFlag = page.getByText('Error — see dashboard')
-      await expect(svg.or(errorFlag)).toBeVisible({ timeout: 20_000 })
+      const okFlag = page.getByText('● valid')
+      const errorFlag = page.getByText(/⚠ \d+ error/)
+      await expect(okFlag.or(errorFlag)).toBeVisible({ timeout: 20_000 })
       if (await errorFlag.isVisible().catch(() => false)) {
         test.skip(true, `${name} does not load (engine-rejected); nothing to run`)
         return
       }
 
-      // Configure a small realization count, then run.
+      // Configure a small realization count on the Dashboard (a Result-mode view), then run.
+      await page.getByRole('button', { name: 'Result', exact: true }).click()
       await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
       await page.getByLabel('Realizations').fill(REALIZATIONS)
       await page.getByRole('button', { name: /Run Simulation/i }).click()
@@ -49,7 +50,7 @@ test.describe('corpus runs without crashing or hanging', () => {
       // transition: the run is terminal once "Running…" is gone. If it never clears within the
       // hard timeout, the model hung / did not terminate → fail.
       const running = page.getByRole('button', { name: /Running/i })
-      const errored = page.getByText('Error — see dashboard')
+      const errored = page.getByText(/Error/i).first()
       // A fast run may finish before we observe "Running…", so don't require it to appear.
       try {
         await expect(running.or(errored)).toBeVisible({ timeout: 3_000 }).catch(() => {})

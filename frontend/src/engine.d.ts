@@ -7,10 +7,14 @@ declare module '@engine/wasim_engine' {
     model_summary(): string
     run_json(config_json: string): string
     sensitivity_json(spec_json: string): string
+    optimize_json(spec_json: string): string
     set_constant(id: string, value: number): void
     set_rv_param(id: string, param_name: string, value: number): void
     topo_order_json(): string
     free(): void
   }
+  /** Validate a candidate model without a persistent engine (authoring reconcile loop).
+   *  Returns JSON `{ ok, errors, warnings, topo }`; never throws. */
+  export function validate_json(model_json: string): string
   export default function init(): Promise<void>
 }

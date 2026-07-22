@@ -1,15 +1,26 @@
 import { create } from 'zustand'
-import type { MainToWorker, WorkerToMain } from './worker/protocol'
+import type { Issue, MainToWorker, Validation, WorkerToMain } from './worker/protocol'
 import type {
   ModelJson,
   ModelSummary,
+  OptimizationSpec,
   QtyDisplay,
   SensitivityResults,
   SensitivitySpec,
   SimulationResults,
+  StudyResults,
 } from './types'
+import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
+import { detectFormat } from './model/schema'
+import {
+  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId,
+  serializeModel, setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+} from './model/edits'
+import type { NodeView } from './model/schema'
 
 const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
+const RECONCILE_DEBOUNCE_MS = 250
+const HISTORY_LIMIT = 100
 
 // ── Worker singleton ──────────────────────────────────────────────────────────
 
@@ -17,17 +28,12 @@ let _worker: Worker | null = null
 
 function getWorker(): Worker {
   if (!_worker) {
-    _worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), {
-      type: 'module',
-    })
+    _worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' })
     _worker.onmessage = (e: MessageEvent<WorkerToMain>) => {
       useStore.getState()._onWorkerMessage(e.data)
     }
     _worker.onerror = (e) => {
-      useStore.getState()._onWorkerMessage({
-        type: 'error',
-        message: e.message ?? 'worker error',
-      })
+      useStore.getState()._onWorkerMessage({ type: 'error', message: e.message ?? 'worker error' })
     }
   }
   return _worker
@@ -39,67 +45,143 @@ function postToWorker(msg: MainToWorker) {
 
 // ── Store shape ───────────────────────────────────────────────────────────────
 
-export type Tab = 'graph' | 'model' | 'dashboard' | 'results' | 'sensitivity'
+export type Tab = 'graph' | 'model' | 'dashboard' | 'results' | 'sensitivity' | 'optimization'
 export type SimStatus = 'idle' | 'running' | 'done' | 'error'
+export type Mode = 'edit' | 'result'
 
 interface State {
-  // Model
-  modelJson: string | null
-  modelFilename: string | null
+  // Canonical editable document (spec §13.1) — the source of truth.
+  doc: ModelDoc | null
+  format: ModelFormat
+  dirty: boolean
+  // Engine-derived render/edit source (model of record for rendering).
   modelSummary: ModelSummary | null
+  modelJson: string | null // last serialized doc (kept for viewer compatibility)
+  modelFilename: string | null
 
-  // Active tab
-  activeTab: Tab
+  // Undo/redo command stack over `doc` (snapshots; docs are plain JSON, §13.4).
+  past: ModelDoc[]
+  future: ModelDoc[]
+
+  // Workspace
+  mode: Mode
+  activeTab: Tab // active Result-mode view
+  selectedId: string | null
+  selectedIds: string[]
+
+  // Validation (spec §8)
+  issues: Issue[]
+  topo: string[]
+  valid: boolean
+  reconciling: boolean
 
   // Simulation
   status: SimStatus
   errorMessage: string | null
-
-  // Results
   results: SimulationResults | null
   selectedResultId: string | null
 
-  // Sensitivity analysis (runtime; independent of the sim run status)
+  // Sensitivity
   sensStatus: SimStatus
   sensResults: SensitivityResults | null
   sensError: string | null
 
-  // Run config (user-controlled)
+  // Optimization (runtime; independent of the sim run status)
+  optStatus: SimStatus
+  optResults: StudyResults | null
+  optError: string | null
+
+  // Run config (user-controlled; mirrors doc.simulation_settings)
   nRealizations: number
   seed: number | null
-  // Canonical (engine-facing) duration/timestep. The dashboard shows/edits them in the
-  // declared display unit via the *Disp mappings; these values stay canonical.
   simDuration: number | null
   simTimestep: number | null
   simDurationDisp: QtyDisplay
   simTimestepDisp: QtyDisplay
 
   // Internal
+  _reconcileToken: number
+  _reconcileTimer: ReturnType<typeof setTimeout> | null
   _onWorkerMessage: (msg: WorkerToMain) => void
 }
 
 interface Actions {
+  // Files
   loadModel: (json: string, filename?: string) => void
+  newModel: () => void
+  saveModel: () => Promise<void>
+  saveParameters: () => void
+
+  // Workspace
+  setMode: (m: Mode) => void
   setActiveTab: (tab: Tab) => void
+  select: (id: string | null, additive?: boolean) => void
+
+  // Editing (structural → reconcile; value → fast path)
+  applyEdit: (next: ModelDoc, opts?: { reconcile?: boolean }) => void
+  updateElementField: (id: string, patch: Partial<FlatElement>) => void
+  mutateEl: (id: string, fn: (el: FlatElement) => void) => void
+  addNewElement: (el: FlatElement, pos?: NodeView) => void
+  duplicateElement: (id: string) => void
+  removeElement: (id: string) => void
+  renameElement: (oldId: string, newId: string) => void
+  reparent: (id: string, container: string | null) => void
+  moveNode: (id: string, pos: NodeView) => void
+  tidyPositions: (positions: Record<string, NodeView>) => void
+  editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
+  undo: () => void
+  redo: () => void
+
+  // Value fast-paths (no rebuild)
   setConstant: (id: string, value: number) => void
   setRvParam: (id: string, param: string, value: number) => void
+
+  // Run
   run: () => void
   runSensitivity: (spec: SensitivitySpec) => void
+  runOptimization: (spec: OptimizationSpec) => void
   setNRealizations: (n: number) => void
   setSeed: (s: number | null) => void
   setSimDuration: (v: number) => void
   setSimTimestep: (v: number) => void
   setSelectedResultId: (id: string) => void
-  saveParameters: () => void
+
+  // Internal
+  _scheduleReconcile: () => void
+  _pushHistory: (prev: ModelDoc) => void
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
+
+function runtimeFromDoc(doc: ModelDoc) {
+  const ss = doc.simulation_settings
+  return {
+    nRealizations: ss.n_realizations ?? 1,
+    seed: ss.seed ?? null,
+    simDuration: ss.duration.value,
+    simTimestep: ss.timestep.value,
+  }
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useStore = create<State & Actions>((set, get) => ({
+  doc: null,
+  format: 'v2',
+  dirty: false,
+  modelSummary: null,
   modelJson: null,
   modelFilename: null,
-  modelSummary: null,
-  activeTab: 'dashboard',
+  past: [],
+  future: [],
+  mode: 'edit',
+  activeTab: 'results',
+  selectedId: null,
+  selectedIds: [],
+  issues: [],
+  topo: [],
+  valid: true,
+  reconciling: false,
   status: 'idle',
   errorMessage: null,
   results: null,
@@ -107,28 +189,42 @@ export const useStore = create<State & Actions>((set, get) => ({
   sensStatus: 'idle',
   sensResults: null,
   sensError: null,
+  optStatus: 'idle',
+  optResults: null,
+  optError: null,
   nRealizations: 1000,
   seed: 42,
   simDuration: null,
   simTimestep: null,
   simDurationDisp: IDENTITY_DISP,
   simTimestepDisp: IDENTITY_DISP,
+  _reconcileToken: 0,
+  _reconcileTimer: null,
 
+  // ── Files ──────────────────────────────────────────────────────────────────
   loadModel(json, filename) {
-    // Lightweight parse for sim-settings only (top level is format-agnostic, v1 or v2).
-    // Element rendering/editing is driven entirely by the engine's model_summary.
-    let parsed: ModelJson
+    let doc: ModelDoc
     try {
-      parsed = JSON.parse(json) as ModelJson
+      doc = JSON.parse(json) as ModelDoc
     } catch {
       set({ status: 'error', errorMessage: 'Invalid JSON' })
       return
     }
-    const ss = parsed.simulation_settings
+    if (!doc.view) doc.view = { positions: {} }
+    if (!doc.elements) doc.elements = []
+    const format = detectFormat(doc)
     set({
+      doc,
+      format,
       modelJson: json,
       modelFilename: filename ?? null,
       modelSummary: null,
+      dirty: false,
+      past: [],
+      future: [],
+      mode: 'edit',
+      selectedId: null,
+      selectedIds: [],
       status: 'idle',
       results: null,
       selectedResultId: null,
@@ -136,27 +232,200 @@ export const useStore = create<State & Actions>((set, get) => ({
       sensStatus: 'idle',
       sensResults: null,
       sensError: null,
-      simDuration: ss.duration.value,
-      simTimestep: ss.timestep.value,
-      // Disp mappings reset to identity until the engine summary arrives (model_loaded).
+      issues: [],
+      topo: [],
+      valid: true,
+      ...runtimeFromDoc(doc),
       simDurationDisp: IDENTITY_DISP,
       simTimestepDisp: IDENTITY_DISP,
     })
-    postToWorker({ type: 'load_model', payload: json })
+    const token = get()._reconcileToken + 1
+    set({ _reconcileToken: token, reconciling: true })
+    postToWorker({ type: 'reconcile', model: json, token })
   },
 
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  newModel() {
+    const doc = blankModel()
+    get().loadModel(serializeModel(doc), 'untitled.json')
+  },
 
+  async saveModel() {
+    const { doc, modelFilename } = get()
+    if (!doc) return
+    const text = serializeModel(doc)
+    const name = modelFilename ?? 'model.json'
+    // File System Access API where available (§13.4), else download fallback.
+    const w = window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> }
+    if (typeof w.showSaveFilePicker === 'function') {
+      try {
+        const handle = await w.showSaveFilePicker({
+          suggestedName: name,
+          types: [{ description: 'WASiM model', accept: { 'application/json': ['.json'] } }],
+        })
+        const writable = await (handle as unknown as { createWritable: () => Promise<{ write: (s: string) => Promise<void>; close: () => Promise<void> }> }).createWritable()
+        await writable.write(text)
+        await writable.close()
+        set({ dirty: false })
+        return
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return
+        // fall through to download
+      }
+    }
+    const blob = new Blob([text], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+    set({ dirty: false })
+  },
+
+  // ── Workspace ────────────────────────────────────────────────────────────────
+  setMode: (mode) => set({ mode }),
+  setActiveTab: (activeTab) => set({ activeTab, mode: 'result' }),
+  select: (id, additive) =>
+    set((s) => {
+      if (id === null) return { selectedId: null, selectedIds: [] }
+      if (additive) {
+        const has = s.selectedIds.includes(id)
+        const ids = has ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id]
+        return { selectedId: ids[ids.length - 1] ?? null, selectedIds: ids }
+      }
+      return { selectedId: id, selectedIds: [id] }
+    }),
+
+  // ── Editing ──────────────────────────────────────────────────────────────────
+  _pushHistory(prev) {
+    set((s) => ({ past: [...s.past.slice(-HISTORY_LIMIT + 1), prev], future: [] }))
+  },
+
+  applyEdit(next, opts) {
+    const prev = get().doc
+    if (prev) get()._pushHistory(prev)
+    set({ doc: next, dirty: true, modelJson: serializeModel(next) })
+    if (opts?.reconcile !== false) get()._scheduleReconcile()
+  },
+
+  updateElementField(id, patch) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(updateElement(doc, id, patch))
+  },
+
+  mutateEl(id, fn) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(mutateElement(doc, id, fn))
+  },
+
+  addNewElement(el, pos) {
+    const doc = get().doc
+    if (!doc) return
+    const id = uniqueId(doc, el.id)
+    const withId = { ...el, id }
+    get().applyEdit(addElement(doc, withId, pos))
+    set({ selectedId: id, selectedIds: [id] })
+  },
+
+  duplicateElement(id) {
+    const doc = get().doc
+    if (!doc) return
+    const [next, newId] = duplicateElement(doc, id)
+    if (newId === id) return
+    get().applyEdit(next)
+    set({ selectedId: newId, selectedIds: [newId] })
+  },
+
+  removeElement(id) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(deleteElement(doc, id))
+    set((s) => ({
+      selectedId: s.selectedId === id ? null : s.selectedId,
+      selectedIds: s.selectedIds.filter((x) => x !== id),
+    }))
+  },
+
+  renameElement(oldId, newId) {
+    const doc = get().doc
+    if (!doc || oldId === newId) return
+    const uid = uniqueId(doc, newId)
+    get().applyEdit(renameId(doc, oldId, uid))
+    set((s) => ({
+      selectedId: s.selectedId === oldId ? uid : s.selectedId,
+      selectedIds: s.selectedIds.map((x) => (x === oldId ? uid : x)),
+    }))
+  },
+
+  reparent(id, container) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(setContainer(doc, id, container))
+  },
+
+  moveNode(id, pos) {
+    const doc = get().doc
+    if (!doc) return
+    // Layout-only: mutate the view block without a reconcile (engine ignores view, §13.3).
+    get().applyEdit(setPosition(doc, id, pos), { reconcile: false })
+  },
+
+  tidyPositions(positions) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(setPositions(doc, positions), { reconcile: false })
+  },
+
+  editSettings(patch) {
+    const doc = get().doc
+    if (!doc) return
+    const next = updateSettings(doc, patch)
+    get().applyEdit(next)
+    set(runtimeFromDoc(next))
+  },
+
+  undo() {
+    const { past, doc } = get()
+    if (past.length === 0 || !doc) return
+    const prev = past[past.length - 1]
+    set((s) => ({ past: s.past.slice(0, -1), future: [doc, ...s.future], doc: prev, dirty: true, modelJson: serializeModel(prev) }))
+    get()._scheduleReconcile()
+  },
+
+  redo() {
+    const { future, doc } = get()
+    if (future.length === 0 || !doc) return
+    const next = future[0]
+    set((s) => ({ future: s.future.slice(1), past: [...s.past, doc!], doc: next, dirty: true, modelJson: serializeModel(next) }))
+    get()._scheduleReconcile()
+  },
+
+  _scheduleReconcile() {
+    const existing = get()._reconcileTimer
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      const doc = get().doc
+      if (!doc) return
+      const token = get()._reconcileToken + 1
+      set({ _reconcileToken: token, reconciling: true, _reconcileTimer: null })
+      postToWorker({ type: 'reconcile', model: serializeModel(doc), token })
+    }, RECONCILE_DEBOUNCE_MS)
+    set({ _reconcileTimer: timer })
+  },
+
+  // ── Value fast-paths ──────────────────────────────────────────────────────────
   setConstant(id, value) {
-    // Echo the edit into the summary so the form reflects it immediately.
     const sm = get().modelSummary
     if (sm) {
-      set({
-        modelSummary: {
-          ...sm,
-          elements: sm.elements.map((e) => (e.id === id ? { ...e, value } : e)),
-        },
-      })
+      set({ modelSummary: { ...sm, elements: sm.elements.map((e) => (e.id === id ? { ...e, value } : e)) } })
+    }
+    // Keep the canonical doc in sync so Save reflects the edit (no reconcile needed).
+    const doc = get().doc
+    if (doc) {
+      const next = mutateElement(doc, id, (el) => { if (el.value) el.value = { ...el.value, value } })
+      set({ doc: next, dirty: true, modelJson: serializeModel(next) })
     }
     postToWorker({ type: 'set_constant', element_id: id, value })
   },
@@ -170,22 +439,30 @@ export const useStore = create<State & Actions>((set, get) => ({
           elements: sm.elements.map((e) => {
             if (e.id !== id || !e.dist) return e
             const old = e.dist.parameters[param]
-            const updated =
-              typeof old === 'object' && old !== null ? { ...old, value } : value
-            return {
-              ...e,
-              dist: { ...e.dist, parameters: { ...e.dist.parameters, [param]: updated } },
-            }
+            const updated = typeof old === 'object' && old !== null ? { ...old, value } : value
+            return { ...e, dist: { ...e.dist, parameters: { ...e.dist.parameters, [param]: updated } } }
           }),
         },
       })
     }
+    const doc = get().doc
+    if (doc) {
+      const next = mutateElement(doc, id, (el) => {
+        const d = el.distribution as { parameters?: Record<string, unknown> } | undefined
+        if (d?.parameters && param in d.parameters) {
+          const old = d.parameters[param]
+          d.parameters[param] = typeof old === 'object' && old !== null ? { ...(old as object), value } : value
+        }
+      })
+      set({ doc: next, dirty: true, modelJson: serializeModel(next) })
+    }
     postToWorker({ type: 'set_rv_param', element_id: id, param_name: param, value })
   },
 
+  // ── Run ───────────────────────────────────────────────────────────────────────
   run() {
     const { nRealizations, seed, simDuration, simTimestep } = get()
-    set({ status: 'running', errorMessage: null })
+    set({ status: 'running', errorMessage: null, mode: 'result' })
     postToWorker({
       type: 'run',
       config: {
@@ -202,26 +479,34 @@ export const useStore = create<State & Actions>((set, get) => ({
     postToWorker({ type: 'run_sensitivity', spec })
   },
 
-  setNRealizations: (n) => set({ nRealizations: n }),
-  setSeed: (s) => set({ seed: s }),
-  // Inputs are in display units; store canonical (canonical = (display - offset) / factor).
+  runOptimization(spec) {
+    set({ optStatus: 'running', optError: null, optResults: null })
+    postToWorker({ type: 'run_optimization', spec })
+  },
+
+  setNRealizations: (n) => { set({ nRealizations: n }); get().editSettings({ n_realizations: n }) },
+  setSeed: (s) => { set({ seed: s }); get().editSettings({ seed: s }) },
   setSimDuration: (v) => {
     const d = get().simDurationDisp
-    set({ simDuration: (v - d.offset) / d.factor })
+    const canonical = (v - d.offset) / d.factor
+    set({ simDuration: canonical })
+    const doc = get().doc
+    if (doc) get().editSettings({ duration: { ...doc.simulation_settings.duration, value: canonical } })
   },
   setSimTimestep: (v) => {
     const d = get().simTimestepDisp
-    set({ simTimestep: (v - d.offset) / d.factor })
+    const canonical = (v - d.offset) / d.factor
+    set({ simTimestep: canonical })
+    const doc = get().doc
+    if (doc) get().editSettings({ timestep: { ...doc.simulation_settings.timestep, value: canonical } })
   },
   setSelectedResultId: (id) => set({ selectedResultId: id }),
 
   saveParameters() {
     const { modelSummary, modelFilename, nRealizations, seed, simDuration, simTimestep } = get()
     if (!modelSummary) return
-
     const constants: Record<string, number> = {}
     const rv_params: Record<string, Record<string, number>> = {}
-
     for (const e of modelSummary.elements) {
       if (e.value_rule === 'fixed' && e.editable && e.value !== null) {
         constants[e.id] = e.value
@@ -233,7 +518,6 @@ export const useStore = create<State & Actions>((set, get) => ({
         rv_params[e.id] = params
       }
     }
-
     const paramsJson = JSON.stringify(
       {
         constants,
@@ -248,57 +532,88 @@ export const useStore = create<State & Actions>((set, get) => ({
       null,
       2,
     )
-
-    const stem = modelFilename
-      ? modelFilename.replace(/\.json$/i, '')
-      : 'model'
-    const filename = `${stem}.params.json`
-
+    const stem = modelFilename ? modelFilename.replace(/\.json$/i, '') : 'model'
     const blob = new Blob([paramsJson], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = filename
+    a.download = `${stem}.params.json`
     a.click()
     URL.revokeObjectURL(url)
   },
 
+  // ── Worker messages ─────────────────────────────────────────────────────────
   _onWorkerMessage(msg) {
     switch (msg.type) {
       case 'model_loaded':
         set({
           modelSummary: msg.summary,
-          activeTab: 'graph',
-          // Display mappings arrive with the summary (engine-computed); the dashboard
-          // shows/edits duration & timestep in these units while the store stays canonical.
           simDurationDisp: msg.summary.time_display.duration,
           simTimestepDisp: msg.summary.time_display.timestep,
         })
         break
 
-      case 'complete': {
+      case 'reconciled': {
+        if (msg.token < get()._reconcileToken) break // stale
+        const applyValidation = (v: Validation) =>
+          set({ issues: v.issues, topo: v.topo, valid: v.ok, reconciling: false })
+        applyValidation(msg.validation)
+        if (msg.summary) {
+          set({
+            modelSummary: msg.summary,
+            simDurationDisp: msg.summary.time_display.duration,
+            simTimestepDisp: msg.summary.time_display.timestep,
+          })
+        }
+        break
+      }
+
+      case 'validated': {
+        if (msg.token < get()._reconcileToken) break
+        set({ issues: msg.validation.issues, topo: msg.validation.topo, valid: msg.validation.ok, reconciling: false })
+        break
+      }
+
+      case 'complete':
         set({
           status: 'done',
           results: msg.results,
           selectedResultId: msg.results.output_ids[0] ?? null,
           activeTab: 'results',
+          mode: 'result',
         })
         break
-      }
 
       case 'sensitivity_complete':
         set({ sensStatus: 'done', sensResults: msg.results })
         break
 
+      case 'optimization_complete':
+        set({ optStatus: 'done', optResults: msg.results })
+        break
+
       case 'error':
-        // A worker error can arrive for either a sim run or a sensitivity sweep; surface it
-        // on whichever is in flight (a sensitivity run in progress takes precedence).
-        if (get().sensStatus === 'running') {
-          set({ sensStatus: 'error', sensError: msg.message })
-        } else {
-          set({ status: 'error', errorMessage: msg.message })
-        }
+        // A worker error can arrive for any in-flight job; surface it on whichever is running.
+        if (get().optStatus === 'running') set({ optStatus: 'error', optError: msg.message })
+        else if (get().sensStatus === 'running') set({ sensStatus: 'error', sensError: msg.message })
+        else set({ status: 'error', errorMessage: msg.message, reconciling: false })
         break
     }
   },
 }))
+
+// ── Stable-reference selector hooks ──────────────────────────────────────────
+// Selectors must return a stable reference for empty state; a fresh `?? []` / `?? {}`
+// makes useSyncExternalStore see the snapshot change every render (infinite loop / React
+// #185). These share one frozen empty per shape.
+const EMPTY_ELEMENTS: ModelSummary['elements'] = []
+const EMPTY_CONTAINERS: NonNullable<ModelDoc['containers']> = []
+const EMPTY_POSITIONS: Record<string, NodeView> = {}
+
+export const useElements = () => useStore((s) => s.modelSummary?.elements ?? EMPTY_ELEMENTS)
+export const useContainers = () => useStore((s) => s.doc?.containers ?? EMPTY_CONTAINERS)
+export const usePositions = () => useStore((s) => s.doc?.view?.positions ?? EMPTY_POSITIONS)
+
+// Re-export so components can import the doc type location conveniently.
+export type { ModelDoc, FlatElement } from './model/schema'
+export type { ModelJson }

@@ -199,6 +199,56 @@ impl WasmEngine {
     pub fn topo_order_json(&self) -> String {
         serde_json::to_string(&self.graph.topo_order).unwrap_or_default()
     }
+
+    /// Run a Box's-complex optimization (spec §11). `spec_json` is an `OptimizationSpec`
+    /// (objective + variables + constraints), UI-supplied and never persisted in the model —
+    /// the same transient-spec pattern as `sensitivity_json`. The spec is planted onto a copy
+    /// of the model and solved by `optimize_v2::optimize`; returns serialized `StudyResults`
+    /// (optimal variable values, achieved objective, evaluations, converged).
+    pub fn optimize_json(&self, spec_json: &str) -> Result<String, JsError> {
+        let spec: crate::model::OptimizationSpec = serde_json::from_str(spec_json)
+            .map_err(|e| JsError::new(&format!("bad optimization spec: {e}")))?;
+        let mut model = self.model.clone();
+        model.optimization = Some(spec);
+        let results = crate::optimize_v2::optimize(&model, &RunConfig::default())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
+    }
+}
+
+// ── Standalone validation (authoring reconcile loop) ────────────────────────────
+
+/// Validate a candidate model without constructing a persistent engine. Returns a JSON
+/// `{ ok, errors, warnings, topo }` document — never throws — so the authoring UI can
+/// surface structured diagnostics on every edit (spec §8, §13.2). `errors` are hard
+/// parse/graph failures (dangling refs, illegal cycles); `warnings` are dimensional /
+/// unit smells from [`crate::units::validate`]. `topo` is the evaluation order when the
+/// graph builds (the causality-sequence view), else empty.
+#[wasm_bindgen]
+pub fn validate_json(model_json: &str) -> String {
+    #[derive(serde::Serialize)]
+    struct Diag {
+        ok: bool,
+        errors: Vec<String>,
+        warnings: Vec<String>,
+        topo: Vec<String>,
+    }
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let mut topo = Vec::new();
+
+    match load_v2(model_json) {
+        Ok(model) => {
+            warnings = crate::units::validate(&model);
+            match ModelGraphV2::build(&model) {
+                Ok(graph) => topo = graph.topo_order.clone(),
+                Err(e) => errors.push(format!("graph error: {e}")),
+            }
+        }
+        Err(e) => errors.push(e),
+    }
+    serde_json::to_string(&Diag { ok: errors.is_empty(), errors, warnings, topo })
+        .unwrap_or_else(|_| "{\"ok\":false,\"errors\":[\"validation serialization failed\"],\"warnings\":[],\"topo\":[]}".to_string())
 }
 
 // ── Loading ───────────────────────────────────────────────────────────────────

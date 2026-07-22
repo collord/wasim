@@ -9,7 +9,12 @@ export default defineConfig({
   retries: 1,
   fullyParallel: true,
   reporter: [['line'], ['html', { open: 'never' }]],
-  use: { baseURL: 'http://localhost:5188' },
+  use: {
+    baseURL: 'http://localhost:5188',
+    // In sandboxes where the pinned Playwright browser build isn't installed, point at a
+    // browser on disk via PW_CHROMIUM_PATH. Unset in CI → Playwright uses its bundled browser.
+    launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH || undefined },
+  },
   // Serve the production build (vite preview) rather than the dev server: no HMR / on-demand
   // compilation, so it's fast and stable under parallel workers. Requires `npm run build`
   // first (the webServer command builds, then previews).
