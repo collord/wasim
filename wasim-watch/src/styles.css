@@ -1,0 +1,211 @@
+/*
+ * WaSim · watch it run — visual system
+ * The subject is a modeler watching their OWN model energize: this should
+ * read like precision measurement equipment (an oscilloscope for a model),
+ * not a marketing page. Restraint everywhere; the one bold move is the
+ * live "phosphor" glow on values that are updating at the playhead.
+ */
+:root {
+  /* bench: deep neutral graphite, not pure black — easier on long sessions */
+  --bench-0: #14171c;
+  --bench-1: #1b1f26;
+  --bench-2: #232833;
+  --bench-3: #2e3542;
+  --hair: #3a4250;
+  --hair-soft: #2a303b;
+
+  --ink-0: #eef2f7; /* primary readout text */
+  --ink-1: #aab4c2; /* secondary */
+  --ink-2: #6b7688; /* tertiary / captions */
+
+  /* phosphor cyan: live continuous values updating now */
+  --live: #46e6d0;
+  --live-dim: #1f6f68;
+  /* amber: a discrete state change / event just fired */
+  --amber: #f2b13c;
+  --amber-dim: #7a5a1e;
+  /* signal red: failed / interrupt */
+  --alarm: #ff5d5d;
+  --alarm-dim: #7a2a2a;
+  /* the uncertainty cloud */
+  --cloud: #5a7fb5;
+
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+  --sans: "Inter", system-ui, -apple-system, sans-serif;
+
+  --r: 4px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bench-0);
+  color: var(--ink-0);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* ---- header ---- */
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 18px 4px 14px;
+  border-bottom: 1px solid var(--hair-soft);
+}
+.masthead h1 {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0;
+  color: var(--ink-0);
+}
+.masthead h1 .dim {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.masthead .model {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--live);
+  margin-left: auto;
+}
+.masthead .timebase {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 2px 7px;
+}
+
+/* ---- stage (diagram) ---- */
+.stage {
+  position: relative;
+  margin: 14px 0;
+  background: radial-gradient(circle at 42% 34%, var(--bench-1), var(--bench-0) 78%);
+  border: 1px solid var(--hair-soft);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.stage svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- controls ---- */
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 4px 18px;
+  border-top: 1px solid var(--hair-soft);
+}
+.btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-0);
+  background: var(--bench-2);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.btn:hover {
+  border-color: var(--live-dim);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+.btn.primary {
+  color: var(--live);
+  border-color: var(--live-dim);
+}
+.scrub {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.scrub input[type="range"] {
+  flex: 1;
+  accent-color: var(--live);
+  height: 3px;
+}
+.clock {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-1);
+  min-width: 116px;
+  text-align: right;
+}
+.clock b {
+  color: var(--live);
+  font-weight: 600;
+}
+.mode {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.mode select {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bench-2);
+  color: var(--ink-0);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 3px 6px;
+}
+
+.legend {
+  display: flex;
+  gap: 16px;
+  padding: 0 4px 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+.legend .k {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.legend .sw {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
