@@ -204,18 +204,36 @@ pub fn run(
         hist_store.insert(d.id.clone(), vec![Vec::new(); n_steps]);
     }
 
-    // Species decay info (id → (half_life, [(daughter, branching)])) + a parents-first order.
-    let species_info: HashMap<String, (Option<f64>, Vec<(String, f64)>)> = model.elements.iter()
-        .filter_map(|e| match &e.primitive {
-            Primitive::Species(s) => Some((e.id().to_string(), (
-                s.half_life.as_ref().map(|q| q.value),
-                s.decay_products.iter()
-                    .map(|d| (d.species.clone(), d.branching_fraction.unwrap_or(1.0)))
-                    .collect(),
-            ))),
-            _ => None,
-        })
-        .collect();
+    // Species decay info (species-key → (half_life, [(daughter, branching)])) + parents-first order.
+    // Half-life is converted to the sim's dt_unit so `exp(-ln2/hl · dt)` is unit-consistent (the
+    // real corpus emits half-lives in `yr`; dt may be anything). Two element shapes:
+    //   • a plain single-species element → one entry keyed by the element id (daughters are ids);
+    //   • a species *set* element with `members[]` → one entry per member keyed by bare member name
+    //     (cells and decay_products reference nuclides by member name, not the set id). Corpus
+    //     invariant: at most one set element per model, so member names are unique within a run.
+    let hl_in_dt = |q: &crate::model::Quantity| crate::units::convert(q.value, &q.unit, &dt_unit).unwrap_or(q.value);
+    let mut species_info: HashMap<String, (Option<f64>, Vec<(String, f64)>)> = HashMap::new();
+    for e in &model.elements {
+        if let Primitive::Species(s) = &e.primitive {
+            if s.members.is_empty() {
+                species_info.insert(e.id().to_string(), (
+                    s.half_life.as_ref().map(hl_in_dt),
+                    s.decay_products.iter()
+                        .map(|d| (d.species.clone(), d.branching_fraction.unwrap_or(1.0)))
+                        .collect(),
+                ));
+            } else {
+                for m in &s.members {
+                    species_info.insert(m.name.clone(), (
+                        m.half_life.as_ref().map(hl_in_dt),
+                        m.decay_products.iter()
+                            .map(|d| (d.species.clone(), d.branching_fraction.unwrap_or(1.0)))
+                            .collect(),
+                    ));
+                }
+            }
+        }
+    }
     let decay_order = build_decay_order(&species_info);
 
     // Cell media as (medium_id, fraction); medium-less cells get one implicit medium "".

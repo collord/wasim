@@ -520,6 +520,18 @@ pub struct Species {
     pub half_life: Option<Quantity>,
     pub decay_products: Vec<DecayProduct>,
     pub molecular_weight: Option<Quantity>,
+    /// Per-nuclide decay data when this element is a species *set* (the GoldSim SSpeciesElem
+    /// carries N nuclides as one dimension element). Cells and `decay_products` reference members
+    /// by bare `name`, not the set element's id. Empty for a plain single-species element.
+    pub members: Vec<SpeciesMember>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SpeciesMember {
+    pub name: String,
+    pub half_life: Option<Quantity>,
+    pub decay_products: Vec<DecayProduct>,
+    pub molecular_weight: Option<Quantity>,
 }
 
 #[derive(Debug, Clone, Serialize)]

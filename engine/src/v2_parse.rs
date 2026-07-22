@@ -211,6 +211,9 @@ struct RawElement {
     decay_products: Vec<RawDecayProduct>,
     #[serde(default)]
     molecular_weight: Option<Quantity>,
+    /// Species-set members (per-nuclide decay data). See v2::SpeciesMember.
+    #[serde(default)]
+    members: Vec<RawMember>,
 
     // medium def
     #[serde(default)]
@@ -445,6 +448,17 @@ struct RawDecayProduct {
     branching_fraction: Option<f64>,
 }
 
+#[derive(Deserialize)]
+struct RawMember {
+    name: String,
+    #[serde(default)]
+    half_life: Option<Quantity>,
+    #[serde(default)]
+    decay_products: Vec<RawDecayProduct>,
+    #[serde(default)]
+    molecular_weight: Option<Quantity>,
+}
+
 // ── Lowering ──────────────────────────────────────────────────────────────────
 
 fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
@@ -513,11 +527,14 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
         "gate" => v2::Primitive::Gate(lower_gate_primitive(&e)?),
         "species" => v2::Primitive::Species(v2::Species {
             half_life: e.half_life.clone(),
-            decay_products: e.decay_products.iter().map(|d| v2::DecayProduct {
-                species: d.species.clone(),
-                branching_fraction: d.branching_fraction,
-            }).collect(),
+            decay_products: e.decay_products.iter().map(lower_decay_product).collect(),
             molecular_weight: e.molecular_weight.clone(),
+            members: e.members.iter().map(|m| v2::SpeciesMember {
+                name: m.name.clone(),
+                half_life: m.half_life.clone(),
+                decay_products: m.decay_products.iter().map(lower_decay_product).collect(),
+                molecular_weight: m.molecular_weight.clone(),
+            }).collect(),
         }),
         "medium" => v2::Primitive::Medium(v2::Medium {
             phase: lower_phase(e.phase.as_deref(), &e.id)?,
@@ -820,6 +837,13 @@ fn lower_effect(e: &RawEffect) -> v2::EffectSpec {
             _ => v2::EffectMode::Additive,
         },
         label: e.label.clone(),
+    }
+}
+
+fn lower_decay_product(d: &RawDecayProduct) -> v2::DecayProduct {
+    v2::DecayProduct {
+        species: d.species.clone(),
+        branching_fraction: d.branching_fraction,
     }
 }
 
