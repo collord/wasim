@@ -363,6 +363,8 @@ pub struct FluxSpec {
     pub coefficient: Option<QuantityOrFormula>,
     pub species: Option<String>,
     pub medium: Option<String>,
+    /// Upstream cell. On a `cell.fluxes[]` entry, `None` means the owning cell.
+    pub source: Option<String>,
     pub target: Option<String>,
 }
 
@@ -485,6 +487,7 @@ pub struct Cell {
     pub release_rate: Option<QuantityOrFormula>,
     pub release_schedule: Option<TriggerSpec>,
     pub release_target: Option<String>,
+    pub fluxes: Vec<FluxSpec>,                    // trait: coupled_transport
 }
 
 #[derive(Debug, Clone, Serialize)]

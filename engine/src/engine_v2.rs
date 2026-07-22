@@ -27,8 +27,8 @@ use crate::eval::{eval_ast, resolve_distribution, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::{AstNode, OptDirection, QuantityOrFormula};
 use crate::model_v2::{
-    ConvResponse, EffectMode, Element, FailureBasis, FilterStat, FixedValue, GateNode, MarkovStart,
-    Model, NodeRule, PartitionEntry, Primitive, QuantityExpr, RepairPolicy, TransitionRow,
+    ConvResponse, EffectMode, Element, FailureBasis, FilterStat, FixedValue, FluxMechanism, GateNode,
+    MarkovStart, Model, NodeRule, PartitionEntry, Primitive, QuantityExpr, RepairPolicy, TransitionRow,
     TriggerMode, TriggerSpec, WithdrawalSpec,
 };
 use crate::optimize_v2::SearchBounds;
@@ -1736,6 +1736,67 @@ pub fn run(
                             *cell_delta.entry((src.clone(), species.clone(), src_medium)).or_default() -= moved;
                             *cell_delta.entry((tgt.clone(), species.clone(), tgt_medium)).or_default() += moved;
                             st_link_out.push((elem.id().to_string(), moved));
+                        }
+                    }
+                    // Coupled-transport fluxes (trait coupled_transport): advective/diffusive
+                    // inter-cell mass transfer per (species, medium). Concentrations are read from
+                    // start-of-interval `cell_mass` (so every flux this sub-interval sees consistent
+                    // state) and the moved mass accumulates into `cell_delta`, mirroring the
+                    // species_transport links above. Mass-conserving: what leaves one endpoint
+                    // enters the other. C = mass / (cell_volume · medium_fraction · porosity).
+                    let conc = |cell: &str, sp: &str, med: &str| -> Option<f64> {
+                        let vol = cell_volume.get(cell).copied().filter(|&v| v > 0.0)?;
+                        let frac = cell_media.get(cell)
+                            .and_then(|ms| ms.iter().find(|(id, _)| id == med).map(|(_, f)| *f))
+                            .unwrap_or(1.0);
+                        let phi = medium_porosity.get(med).copied().unwrap_or(1.0);
+                        let pore_vol = vol * frac * phi;
+                        (pore_vol > 0.0).then(|| {
+                            cell_mass.get(&(cell.to_string(), sp.to_string(), med.to_string()))
+                                .copied().unwrap_or(0.0) / pore_vol
+                        })
+                    };
+                    for elem in &model.elements {
+                        let Primitive::Cell(c) = &elem.primitive else { continue };
+                        for fx in &c.fluxes {
+                            let Some(species) = &fx.species else { continue };
+                            // Cell-owned: source defaults to the owning cell; target is the far cell.
+                            let src = fx.source.clone().unwrap_or_else(|| elem.id().to_string());
+                            let Some(tgt) = &fx.target else { continue };
+                            let src_medium = fx.medium.clone().unwrap_or_else(|| first_medium(&src));
+                            let tgt_medium = fx.medium.clone().unwrap_or_else(|| first_medium(tgt));
+                            let (Some(c_src), Some(c_tgt)) =
+                                (conc(&src, species, &src_medium), conc(tgt, species, &tgt_medium))
+                            else {
+                                continue; // no bulk volume → concentration undefined; skip.
+                            };
+                            let moved = match fx.mechanism {
+                                // Advective: volumetric flow · upstream concentration (one-way).
+                                FluxMechanism::Advective => match &fx.rate {
+                                    Some(r) => (eval_qof_value(r, &ctx)?.as_scalar() * c_src * sub_dt).max(0.0),
+                                    None => 0.0,
+                                },
+                                // Diffusive: coefficient · concentration gradient (signed; may reverse).
+                                FluxMechanism::Diffusive => match &fx.coefficient {
+                                    Some(k) => eval_qof_value(k, &ctx)?.as_scalar() * (c_src - c_tgt) * sub_dt,
+                                    None => 0.0,
+                                },
+                                // direct/settling/precipitation: not yet executed.
+                                _ => 0.0,
+                            };
+                            if moved == 0.0 {
+                                continue;
+                            }
+                            // Never overdraw the losing endpoint (source if moved>0, else target).
+                            let moved = if moved > 0.0 {
+                                let src_mass = cell_mass.get(&(src.clone(), species.clone(), src_medium.clone())).copied().unwrap_or(0.0);
+                                moved.min(src_mass)
+                            } else {
+                                let tgt_mass = cell_mass.get(&(tgt.clone(), species.clone(), tgt_medium.clone())).copied().unwrap_or(0.0);
+                                -((-moved).min(tgt_mass))
+                            };
+                            *cell_delta.entry((src.clone(), species.clone(), src_medium)).or_default() -= moved;
+                            *cell_delta.entry((tgt.clone(), species.clone(), tgt_medium)).or_default() += moved;
                         }
                     }
                 }
