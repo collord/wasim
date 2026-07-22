@@ -199,6 +199,21 @@ impl WasmEngine {
     pub fn topo_order_json(&self) -> String {
         serde_json::to_string(&self.graph.topo_order).unwrap_or_default()
     }
+
+    /// Run a Box's-complex optimization (spec §11). `spec_json` is an `OptimizationSpec`
+    /// (objective + variables + constraints), UI-supplied and never persisted in the model —
+    /// the same transient-spec pattern as `sensitivity_json`. The spec is planted onto a copy
+    /// of the model and solved by `optimize_v2::optimize`; returns serialized `StudyResults`
+    /// (optimal variable values, achieved objective, evaluations, converged).
+    pub fn optimize_json(&self, spec_json: &str) -> Result<String, JsError> {
+        let spec: crate::model::OptimizationSpec = serde_json::from_str(spec_json)
+            .map_err(|e| JsError::new(&format!("bad optimization spec: {e}")))?;
+        let mut model = self.model.clone();
+        model.optimization = Some(spec);
+        let results = crate::optimize_v2::optimize(&model, &RunConfig::default())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
+    }
 }
 
 // ── Standalone validation (authoring reconcile loop) ────────────────────────────

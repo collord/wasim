@@ -17,6 +17,7 @@ export function ModelBrowser() {
   const selectedId = useStore((s) => s.selectedId)
   const select = useStore((s) => s.select)
   const remove = useStore((s) => s.removeElement)
+  const duplicate = useStore((s) => s.duplicateElement)
 
   const [panel, setPanel] = useState<Panel>('browse')
   const [lens, setLens] = useState<Lens>('containment')
@@ -61,6 +62,11 @@ export function ModelBrowser() {
       <TypeBadge type={iconTypeOf(e)} size={15} />
       <span className="min-w-0 flex-1 truncate">{e.name}</span>
       {e.unit && e.unit !== '1' && <span className="text-[9px] text-slate-400">{e.unit}</span>}
+      <button
+        onClick={(ev) => { ev.stopPropagation(); duplicate(e.id) }}
+        className="hidden text-slate-300 hover:text-blue-500 group-hover:block"
+        title="Duplicate"
+      >⧉</button>
       <button
         onClick={(ev) => { ev.stopPropagation(); remove(e.id) }}
         className="hidden text-slate-300 hover:text-red-500 group-hover:block"

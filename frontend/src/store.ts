@@ -3,16 +3,18 @@ import type { Issue, MainToWorker, Validation, WorkerToMain } from './worker/pro
 import type {
   ModelJson,
   ModelSummary,
+  OptimizationSpec,
   QtyDisplay,
   SensitivityResults,
   SensitivitySpec,
   SimulationResults,
+  StudyResults,
 } from './types'
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
-  addElement, blankModel, deleteElement, mutateElement, renameId, serializeModel,
-  setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId,
+  serializeModel, setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
 
@@ -43,7 +45,7 @@ function postToWorker(msg: MainToWorker) {
 
 // ── Store shape ───────────────────────────────────────────────────────────────
 
-export type Tab = 'graph' | 'model' | 'dashboard' | 'results' | 'sensitivity'
+export type Tab = 'graph' | 'model' | 'dashboard' | 'results' | 'sensitivity' | 'optimization'
 export type SimStatus = 'idle' | 'running' | 'done' | 'error'
 export type Mode = 'edit' | 'result'
 
@@ -84,6 +86,11 @@ interface State {
   sensResults: SensitivityResults | null
   sensError: string | null
 
+  // Optimization (runtime; independent of the sim run status)
+  optStatus: SimStatus
+  optResults: StudyResults | null
+  optError: string | null
+
   // Run config (user-controlled; mirrors doc.simulation_settings)
   nRealizations: number
   seed: number | null
@@ -115,6 +122,7 @@ interface Actions {
   updateElementField: (id: string, patch: Partial<FlatElement>) => void
   mutateEl: (id: string, fn: (el: FlatElement) => void) => void
   addNewElement: (el: FlatElement, pos?: NodeView) => void
+  duplicateElement: (id: string) => void
   removeElement: (id: string) => void
   renameElement: (oldId: string, newId: string) => void
   reparent: (id: string, container: string | null) => void
@@ -131,6 +139,7 @@ interface Actions {
   // Run
   run: () => void
   runSensitivity: (spec: SensitivitySpec) => void
+  runOptimization: (spec: OptimizationSpec) => void
   setNRealizations: (n: number) => void
   setSeed: (s: number | null) => void
   setSimDuration: (v: number) => void
@@ -180,6 +189,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   sensStatus: 'idle',
   sensResults: null,
   sensError: null,
+  optStatus: 'idle',
+  optResults: null,
+  optError: null,
   nRealizations: 1000,
   seed: 42,
   simDuration: null,
@@ -315,6 +327,15 @@ export const useStore = create<State & Actions>((set, get) => ({
     const withId = { ...el, id }
     get().applyEdit(addElement(doc, withId, pos))
     set({ selectedId: id, selectedIds: [id] })
+  },
+
+  duplicateElement(id) {
+    const doc = get().doc
+    if (!doc) return
+    const [next, newId] = duplicateElement(doc, id)
+    if (newId === id) return
+    get().applyEdit(next)
+    set({ selectedId: newId, selectedIds: [newId] })
   },
 
   removeElement(id) {
@@ -458,6 +479,11 @@ export const useStore = create<State & Actions>((set, get) => ({
     postToWorker({ type: 'run_sensitivity', spec })
   },
 
+  runOptimization(spec) {
+    set({ optStatus: 'running', optError: null, optResults: null })
+    postToWorker({ type: 'run_optimization', spec })
+  },
+
   setNRealizations: (n) => { set({ nRealizations: n }); get().editSettings({ n_realizations: n }) },
   setSeed: (s) => { set({ seed: s }); get().editSettings({ seed: s }) },
   setSimDuration: (v) => {
@@ -562,8 +588,14 @@ export const useStore = create<State & Actions>((set, get) => ({
         set({ sensStatus: 'done', sensResults: msg.results })
         break
 
+      case 'optimization_complete':
+        set({ optStatus: 'done', optResults: msg.results })
+        break
+
       case 'error':
-        if (get().sensStatus === 'running') set({ sensStatus: 'error', sensError: msg.message })
+        // A worker error can arrive for any in-flight job; surface it on whichever is running.
+        if (get().optStatus === 'running') set({ optStatus: 'error', optError: msg.message })
+        else if (get().sensStatus === 'running') set({ sensStatus: 'error', sensError: msg.message })
         else set({ status: 'error', errorMessage: msg.message, reconciling: false })
         break
     }

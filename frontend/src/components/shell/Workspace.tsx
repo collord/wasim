@@ -10,10 +10,12 @@ import { ModelTab } from '../tabs/ModelTab'
 import { DashboardTab } from '../tabs/DashboardTab'
 import { ResultsTab } from '../tabs/ResultsTab'
 import { SensitivityTab } from '../tabs/SensitivityTab'
+import { OptimizationTab } from '../tabs/OptimizationTab'
 
 const RESULT_TABS: { id: Tab; label: string }[] = [
   { id: 'results', label: 'Results' },
   { id: 'sensitivity', label: 'Sensitivity' },
+  { id: 'optimization', label: 'Optimization' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'graph', label: 'Graph' },
   { id: 'model', label: 'Model' },
@@ -78,6 +80,7 @@ export function Workspace() {
           <div className="min-h-0 flex-1 overflow-auto p-4">
             {activeTab === 'results' && <ResultsTab />}
             {activeTab === 'sensitivity' && <SensitivityTab />}
+            {activeTab === 'optimization' && <OptimizationTab />}
             {activeTab === 'dashboard' && <DashboardTab />}
             {activeTab === 'graph' && <GraphTab />}
             {activeTab === 'model' && <ModelTab />}

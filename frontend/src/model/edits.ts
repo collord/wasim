@@ -91,6 +91,20 @@ export function setContainer(doc: ModelDoc, id: string, container: string | null
   return updateElement(doc, id, { container })
 }
 
+/** Duplicate an element as a plain copy (parallel to GoldSim Clone-as-copy, §2.4). The copy
+ *  gets a fresh unique id and a `(copy)` name; its position is offset so it doesn't overlap.
+ *  Returns [nextDoc, newId]. */
+export function duplicateElement(doc: ModelDoc, id: string): [ModelDoc, string] {
+  const src = findElement(doc, id)
+  if (!src) return [doc, id]
+  const newId = uniqueId(doc, `${id}_copy`)
+  const copy: FlatElement = { ...clone(src), id: newId, name: `${src.name} (copy)` }
+  let next = addElement(doc, copy)
+  const p = doc.view?.positions?.[id]
+  if (p) next = setPosition(next, newId, { x: p.x + 40, y: p.y + 40 })
+  return [next, newId]
+}
+
 // ── Expression edits (write ast + display + recompute inputs) ────────────────────
 
 /** Which downstream reference fields an element carries, given its kind, so we can keep

@@ -73,3 +73,21 @@ fn stock_with_expression_rate_referencing_input() {
     let els = r#"{"id":"inflow","name":"Inflow","primitive":"node","value_rule":"fixed","value":{"value":5,"unit":"1"},"editable":true},{"id":"tank","name":"Tank","primitive":"stock","initial_value":{"value":0,"unit":"1"},"rate":{"ast":{"op":"ref","element_id":"inflow"},"display":"inflow"},"inflows":[],"outflows":[],"inputs":["inflow"]}"#;
     parse_ok(&model(els)).unwrap();
 }
+
+// ── Optimization UI round-trip ──────────────────────────────────────────────────
+
+#[test]
+fn optimization_spec_from_ui_solves_quadratic() {
+    // Minimize (x-3)^2 over x ∈ [0,10]; the OptimizationSpec shape mirrors what the
+    // OptimizationTab emits (objective + variables with lower/upper/initial quantities).
+    let els = r#"{"id":"x","name":"x","primitive":"node","value_rule":"fixed","value":{"value":5,"unit":"1"},"editable":true,"bounds":{"min":0,"max":10}},{"id":"obj","name":"obj","primitive":"node","value_rule":"expression","inputs":["x"],"expression":{"ast":{"op":"multiply","left":{"op":"subtract","left":{"op":"ref","element_id":"x"},"right":{"op":"literal","value":3}},"right":{"op":"subtract","left":{"op":"ref","element_id":"x"},"right":{"op":"literal","value":3}}},"display":"(x-3)*(x-3)"}}"#;
+    let opt = r#""optimization":{"objective":{"element_id":"obj","direction":"minimize","statistic":null},"variables":[{"element_id":"x","lower":{"value":0,"unit":"1"},"upper":{"value":10,"unit":"1"},"initial":{"value":5,"unit":"1"}}],"constraints":[]}"#;
+    let json = format!("{{{SETTINGS},{opt},\"containers\":[],\"elements\":[{els}]}}");
+
+    let model = wasim_engine::v2_parse::parse(&json).expect("parse");
+    let results = wasim_engine::optimize_v2::optimize(&model, &wasim_engine::engine::RunConfig::default())
+        .expect("optimize");
+    let x = results.variables.iter().find(|v| v.element_id == "x").unwrap().value;
+    assert!((x - 3.0).abs() < 0.1, "expected x≈3, got {x}");
+    assert!(results.objective < 0.05, "expected objective≈0, got {}", results.objective);
+}

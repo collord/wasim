@@ -34,6 +34,7 @@ export function EditableCanvas() {
   const tidyPositions = useStore((s) => s.tidyPositions)
   const removeElement = useStore((s) => s.removeElement)
   const addNewElement = useStore((s) => s.addNewElement)
+  const duplicate = useStore((s) => s.duplicateElement)
   const format = useStore((s) => s.format)
 
   const svgRef = useRef<SVGSVGElement>(null)
@@ -120,6 +121,9 @@ export function EditableCanvas() {
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length) {
       e.preventDefault()
       selectedIds.forEach((id) => removeElement(id))
+    } else if (e.key.toLowerCase() === 'd' && (e.metaKey || e.ctrlKey) && selectedIds.length === 1) {
+      e.preventDefault()
+      duplicate(selectedIds[0])
     }
   }
 

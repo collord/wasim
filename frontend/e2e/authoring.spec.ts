@@ -70,3 +70,35 @@ test('builds a model from scratch (new → add → wire → run)', async ({ page
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+test('runs an optimization over an editable variable', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.goto('/')
+  // Load two-tank: it has editable constants with bounds (eligible optimization variables).
+  await page.setInputFiles('input[type=file]', TWO_TANK)
+  await expect(page.getByText('● valid')).toBeVisible({ timeout: 15000 })
+
+  // Enter Result mode → Optimization tab.
+  await page.getByRole('button', { name: 'Result', exact: true }).click()
+  await page.getByRole('button', { name: 'Optimization', exact: true }).click()
+
+  // Objective: pick the first real element; minimize its final value (deterministic model).
+  const objSelect = page.locator('select').first()
+  const opts = await objSelect.locator('option').evaluateAll(
+    (o) => o.map((x) => (x as HTMLOptionElement).value).filter((v) => v))
+  await objSelect.selectOption(opts[opts.length - 1])
+
+  // Select the first eligible decision variable.
+  await page.locator('input[type=checkbox]').first().check()
+
+  // Run and expect an optimum (objective + evaluations) to render.
+  await page.getByRole('button', { name: /Run optimization/i }).click()
+  await expect(page.getByText(/evaluations/i)).toBeVisible({ timeout: 25000 })
+  await expect(page.getByRole('button', { name: /Apply optimum to model/i })).toBeVisible()
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

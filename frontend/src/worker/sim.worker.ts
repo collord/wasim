@@ -83,6 +83,12 @@ self.onmessage = async (e: MessageEvent<MainToWorker>) => {
         post({ type: 'sensitivity_complete', results })
         break
       }
+      case 'run_optimization': {
+        if (!engine) throw new Error('no model loaded')
+        const results = JSON.parse(engine.optimize_json(JSON.stringify(msg.spec)))
+        post({ type: 'optimization_complete', results })
+        break
+      }
       case 'reconcile': {
         // A structural edit: rebuild the run engine from the whole model so a single source
         // of schema truth stays in Rust (§13.2). Validation comes first (non-throwing), then
