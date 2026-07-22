@@ -272,6 +272,10 @@ struct RawElement {
     release_schedule: Option<RawTrigger>,
     #[serde(default)]
     release_target: Option<String>,
+    /// coupled_transport fluxes. Carried on both cell (`source` implicit = owning cell)
+    /// and link (`source`/`target` = the link's endpoints).
+    #[serde(default)]
+    fluxes: Vec<RawFlux>,
 }
 
 #[derive(Deserialize)]
@@ -296,6 +300,23 @@ struct RawPartition {
     from_medium: String,
     to_medium: String,
     coefficient: QuantityOrFormula,
+}
+
+#[derive(Deserialize)]
+struct RawFlux {
+    mechanism: String,
+    #[serde(default)]
+    rate: Option<QuantityOrFormula>,
+    #[serde(default)]
+    coefficient: Option<QuantityOrFormula>,
+    #[serde(default)]
+    species: Option<String>,
+    #[serde(default)]
+    medium: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    target: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -522,7 +543,7 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             // species_transport: species/medium are single id strings here.
             species: e.species.as_ref().and_then(|v| v.as_str()).map(String::from),
             medium: e.medium.clone(),
-            fluxes: Vec::new(),
+            fluxes: e.fluxes.iter().map(lower_flux).collect(),
             geometry: None,
         }),
         "event" => v2::Primitive::Event(v2::Event {
@@ -551,6 +572,7 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             release_rate: e.release_rate.clone(),
             release_schedule: e.release_schedule.as_ref().map(lower_trigger),
             release_target: e.release_target.clone(),
+            fluxes: e.fluxes.iter().map(lower_flux).collect(),
         }),
         other => {
             return Err(EngineError::InvalidModel(format!(
@@ -798,6 +820,24 @@ fn lower_effect(e: &RawEffect) -> v2::EffectSpec {
             _ => v2::EffectMode::Additive,
         },
         label: e.label.clone(),
+    }
+}
+
+fn lower_flux(f: &RawFlux) -> v2::FluxSpec {
+    v2::FluxSpec {
+        mechanism: match f.mechanism.as_str() {
+            "diffusive" => v2::FluxMechanism::Diffusive,
+            "direct" => v2::FluxMechanism::Direct,
+            "settling" => v2::FluxMechanism::Settling,
+            "precipitation" => v2::FluxMechanism::Precipitation,
+            _ => v2::FluxMechanism::Advective,
+        },
+        rate: f.rate.clone(),
+        coefficient: f.coefficient.clone(),
+        species: f.species.clone(),
+        medium: f.medium.clone(),
+        source: f.source.clone(),
+        target: f.target.clone(),
     }
 }
 

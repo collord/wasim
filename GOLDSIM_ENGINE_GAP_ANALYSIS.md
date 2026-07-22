@@ -56,10 +56,10 @@ leads."
 
 | Rev 1 "top-5" gap | Rev 2 status | What landed |
 |---|---|---|
-| **1. The time engine** (unscheduled updates, variable/multi-rate timesteps) | **PARTIAL** | Event-accurate **sub-interval integration** at scheduled (`on_schedule`) instants landed, opt-in (`TimebaseMode::EventAccurate`). **But**: bound-crossing subdivision is coded in `timebase.rs` yet **not wired into the step loop**; periodic-trigger sub-stepping absent; no variable/scheduled *global* timestep (Tier B2 deferred). The grid is still the fixed statistical/reporting lattice. |
-| **2. Discrete-event layer** | **LARGELY CLOSED** | **Queues** (capacity, `num_in_queue`), **Resources** (Spend/Deposit/Borrow, priority, overdraw protection), **Milestone**, **Interrupt**, **Status** latch, **PID controller** all FULL. Remaining: aging-chain **Push** primitive, richer Timed-Event types, `OnEvent` trigger still a no-op. |
+| **1. The time engine** (unscheduled updates, variable/multi-rate timesteps) | **PARTIAL** | Event-accurate **sub-interval integration** at scheduled (`on_schedule`) instants **and stock floor/capacity crossings** landed, opt-in (`TimebaseMode::EventAccurate`); a mid-step bound crossing splits the step at the closed-form crossing instant so coupled downstream elements re-evaluate there (RNG-invariant; 64-split/step guard). **Remaining**: periodic-trigger sub-stepping absent; no variable/scheduled *global* timestep (Tier B2 deferred). The grid is still the fixed statistical/reporting lattice. |
+| **2. Discrete-event layer** | **LARGELY CLOSED** | **Queues** (capacity, `num_in_queue`), **Resources** (Spend/Deposit/Borrow, priority, overdraw protection), **Milestone**, **Interrupt**, **Status** latch, **PID controller**, `OnEvent` trigger all FULL. Remaining: aging-chain **Push** primitive, richer Timed-Event types. |
 | **3. Procedural scripting** | **OPEN** | Not started (Tier C1, gated). Still the largest remaining engine gap. |
-| **4. Probabilistic breadth** | **PARTIAL** | **LHS now real**; distribution roster expanded (Log-Uniform/-Triangular/-Cumulative, 10-90 variants, Binomial, Negative Binomial, Poisson, Extreme Probability, Beta(succ/fail)); **results/analysis engine** now rich (custom percentiles, PDF/CDF/CCDF/exceedance, capture times, CI/skew/kurtosis/CTE); realization **weights** added (post-hoc). **Still absent**: importance sampling, weighted *draws*, Bayesian updating, realization classification/screening, scenarios. |
+| **4. Probabilistic breadth** | **PARTIAL** | **LHS now real**; distribution roster expanded (Log-Uniform/-Triangular/-Cumulative, 10-90 variants, Binomial, Negative Binomial, Poisson, Extreme Probability, Beta(succ/fail)); **results/analysis engine** now rich (custom percentiles, PDF/CDF/CCDF/exceedance, capture times, CI/skew/kurtosis/CTE); realization **weights** added (post-hoc); **importance sampling** landed (biased draws + likelihood-ratio weighting, S4, normal/lognormal/uniform/exponential PDFs). **Still absent**: Bayesian updating, realization classification/screening, scenarios. |
 | **5. Dimensional analysis & interop** | **SPLIT** | Dimensional analysis **CLOSED** (static strict-units mode can hard-fail a run); true **leap-year calendar** + new time refs **CLOSED** (anchor-gated). External **interop** (DLL/Excel/ODBC) remains **OPEN but is an explicit non-goal** (contradicts the open-JSON/WASM thesis; `WORKPLAN_TIER_C.md` non-goals). |
 
 ### 0.2 The gaps that matter most now
@@ -74,15 +74,20 @@ leads."
 3. **Results: realization classification/screening + scenarios** — the statistics
    layer is now strong, but there is no "categorize/screen realizations by
    condition" facility and no scenario comparison.
-4. **Sampling depth** — importance sampling and weighted *draws* are absent
-   (weights only reweight outputs post-hoc); the External distribution still yields
-   0.0 unless an inline fallback table is supplied; LHS falls back to plain MC for
-   non-closed-form-ICDF distributions.
+4. **Sampling depth** — importance sampling **now landed** (S4: biased draws +
+   likelihood-ratio weighting, normal/lognormal/uniform/exponential PDFs); the
+   External distribution still yields 0.0 unless an inline fallback table is
+   supplied; LHS falls back to plain MC for non-closed-form-ICDF distributions,
+   and an importance node draws plain MC (LHS/IC skipped for it, phase-1 limit).
 5. **Statistical sensitivity measures** — OAT + tornado landed, but correlation /
    regression (SRC) / partial-correlation / importance measures did not.
-6. **Known stubs to close** — `Link.fluxes`/`geometry` still not parsed; Cell
-   output is **mass, not concentration**; `OnEvent` triggers and
-   `CapacityDemand`/`Event` failure bases are no-ops.
+6. **Known stubs to close** — `Link.fluxes`/`geometry` still not parsed;
+   `CapacityDemand` failure basis is a no-op (needs schema fields). *(`OnEvent`
+   triggers and the `Event` failure basis are now wired — S1,
+   `failure_bases_v2.rs`. Cell **concentration** output is computed in the
+   engine — S2, `cell_concentration_v2.rs`. Cell bodies **are** now decoded by
+   the emitter (volume/species/media populated); the remaining cell gap is the
+   **mass-delivery + decay layer** — see §10a.)*
 
 The mass-transport core, transport physics on links, fault-tree gates,
 failure/repair FSM, nested-Monte-Carlo submodels, the Box's-complex optimizer
@@ -97,8 +102,8 @@ remain WASiM strengths — several are genuine subsets of GoldSim's *paid* modul
 |---|---|---|---|
 | Core paradigm | Dynamic + probabilistic + discrete-event **hybrid** | Same, with discrete events resolved on the grid + opt-in sub-interval integration | PARTIAL |
 | Integration method | **Euler only**, by deliberate design | **Euler only** (`engine_v2.rs`) | **Match (by shared philosophy)** |
-| Sub-timestep event accuracy | Unscheduled updates at *any* between-step event (scheduled events, bound crossings, resource exhaustion, `At Date/ETime/Stock Test`) | **Sub-interval integration at `on_schedule` instants** only (`TimebaseMode::EventAccurate`, opt-in; collects split points from `schedule[]` on Events/Links/resampling). Grid stays the statistical/state/reporting lattice; sub-steps consume no RNG and keep results `n_steps`-shaped | **PARTIAL** |
-| Bound-crossing accuracy | Overflow/withdrawal computed at exact crossing time | `BoundCrossing` provider **implemented + unit-tested in `timebase.rs` but NOT invoked by `engine_v2.rs`** (a single stock's Euler overflow is already exact; the payoff — coupled downstream re-evaluation at the crossing — is not wired) | **PARTIAL (dormant code)** |
+| Sub-timestep event accuracy | Unscheduled updates at *any* between-step event (scheduled events, bound crossings, resource exhaustion, `At Date/ETime/Stock Test`) | **Sub-interval integration at `on_schedule` instants and stock bound crossings** (`TimebaseMode::EventAccurate`, opt-in; split points from `schedule[]` on Events/Links/resampling plus closed-form floor/capacity crossings). Grid stays the statistical/state/reporting lattice; sub-steps consume no RNG and keep results `n_steps`-shaped. (Resource-exhaustion and condition-`Stock Test` sub-stepping still grid-quantized.) | **PARTIAL** |
+| Bound-crossing accuracy | Overflow/withdrawal + coupled downstream re-eval computed at exact crossing time | `BoundCrossing` provider **wired into the step loop** (`engine_v2.rs`): a mid-step floor/capacity crossing splits the step at `t_c`, pins the stock to the bound, and re-runs so downstream elements reading the stock re-evaluate at the crossing for the remainder of the step. RNG-invariant across the re-run; 64-split/step guard. Tested in `timebase_boundcrossing_v2.rs` | **CLOSED (EventAccurate)** |
 | Periodic-trigger / condition-trigger sub-stepping | Yes (`At Stock Test`, periodic) | **Absent** — only explicit `schedule` vectors split steps; periodic and condition crossings stay grid-quantized | ABSENT |
 | Variable / scheduled *global* timestep | Scheduled timestep changes; dynamic adaptive; per-container internal clocks | **Absent** — single fixed global `dt` (Tier B2 deferred; per-container clocks are a documented non-goal) | ABSENT |
 | Reporting periods | Accumulated / average / change / rate over periods | **FULL for fixed-length periods** (`results_spec.rs` `ReportingReduction`); **not yet calendar-month/year aware** | PARTIAL |
@@ -137,7 +142,7 @@ WASiM v2 primitives are now **7 (Node, Stock, Link, Event, Gate, Cell, Resource)
 | Expression / Selector / Sum | `Expression` / nested `If` / `+`,`sum_array` | Match |
 | **Extrema** (running lifetime peak/valley) | Running-extremum via the `Filter` whole-run-window encoding | **Match** (corrects Rev 1) |
 | Allocator / Splitter | Link `priority` / `fraction`; Stock priority `withdrawals` | Partial |
-| **Controller** (Deadband / Proportional / **PID**) | **`Node::PidController`** (setpoint, kp/ki/kd, deadband, output clamps) | **CLOSED** |
+| **Controller** (Deadband / Proportional / **PID**) | **`Node::PidController`** — all three modes: `pid` (setpoint, kp/ki/kd, deadband, clamps), `proportional` (kp only), **`on_off`** (stateful bang-bang hysteresis latch, §2.15) | **CLOSED** |
 | **Convolution** | `Node::Convolution` | Match |
 | **Previous Value** | `Node::Lag` + accumulator self-reference | Match |
 
@@ -193,8 +198,8 @@ WASiM v2 primitives are now **7 (Node, Stock, Link, Event, Gate, Cell, Resource)
 
 | GoldSim module | WASiM (now) | Status |
 |---|---|---|
-| **Contaminant Transport / Flow** (Cell, Kd partitioning, decay chains, coupled ODEs) | `Cell` primitive: multi-media/species mass balance, `partitioning_equilibrium` (Kd), `source_release`, radioactive **decay chains + daughter ingrowth**, advective/dispersive transport | **Substantial partial match** — **but** Cell output is **mass, not concentration** (`Cell.volume` unused for a `C=mass/(volume·porosity)` output); `Link.fluxes`/`geometry` types exist but are **hard-coded empty in `v2_parse`**; no coupled-link stiff solver |
-| **Reliability** (Action/Function, fault trees) | `Event.failure_process` FSM (ExposureTime/OperatingTime/Condition/Demand bases + repair None/Repair/Replace/PM) + `Gate` fault trees | **Partial** — `CapacityDemand`/`Event` failure bases still **no-ops** |
+| **Contaminant Transport / Flow** (Cell, Kd partitioning, decay chains, coupled ODEs) | `Cell` primitive: multi-media/species mass balance, `partitioning_equilibrium` (Kd, incl. **set-wide `species:null`** entries), `source_release`, radioactive **decay chains + daughter ingrowth**, advective/dispersive transport, **concentration output** `C=mass/(volume·fraction·porosity)` (S2, additive `:C` result id) | **Substantial partial match** — engine mechanisms exist and cell bodies now decode (volume/species/media populated), but **cell mass is ~0 corpus-wide**: no `initial_inventory`/`source` mass and 111/119 links are bare `{source,target}` shells (no species/rate), and **all 26 species have `half_life:null`** so no decay runs. `Link.fluxes`/`geometry` types exist but are **hard-coded empty in `v2_parse`**; no coupled-link stiff solver. **See §10a (emit-gated cell physics).** |
+| **Reliability** (Action/Function, fault trees) | `Event.failure_process` FSM (ExposureTime/OperatingTime/Condition/Demand/**Event** bases + repair None/Repair/Replace/PM) + `Gate` fault trees | **Partial** — only `CapacityDemand` basis remains a **no-op** (needs schema fields) |
 | **Financial** (Fund, annuity/PV/FV) | none (expressible via stocks/expressions) | ABSENT (low priority) |
 
 ---
@@ -240,12 +245,19 @@ Still one of WASiM's strongest areas, near parity:
 - **Multi-cell mass transport**: mass per `(cell, species, medium)`, Kd
   partitioning, radioactive decay chains with daughter ingrowth — a real subset of
   GoldSim's Contaminant Transport module.
-- **Remaining gaps**: (a) Cell state is **mass, not concentration** (still open);
+- **Remaining gaps**: (a) Cell **mass-delivery + decay** are emit-gated — the
+  engine mechanisms (concentration S2, partitioning incl. set-wide Kd, decay-chain
+  ingrowth) are in place and cell bodies now decode, but the corpus supplies no mass
+  to move (0/148 cells carry `initial_inventory`/source; 111/119 links are bare) and
+  no decay data (26/26 species `half_life:null`). **See §10a.**
   (b) `Link.fluxes`/`geometry` (advective/diffusive/settling/precipitation;
-  pipe/aquifer/conduit) **defined in types but not parsed**; (c) bound-crossing
-  subdivision exists but is **not wired** (single-stock overflow is already exact;
-  coupled downstream re-evaluation at the crossing is the missing payoff); (d) no
-  `Is_Full` state-variable output.
+  pipe/aquifer/conduit) **defined in types but not parsed**; (c) no
+  `Is_Full` state-variable output (though a `ref` to the stock compared against its
+  capacity now reflects the mid-step crossing under `EventAccurate`).
+
+  *(Bound-crossing subdivision — formerly listed here as unwired — is now wired into
+  the step loop under `EventAccurate`; coupled downstream re-evaluation at the crossing
+  is delivered.)*
 
 ---
 
@@ -274,11 +286,11 @@ set and **Trapezoidal** (which GoldSim lacks). (`sampling.rs`,
 | Autocorrelation | Yes | AR(1) per-step | Match |
 | Truncation | Yes | Rejection; clamp under AR(1); ICDF-scaled under LHS | Match |
 | **Realization weights** | Yes | **PARTIAL** — `RunConfig.realization_weights` reweight output **statistics** (weighted mean/percentile/CTE/bands) post-hoc; they do **not** bias draws | PARTIAL |
-| **Importance sampling** | Yes (rare-event biasing) | **Absent** — nothing computes importance weights or biased proposals | ABSENT |
+| **Importance sampling** | Yes (rare-event biasing) | **CLOSED (S4)** — `distribution.importance.bias` draws from g, carries w=f(x)/g(x) into the weighted reductions; PDFs for normal/lognormal/uniform/exponential (others error); importance nodes draw plain MC (LHS/IC skipped, phase-1) | CLOSED |
 | **Bayesian updating** | Yes | Absent | ABSENT |
 
-**Net:** LHS closed; roster closed; weights added as post-hoc reweighting.
-Remaining: importance sampling, weighted *draws*, Bayesian updating.
+**Net:** LHS closed; roster closed; weights added as post-hoc reweighting;
+**importance sampling closed (S4)**. Remaining: Bayesian updating.
 
 ---
 
@@ -333,7 +345,7 @@ byte-identical):
 | **Reporting-period aggregation** (accumulated/average/change/rate) | `ReportingPeriods` / `ReportingReduction` | **CLOSED (fixed-length; not yet calendar-aware)** |
 | **Realization classification & screening** (categories by condition, Net/Gross %, include/exclude) | none | **ABSENT** |
 | **Scenarios** (store/compare input sets) | none | **ABSENT** |
-| Importance-weighted statistics | weights honored in reductions, but no importance sampling to produce them | Partial |
+| Importance-weighted statistics | weights honored in reductions; **importance sampling now produces them** (S4) | Match |
 
 **Net:** the statistics layer went from a fixed `mean + 5 percentiles` summary to a
 configurable probabilistic-analysis layer. The two remaining pieces are realization
@@ -391,11 +403,11 @@ the current code.
 
 | # | Gap | Severity | **Status** | Notes |
 |---|---|---|---|---|
-| 1 | Full event-accurate / variable timestepping (bound-crossing wiring, periodic sub-stepping, scheduled non-uniform *global* grid) | High | **PARTIAL** | Scheduled-instant sub-integration landed; `BoundCrossing` coded but unwired; Tier B2 deferred |
+| 1 | Full event-accurate / variable timestepping (periodic sub-stepping, scheduled non-uniform *global* grid) | High | **PARTIAL** | Scheduled-instant **and bound-crossing** sub-integration landed; remaining: periodic-trigger sub-stepping, Tier B2 (non-uniform global grid) |
 | 2 | **Procedural Script element** (loops, if/else, locals) | High | **OPEN** | Tier C1, gated, not started — largest remaining gap |
 | 3 | Results/analysis engine | High | **MOSTLY CLOSED** | Custom percentiles, PDF/CDF/CCDF, capture times, CI/skew/kurtosis/CTE, reporting periods all landed; **classification/screening + scenarios still absent** |
-| 4 | Discrete-event depth (queues, resources, milestone, interrupt, status, PID) | High | **MOSTLY CLOSED** | All landed; remaining: aging-chain **Push**, richer Timed-Event types, `OnEvent` no-op |
-| 5 | Sampling tooling (LHS, importance sampling, weights, Bayesian) | Med-High | **PARTIAL** | LHS **closed**; weights post-hoc; **importance sampling + weighted draws + Bayesian absent** |
+| 4 | Discrete-event depth (queues, resources, milestone, interrupt, status, PID) | High | **MOSTLY CLOSED** | All landed incl. `OnEvent` trigger; remaining: aging-chain **Push**, richer Timed-Event types |
+| 5 | Sampling tooling (LHS, importance sampling, weights, Bayesian) | Med-High | **PARTIAL** | LHS **closed**; weights post-hoc; **importance sampling closed (S4)**; Bayesian absent |
 | 6 | Runtime dimensional analysis; leap-year calendar | Medium | **CLOSED** | Static strict-units mode (hard-fail) + anchor-gated real calendar |
 | 7 | Sensitivity analysis | Medium | **PARTIAL** | OAT + tornado **closed**; statistical measures (correlation/SRC/partial/importance) absent |
 | 8 | Container semantics (Conditional / Looping / Localized) | Medium | **OPEN / BY-DESIGN** | Conditional+Looping = Tier C2 (gated); Localized = non-goal |
@@ -404,9 +416,34 @@ the current code.
 | 11 | Feedback controller; running extrema; history generator | Medium | **CLOSED / PARTIAL** | PID + running extrema **closed**; process reversion added; History Generator not a 1:1 element |
 | 12 | Matrix algebra & label-set arrays | Medium | **OPEN** | Tier C3, gated |
 | 13 | External coupling (Excel/DLL/ODBC) | Low-Med | **BY-DESIGN** | Explicit non-goal; C4 read-only cell slice gated |
-| 14 | Known stubs: Cell=mass-not-concentration; `Link.fluxes/geometry` unparsed; `OnEvent`/`CapacityDemand`/`Event` no-ops; `Formula` strings→0.0 | Varies | **OPEN** | Each strands specific models; low-effort to close individually |
+| 14 | Known stubs: `Link.fluxes/geometry` unparsed; `CapacityDemand` basis no-op; `Formula` strings→0.0 | Varies | **OPEN** | Each strands specific models; low-effort to close individually. (`OnEvent` trigger + `Event` failure basis closed — S1; cell **concentration**/**set-wide Kd** closed — S2; `on_off`/`proportional` controller modes closed. Emit-gated cell mass/decay: §10a.) |
 | 15 | Financial primitives/functions | Low | OPEN | Expressible via stocks/expressions |
 | 16 | Aging-chain Push; Clone; distributed processing; per-container clocks | Low | **OPEN / BY-DESIGN** | Push is a real small gap; the rest are non-goals |
+
+---
+
+## 10a. Emit-gated capabilities (engine done; blocked upstream in re-gsm)
+
+These are capabilities where the **engine mechanism is implemented and tested**, but no corpus
+model exercises it because the **re-gsm emitter does not yet decode the required input**. They are
+*not* engine gaps and *not* parse blockers — the affected models run clean, they just compute a
+degenerate result (zero mass, no decay, an inert latch) until the emit side lands. Tracked here so
+they are not mistaken for engine work or re-investigated. Corpus figures are from the 0.9.7
+regeneration (220 files); re-verify after any regen.
+
+| Capability | Engine state | Emit gap (the blocker) | Corpus evidence (0.9.7) |
+|---|---|---|---|
+| **Cell mass delivery** | `source_release`, `species_transport` links, `inflows`, partitioning (incl. set-wide Kd), concentration (S2) all implemented + tested (`cells_v2.rs`, `cell_concentration_v2.rs`) | re-gsm decodes cell **structure** (volume/species/media) but not the **mass sources**: no `initial_inventory`, no `release_rate`/`inventory` source, and transport **links are bare** (`{source,target}` only — no `species`/`rate`/`fraction`/`fluxes`). So cells have structure but nothing puts mass in them → all cell masses (and thus `:C` concentrations) read ~0. | 0/148 cells carry `initial_inventory`; 0 carry a source `release_rate`/`inventory`; **111/119 links are bare** (only 8 carry transport data). |
+| **Radioactive decay chains** | Per-`(species, medium)` first-order decay + daughter ingrowth, parent-first topo order (`engine_v2.rs`; `cells_v2::decay_chain_ingrowth_conserves_mass`) | re-gsm emits the species set as **one dimension element with `half_life: null`**, not per-nuclide defs carrying each nuclide's half-life/decay_products. With null half-lives no decay runs for any nuclide. This is the "species-set → dimension vs. per-substance defs" question from the emit-pathology thread (#4): the members are a dimension, but decay needs per-member half-life/products to coexist with it. | **26/26 `species` elements have `half_life: null`.** |
+| **`Link.fluxes` / `geometry` transport** | Types exist (`FluxSpec`, `FluxMechanism`, `LinkGeometry`) but execution is **not** wired (`v2_parse` hard-codes `fluxes: Vec::new()`) — this half is *also* an engine gap (§S3, deferred) | re-gsm emits `geometry` (10 links, bare tag) but **no `fluxes[]`** — so even if the engine executed fluxes there is no mechanism/rate data to drive them. Doubly blocked (emit + engine). | 0 links carry `fluxes`; 10 carry a bare `geometry` string. |
+| **Event-driven `status` latches** | The **`OnEvent` trigger and `on_event` trigger *mode* are implemented** (S1, `failure_bases_v2.rs`; a status/event fires when its `source` event is in the fired-set). The engine consumes them fully. | re-gsm cannot yet **bind** the 6 event-driven status nodes' set/reset to their event sources — their triggers come from *drawn event links*, not in-body conditions, so re-gsm emits never-firing `on_condition` placeholders (they parse but the latch never toggles). Needs the re-gsm event-link → `on_event` `source` resolution (tracks with re-gsm `CONNECTION_WIRING`). **No engine work remains** — once re-gsm emits `{mode: on_event, source: <event>}`, the engine already handles it. | 6 status nodes (`discreteevents/Status2`, `option/Exercised`, `simple_stream_diversions/Diversion_ON`, `srm_snowmelt_runoff/{Melt_Transition_Period,RainExceedence}`, `statusmilestone/Status`) emit inert triggers. |
+| **on_off controller output** | Stateful hysteresis-latch handler implemented + tested (`discrete_nodes_v2.rs`); reads top-level `controller_mode`/`output_cap`/`deadband_ref` | **Closed as of re-gsm R3** — the fields are now lifted top-level and the 18 on_off controllers compute the latch. Listed here only for completeness (previously emit-gated; now resolved). | 18/18 on_off carry `controller_mode`; 17 carry `output_cap` (`unscheduledtimesteps` has none → documented 0/1-gate default). |
+
+**Reading this table:** the first two rows (cell mass, decay) are the substantive open items — both are
+**re-gsm decode gaps** on the contaminant-transport line, and both must land before any cell/decay
+model produces non-trivial output. The `Link.fluxes` row is additionally an engine gap (§S3,
+deferred). The last two rows are **closed** (event-`OnEvent` mode + on_off) and shown only so the
+engine side is not re-touched — the residual on `status` is purely re-gsm's event-link binding.
 
 ---
 
@@ -449,14 +486,19 @@ Most of Rev 1's roadmap (Tiers A + B) has landed. What remains, in leverage orde
    (scheduled non-uniform global grid, needs frontend coordination).
 3. **Results: realization classification/screening + scenarios** (gap #3 remainder)
    and **calendar-aware reporting periods** (pair B4 with the B6 calendar).
-4. **Sampling depth** (gap #5 remainder): importance sampling / weighted draws;
-   make the External distribution error (or require a fallback) instead of silently
-   yielding 0.0.
+4. **Sampling depth** (gap #5 remainder): ~~importance sampling~~ (closed, S4);
+   Bayesian updating; make the External distribution error (or require a fallback)
+   instead of silently yielding 0.0.
 5. **Statistical sensitivity measures** (gap #7 remainder): correlation / SRC /
    partial-correlation / importance measures from a probabilistic run.
-6. **Close the small stubs** (gap #14): Cell **concentration** output
-   (`mass/(volume·porosity)`), parse `Link.fluxes`/`geometry`, model `OnEvent` /
-   `CapacityDemand` / `Event` bases, aging-chain **Push**.
+6. **Close the small stubs** (gap #14): parse `Link.fluxes`/`geometry`, the
+   `CapacityDemand` failure basis (needs schema fields), aging-chain **Push**.
+   *(Done: cell concentration + set-wide Kd — S2; `OnEvent`/`Event` bases — S1;
+   `on_off`/`proportional` controller modes.)*
+7. **Contaminant-transport emit gaps** (§10a, upstream in re-gsm, not engine work):
+   cell **mass delivery** (inventory/source/transport-link decode) and per-nuclide
+   **half-life** for decay chains — the two blockers to any non-trivial cell/decay
+   output.
 7. **Demand-gated big bets**: matrix algebra + label-set arrays (C3), Looping/
    Conditional containers (C2), spreadsheet cell *reader* (C4) — only when a named
    model needs them.

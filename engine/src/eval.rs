@@ -782,6 +782,29 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             let v = eval_ast(&args[0], ctx)?.into_vec();
             return Ok(Value::Scalar(v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)));
         }
+        BuiltinFn::ArgminArray => {
+            // 1-based index of the minimum member; ties → lowest index (deterministic, the
+            // bit-identity requirement). Empty array → 0 (dangling-ref policy). NaN members
+            // never win (strict `<` skips them).
+            require_args("argmin_array", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mut best = 0usize;
+            let mut best_val = f64::INFINITY;
+            for (i, &x) in v.iter().enumerate() {
+                if x < best_val { best_val = x; best = i; }
+            }
+            return Ok(Value::Scalar(if v.is_empty() { 0.0 } else { (best + 1) as f64 }));
+        }
+        BuiltinFn::ArgmaxArray => {
+            require_args("argmax_array", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mut best = 0usize;
+            let mut best_val = f64::NEG_INFINITY;
+            for (i, &x) in v.iter().enumerate() {
+                if x > best_val { best_val = x; best = i; }
+            }
+            return Ok(Value::Scalar(if v.is_empty() { 0.0 } else { (best + 1) as f64 }));
+        }
         BuiltinFn::SizeArray => {
             require_args("size_array", args.len(), 1, 1)?;
             return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().len() as f64));
@@ -880,7 +903,8 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::TableMin | BuiltinFn::TableMax | BuiltinFn::ColumnCount
         | BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
-        | BuiltinFn::MaxArray | BuiltinFn::DotProduct
+        | BuiltinFn::MaxArray | BuiltinFn::ArgminArray | BuiltinFn::ArgmaxArray
+        | BuiltinFn::DotProduct
         // Event predicates are handled by the early return above; never reach the scalar path.
         | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };

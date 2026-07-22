@@ -460,6 +460,8 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::MeanArray => "mean_array",
         BuiltinFn::MinArray => "min_array",
         BuiltinFn::MaxArray => "max_array",
+        BuiltinFn::ArgminArray => "argmin_array",
+        BuiltinFn::ArgmaxArray => "argmax_array",
         BuiltinFn::DotProduct => "dot_product",
         BuiltinFn::Occurs => "occurs",
         BuiltinFn::Changed => "changed",
