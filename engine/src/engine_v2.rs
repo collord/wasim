@@ -280,6 +280,50 @@ pub fn run(
         hist_store.entry(id.clone()).or_insert_with(|| vec![Vec::new(); n_steps]);
     }
 
+    // Array-member result expansion (§15). An element whose primary output declares
+    // `dimensions` is array-valued; its per-member values are recorded under `<id>#1..#N`
+    // (1-based, reusing the `#k` port-key convention). The primary `<id>` still records
+    // member[0] via `as_scalar()` for back-compat. Member count = product of the declared
+    // dimensions' sizes. Only expand elements that are actually saved.
+    // `array_members`: element id → (label, member count N).
+    let dim_sizes: HashMap<&str, usize> =
+        model.dimensions.iter().map(|d| (d.id.as_str(), d.size)).collect();
+
+    // General array-member count per element (product of its primary output's declared
+    // dimension sizes; 1 = scalar). Consumed by the result expansion below AND by array-aware
+    // stateful nodes (array `status`, §15). Keyed by element id.
+    let member_count: HashMap<&str, usize> = model.elements.iter().map(|e| {
+        let dims = e.base.outputs.first().map(|o| o.dimensions.as_slice()).unwrap_or(&[]);
+        let n: usize = if dims.is_empty() { 1 } else {
+            dims.iter().map(|d| dim_sizes.get(d.as_str()).copied().unwrap_or(0)).product()
+        };
+        (e.id(), n.max(1))
+    }).collect();
+
+    let mut array_members: Vec<(String, String, usize)> = Vec::new();
+    for elem in &model.elements {
+        let id = elem.id();
+        if !(save_hist.contains(&id) || save_final.contains(&id)) {
+            continue;
+        }
+        let dims = elem.base.outputs.first().map(|o| o.dimensions.as_slice()).unwrap_or(&[]);
+        if dims.is_empty() {
+            continue;
+        }
+        let n_members: usize = dims.iter().map(|d| dim_sizes.get(d.as_str()).copied().unwrap_or(0)).product();
+        if n_members == 0 {
+            continue; // unknown/empty dimension — nothing to expand (dangling-ref policy §1)
+        }
+        array_members.push((id.to_string(), elem.base.name.clone(), n_members));
+    }
+    for (id, _label, n_members) in &array_members {
+        for k in 1..=*n_members {
+            let mid = format!("{id}#{k}");
+            final_store.entry(mid.clone()).or_insert_with(|| Vec::with_capacity(n_real as usize));
+            hist_store.entry(mid).or_insert_with(|| vec![Vec::new(); n_steps]);
+        }
+    }
+
     let corr_groups = build_corr_groups(model)?;
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
     let use_lhs = model.simulation_settings.sampling_method == crate::model::SamplingMethod::Lhs;
@@ -549,7 +593,10 @@ pub fn run(
         let mut conv_buf: HashMap<String, VecDeque<f64>> = HashMap::new();
         // Status latch (§2): id → current latched bool. Milestone (§2): id → first-fire elapsed
         // time (absent until it fires). PID (§2): id → (integral accumulator, previous error).
-        let mut status_state: HashMap<String, bool> = HashMap::new();
+        // Per-realization latch state for `status` nodes. A Vec<bool> per element so an
+        // array-valued status latches per member (§15, Option B); scalar status is a length-1
+        // vec (member 0). Keyed by element id.
+        let mut status_state: HashMap<String, Vec<bool>> = HashMap::new();
         let mut milestone_time: HashMap<String, f64> = HashMap::new();
         let mut pid_state: HashMap<String, (f64, f64)> = HashMap::new();
         // on_off controller latch state (§2.15): ON (true) / OFF (false), held across steps.
@@ -651,6 +698,21 @@ pub fn run(
                         hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
                         if step_idx == n_steps - 1 {
                             final_store.get_mut(id).unwrap().push(v.as_scalar());
+                        }
+                    }
+                }
+                // Array-member records: hold the last-computed per-member values.
+                for (id, _label, n_members) in &array_members {
+                    if let Some(v) = prev_outputs.get(id.as_str()) {
+                        let vec = v.clone().into_vec();
+                        let is_final = step_idx == n_steps - 1;
+                        for k in 1..=*n_members {
+                            let mid = format!("{id}#{k}");
+                            let mv = vec.get(k - 1).copied().unwrap_or(0.0);
+                            hist_store.get_mut(&mid).unwrap()[step_idx].push(mv);
+                            if is_final {
+                                final_store.get_mut(&mid).unwrap().push(mv);
+                            }
                         }
                     }
                 }
@@ -874,17 +936,36 @@ pub fn run(
                         NodeRule::Status { set, reset } => {
                             // Latch: set fires → 1, reset fires → 0; set wins a simultaneous
                             // fire. Triggers evaluated against current-step outputs so far.
+                            //
+                            // Array-valued status (§15, Option B): when the element's primary
+                            // output declares dimensions, the latch is PER MEMBER — each member's
+                            // set/reset condition is evaluated with that member's index bound
+                            // (pushed onto the shared vector_map index stack), so a condition like
+                            // `damage[i] >= 1` latches truck i independently. Scalar status
+                            // (n_members == 1) is byte-identical to before: no index is pushed.
                             let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
-                            let cur = *status_state.get(elem_id.as_str()).unwrap_or(&false);
-                            let latched = if trigger_fires(set, &ctx, dt, step_idx)? {
-                                true
-                            } else if trigger_fires(reset, &ctx, dt, step_idx)? {
-                                false
+                            let n_members = member_count.get(elem_id.as_str()).copied().unwrap_or(1);
+                            let cur = status_state.entry(elem_id.clone())
+                                .or_insert_with(|| vec![false; n_members]);
+                            if cur.len() != n_members { cur.resize(n_members, false); }
+                            let mut latched = cur.clone();
+                            for (k, slot) in latched.iter_mut().enumerate() {
+                                if n_members > 1 { arr.index_stack.borrow_mut().push(k + 1); }
+                                let set_fires = trigger_fires(set, &ctx, dt, step_idx);
+                                let reset_fires = if set_fires.as_ref().map(|f| !*f).unwrap_or(false) {
+                                    trigger_fires(reset, &ctx, dt, step_idx)
+                                } else { Ok(false) };
+                                if n_members > 1 { arr.index_stack.borrow_mut().pop(); }
+                                *slot = if set_fires? { true }
+                                        else if reset_fires? { false }
+                                        else { *slot };
+                            }
+                            status_state.insert(elem_id.clone(), latched.clone());
+                            if n_members > 1 {
+                                Value::Vector(latched.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect())
                             } else {
-                                cur
-                            };
-                            status_state.insert(elem_id.clone(), latched);
-                            Value::Scalar(if latched { 1.0 } else { 0.0 })
+                                Value::Scalar(if latched[0] { 1.0 } else { 0.0 })
+                            }
                         }
                         NodeRule::Milestone { trigger } => {
                             // Record the elapsed time of the first fire; output that time. NaN
@@ -1888,6 +1969,22 @@ pub fn run(
                     }
                 }
             }
+            // Array-member records (§15): push each member value into `<id>#k` (missing
+            // members → 0.0, so a short vector still fills its declared width).
+            for (id, _label, n_members) in &array_members {
+                if let Some(v) = outputs.get(id.as_str()) {
+                    let vec = v.clone().into_vec();
+                    let is_final = step_idx == n_steps - 1;
+                    for k in 1..=*n_members {
+                        let mid = format!("{id}#{k}");
+                        let mv = vec.get(k - 1).copied().unwrap_or(0.0);
+                        hist_store.get_mut(&mid).unwrap()[step_idx].push(mv);
+                        if is_final {
+                            final_store.get_mut(&mid).unwrap().push(mv);
+                        }
+                    }
+                }
+            }
             // Per-(cell, species) mass records.
             for id in &cell_species_ids {
                 if let Some(v) = outputs.get(id) {
@@ -1958,6 +2055,30 @@ pub fn run(
             time_history,
             analysis,
         });
+    }
+
+    // Array-member result entries (§15): one `ElementResults` per `<id>#k` member series.
+    for (id, label, n_members) in &array_members {
+        let unit = model.elements[elem_idx[id.as_str()]]
+            .base.outputs.first().map(|o| o.unit.clone()).unwrap_or_else(|| "1".to_string());
+        let has_hist = save_hist.contains(&id.as_str());
+        for k in 1..=*n_members {
+            let mid = format!("{id}#{k}");
+            let final_values = final_store.get(&mid).cloned().unwrap_or_default();
+            let time_history = if has_hist { Some(stats(&hist_store[&mid])) } else { None };
+            let empty_hist: Vec<Vec<f64>> = Vec::new();
+            let hist_ref = if has_hist { &hist_store[&mid] } else { &empty_hist };
+            let analysis = config.results_spec.as_ref().and_then(|spec| {
+                crate::results_spec::compute_analysis(spec, &mid, &final_values, hist_ref, &realization_weights, dt)
+            });
+            results_map.insert(mid, ElementResults {
+                label: format!("{label}[{k}]"),
+                unit: unit.clone(),
+                final_values,
+                time_history,
+                analysis,
+            });
+        }
     }
 
     for d in &model.time_history_displays {
@@ -2061,15 +2182,17 @@ fn eval_element(
                 Ok(Value::Scalar(eval_timeseries(timestamps, values, interpolation, elapsed)?))
             }
             NodeRule::Lag { input, initial } => {
-                // Strict one-step delay: read the input's previous-step output.
-                // An unwired lag (no input) is a pure initial-value hold.
+                // Strict one-step delay: read the input's previous-step output. The full
+                // Value shape is preserved, so an array-valued input lags per-member (§15);
+                // scalar inputs are unaffected. An unwired lag (no input) is a pure
+                // initial-value hold.
                 let init = initial.as_ref().map(|q| q.value).unwrap_or(0.0);
                 let v = input
                     .as_ref()
                     .and_then(|id| prev_outputs.get(id.as_str()))
-                    .map(|v| v.as_scalar())
-                    .unwrap_or(init);
-                Ok(Value::Scalar(v))
+                    .cloned()
+                    .unwrap_or(Value::Scalar(init));
+                Ok(v)
             }
             NodeRule::Expression(ef) => {
                 let ctx = ctx_at(lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_idx, arr);

@@ -746,6 +746,12 @@ pub enum BuiltinFn {
     MeanArray,
     MinArray,
     MaxArray,
+    /// 1-based index of the minimum / maximum member of an array. Ties resolve to the
+    /// LOWEST index (required for the bit-identity guarantee — dispatch stays deterministic).
+    /// Serialized `"argmin_array"` / `"argmax_array"`. Used for wear-levelling dispatch
+    /// ("assign the least-damaged truck"); combine with a penalty term for masked selection.
+    ArgminArray,
+    ArgmaxArray,
     DotProduct,
 }
 
