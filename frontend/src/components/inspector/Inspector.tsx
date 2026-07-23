@@ -8,6 +8,7 @@ import { Field, NumInput, Section, Select, TextInput, Toggle } from './fields'
 import { ExpressionEditor } from './ExpressionEditor'
 import { DISTRIBUTIONS, distDef, paramValue } from './dists'
 import { printAst, type Ast } from '../../model/ast'
+import { recomputeInputs } from '../../model/edits'
 
 export function Inspector() {
   const selectedId = useStore((s) => s.selectedId)
@@ -160,6 +161,44 @@ function SampleEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
         <p className="text-[11px] text-slate-400">Family “{family}” isn’t editable here yet; edit the JSON directly.</p>
       )}
       <TruncationEditor el={el} flat={flat} />
+      <ResamplingEditor el={el} flat={flat} />
+    </>
+  )
+}
+
+/** How often a sample node redraws. Absent = once per realization (a fixed uncertain
+ *  parameter); `always` = a fresh draw every timestep (noise); `periodic` = every `period`. */
+function ResamplingEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const tsUnit = useStore((s) => s.doc?.simulation_settings.timestep.unit) ?? 's'
+  const resampling = flat.resampling as { mode?: string; period?: { value: number; unit: string } } | null | undefined
+  const mode = resampling?.mode ?? 'once'
+
+  const setMode = (m: string) =>
+    mutate(el.id, (e) => {
+      if (m === 'once') e.resampling = null
+      else if (m === 'periodic') e.resampling = { mode: 'periodic', period: e.resampling?.period ?? { value: 1, unit: tsUnit } }
+      else e.resampling = { mode: m }
+    })
+  const setPeriod = (v: number) =>
+    mutate(el.id, (e) => { e.resampling = { mode: 'periodic', period: { value: v, unit: e.resampling?.period?.unit ?? tsUnit } } })
+
+  return (
+    <>
+      <Field label="Resample" hint="How often a fresh value is drawn.">
+        <Select value={mode} onChange={setMode}
+          options={[
+            { value: 'once', label: 'Once per run' },
+            { value: 'always', label: 'Every timestep' },
+            { value: 'periodic', label: 'Periodic…' },
+          ]} />
+      </Field>
+      {mode === 'periodic' && (
+        <Field label="Period">
+          <NumInput value={resampling?.period?.value ?? 1} unit={resampling?.period?.unit ?? tsUnit}
+            onChange={setPeriod} />
+        </Field>
+      )}
     </>
   )
 }
@@ -223,6 +262,26 @@ function StockEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
   const mutate = useStore((s) => s.mutateEl)
   const initial = paramValue(flat.initial_value)
   const rateAst = (flat.rate as { ast?: Ast } | undefined)?.ast
+  // The engine treats a direct `rate` and inflows/outflows as either-or (a present rate
+  // shadows flows). Surface that as an explicit mode: 'rate' shows the net-rate expression;
+  // 'flows' shows inflows/outflows + growth rate (return_rate composes with flows).
+  const mode: 'flows' | 'rate' = flat.rate != null ? 'rate' : 'flows'
+  const growth = flat.return_rate?.value
+  // return_rate is applied as `rr · dt` in the timestep's time unit (not per-step), so label
+  // it per that unit to keep the rate unambiguous when dt ≠ 1.
+  const timeUnit = useStore((s) => s.doc?.simulation_settings.timestep.unit) ?? 's'
+
+  const setMode = (m: string) =>
+    mutate(el.id, (e) => {
+      if (m === 'rate') {
+        e.rate = e.rate ?? { ast: { op: 'literal', value: 0 }, display: '0' }
+        delete e.inflows; delete e.outflows; delete e.return_rate
+      } else {
+        delete e.rate
+        e.inflows = e.inflows ?? []; e.outflows = e.outflows ?? []
+      }
+      recomputeInputs(e)
+    })
 
   return (
     <>
@@ -230,12 +289,31 @@ function StockEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
         <NumInput value={initial} unit={el.unit}
           onChange={(v) => mutate(el.id, (e) => { e.initial_value = { value: v, unit: e.initial_value?.unit ?? el.unit } })} />
       </Field>
-      <Field label="Net rate (d/dt)" hint="Direct rate expression; or wire inflows/outflows below.">
-        <ExpressionEditor ast={rateAst}
-          onCommit={(a) => mutate(el.id, (e) => { e.rate = { ast: a, display: printAst(a) } })} />
+      <Field label="Change driven by" hint="A stock is driven by wired flows or a single net-rate expression — not both.">
+        <Select value={mode} onChange={setMode}
+          options={[
+            { value: 'flows', label: 'Inflows / outflows' },
+            { value: 'rate', label: 'Net rate expression' },
+          ]} />
       </Field>
-      <RefListEditor el={el} flat={flat} field="inflows" label="Inflows" />
-      <RefListEditor el={el} flat={flat} field="outflows" label="Outflows" />
+      {mode === 'rate' ? (
+        <Field label="Net rate (d/dt)" hint="Direct rate expression for the whole stock.">
+          <ExpressionEditor ast={rateAst}
+            onCommit={(a) => mutate(el.id, (e) => { e.rate = { ast: a, display: printAst(a) }; recomputeInputs(e) })} />
+        </Field>
+      ) : (
+        <>
+          <RefListEditor el={el} flat={flat} field="inflows" label="Inflows" />
+          <RefListEditor el={el} flat={flat} field="outflows" label="Outflows" />
+          <Field label="Growth rate" hint={`Compounds on the current level (e.g. interest), per ${timeUnit}; adds to flows.`}>
+            <NumInput value={growth ?? NaN} unit={`/${timeUnit}`}
+              onChange={(v) => mutate(el.id, (e) => {
+                if (isNaN(v) || v === 0) delete e.return_rate
+                else e.return_rate = { value: v, unit: '1' }
+              })} />
+          </Field>
+        </>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <Field label="Floor (min)">
           <NumInput value={flat.floor?.value ?? flat.min_value ?? NaN}
@@ -264,11 +342,11 @@ function RefListEditor({ el, flat, field, label }: { el: ElementSummary; flat: F
           <div key={ref} className="flex items-center gap-1">
             <span className="flex-1 truncate rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px]">{ref}</span>
             <button className="text-slate-400 hover:text-red-500"
-              onClick={() => mutate(el.id, (e) => { e[field] = (e[field] as string[]).filter((x) => x !== ref) })}>×</button>
+              onClick={() => mutate(el.id, (e) => { e[field] = (e[field] as string[]).filter((x) => x !== ref); recomputeInputs(e) })}>×</button>
           </div>
         ))}
         {candidates.length > 0 && (
-          <select value="" onChange={(ev) => { const v = ev.target.value; if (v) mutate(el.id, (e) => { e[field] = [...((e[field] as string[]) ?? []), v] }) }}
+          <select value="" onChange={(ev) => { const v = ev.target.value; if (v) mutate(el.id, (e) => { e[field] = [...((e[field] as string[]) ?? []), v]; recomputeInputs(e) }) }}
             className="w-full rounded border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500">
             <option value="">+ add {label.toLowerCase().replace(/s$/, '')}…</option>
             {candidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

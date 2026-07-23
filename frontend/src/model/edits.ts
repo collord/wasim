@@ -131,7 +131,7 @@ export function recomputeInputs(el: FlatElement): void {
   // Stocks also list inflows/outflows as inputs.
   const explicit = [...(el.inflows ?? []), ...(el.outflows ?? []), el.input].filter(Boolean) as string[]
   const merged = new Set<string>([...refs, ...explicit])
-  if (merged.size) el.inputs = [...merged]
+  el.inputs = [...merged]
 }
 
 // ── View block (positions / collapse) ────────────────────────────────────────────
@@ -231,8 +231,11 @@ export const PALETTE: PaletteEntry[] = [
   },
   {
     key: 'stock', label: 'Stock / Reservoir', group: 'Stocks', iconType: 'accumulator',
+    // No seeded `rate`: the engine treats rate and inflows/outflows as either-or (a present
+    // `rate` shadows flows, engine_v2 §net-rate). Defaulting to the flow path lets a wired
+    // inflow drive the stock; typing a net-rate expression in the inspector switches paths.
     make: (id, name, fmt) => withKind(
-      { id, name, initial_value: q(0), rate: { ast: { op: 'literal', value: 0 }, display: '0' } as any, inflows: [], outflows: [] },
+      { id, name, initial_value: q(0), inflows: [], outflows: [] },
       fmt, 'accumulator', 'stock'),
   },
 ]

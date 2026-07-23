@@ -56,7 +56,9 @@ fn lag_scaffold_parses() {
 
 #[test]
 fn stock_scaffold_parses() {
-    let el = r#"{"id":"st","name":"Stock","primitive":"stock","initial_value":{"value":0,"unit":"1"},"rate":{"ast":{"op":"literal","value":0},"display":"0"},"inflows":[],"outflows":[]}"#;
+    // The palette seeds no `rate` (a present rate shadows inflows/outflows in the engine),
+    // so a fresh stock defaults to the flow path.
+    let el = r#"{"id":"st","name":"Stock","primitive":"stock","initial_value":{"value":0,"unit":"1"},"inflows":[],"outflows":[]}"#;
     parse_ok(&model(el)).unwrap();
 }
 

@@ -55,3 +55,53 @@ fn priority_withdrawal_allocates_by_priority() {
     assert_eq!(hist(&r, "hi"), vec![30.0, 20.0, 0.0], "high priority served first");
     assert_eq!(hist(&r, "lo"), vec![50.0, 0.0, 0.0], "low priority gets the remainder");
 }
+
+// A stock wired to an inflow (and *no* `rate` field) accumulates that inflow — the flow
+// path. This is the authoring-UI default after dropping the seeded zero rate; without it a
+// stock wired to an inflow stayed flat because a present rate shadows inflows.
+const INFLOW_MODEL: &str = r#"{"wasim_version": "0.8.0",
+    "simulation_settings": {"duration": {"value": 3, "unit": "s"}, "timestep": {"value": 1, "unit": "s"}, "n_realizations": 1, "seed": 1},
+    "elements": [
+      {"id": "in", "name": "In", "primitive": "node", "value_rule": "fixed", "value": {"value": 5, "unit": "1"}},
+      {"id": "tank", "name": "Tank", "primitive": "stock", "initial_value": {"value": 0, "unit": "1"},
+       "inflows": ["in"], "outflows": [], PLACEHOLDER "save_results": {"time_history": true}}
+    ]}"#;
+
+#[test]
+fn inflow_without_rate_accumulates() {
+    let r = run(&INFLOW_MODEL.replace("PLACEHOLDER ", ""));
+    assert_eq!(hist(&r, "tank"), vec![5.0, 10.0, 15.0], "inflow of 5/step accumulates");
+}
+
+#[test]
+fn present_rate_shadows_inflows() {
+    // Same wiring but with an explicit zero rate present: the engine takes the rate path and
+    // ignores the inflow, so the stock stays flat. Documents the either-or semantics (and the
+    // old palette-scaffold bug that seeded exactly this zero rate).
+    let r = run(&INFLOW_MODEL.replace("PLACEHOLDER", r#""rate": {"ast": {"op": "literal", "value": 0}, "display": "0"},"#));
+    assert_eq!(hist(&r, "tank"), vec![0.0, 0.0, 0.0], "zero rate shadows the inflow");
+}
+
+#[test]
+fn return_rate_compounds_and_composes_with_inflow() {
+    // A bank account: interest (return_rate 0.1/step) on the current balance PLUS a transfer
+    // in (inflow 100/step). Each step: next = bal·(1 + 0.1) + 100. What the Inspector's
+    // 'Growth rate' + inflows path emits. return_rate is unused in the example corpus, so this
+    // is the coverage for the compound_growth + flow composition.
+    let r = run(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 3, "unit": "s"}, "timestep": {"value": 1, "unit": "s"}, "n_realizations": 1, "seed": 1},
+        "elements": [
+          {"id": "deposit", "name": "Deposit", "primitive": "node", "value_rule": "fixed", "value": {"value": 100, "unit": "1"}},
+          {"id": "acct", "name": "Account", "primitive": "stock", "initial_value": {"value": 1000, "unit": "1"},
+           "return_rate": {"value": 0.1, "unit": "1"}, "inflows": ["deposit"], "outflows": [],
+           "save_results": {"time_history": true}}
+        ]}"#,
+    );
+    // 1000·1.1+100=1200 ; 1200·1.1+100=1420 ; 1420·1.1+100=1662
+    let h = hist(&r, "acct");
+    let expect = [1200.0, 1420.0, 1662.0];
+    for (i, (&got, &want)) in h.iter().zip(expect.iter()).enumerate() {
+        assert!((got - want).abs() < 1e-6, "step {i}: got {got}, want {want}");
+    }
+}

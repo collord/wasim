@@ -33,6 +33,8 @@ export interface FlatElement {
   bounds?: { min?: number | null; max?: number | null } | null
   expression?: ExpressionField
   distribution?: Distribution
+  /** Sample redraw trigger. Absent = once per realization; `mode: 'always'` = every timestep. */
+  resampling?: { mode?: string; period?: Quantity } | null
   table?: {
     x: number[]
     y: number[]
@@ -54,6 +56,9 @@ export interface FlatElement {
   // stock payloads
   initial_value?: Quantity
   rate?: ExpressionField | Quantity
+  /** Compound-growth rate applied to the current level each step (trait: compound_growth);
+   *  composes additively with inflows/outflows. e.g. interest on a balance. */
+  return_rate?: Quantity
   inflows?: string[]
   outflows?: string[]
   floor?: Quantity
