@@ -92,6 +92,10 @@ function DefinitionSection({ el, flat }: { el: ElementSummary; flat: FlatElement
   else if (rule === 'series') body = <SeriesEditor flat={flat} />
   else if (rule === 'lag') body = <LagEditor el={el} flat={flat} />
   else if (rule === 'filter') body = <FilterEditor el={el} flat={flat} />
+  else if (rule === 'pid' || rule === 'controller') body = <PidEditor el={el} flat={flat} />
+  else if (rule === 'hysteresis') body = <HysteresisEditor el={el} flat={flat} />
+  else if (rule === 'status') body = <StatusEditor el={el} flat={flat} />
+  else if (rule === 'milestone') body = <MilestoneEditor el={el} flat={flat} />
 
   return <Section title="Definition">{body}</Section>
 }
@@ -469,6 +473,139 @@ function FilterEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
         </Field>
       </div>
     </>
+  )
+}
+
+// ── Shared: input picker + trigger editor ────────────────────────────────────────
+
+function InputPicker({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const elements = useElements()
+  return (
+    <Field label="Input">
+      <Select value={flat.input ?? ''} onChange={(v) => mutate(el.id, (e) => { e.input = v || null; e.inputs = v ? [v] : [] })}
+        options={[{ value: '', label: '— none —' }, ...elements.filter((e) => e.id !== el.id).map((e) => ({ value: e.id, label: e.name }))]} />
+    </Field>
+  )
+}
+
+type Trigger = { mode?: string; condition?: unknown; period?: { value: number; unit: string }; schedule?: { value: number; unit: string }[] }
+
+/** Editor for a TriggerSpec (spec §5.5): mode + the fields that mode needs. OnEvent is an
+ *  engine no-op (§14) and is offered disabled. */
+function TriggerEditor({ label, value, onChange, timeUnit }: {
+  label: string; value: Trigger | undefined; onChange: (t: Trigger) => void; timeUnit: string
+}) {
+  const t = value ?? {}
+  const mode = t.mode ?? 'always'
+  const condAst = (t.condition as { ast?: Ast } | undefined)?.ast
+  return (
+    <div className="rounded border border-slate-200 p-2">
+      <div className="mb-1.5 text-[11px] font-semibold text-slate-500">{label}</div>
+      <Field label="Mode">
+        <Select value={mode} onChange={(m) => onChange({ ...t, mode: m })}
+          options={[
+            { value: 'always', label: 'Always' },
+            { value: 'on_condition', label: 'On condition' },
+            { value: 'periodic', label: 'Periodic' },
+            { value: 'on_schedule', label: 'On schedule' },
+          ]} />
+      </Field>
+      {mode === 'on_condition' && (
+        <Field label="Condition (fires when ≠ 0)">
+          <ExpressionEditor ast={condAst} onCommit={(a) => onChange({ ...t, condition: { ast: a, display: printAst(a) } })} />
+        </Field>
+      )}
+      {mode === 'periodic' && (
+        <Field label={`Period (${timeUnit})`}>
+          <NumInput value={t.period?.value ?? 1} unit={timeUnit}
+            onChange={(v) => onChange({ ...t, period: { value: v, unit: timeUnit } })} />
+        </Field>
+      )}
+      {mode === 'on_schedule' && (
+        <Field label={`Schedule times (${timeUnit})`}>
+          <TextInput mono value={(t.schedule ?? []).map((q) => q.value).join(', ')}
+            onChange={(s) => onChange({ ...t, schedule: s.split(/[,\s]+/).map((x) => parseFloat(x)).filter((n) => Number.isFinite(n)).map((value) => ({ value, unit: timeUnit })) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+function useTimeUnit(): string {
+  return useStore((s) => s.doc?.simulation_settings?.timestep?.unit ?? 's')
+}
+
+// ── PID controller ────────────────────────────────────────────────────────────
+
+function PidEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const setpoint = (flat.setpoint as { value?: number } | undefined)?.value ?? 0
+  return (
+    <>
+      <InputPicker el={el} flat={flat} />
+      <Field label="Setpoint" hint="Target value the controller drives the input toward.">
+        <NumInput value={setpoint} unit={el.unit}
+          onChange={(v) => mutate(el.id, (e) => { e.setpoint = { value: v, unit: el.unit } })} />
+      </Field>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Kp"><NumInput value={flat.kp ?? 0} onChange={(v) => mutate(el.id, (e) => { e.kp = v })} /></Field>
+        <Field label="Ki"><NumInput value={flat.ki ?? 0} onChange={(v) => mutate(el.id, (e) => { e.ki = v })} /></Field>
+        <Field label="Kd"><NumInput value={flat.kd ?? 0} onChange={(v) => mutate(el.id, (e) => { e.kd = v })} /></Field>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Out min"><NumInput value={flat.output_min ?? NaN} onChange={(v) => mutate(el.id, (e) => { e.output_min = isNaN(v) ? null : v })} /></Field>
+        <Field label="Out max"><NumInput value={flat.output_max ?? NaN} onChange={(v) => mutate(el.id, (e) => { e.output_max = isNaN(v) ? null : v })} /></Field>
+        <Field label="Deadband"><NumInput value={flat.deadband ?? 0} onChange={(v) => mutate(el.id, (e) => { e.deadband = v })} /></Field>
+      </div>
+    </>
+  )
+}
+
+// ── Hysteresis (Schmitt trigger) ────────────────────────────────────────────────
+
+function HysteresisEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const q = (f: keyof FlatElement) => (flat[f] as { value?: number } | undefined)?.value ?? 0
+  const setQ = (f: string, v: number, unit: string) => mutate(el.id, (e) => { (e as Record<string, unknown>)[f] = { value: v, unit } })
+  return (
+    <>
+      <InputPicker el={el} flat={flat} />
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="High threshold"><NumInput value={q('high_threshold')} onChange={(v) => setQ('high_threshold', v, el.unit)} /></Field>
+        <Field label="Low threshold"><NumInput value={q('low_threshold')} onChange={(v) => setQ('low_threshold', v, el.unit)} /></Field>
+        <Field label="Output above"><NumInput value={q('output_above')} onChange={(v) => setQ('output_above', v, el.unit)} /></Field>
+        <Field label="Output below"><NumInput value={q('output_below')} onChange={(v) => setQ('output_below', v, el.unit)} /></Field>
+      </div>
+    </>
+  )
+}
+
+// ── Status latch / Milestone ────────────────────────────────────────────────────
+
+function StatusEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const timeUnit = useTimeUnit()
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-slate-400">Set latches the output to 1; Reset latches it back to 0 (set wins on a tie).</p>
+      <TriggerEditor label="Set trigger" value={flat.set as Trigger} timeUnit={timeUnit}
+        onChange={(v) => mutate(el.id, (e) => { e.set = v })} />
+      <TriggerEditor label="Reset trigger" value={flat.reset as Trigger} timeUnit={timeUnit}
+        onChange={(v) => mutate(el.id, (e) => { e.reset = v })} />
+    </div>
+  )
+}
+
+function MilestoneEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const timeUnit = useTimeUnit()
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-slate-400">Records the elapsed time when the trigger first fires (NaN before).</p>
+      <TriggerEditor label="Trigger" value={flat.trigger as Trigger} timeUnit={timeUnit}
+        onChange={(v) => mutate(el.id, (e) => { e.trigger = v })} />
+    </div>
   )
 }
 

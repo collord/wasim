@@ -134,3 +134,30 @@ test('results_spec analysis renders distribution + final-value statistics', asyn
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+test('inserts and configures a Status latch (new node-rule editors)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+
+  // Insert a Status latch from the palette (a valid, input-free v2 scaffold).
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await page.getByRole('button', { name: /Status latch/ }).first().click()
+  await expect(page.getByText('1 elems').first()).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('● valid')).toBeVisible()
+
+  // Its inspector shows the set/reset trigger editors; change the set trigger to periodic.
+  await expect(page.getByText('Set trigger', { exact: true })).toBeVisible()
+  await expect(page.getByText('Reset trigger', { exact: true })).toBeVisible()
+  await page.locator('select').filter({ hasText: 'Always' }).first().selectOption('periodic')
+  await expect(page.getByText(/Period \(/)).toBeVisible()
+  // Still a valid model after the edit.
+  await expect(page.getByText('● valid')).toBeVisible({ timeout: 10000 })
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

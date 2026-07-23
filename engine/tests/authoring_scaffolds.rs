@@ -93,3 +93,30 @@ fn optimization_spec_from_ui_solves_quadratic() {
     assert!((x - 3.0).abs() < 0.1, "expected x≈3, got {x}");
     assert!(results.objective < 0.05, "expected objective≈0, got {}", results.objective);
 }
+
+// ── Node-rule editors (§5): milestone/status palette scaffolds + pid/hysteresis shapes ──
+
+#[test]
+fn milestone_and_status_scaffolds_parse() {
+    let ms = r#"{"id":"m","name":"M","primitive":"node","value_rule":"milestone","trigger":{"mode":"periodic","period":{"value":10,"unit":"1"}}}"#;
+    parse_ok(&model(ms)).unwrap();
+    let st = r#"{"id":"s","name":"S","primitive":"node","value_rule":"status","set":{"mode":"always"},"reset":{}}"#;
+    parse_ok(&model(st)).unwrap();
+}
+
+#[test]
+fn pid_and_hysteresis_editor_shapes_parse() {
+    let x = r#"{"id":"x","name":"x","primitive":"node","value_rule":"fixed","value":{"value":1,"unit":"1"}}"#;
+    let pid = r#"{"id":"c","name":"C","primitive":"node","value_rule":"pid","input":"x","setpoint":{"value":0,"unit":"1"},"kp":1,"ki":0,"kd":0,"deadband":0}"#;
+    parse_ok(&model(&format!("{x},{pid}"))).unwrap();
+    let hy = r#"{"id":"h","name":"H","primitive":"node","value_rule":"hysteresis","input":"x","high_threshold":{"value":1,"unit":"1"},"low_threshold":{"value":0,"unit":"1"},"output_above":{"value":1,"unit":"1"},"output_below":{"value":0,"unit":"1"}}"#;
+    parse_ok(&model(&format!("{x},{hy}"))).unwrap();
+}
+
+#[test]
+fn status_with_condition_trigger_expression_parses() {
+    // Trigger condition as an Expression (untagged QuantityOrFormula) — what TriggerEditor emits.
+    let x = r#"{"id":"x","name":"x","primitive":"node","value_rule":"fixed","value":{"value":1,"unit":"1"}}"#;
+    let st = r#"{"id":"s","name":"S","primitive":"node","value_rule":"status","set":{"mode":"on_condition","condition":{"ast":{"op":"gt","left":{"op":"ref","element_id":"x"},"right":{"op":"literal","value":0.5}},"display":"x > 0.5"}},"reset":{}}"#;
+    parse_ok(&model(&format!("{x},{st}"))).unwrap();
+}

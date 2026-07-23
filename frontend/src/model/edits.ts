@@ -238,6 +238,17 @@ export const PALETTE: PaletteEntry[] = [
       { id, name, initial_value: q(0), inflows: [], outflows: [] },
       fmt, 'accumulator', 'stock'),
   },
+  {
+    // Input-free scaffolds (valid on insert): a periodic trigger, configurable in the inspector.
+    key: 'milestone', label: 'Milestone', group: 'Events & logic', iconType: 'delay',
+    make: (id, name, fmt) => withKind(
+      { id, name, trigger: { mode: 'periodic', period: q(10) } }, fmt, 'milestone', 'node', 'milestone'),
+  },
+  {
+    key: 'status', label: 'Status latch', group: 'Events & logic', iconType: 'gate',
+    make: (id, name, fmt) => withKind(
+      { id, name, set: { mode: 'always' }, reset: {} }, fmt, 'status', 'node', 'status'),
+  },
 ]
 
 // ── New / blank model scaffold (spec §13.4) ──────────────────────────────────────
