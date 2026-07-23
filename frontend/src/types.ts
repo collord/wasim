@@ -124,11 +124,71 @@ export interface TimeHistoryStats {
   p95: number[]
 }
 
+// Richer analysis (from a RunConfig.results_spec, spec §11). Present only when the run was
+// configured with a results spec; values arrive in the element's display unit (converted by
+// the engine's display boundary alongside final_values / time_history).
+
+export interface PercentileBand {
+  percentile: number
+  values: number[]
+}
+
+export interface DistributionAnalysis {
+  bin_centers: number[]
+  pdf: number[]
+  x: number[]
+  cdf: number[]
+  ccdf: number[]
+}
+
+export interface CaptureSnapshot {
+  time: number
+  step: number
+  mean: number
+  p05: number
+  p50: number
+  p95: number
+  values: number[]
+}
+
+export interface FinalStats {
+  mean: number
+  std: number
+  ci_half_width: number
+  ci_lower: number
+  ci_upper: number
+  confidence: number
+  skewness: number
+  excess_kurtosis: number
+  cte: number
+  cte_percentile: number
+}
+
+export interface ElementAnalysis {
+  percentile_bands?: PercentileBand[]
+  distribution?: DistributionAnalysis | null
+  captures?: CaptureSnapshot[]
+  final_stats?: FinalStats | null
+}
+
+/** UI-configured results spec (transient; mirrors the engine's ResultsSpec fields we expose). */
+export interface ResultsSpec {
+  elements: string[]
+  percentiles: number[]
+  distribution: boolean
+  bins: number
+  capture_times: number[]
+  final_stats: boolean
+  confidence: number
+  cte_percentile: number
+}
+
 export interface ElementResults {
   label: string
   unit: string
   final_values: number[]
   time_history: TimeHistoryStats | null
+  analysis?: ElementAnalysis | null
 }
 
 export interface SimulationResults {

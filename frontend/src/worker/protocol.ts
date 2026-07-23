@@ -1,4 +1,4 @@
-import type { ModelSummary, OptimizationSpec, SensitivityResults, SensitivitySpec, SimulationResults, StudyResults } from '../types'
+import type { ModelSummary, OptimizationSpec, ResultsSpec, SensitivityResults, SensitivitySpec, SimulationResults, StudyResults } from '../types'
 
 // ── Validation diagnostics (from WASM validate_json + reconcile) ────────────────
 
@@ -23,7 +23,7 @@ export type MainToWorker =
   | { type: 'load_model'; payload: string }
   | { type: 'set_constant'; element_id: string; value: number }
   | { type: 'set_rv_param'; element_id: string; param_name: string; value: number }
-  | { type: 'run'; config: { n_realizations?: number; seed?: number; duration_override?: number; timestep_override?: number } }
+  | { type: 'run'; config: { n_realizations?: number; seed?: number; duration_override?: number; timestep_override?: number; results_spec?: ResultsSpec } }
   | { type: 'run_sensitivity'; spec: SensitivitySpec }
   | { type: 'run_optimization'; spec: OptimizationSpec }
   // Authoring additions (spec §13.5): a structural edit rebuilds the engine from the whole

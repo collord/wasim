@@ -102,3 +102,35 @@ test('runs an optimization over an editable variable', async ({ page }) => {
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+test('results_spec analysis renders distribution + final-value statistics', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  const RETIREMENT = path.resolve(__dirname, '../../schema_examples_manual/retirement_planning.json')
+  await page.goto('/')
+  await page.setInputFiles('input[type=file]', RETIREMENT)
+  await expect(page.getByText('● valid')).toBeVisible({ timeout: 15000 })
+
+  // Result mode → Results; enable distribution + final-value statistics, run with analysis.
+  await page.getByRole('button', { name: 'Result', exact: true }).click()
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  await page.getByText(/Final-value distribution/i).click()          // toggles the checkbox label
+  await page.getByText(/Final-value statistics \(CI/i).click()
+  await page.getByRole('button', { name: /Run with analysis/i }).click()
+
+  // Select an element that saves final values (the default output is time-history only), so
+  // the final-value distribution + statistics have data.
+  await expect(page.getByText(/Statistics for/i)).toBeVisible({ timeout: 25000 })
+  await page.locator('select').filter({ hasText: 'Total Post-Tax Portfolio' }).selectOption('total_post_tax')
+
+  // The analysis-driven panels appear (headings unique to the rendered panels).
+  await expect(page.getByRole('heading', { name: 'Distribution', exact: true })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText(/Excess kurtosis/i)).toBeVisible()
+  // CDF/CCDF view toggle works.
+  await page.getByRole('button', { name: 'ccdf' }).click()
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

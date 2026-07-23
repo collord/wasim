@@ -114,6 +114,40 @@ impl WasmEngine {
                         arr.iter_mut().for_each(|v| *v = *v * f + o);
                     }
                 }
+                // A3 analysis (results_spec): keep it in the same display units as final_values /
+                // time_history so the UI never mixes canonical and display scales. Value-carrying
+                // fields map by `·f + o`; spreads (std, CI half-width) scale by |f| only (the
+                // offset cancels in a difference); probabilities (cdf/ccdf) and shape stats
+                // (skew/kurtosis) are dimensionless; a density (pdf) scales by 1/f.
+                if let Some(a) = &mut r.analysis {
+                    let map = |v: &mut f64| *v = *v * f + o;
+                    let scale = |v: &mut f64| *v *= f.abs();
+                    for band in &mut a.percentile_bands {
+                        band.values.iter_mut().for_each(map);
+                    }
+                    if let Some(d) = &mut a.distribution {
+                        d.bin_centers.iter_mut().for_each(map);
+                        d.x.iter_mut().for_each(map);
+                        if f != 0.0 {
+                            d.pdf.iter_mut().for_each(|v| *v /= f.abs());
+                        }
+                    }
+                    for c in &mut a.captures {
+                        map(&mut c.mean);
+                        map(&mut c.p05);
+                        map(&mut c.p50);
+                        map(&mut c.p95);
+                        c.values.iter_mut().for_each(map);
+                    }
+                    if let Some(fs) = &mut a.final_stats {
+                        map(&mut fs.mean);
+                        map(&mut fs.ci_lower);
+                        map(&mut fs.ci_upper);
+                        map(&mut fs.cte);
+                        scale(&mut fs.std);
+                        scale(&mut fs.ci_half_width);
+                    }
+                }
             }
         }
 

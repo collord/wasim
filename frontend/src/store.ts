@@ -5,6 +5,7 @@ import type {
   ModelSummary,
   OptimizationSpec,
   QtyDisplay,
+  ResultsSpec,
   SensitivityResults,
   SensitivitySpec,
   SimulationResults,
@@ -80,6 +81,8 @@ interface State {
   errorMessage: string | null
   results: SimulationResults | null
   selectedResultId: string | null
+  // Analysis config (spec §11); when enabled, run() sends it as results_spec.
+  resultsSpec: ResultsSpec
 
   // Sensitivity
   sensStatus: SimStatus
@@ -145,6 +148,7 @@ interface Actions {
   setSimDuration: (v: number) => void
   setSimTimestep: (v: number) => void
   setSelectedResultId: (id: string) => void
+  setResultsSpec: (patch: Partial<ResultsSpec>) => void
 
   // Internal
   _scheduleReconcile: () => void
@@ -186,6 +190,16 @@ export const useStore = create<State & Actions>((set, get) => ({
   errorMessage: null,
   results: null,
   selectedResultId: null,
+  resultsSpec: {
+    elements: [],
+    percentiles: [],
+    distribution: false,
+    bins: 30,
+    capture_times: [],
+    final_stats: false,
+    confidence: 0.95,
+    cte_percentile: 95,
+  },
   sensStatus: 'idle',
   sensResults: null,
   sensError: null,
@@ -461,8 +475,13 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   // ── Run ───────────────────────────────────────────────────────────────────────
   run() {
-    const { nRealizations, seed, simDuration, simTimestep } = get()
+    const { nRealizations, seed, simDuration, simTimestep, resultsSpec } = get()
     set({ status: 'running', errorMessage: null, mode: 'result' })
+    // Only attach a results_spec when the user has enabled some analysis; otherwise the
+    // engine emits the default fixed summary (byte-identical to the pre-analysis path).
+    const rs = resultsSpec
+    const analysisOn =
+      rs.distribution || rs.final_stats || rs.percentiles.length > 0 || rs.capture_times.length > 0
     postToWorker({
       type: 'run',
       config: {
@@ -470,6 +489,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         seed: seed ?? undefined,
         duration_override: simDuration ?? undefined,
         timestep_override: simTimestep ?? undefined,
+        ...(analysisOn ? { results_spec: rs } : {}),
       },
     })
   },
@@ -501,6 +521,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (doc) get().editSettings({ timestep: { ...doc.simulation_settings.timestep, value: canonical } })
   },
   setSelectedResultId: (id) => set({ selectedResultId: id }),
+  setResultsSpec: (patch) => set((s) => ({ resultsSpec: { ...s.resultsSpec, ...patch } })),
 
   saveParameters() {
     const { modelSummary, modelFilename, nRealizations, seed, simDuration, simTimestep } = get()
