@@ -189,3 +189,50 @@ test('curates an author dashboard (inputs as sliders + output tiles)', async ({ 
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+test('copilot proposes an engine-validated model and applies it on accept (stub provider)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  // Inject a stub LLM provider + config BEFORE app load (no network). The stub returns a
+  // propose_model tool call with a known-valid v2 model; the engine still validates it.
+  await page.addInitScript(() => {
+    const model = JSON.stringify({
+      wasim_version: '0.1.0',
+      simulation_settings: { duration: { value: 100, unit: 's' }, timestep: { value: 1, unit: 's' }, n_realizations: 1, seed: 42 },
+      containers: [],
+      elements: [
+        { id: 'a', name: 'A', primitive: 'node', value_rule: 'fixed', value: { value: 2, unit: '1' }, editable: true },
+        { id: 'b', name: 'B', primitive: 'node', value_rule: 'expression', inputs: ['a'],
+          expression: { ast: { op: 'multiply', left: { op: 'ref', element_id: 'a' }, right: { op: 'literal', value: 3 } }, display: 'a × 3' } },
+      ],
+    })
+    localStorage.setItem('wasim.llm.config', JSON.stringify({ provider: 'anthropic', model: 'claude-opus-4-8', apiKey: 'stub-key' }))
+    ;(window as unknown as { __wasimLlmProvider: unknown }).__wasimLlmProvider = {
+      chat: async () => ({ text: 'A constant A and B = A × 3.', toolCalls: [{ id: 't1', name: 'propose_model', input: { model_json: model, rationale: 'A constant A and B = A × 3.' } }] }),
+    }
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+
+  // Open the copilot, describe a model, send.
+  await page.getByRole('button', { name: /Copilot/ }).click()
+  await expect(page.getByText('AI Copilot')).toBeVisible()
+  await page.getByPlaceholder(/Describe or refine/).fill('build me a small two-element model')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+
+  // The proposal validates through the engine and is offered for review.
+  await expect(page.getByText('Proposed model')).toBeVisible({ timeout: 15000 })
+  await expect(page.getByText('engine-valid')).toBeVisible()
+
+  // Accept → the model enters the canonical doc via reconcile and its elements appear.
+  await page.getByRole('button', { name: 'Accept', exact: true }).click()
+  await expect(page.getByText('2 elems').first()).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('● valid')).toBeVisible()
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

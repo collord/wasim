@@ -13,6 +13,10 @@ import type {
 } from './types'
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
+import type { LlmConfig } from './llm/config'
+import { loadLlmConfig, saveLlmConfig } from './llm/config'
+import { getProvider } from './llm/provider'
+import { runCopilot } from './llm/copilot'
 import {
   addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId,
   serializeModel, setContainer, setPosition, setPositions, toggleDashboard, updateElement,
@@ -103,6 +107,14 @@ interface State {
   simDurationDisp: QtyDisplay
   simTimestepDisp: QtyDisplay
 
+  // Copilot (spec §17)
+  llmConfig: LlmConfig | null
+  copilotOpen: boolean
+  copilotMessages: { role: 'user' | 'assistant'; text: string }[]
+  copilotRunning: boolean
+  copilotProposal: { modelJson: string; rationale: string; ok: boolean; issueCount: number } | null
+  copilotError: string | null
+
   // Internal
   _reconcileToken: number
   _reconcileTimer: ReturnType<typeof setTimeout> | null
@@ -152,10 +164,22 @@ interface Actions {
   setSelectedResultId: (id: string) => void
   setResultsSpec: (patch: Partial<ResultsSpec>) => void
 
+  // Copilot
+  setLlmConfig: (cfg: LlmConfig | null) => void
+  toggleCopilot: (open?: boolean) => void
+  sendCopilot: (message: string) => Promise<void>
+  acceptProposal: () => void
+  rejectProposal: () => void
+  validateModel: (json: string) => Promise<Validation>
+
   // Internal
   _scheduleReconcile: () => void
   _pushHistory: (prev: ModelDoc) => void
 }
+
+// Copilot silent-validation request/response bridge (module-level so it doesn't churn state).
+const llmResolvers = new Map<number, (v: Validation) => void>()
+let llmToken = 0
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -214,6 +238,12 @@ export const useStore = create<State & Actions>((set, get) => ({
   simTimestep: null,
   simDurationDisp: IDENTITY_DISP,
   simTimestepDisp: IDENTITY_DISP,
+  llmConfig: loadLlmConfig(),
+  copilotOpen: false,
+  copilotMessages: [],
+  copilotRunning: false,
+  copilotProposal: null,
+  copilotError: null,
   _reconcileToken: 0,
   _reconcileTimer: null,
 
@@ -425,6 +455,86 @@ export const useStore = create<State & Actions>((set, get) => ({
     get()._scheduleReconcile()
   },
 
+  // ── Copilot (spec §17) ─────────────────────────────────────────────────────────
+  setLlmConfig(cfg) {
+    saveLlmConfig(cfg)
+    set({ llmConfig: cfg })
+  },
+
+  toggleCopilot(open) {
+    set((s) => ({ copilotOpen: open ?? !s.copilotOpen }))
+  },
+
+  validateModel(json) {
+    // Silent validation for the copilot — resolves a promise, never touches the issues panel.
+    return new Promise<Validation>((resolve) => {
+      const token = ++llmToken
+      llmResolvers.set(token, resolve)
+      postToWorker({ type: 'llm_validate', model: json, token })
+    })
+  },
+
+  async sendCopilot(message) {
+    const cfg = get().llmConfig
+    if (!cfg) { set({ copilotError: 'Configure an AI provider first (Settings).' }); return }
+    const doc = get().doc
+    set((s) => ({
+      copilotRunning: true,
+      copilotError: null,
+      copilotProposal: null,
+      copilotMessages: [...s.copilotMessages, { role: 'user', text: message }],
+    }))
+    try {
+      const result = await runCopilot({
+        provider: getProvider(cfg),
+        userMessage: message,
+        currentModel: doc ? serializeModel(doc) : null,
+        validate: (j) => get().validateModel(j),
+      })
+      const val = result.finalValidation
+      set((s) => ({
+        copilotRunning: false,
+        copilotMessages: [...s.copilotMessages, { role: 'assistant', text: result.rationale || '(no rationale)' }],
+        copilotProposal: result.modelJson
+          ? {
+              modelJson: result.modelJson,
+              rationale: result.rationale,
+              ok: val?.ok ?? false,
+              issueCount: val?.issues.length ?? 0,
+            }
+          : null,
+      }))
+    } catch (e) {
+      set({ copilotRunning: false, copilotError: String(e) })
+    }
+  },
+
+  acceptProposal() {
+    const p = get().copilotProposal
+    if (!p) return
+    let next: ModelDoc
+    try {
+      next = JSON.parse(p.modelJson) as ModelDoc
+    } catch {
+      set({ copilotError: 'Proposed model is not valid JSON.' })
+      return
+    }
+    if (!next.view) next.view = { positions: {} }
+    if (!next.elements) next.elements = []
+    // Enter via the normal reconcile path so it's undoable and re-validated (§17.4).
+    set({ format: detectFormat(next) })
+    get().applyEdit(next)
+    set((s) => ({
+      copilotProposal: null,
+      copilotMessages: [...s.copilotMessages, { role: 'assistant', text: '✓ Proposal accepted and applied.' }],
+      ...runtimeFromDoc(next),
+    }))
+  },
+
+  rejectProposal() {
+    set({ copilotProposal: null })
+  },
+
   _scheduleReconcile() {
     const existing = get()._reconcileTimer
     if (existing) clearTimeout(existing)
@@ -601,6 +711,13 @@ export const useStore = create<State & Actions>((set, get) => ({
       case 'validated': {
         if (msg.token < get()._reconcileToken) break
         set({ issues: msg.validation.issues, topo: msg.validation.topo, valid: msg.validation.ok, reconciling: false })
+        break
+      }
+
+      case 'llm_validated': {
+        // Resolve the copilot's silent-validation promise; never touches the issues panel.
+        const resolve = llmResolvers.get(msg.token)
+        if (resolve) { llmResolvers.delete(msg.token); resolve(msg.validation) }
         break
       }
 

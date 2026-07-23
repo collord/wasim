@@ -61,6 +61,10 @@ export function Toolbar() {
         {status === 'running' ? '⟳ Running…' : '▸ Run'}
       </button>
 
+      <button className={btn} onClick={() => useStore.getState().toggleCopilot()} title="AI Copilot — describe a model in words">
+        ✦ Copilot
+      </button>
+
       {/* Mode switch */}
       <div className="ml-auto flex overflow-hidden rounded border border-slate-300 text-xs font-medium">
         {(['edit', 'result'] as Mode[]).map((m) => (

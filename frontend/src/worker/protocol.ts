@@ -30,6 +30,9 @@ export type MainToWorker =
   // model; `validate` runs parse + dimensional + graph checks without rebuilding the run engine.
   | { type: 'reconcile'; model: string; token: number }
   | { type: 'validate'; model: string; token: number }
+  // Silent validation for the copilot loop — validates a candidate without touching the main
+  // issues panel (§17.3).
+  | { type: 'llm_validate'; model: string; token: number }
 
 // ── Worker → Main ─────────────────────────────────────────────────────────────
 
@@ -43,3 +46,4 @@ export type WorkerToMain =
   // + topo (causality view). `token` lets the store drop stale (out-of-order) responses.
   | { type: 'reconciled'; summary: ModelSummary | null; validation: Validation; token: number }
   | { type: 'validated'; validation: Validation; token: number }
+  | { type: 'llm_validated'; validation: Validation; token: number }

@@ -115,6 +115,11 @@ self.onmessage = async (e: MessageEvent<MainToWorker>) => {
         post({ type: 'validated', validation: validate(mod, msg.model), token: msg.token })
         break
       }
+      case 'llm_validate': {
+        const mod = await getMod()
+        post({ type: 'llm_validated', validation: validate(mod, msg.model), token: msg.token })
+        break
+      }
     }
   } catch (err) {
     post({ type: 'error', message: String(err) })
