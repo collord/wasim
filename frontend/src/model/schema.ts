@@ -84,9 +84,17 @@ export interface FlatElement {
 /** Node position + collapse state, kept in the model's `view` block (engine ignores it, §13.3). */
 export interface NodeView { x: number; y: number }
 
+/** Author-curated dashboard (spec §12): which editable inputs appear as controls and which
+ *  result elements appear as output displays. Persisted in the view block. */
+export interface DashboardConfig {
+  inputs: string[]
+  outputs: string[]
+}
+
 export interface ViewBlock {
   positions?: Record<string, NodeView>
   collapsed?: string[]
+  dashboard?: DashboardConfig
   /** Marks the document as authored/edited with this tool (provenance, §17.4). */
   authored?: boolean
   [k: string]: unknown

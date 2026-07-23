@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore } from '../../store'
 import type { ElementSummary } from '../../types'
 import { dispOf, toDisplay, fromDisplay } from '../../display'
@@ -131,6 +132,65 @@ function RvParamInput({ elem }: { elem: ElementSummary }) {
   )
 }
 
+// ── Curated dashboard: slider input + output tile (§12) ────────────────────────
+
+/** A bounded editable constant rendered as a slider + number (uses its bounds). Falls back
+ *  to the plain number field when the element has no finite bounds. */
+function SliderInput({ elem }: { elem: ElementSummary }) {
+  const setConstant = useStore((s) => s.setConstant)
+  const d = dispOf(elem)
+  const lo = elem.bounds?.min, hi = elem.bounds?.max
+  if (lo == null || hi == null || !Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
+    return <ConstantInput elem={elem} />
+  }
+  const dLo = toDisplay(lo, d), dHi = toDisplay(hi, d)
+  const cur = elem.value != null && Number.isFinite(elem.value) ? toDisplay(elem.value, d) : dLo
+  const step = (dHi - dLo) / 100
+  const unit = d.unit !== '1' ? d.unit : ''
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="text-sm font-medium text-slate-700">{elem.name}</span>
+        <span className="font-mono text-sm text-slate-600">{(+cur.toPrecision(6))}{unit ? ` ${unit}` : ''}</span>
+      </div>
+      <input
+        type="range" min={dLo} max={dHi} step={step || 'any'} value={cur}
+        onChange={(e) => setConstant(elem.id, fromDisplay(parseFloat(e.target.value), d))}
+        className="w-full accent-blue-600"
+      />
+      <div className="flex justify-between text-[10px] text-slate-400"><span>{+dLo.toPrecision(4)}</span><span>{+dHi.toPrecision(4)}</span></div>
+    </div>
+  )
+}
+
+/** A single output display: mean + p05–p95 band of the element's final values from the last run. */
+function OutputTile({ id }: { id: string }) {
+  const results = useStore((s) => s.results)
+  const el = results?.elements[id]
+  const label = el?.label ?? id
+  if (!el || el.final_values.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-3">
+        <div className="text-xs font-medium text-slate-500">{label}</div>
+        <div className="mt-1 text-sm text-slate-400">run to see output</div>
+      </div>
+    )
+  }
+  const vals = el.final_values.filter(Number.isFinite).sort((a, b) => a - b)
+  const n = vals.length
+  const mean = vals.reduce((a, b) => a + b, 0) / n
+  const p = (q: number) => vals[Math.min(n - 1, Math.max(0, Math.round((q / 100) * (n - 1))))]
+  const unit = el.unit && el.unit !== '1' ? ` ${el.unit}` : ''
+  const f = (v: number) => (Number.isFinite(v) ? +v.toPrecision(5) : v)
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="truncate text-xs font-medium text-slate-500">{label}</div>
+      <div className="mt-1 font-mono text-xl font-semibold text-slate-800">{f(mean)}<span className="text-xs font-normal text-slate-400">{unit}</span></div>
+      <div className="mt-0.5 text-[11px] text-slate-400">p05 {f(p(5))} · p95 {f(p(95))}</div>
+    </div>
+  )
+}
+
 // ── Run controls ──────────────────────────────────────────────────────────────
 
 function RunControls() {
@@ -240,6 +300,10 @@ function RunControls() {
 
 export function DashboardTab() {
   const summary = useStore((s) => s.modelSummary)
+  const dashboard = useStore((s) => s.doc?.view?.dashboard)
+  const toggleItem = useStore((s) => s.toggleDashboardItem)
+  const results = useStore((s) => s.results)
+  const [configuring, setConfiguring] = useState(false)
 
   if (!summary) {
     return (
@@ -249,11 +313,91 @@ export function DashboardTab() {
     )
   }
 
+  const editableElems = summary.elements.filter((e) => e.editable)
+  const curatedInputs = (dashboard?.inputs ?? []).map((id) => summary.elements.find((e) => e.id === id)).filter(Boolean) as ElementSummary[]
+  const curatedOutputs = dashboard?.outputs ?? []
+  const outputCandidates = results ? results.output_ids : summary.elements.map((e) => e.id)
+  const hasCurated = (dashboard?.inputs.length ?? 0) > 0 || (dashboard?.outputs.length ?? 0) > 0
+
+  // ── Author configure mode: pick which inputs/outputs appear on the dashboard ──
+  if (configuring) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Configure dashboard</h2>
+            <p className="text-sm text-slate-500">Curate a what-if panel: pick input controls and output displays.</p>
+          </div>
+          <button onClick={() => setConfiguring(false)} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500">Done</button>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 className="mb-2 text-sm font-semibold text-slate-700">Inputs (editable parameters)</h3>
+            {editableElems.length === 0 ? <p className="text-xs text-slate-400">No editable parameters. Mark constants editable in the Inspector.</p> : (
+              <div className="space-y-1">
+                {editableElems.map((e) => (
+                  <label key={e.id} className="flex items-center gap-2 text-xs text-slate-600">
+                    <input type="checkbox" checked={dashboard?.inputs.includes(e.id) ?? false} onChange={() => toggleItem('inputs', e.id)} className="h-3.5 w-3.5" />
+                    <span className="flex-1">{e.name}</span>
+                    <span className="text-slate-400">{e.value_rule}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 className="mb-2 text-sm font-semibold text-slate-700">Outputs (result displays)</h3>
+            <div className="space-y-1">
+              {outputCandidates.map((id) => {
+                const el = summary.elements.find((e) => e.id === id)
+                return (
+                  <label key={id} className="flex items-center gap-2 text-xs text-slate-600">
+                    <input type="checkbox" checked={curatedOutputs.includes(id)} onChange={() => toggleItem('outputs', id)} className="h-3.5 w-3.5" />
+                    <span className="flex-1">{el?.name ?? id}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Curated dashboard view (when configured) ──
+  if (hasCurated) {
+    return (
+      <div className="flex flex-col">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-800">Dashboard</h2>
+          <div className="flex gap-2">
+            <SaveParamsButton />
+            <button onClick={() => setConfiguring(true)} className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">Configure</button>
+          </div>
+        </div>
+        {curatedOutputs.length > 0 && (
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {curatedOutputs.map((id) => <OutputTile key={id} id={id} />)}
+          </div>
+        )}
+        {curatedInputs.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-4 py-2"><h3 className="text-sm font-semibold text-slate-700">Inputs</h3></div>
+            <div className="space-y-4 p-4">
+              {curatedInputs.map((e) => (
+                <div key={e.id}>{e.value_rule === 'sample' ? <RvParamInput elem={e} /> : <SliderInput elem={e} />}</div>
+              ))}
+            </div>
+          </div>
+        )}
+        <RunControls />
+      </div>
+    )
+  }
+
   const containerNames = Object.fromEntries(summary.containers.map((c) => [c.id, c.name]))
 
-  // Editable elements (editable fixed nodes + sample nodes), grouped by container.
-  const editableElems = summary.elements.filter((e) => e.editable)
-
+  // `editableElems` (editable fixed + sample nodes) is computed above; group by container.
   const groups = new Map<string, ElementSummary[]>()
   groups.set('(top level)', [])
   for (const c of summary.containers) groups.set(c.id, [])
@@ -271,7 +415,12 @@ export function DashboardTab() {
     <div className="flex flex-col">
       <div className="mb-4 flex items-center justify-between">
         <p className="text-xs text-slate-400">{loadedLabel}</p>
-        <SaveParamsButton />
+        <div className="flex gap-2">
+          <SaveParamsButton />
+          <button onClick={() => setConfiguring(true)} className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
+            Configure dashboard
+          </button>
+        </div>
       </div>
 
       <div className="space-y-6">

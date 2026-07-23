@@ -161,3 +161,31 @@ test('inserts and configures a Status latch (new node-rule editors)', async ({ p
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+test('curates an author dashboard (inputs as sliders + output tiles)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.goto('/')
+  await page.setInputFiles('input[type=file]', TWO_TANK)   // has editable constants with bounds
+  await expect(page.getByText('● valid')).toBeVisible({ timeout: 15000 })
+
+  await page.getByRole('button', { name: 'Result', exact: true }).click()
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+
+  // Enter configure mode and curate one input + one output.
+  await page.getByRole('button', { name: /Configure dashboard/i }).click()
+  await expect(page.getByRole('heading', { name: /Configure dashboard/i })).toBeVisible()
+  await page.getByText('Inputs (editable parameters)').locator('..').locator('input[type=checkbox]').first().check()
+  await page.getByText('Outputs (result displays)').locator('..').locator('input[type=checkbox]').first().check()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+
+  // Curated view: an input slider and an output tile render.
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
+  await expect(page.locator('input[type=range]').first()).toBeVisible()
+  await expect(page.getByText(/run to see output|p05/).first()).toBeVisible()
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

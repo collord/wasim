@@ -162,6 +162,19 @@ export function setPositions(doc: ModelDoc, positions: Record<string, NodeView>)
   return next
 }
 
+// ── Dashboard config (view block, §12) ────────────────────────────────────────────
+
+/** Toggle an element into/out of the dashboard's inputs or outputs list. */
+export function toggleDashboard(doc: ModelDoc, which: 'inputs' | 'outputs', id: string): ModelDoc {
+  const next = clone(doc)
+  const v = ensureView(next)
+  const dash = v.dashboard ?? { inputs: [], outputs: [] }
+  const list = dash[which]
+  dash[which] = list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
+  v.dashboard = dash
+  return next
+}
+
 // ── Simulation settings ──────────────────────────────────────────────────────────
 
 export function updateSettings(doc: ModelDoc, patch: Partial<ModelDoc['simulation_settings']>): ModelDoc {

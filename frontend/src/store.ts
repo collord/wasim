@@ -15,7 +15,8 @@ import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
   addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId,
-  serializeModel, setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+  serializeModel, setContainer, setPosition, setPositions, toggleDashboard, updateElement,
+  updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
 
@@ -132,6 +133,7 @@ interface Actions {
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
+  toggleDashboardItem: (which: 'inputs' | 'outputs', id: string) => void
   undo: () => void
   redo: () => void
 
@@ -390,6 +392,13 @@ export const useStore = create<State & Actions>((set, get) => ({
     const doc = get().doc
     if (!doc) return
     get().applyEdit(setPositions(doc, positions), { reconcile: false })
+  },
+
+  toggleDashboardItem(which, id) {
+    const doc = get().doc
+    if (!doc) return
+    // Dashboard config lives in the view block — a layout edit, no reconcile needed.
+    get().applyEdit(toggleDashboard(doc, which, id), { reconcile: false })
   },
 
   editSettings(patch) {
