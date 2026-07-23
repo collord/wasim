@@ -33,3 +33,7 @@ schema_examples/
 # ── Playwright e2e scratch output ──
 frontend/test-results/
 frontend/playwright-report/
+
+# Playwright artifacts (any location)
+test-results/
+playwright-report/
