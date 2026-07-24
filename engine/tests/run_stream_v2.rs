@@ -13,7 +13,7 @@
 //!      columns depend on the *total* n_real, so a fresh k-run is a different — equally
 //!      valid — design. The partial IS the first k of the N-run in both cases.)
 
-use wasim_engine::engine_v2::RunState;
+use wasim_engine::engine_v2::{Checkpoint, RunState};
 use wasim_engine::{parse_v2, run_v2, ModelGraphV2, RunConfig, SimulationResults};
 
 /// Stochastic two-element model: a per-realization normal sample driving a stock, both saved
@@ -132,4 +132,33 @@ fn cancel_at_k_equals_batch_of_k() {
     let fresh_k = run_v2(&m_k, &g_k, &cfg).expect("batch k");
 
     assert_bit_identical(&cancelled, &fresh_k, "cancel-at-13 vs fresh 13-run");
+}
+
+/// Checkpoint round-trip: rebuild a fresh RunState each chunk, restore the prior checkpoint,
+/// advance, checkpoint back out — the exact pattern the WASM poll handle uses (it owns the
+/// model/graph and cannot hold a borrowing RunState<'a> across calls). Must equal batch.
+#[test]
+fn checkpoint_rebuild_per_chunk_matches_batch() {
+    let json = model_json(40);
+    let m = parse_v2(&json).expect("parse");
+    let g = ModelGraphV2::build(&m).expect("graph");
+    let cfg = RunConfig::default();
+    let batch = run_v2(&m, &g, &cfg).expect("batch run");
+
+    // Simulate the handle: only a Checkpoint persists between "polls"; the RunState is rebuilt
+    // fresh (re-preparing) each time, restoring the checkpoint before advancing.
+    let mut cp = Checkpoint::default();
+    loop {
+        let mut st = RunState::new(&m, &g, &cfg).expect("rebuild");
+        st.restore(cp.clone());
+        if st.is_complete() {
+            let done = st.assemble().expect("assemble");
+            assert_bit_identical(&done, &batch, "checkpoint-rebuild");
+            break;
+        }
+        st.advance(9).expect("advance one poll");
+        cp = st.checkpoint();
+    }
+    // A default (empty) checkpoint must mean a from-scratch run.
+    assert_eq!(cp.next_real, 40, "all realizations folded via checkpoint round-trips");
 }

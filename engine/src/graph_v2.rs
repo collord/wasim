@@ -15,6 +15,7 @@ use crate::error::EngineError;
 use crate::model::{AstNode, QuantityOrFormula};
 use crate::model_v2::{Element, GateNode, Model, NodeRule, Primitive};
 
+#[derive(Clone)]
 pub struct ModelGraphV2 {
     pub topo_order: Vec<String>,
     pub element_index: HashMap<String, usize>,

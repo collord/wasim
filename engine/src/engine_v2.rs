@@ -67,6 +67,21 @@ pub fn run(
     st.assemble()
 }
 
+/// The resumable state of a partially-advanced run: everything that carries across
+/// realizations. A `RunState` reduces to this and rebuilds from it, so a caller that cannot
+/// hold a borrowing `RunState<'a>` across calls (e.g. the WASM poll handle, which owns its
+/// `Model`/`ModelGraphV2`) can rebuild a fresh `RunState`, `restore` this, advance a chunk, and
+/// `checkpoint` back out. The rebuild re-runs `new()`'s prepare pass — deterministic, and cheap
+/// unless the model has submodels/LHS/correlations (then a future optimization can cache it).
+#[derive(Clone, Debug, Default)]
+pub struct Checkpoint {
+    pub next_real: u32,
+    final_store: HashMap<String, Vec<f64>>,
+    hist_store: HashMap<String, Vec<Vec<f64>>>,
+    importance_weights: Vec<f64>,
+    any_importance: bool,
+}
+
 /// A resumable Monte-Carlo run: `run()` re-expressed as prepare / advance / assemble so a
 /// caller can fold realizations in chunks and read partial results (sweep composition Phase 0b).
 ///
@@ -517,6 +532,45 @@ impl<'a> RunState<'a> {
 
     /// True once every realization is folded in.
     pub fn is_complete(&self) -> bool { self.next_real >= self.n_real }
+
+    /// Total realizations this run will fold when complete.
+    pub fn total(&self) -> u32 { self.n_real }
+
+    /// Snapshot the resumable state (the append-only stores + per-slot importance weights +
+    /// realization counter). Cheap-ish (clones the stores); taken between polls, not per step.
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            next_real: self.next_real,
+            final_store: self.final_store.clone(),
+            hist_store: self.hist_store.clone(),
+            importance_weights: self.importance_weights.clone(),
+            any_importance: self.any_importance,
+        }
+    }
+
+    /// Restore a checkpoint into a freshly-prepared `RunState` for the *same* `(model, config)`.
+    /// The store *keys* are re-derived by `new()` from the model, so they already match; this
+    /// overwrites the accumulated values and counters. Restoring a checkpoint from a different
+    /// model is a caller error (the WASM handle guarantees same-model by construction).
+    ///
+    /// A checkpoint with `next_real == 0` is the initial state (nothing folded yet): restoring
+    /// it is a no-op, so the freshly-prepared empty-but-correctly-keyed stores are kept rather
+    /// than clobbered by the checkpoint's (empty, un-keyed) maps — which would make `advance`
+    /// panic on a missing store key.
+    pub fn restore(&mut self, cp: Checkpoint) {
+        debug_assert!(
+            cp.next_real <= self.n_real,
+            "checkpoint next_real {} exceeds n_real {}", cp.next_real, self.n_real
+        );
+        if cp.next_real == 0 {
+            return;
+        }
+        self.next_real = cp.next_real;
+        self.final_store = cp.final_store;
+        self.hist_store = cp.hist_store;
+        self.importance_weights = cp.importance_weights;
+        self.any_importance = cp.any_importance;
+    }
 
     /// Fold up to `count` more realizations into the stores (the former loop body, verbatim).
     /// Returns the number actually advanced (0 at completion). Chunking is semantically null.

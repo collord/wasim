@@ -76,57 +76,31 @@ impl WasmEngine {
 
     /// Run the simulation through the v2 core and return results as a JSON string.
     pub fn run_json(&self, config_json: &str) -> Result<String, JsError> {
-        let js: JsRunConfig = serde_json::from_str(config_json).unwrap_or_default();
-        let config = RunConfig {
-            n_realizations: js.n_realizations,
-            seed: js.seed,
-            duration_override: js.duration_override,
-            timestep_override: js.timestep_override,
-            results_spec: js.results_spec,
-            timebase: match js.timebase.as_deref() {
-                Some("event_accurate") => crate::engine::TimebaseMode::EventAccurate,
-                _ => crate::engine::TimebaseMode::Fixed,
-            },
-            units: match js.units.as_deref() {
-                Some("strict") => crate::engine::UnitsMode::Strict,
-                _ => crate::engine::UnitsMode::Warn,
-            },
-            realization_weights: js.realization_weights,
-        };
+        let config = parse_js_config(config_json);
         let mut results = run_v2(&self.model, &self.graph, &config)
             .map_err(|e| JsError::new(&e.to_string()))?;
-
-        // Convert results into display units (`display = value·factor + offset`) so the UI
-        // shows friendly units. The engine core stays canonical; this is the display boundary.
-        let disp: std::collections::HashMap<&str, (String, f64, f64)> = self
-            .model
-            .elements
-            .iter()
-            .filter_map(|e| crate::summary::display_of(e).map(|(du, f, o)| (e.id(), (du.to_string(), f, o))))
-            .collect();
-        for (id, r) in results.elements.iter_mut() {
-            if let Some((du, f, o)) = disp.get(id.as_str()) {
-                let (f, o) = (*f, *o);
-                r.unit = du.clone();
-                r.final_values.iter_mut().for_each(|v| *v = *v * f + o);
-                if let Some(h) = &mut r.time_history {
-                    for arr in [&mut h.mean, &mut h.p05, &mut h.p25, &mut h.p50, &mut h.p75, &mut h.p95] {
-                        arr.iter_mut().for_each(|v| *v = *v * f + o);
-                    }
-                }
-            }
-        }
-
-        // Convert the time axis to the timestep's display unit, if declared (e.g. an axis
-        // in canonical `s` shown as `yr`). Same display boundary as element values above.
-        let ts = &self.model.simulation_settings.timestep;
-        if let Some(du) = ts.display_unit.as_deref() {
-            if let Some((f, o)) = crate::units::display_conversion(&ts.unit, du) {
-                results.time_axis.iter_mut().for_each(|t| *t = *t * f + o);
-                results.time_unit = du.to_string();
-            }
-        }
+        apply_display_units(&self.model, &mut results);
         serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Begin a streaming run: build a `RunHandle` that owns its own copy of the model+graph and
+    /// folds realizations incrementally via `poll`. No realizations run yet. Same config JSON as
+    /// `run_json` (one config path). The UI drives this per animation frame.
+    pub fn start(&self, config_json: &str) -> Result<RunHandle, JsError> {
+        let config = parse_js_config(config_json);
+        // The handle can't hold a borrowing RunState<'a> across poll() calls, so it owns the
+        // model/graph and a serializable Checkpoint; each poll rebuilds a RunState against them.
+        let total = crate::engine_v2::RunState::new(&self.model, &self.graph, &config)
+            .map_err(|e| JsError::new(&e.to_string()))?
+            .total();
+        Ok(RunHandle {
+            model: self.model.clone(),
+            graph: self.graph.clone(),
+            config,
+            checkpoint: crate::engine_v2::Checkpoint::default(),
+            total,
+            cancelled: false,
+        })
     }
 
     /// Run a runtime sensitivity sweep. `spec_json` is a `SensitivitySpec` (UI-supplied,
@@ -214,6 +188,110 @@ impl WasmEngine {
             .map_err(|e| JsError::new(&e.to_string()))?;
         serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
     }
+}
+
+// ── Shared run helpers (used by run_json and RunHandle) ──────────────────────────
+
+/// Translate the JS-facing config JSON into a `RunConfig`. Malformed JSON → defaults (the
+/// pre-existing `run_json` behavior). One path so streaming and batch resolve config identically.
+fn parse_js_config(config_json: &str) -> RunConfig {
+    let js: JsRunConfig = serde_json::from_str(config_json).unwrap_or_default();
+    RunConfig {
+        n_realizations: js.n_realizations,
+        seed: js.seed,
+        duration_override: js.duration_override,
+        timestep_override: js.timestep_override,
+        results_spec: js.results_spec,
+        timebase: match js.timebase.as_deref() {
+            Some("event_accurate") => crate::engine::TimebaseMode::EventAccurate,
+            _ => crate::engine::TimebaseMode::Fixed,
+        },
+        units: match js.units.as_deref() {
+            Some("strict") => crate::engine::UnitsMode::Strict,
+            _ => crate::engine::UnitsMode::Warn,
+        },
+        realization_weights: js.realization_weights,
+    }
+}
+
+/// Convert a `SimulationResults` in place into display units (`display = value·factor + offset`)
+/// for element values and the time axis. The engine core stays canonical; this is the display
+/// boundary, applied identically to a batch result and to every streamed partial snapshot.
+fn apply_display_units(model: &v2::Model, results: &mut crate::engine::SimulationResults) {
+    let disp: std::collections::HashMap<&str, (String, f64, f64)> = model
+        .elements
+        .iter()
+        .filter_map(|e| crate::summary::display_of(e).map(|(du, f, o)| (e.id(), (du.to_string(), f, o))))
+        .collect();
+    for (id, r) in results.elements.iter_mut() {
+        if let Some((du, f, o)) = disp.get(id.as_str()) {
+            let (f, o) = (*f, *o);
+            r.unit = du.clone();
+            r.final_values.iter_mut().for_each(|v| *v = *v * f + o);
+            if let Some(h) = &mut r.time_history {
+                for arr in [&mut h.mean, &mut h.p05, &mut h.p25, &mut h.p50, &mut h.p75, &mut h.p95] {
+                    arr.iter_mut().for_each(|v| *v = *v * f + o);
+                }
+            }
+        }
+    }
+    let ts = &model.simulation_settings.timestep;
+    if let Some(du) = ts.display_unit.as_deref() {
+        if let Some((f, o)) = crate::units::display_conversion(&ts.unit, du) {
+            results.time_axis.iter_mut().for_each(|t| *t = *t * f + o);
+            results.time_unit = du.to_string();
+        }
+    }
+}
+
+// ── RunHandle: streaming poll boundary (sweep composition Phase 0c) ───────────────
+
+/// A resumable streaming run handed to JS. Owns its own model+graph (so it doesn't borrow the
+/// `WasmEngine`) and a serializable `Checkpoint`; each `poll` rebuilds a `RunState`, restores the
+/// checkpoint, folds up to `count` more realizations, checkpoints back out, and returns a
+/// display-ready partial `SimulationResults` JSON. Determinism: realization k is a pure function
+/// of `(seed, k)`, so the result after any sequence of polls is bit-identical to a batch run.
+#[wasm_bindgen]
+pub struct RunHandle {
+    model: v2::Model,
+    graph: ModelGraphV2,
+    config: RunConfig,
+    checkpoint: crate::engine_v2::Checkpoint,
+    total: u32,
+    cancelled: bool,
+}
+
+#[wasm_bindgen]
+impl RunHandle {
+    /// Fold up to `count` more realizations and return the partial results as JSON (display
+    /// units applied, same as `run_json`). The returned `n_realizations` is the count folded so
+    /// far; poll until `is_complete()` for the final result. A no-op once complete or cancelled.
+    pub fn poll(&mut self, count: u32) -> Result<String, JsError> {
+        let mut st = crate::engine_v2::RunState::new(&self.model, &self.graph, &self.config)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        st.restore(self.checkpoint.clone());
+        if !self.cancelled {
+            st.advance(count).map_err(|e| JsError::new(&e.to_string()))?;
+            self.checkpoint = st.checkpoint();
+        }
+        let mut results = st.assemble().map_err(|e| JsError::new(&e.to_string()))?;
+        apply_display_units(&self.model, &mut results);
+        serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Realizations folded so far.
+    pub fn completed(&self) -> u32 { self.checkpoint.next_real }
+
+    /// Total realizations this run will fold when complete.
+    pub fn total(&self) -> u32 { self.total }
+
+    /// True once every realization is folded in (or the run was cancelled).
+    pub fn is_complete(&self) -> bool { self.cancelled || self.checkpoint.next_real >= self.total }
+
+    /// Stop folding further realizations. The realizations already folded remain a valid partial
+    /// run (poll once more for their assembled result); realization streams are `(seed, k)`-pure,
+    /// so a cancelled run is exactly the first `completed()` realizations of the full run.
+    pub fn cancel(&mut self) { self.cancelled = true; }
 }
 
 // ── Standalone validation (authoring reconcile loop) ────────────────────────────
