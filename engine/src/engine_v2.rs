@@ -62,6 +62,76 @@ pub fn run(
     graph: &ModelGraphV2,
     config: &RunConfig,
 ) -> Result<SimulationResults, EngineError> {
+    let mut st = RunState::new(model, graph, config)?;
+    st.advance(u32::MAX)?;
+    st.assemble()
+}
+
+/// A resumable Monte-Carlo run: `run()` re-expressed as prepare / advance / assemble so a
+/// caller can fold realizations in chunks and read partial results (sweep composition Phase 0b).
+///
+/// Invariants: realization k's streams are a pure function of `(seed, k)` (plus the
+/// prepare-computed LHS/Iman-Conover columns, themselves pure in `(model, config)`), and the
+/// only cross-realization state is the append-only stores + per-slot importance weights — so
+/// `advance` chunking is semantically null: any sequence of `advance(count)` calls yields
+/// results bit-identical to one batch pass.
+pub struct RunState<'a> {
+    model: &'a Model,
+    graph: &'a ModelGraphV2,
+    config: &'a RunConfig,
+    // derived scalars
+    n_real: u32,
+    seed: u64,
+    dt: f64,
+    dt_unit: String,
+    n_steps: usize,
+    use_event_accurate: bool,
+    run_globals: [(&'static str, f64); 3],
+    // reduction weights (finalized in `assemble`)
+    user_weights: Vec<f64>,
+    importance_weights: Vec<f64>,
+    any_importance: bool,
+    // model-derived tables (immutable during the run)
+    elem_idx: HashMap<&'a str, usize>,
+    /// Dimension sizes keyed by owned id — feeds `ArrayEnv.dims`.
+    dim_sizes_by_id: HashMap<String, usize>,
+    index_stack: RefCell<Vec<usize>>,
+    fired_events: RefCell<HashSet<String>>,
+    submodel_outputs: HashMap<(String, String), Vec<f64>>,
+    lookups: HashMap<String, LookupData>,
+    save_final: Vec<&'a str>,
+    save_hist: Vec<&'a str>,
+    stock_ids: Vec<&'a str>,
+    process_ids: Vec<&'a str>,
+    per_step_sample_ids: Vec<&'a str>,
+    resample_ids: Vec<&'a str>,
+    species_info: HashMap<String, (Option<f64>, Vec<(String, f64)>)>,
+    decay_order: Vec<String>,
+    cell_media: HashMap<String, Vec<(String, f64)>>,
+    cell_volume: HashMap<String, f64>,
+    medium_porosity: HashMap<String, f64>,
+    cell_species_ids: Vec<String>,
+    member_count: HashMap<&'a str, usize>,
+    array_members: Vec<(String, String, usize)>,
+    corr_ids: HashSet<String>,
+    corr_groups: Vec<CorrGroup>,
+    ic_samples: HashMap<String, Vec<f64>>,
+    lhs_cols: HashMap<String, Vec<f64>>,
+    dyn_opt: Option<DynOpt>,
+    scheduled_times: Vec<f64>,
+    // resumable checkpoint
+    next_real: u32,
+    final_store: HashMap<String, Vec<f64>>,
+    hist_store: HashMap<String, Vec<Vec<f64>>>,
+}
+
+impl<'a> RunState<'a> {
+    /// Prepare a run: everything `run()` did before its realization loop (verbatim).
+    pub fn new(
+        model: &'a Model,
+        graph: &'a ModelGraphV2,
+        config: &'a RunConfig,
+    ) -> Result<RunState<'a>, EngineError> {
     let n_real = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations);
     let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
 
@@ -79,10 +149,8 @@ pub fn run(
     // Per-realization importance-sampling weights (§ importance_sampling), the product of each
     // importance node's likelihood ratio f(x)/g(x) drawn that realization. Starts at 1 (no bias);
     // combined with `user_weights` after the run and normalized into the final reduction weights.
-    let mut importance_weights: Vec<f64> = vec![1.0; n_real as usize];
-    let mut any_importance = false;
-    // The reduction weights, finalized after the realization loop (see below).
-    let mut realization_weights: Vec<f64> = user_weights.clone();
+    let importance_weights: Vec<f64> = vec![1.0; n_real as usize];
+    let any_importance = false;
 
     // Strict dimensional analysis (B5): reject a model with any dimensional inconsistency before
     // running. `Warn` (default) leaves the pre-B5 behavior unchanged (warnings are logged in lib.rs).
@@ -125,7 +193,7 @@ pub fn run(
 
     // Array-comprehension environment (§15): dimension-size table + shared vector_map
     // index stack, threaded into every EvalCtx via ArrayEnv.
-    let dim_sizes: HashMap<String, usize> =
+    let dim_sizes_by_id: HashMap<String, usize> =
         model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
@@ -135,7 +203,7 @@ pub fn run(
     // samples, so `submodel_stat` nodes reduce real data instead of degrading to 0.0.
     let submodel_outputs = crate::submodel_v2::run_submodels(model, config)?;
     let arr = ArrayEnv {
-        dims: &dim_sizes,
+        dims: &dim_sizes_by_id,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
         fired_events: &fired_events,
@@ -304,7 +372,7 @@ pub fn run(
     // member[0] via `as_scalar()` for back-compat. Member count = product of the declared
     // dimensions' sizes. Only expand elements that are actually saved.
     // `array_members`: element id → (label, member count N).
-    let dim_sizes: HashMap<&str, usize> =
+    let dim_sizes_ref: HashMap<&str, usize> =
         model.dimensions.iter().map(|d| (d.id.as_str(), d.size)).collect();
 
     // General array-member count per element (product of its primary output's declared
@@ -313,7 +381,7 @@ pub fn run(
     let member_count: HashMap<&str, usize> = model.elements.iter().map(|e| {
         let dims = e.base.outputs.first().map(|o| o.dimensions.as_slice()).unwrap_or(&[]);
         let n: usize = if dims.is_empty() { 1 } else {
-            dims.iter().map(|d| dim_sizes.get(d.as_str()).copied().unwrap_or(0)).product()
+            dims.iter().map(|d| dim_sizes_ref.get(d.as_str()).copied().unwrap_or(0)).product()
         };
         (e.id(), n.max(1))
     }).collect();
@@ -328,7 +396,7 @@ pub fn run(
         if dims.is_empty() {
             continue;
         }
-        let n_members: usize = dims.iter().map(|d| dim_sizes.get(d.as_str()).copied().unwrap_or(0)).product();
+        let n_members: usize = dims.iter().map(|d| dim_sizes_ref.get(d.as_str()).copied().unwrap_or(0)).product();
         if n_members == 0 {
             continue; // unknown/empty dimension — nothing to expand (dangling-ref policy §1)
         }
@@ -427,7 +495,82 @@ pub fn run(
         Vec::new()
     };
 
-    for real_idx in 0..n_real {
+    drop(arr);
+
+    Ok(RunState {
+        model, graph, config,
+        n_real, seed, dt, dt_unit, n_steps, use_event_accurate, run_globals,
+        user_weights, importance_weights, any_importance,
+        elem_idx, dim_sizes_by_id, index_stack, fired_events,
+        submodel_outputs, lookups, save_final, save_hist,
+        stock_ids, process_ids, per_step_sample_ids, resample_ids,
+        species_info, decay_order, cell_media, cell_volume, medium_porosity,
+        cell_species_ids, member_count, array_members,
+        corr_ids, corr_groups, ic_samples, lhs_cols, dyn_opt, scheduled_times,
+        next_real: 0,
+        final_store, hist_store,
+    })
+}
+
+    /// Realizations folded in so far.
+    pub fn completed(&self) -> u32 { self.next_real }
+
+    /// True once every realization is folded in.
+    pub fn is_complete(&self) -> bool { self.next_real >= self.n_real }
+
+    /// Fold up to `count` more realizations into the stores (the former loop body, verbatim).
+    /// Returns the number actually advanced (0 at completion). Chunking is semantically null.
+    pub fn advance(&mut self, count: u32) -> Result<u32, EngineError> {
+        let from = self.next_real;
+        let to = from.saturating_add(count).min(self.n_real);
+        // Aliases so the mechanically-moved body reads exactly as it did as a free function:
+        // scalars by copy, tables by shared ref (deref coercion covers `&name` call sites),
+        // stores by mutable ref (disjoint fields, so the borrows coexist).
+        let model = self.model;
+        let graph = self.graph;
+        let seed = self.seed;
+        let dt = self.dt;
+        let dt_unit = &self.dt_unit;
+        let n_steps = self.n_steps;
+        let use_event_accurate = self.use_event_accurate;
+        let run_globals = &self.run_globals;
+        let elem_idx = &self.elem_idx;
+        let index_stack = &self.index_stack;
+        let fired_events = &self.fired_events;
+        let submodel_outputs = &self.submodel_outputs;
+        let lookups = &self.lookups;
+        let save_final = &self.save_final;
+        let save_hist = &self.save_hist;
+        let stock_ids = &self.stock_ids;
+        let process_ids = &self.process_ids;
+        let per_step_sample_ids = &self.per_step_sample_ids;
+        let resample_ids = &self.resample_ids;
+        let species_info = &self.species_info;
+        let decay_order = &self.decay_order;
+        let cell_media = &self.cell_media;
+        let cell_volume = &self.cell_volume;
+        let medium_porosity = &self.medium_porosity;
+        let cell_species_ids = &self.cell_species_ids;
+        let member_count = &self.member_count;
+        let array_members = &self.array_members;
+        let corr_ids = &self.corr_ids;
+        let corr_groups = &self.corr_groups;
+        let ic_samples = &self.ic_samples;
+        let lhs_cols = &self.lhs_cols;
+        let dyn_opt = &self.dyn_opt;
+        let scheduled_times = &self.scheduled_times;
+        let final_store = &mut self.final_store;
+        let hist_store = &mut self.hist_store;
+        let importance_weights = &mut self.importance_weights;
+        let any_importance = &mut self.any_importance;
+        let arr = ArrayEnv {
+            dims: &self.dim_sizes_by_id,
+            index_stack,
+            submodel_outputs,
+            fired_events,
+            calendar_start: model.simulation_settings.calendar_start,
+        };
+        for real_idx in from..to {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         rng.set_stream(real_idx as u64);
 
@@ -456,7 +599,7 @@ pub fn run(
                             // ratio w = pdf_f(x)/pdf_g(x) into this realization's importance weight.
                             // Both f and g are resolved (formula params allowed); the PDFs support
                             // only normal/lognormal/uniform/exponential and error otherwise.
-                            any_importance = true;
+                            *any_importance = true;
                             let ctx = dist_ctx_eval(&lookups, &dist_ctx, &empty_prev, dt, &dt_unit, &arr);
                             let f = resolve_distribution(distribution, &ctx)?;
                             let g = resolve_distribution(&imp.bias, &ctx)?;
@@ -486,7 +629,7 @@ pub fn run(
         }
 
         // Correlated groups: look up this realization's Iman-Conover-reordered draw.
-        for group in &corr_groups {
+        for group in corr_groups {
             for id in &group.ids {
                 if let Some(col) = ic_samples.get(id) {
                     let v = col[real_idx as usize];
@@ -500,7 +643,7 @@ pub fn run(
         // mean-reverting (OU) processes across steps; `sp_state` is the per-step node value.
         let mut sp_state: HashMap<String, f64> = HashMap::new();
         let mut sp_level: HashMap<String, f64> = HashMap::new();
-        for &id in &process_ids {
+        for &id in process_ids {
             if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                 if let NodeRule::Process { process, lower_bound } = &n.rule {
                     if sampling::is_reverting(process) {
@@ -522,7 +665,7 @@ pub fn run(
 
         // AR(1) standard-normal driver state for per-step sample nodes.
         let mut z_state: HashMap<String, f64> = HashMap::new();
-        for &id in &per_step_sample_ids {
+        for &id in per_step_sample_ids {
             let z0: f64 = rng.sample(
                 rand_distr::Normal::new(0.0_f64, 1.0_f64)
                     .map_err(|e| EngineError::Sampling(e.to_string()))?,
@@ -584,7 +727,7 @@ pub fn run(
 
         // Initialize stock state (initial_expression if present, else initial_value).
         let mut stock_state: HashMap<String, Value> = HashMap::new();
-        for &id in &stock_ids {
+        for &id in stock_ids {
             if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
                 let init = match &s.initial_expression {
                     Some(expr) => {
@@ -699,19 +842,19 @@ pub fn run(
             // Interrupt (§2): once a realization is interrupted, every remaining step holds the
             // last-computed values — record them and advance without recomputing anything.
             if interrupted {
-                for &id in &save_hist {
+                for &id in save_hist {
                     if let Some(v) = prev_outputs.get(id) {
                         hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
                     }
                 }
                 if step_idx == n_steps - 1 {
-                    for &id in &save_final {
+                    for &id in save_final {
                         if let Some(v) = prev_outputs.get(id) {
                             final_store.get_mut(id).unwrap().push(v.as_scalar());
                         }
                     }
                 }
-                for id in &cell_species_ids {
+                for id in cell_species_ids {
                     if let Some(v) = prev_outputs.get(id) {
                         hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
                         if step_idx == n_steps - 1 {
@@ -720,7 +863,7 @@ pub fn run(
                     }
                 }
                 // Array-member records: hold the last-computed per-member values.
-                for (id, _label, n_members) in &array_members {
+                for (id, _label, n_members) in array_members {
                     if let Some(v) = prev_outputs.get(id.as_str()) {
                         let vec = v.clone().into_vec();
                         let is_final = step_idx == n_steps - 1;
@@ -745,7 +888,7 @@ pub fn run(
                 continue;
             }
 
-            for &id in &process_ids {
+            for &id in process_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Process { process, lower_bound } = &n.rule {
                         if sampling::is_reverting(process) {
@@ -768,7 +911,7 @@ pub fn run(
                 }
             }
 
-            for &id in &per_step_sample_ids {
+            for &id in per_step_sample_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Sample { distribution, autocorrelation, .. } = &n.rule {
                         let rho = autocorrelation.unwrap_or(0.0).clamp(0.0, 1.0);
@@ -784,7 +927,7 @@ pub fn run(
 
             // Redraw sample nodes whose resampling trigger fires. The trigger is evaluated
             // against the previous step's outputs (current step isn't computed yet).
-            for &id in &resample_ids {
+            for &id in resample_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Sample { distribution, resampling: Some(trig), .. } = &n.rule {
                         let ctx = ctx_at(&lookups, &prev_outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
@@ -1509,7 +1652,7 @@ pub fn run(
             // so `BoundCrossing` can solve the closed-form crossing time after the pass. Populated
             // only under EventAccurate; empty (and unused) under Fixed.
             let mut stock_bound_views: Vec<crate::timebase::StockBoundView> = Vec::new();
-            for &id in &stock_ids {
+            for &id in stock_ids {
                 let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive else { continue };
                 // Integration uses the SUB-interval clock (sub_t/sub_dt); == elapsed/dt on a
                 // fixed grid, so this pass is bit-identical there.
@@ -1630,7 +1773,7 @@ pub fn run(
             }
 
             // Apply routed overflow to target stocks (single level), then re-clamp.
-            for &id in &stock_ids {
+            for &id in stock_ids {
                 let Some(mut next) = next_vals.remove(id) else { continue };
                 if let Some(extra) = overflow_in.get(id) {
                     let extra = *extra;
@@ -1644,7 +1787,7 @@ pub fn run(
 
             // End-of-step: recorded value reflects post-update level; withdrawal targets
             // output their allocation.
-            for &id in &stock_ids {
+            for &id in stock_ids {
                 if let Some(v) = stock_state.get(id) {
                     outputs.insert(id.to_string(), v.clone());
                 }
@@ -1656,7 +1799,7 @@ pub fn run(
             // role get this step's applied rate under the key "<id>#<k+1>", resolvable via a
             // `ref` with an output qualifier (same-step consumers see the previous step's
             // value, matching how stock levels are read).
-            for &id in &stock_ids {
+            for &id in stock_ids {
                 let base = &model.elements[elem_idx[id]].base;
                 if base.outputs.len() < 2 {
                     continue;
@@ -1869,7 +2012,7 @@ pub fn run(
                     if let Primitive::Cell(_) = &elem.primitive {
                         let cell = elem.id();
                         let media = cell_media.get(cell).cloned().unwrap_or_else(|| vec![(String::new(), 1.0)]);
-                        for sp in &decay_order {
+                        for sp in decay_order {
                             if let Some((Some(hl), products)) = species_info.get(sp) {
                                 let factor = (-std::f64::consts::LN_2 / *hl * sub_dt).exp();
                                 for (med, _) in &media {
@@ -2036,13 +2179,13 @@ pub fn run(
                 }
             }
 
-            for &id in &save_hist {
+            for &id in save_hist {
                 if let Some(v) = outputs.get(id) {
                     hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
                 }
             }
             if step_idx == n_steps - 1 {
-                for &id in &save_final {
+                for &id in save_final {
                     if let Some(v) = outputs.get(id) {
                         final_store.get_mut(id).unwrap().push(v.as_scalar());
                     }
@@ -2050,7 +2193,7 @@ pub fn run(
             }
             // Array-member records (§15): push each member value into `<id>#k` (missing
             // members → 0.0, so a short vector still fills its declared width).
-            for (id, _label, n_members) in &array_members {
+            for (id, _label, n_members) in array_members {
                 if let Some(v) = outputs.get(id.as_str()) {
                     let vec = v.clone().into_vec();
                     let is_final = step_idx == n_steps - 1;
@@ -2065,7 +2208,7 @@ pub fn run(
                 }
             }
             // Per-(cell, species) mass records.
-            for id in &cell_species_ids {
+            for id in cell_species_ids {
                 if let Some(v) = outputs.get(id) {
                     hist_store.get_mut(id).unwrap()[step_idx].push(v.as_scalar());
                     if step_idx == n_steps - 1 {
@@ -2082,7 +2225,33 @@ pub fn run(
             }
         }
     }
+        drop(arr);
+        self.next_real = to;
+        Ok(to - from)
+    }
 
+    /// Assemble a `SimulationResults` from the realizations folded so far (the former
+    /// post-loop finalize, verbatim). Non-destructive: callable on a partial run and again
+    /// after further `advance` calls; `n_realizations` reports the completed count.
+    pub fn assemble(&mut self) -> Result<SimulationResults, EngineError> {
+        let completed = self.next_real;
+        let model = self.model;
+        let graph = self.graph;
+        let config = self.config;
+        let n_real = self.n_real;
+        let dt = self.dt;
+        let n_steps = self.n_steps;
+        let save_final = &self.save_final;
+        let save_hist = &self.save_hist;
+        let elem_idx = &self.elem_idx;
+        let array_members = &self.array_members;
+        let cell_species_ids = &self.cell_species_ids;
+        let final_store = &self.final_store;
+        let hist_store = &self.hist_store;
+        let user_weights = &self.user_weights;
+        let importance_weights = &self.importance_weights;
+        let any_importance = self.any_importance;
+        let mut realization_weights: Vec<f64> = user_weights.clone();
     // Finalize reduction weights (§ importance_sampling). If any importance node biased the draws,
     // the per-realization importance weight (product of likelihood ratios) is combined with the
     // user weights (elementwise; uniform user weights = all 1) and normalized to sum 1, then used
@@ -2091,7 +2260,7 @@ pub fn run(
     if any_importance {
         let mut w: Vec<f64> = importance_weights.clone();
         if user_weights.len() == n_real as usize {
-            for (wi, ui) in w.iter_mut().zip(&user_weights) {
+            for (wi, ui) in w.iter_mut().zip(user_weights) {
                 *wi *= *ui;
             }
         }
@@ -2137,7 +2306,7 @@ pub fn run(
     }
 
     // Array-member result entries (§15): one `ElementResults` per `<id>#k` member series.
-    for (id, label, n_members) in &array_members {
+    for (id, label, n_members) in array_members {
         let unit = model.elements[elem_idx[id.as_str()]]
             .base.outputs.first().map(|o| o.unit.clone()).unwrap_or_else(|| "1".to_string());
         let has_hist = save_hist.contains(&id.as_str());
@@ -2203,7 +2372,7 @@ pub fn run(
         .partition(|id| !referenced.contains(id));
 
     // Per-(cell, species) mass result entries.
-    for id in &cell_species_ids {
+    for id in cell_species_ids {
         let final_values = final_store.get(id).cloned().unwrap_or_default();
         let time_history = Some(stats(&hist_store[id]));
         let analysis = config.results_spec.as_ref().and_then(|spec| {
@@ -2225,7 +2394,8 @@ pub fn run(
         .chain(cell_species_ids.iter().cloned())
         .collect();
 
-    Ok(SimulationResults { time_axis, time_unit: dt_unit.clone(), elements: results_map, n_realizations: n_real, n_steps, output_ids })
+    Ok(SimulationResults { time_axis, time_unit: self.dt_unit.clone(), elements: results_map, n_realizations: completed, n_steps, output_ids })
+    }
 }
 
 // ── per-element evaluation ────────────────────────────────────────────────────
@@ -3091,3 +3261,4 @@ fn ranks(col: &[f64]) -> Vec<usize> {
     }
     r
 }
+
