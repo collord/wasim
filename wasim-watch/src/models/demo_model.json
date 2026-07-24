@@ -1,0 +1,31 @@
+{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {
+    "duration": { "value": 24, "unit": "mo" },
+    "timestep": { "value": 1, "unit": "mo" },
+    "n_realizations": 2000,
+    "seed": 20260724
+  },
+  "elements": [
+    {
+      "id": "monthly_return",
+      "name": "Monthly return",
+      "primitive": "node",
+      "value_rule": "sample",
+      "distribution": {
+        "family": "normal",
+        "parameters": { "mean": { "value": 1.0, "unit": "1" }, "stddev": { "value": 6.0, "unit": "1" } }
+      },
+      "save_results": { "final_value": true, "time_history": true }
+    },
+    {
+      "id": "balance",
+      "name": "Balance",
+      "primitive": "stock",
+      "inputs": ["monthly_return"],
+      "initial_value": { "value": 100, "unit": "1" },
+      "rate": { "ast": { "op": "ref", "element_id": "monthly_return" } },
+      "save_results": { "final_value": true, "time_history": true }
+    }
+  ]
+}
