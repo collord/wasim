@@ -643,6 +643,10 @@ pub enum IndexAxis {
 }
 
 /// Which statistic a `submodel_stat` node reduces a submodel output to.
+///
+/// `Percentile`, `CumulativeProb` (P(X ≤ t)), `Exceedance` (P(X > t), the CCDF), and `Cte`
+/// (conditional tail expectation beyond the p-th percentile) take the node's `arg`; the rest
+/// ignore it. All honor realization weights when present (B7).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubmodelStatKind {
@@ -650,6 +654,13 @@ pub enum SubmodelStatKind {
     Percentile,
     Sd,
     CumulativeProb,
+    /// P(X > arg) = 1 − CDF (exceedance / CCDF).
+    Exceedance,
+    /// Conditional tail expectation: mean of samples at or above the `arg`-th percentile.
+    Cte,
+    Sum,
+    Min,
+    Max,
 }
 
 fn default_output_name() -> String {

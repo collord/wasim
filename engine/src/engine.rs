@@ -926,3 +926,110 @@ pub(crate) fn weighted_std(vs: &[f64], w: &[f64]) -> f64 {
     let var = vs.iter().zip(w).map(|(x, wi)| wi * (x - m).powi(2)).sum::<f64>() / sw;
     var.sqrt()
 }
+
+// ── Extended reducers (sweep-composition boundary, Phase 3) ────────────────────
+//
+// The reducers `submodel_stat` can apply at a sweep boundary, beyond mean/percentile/std/
+// cumulative_prob. Exceedance is the CCDF complement of `cumulative_prob`; CTE mirrors the
+// A3 final-stats computation (results_spec.rs) but as a reusable reducer. Sum/min/max are the
+// plain aggregations. Each has a weighted variant that falls back to the unweighted one on
+// empty/mismatched weights, matching the convention above.
+
+/// Exceedance probability P(X > threshold) = 1 − CDF (the CCDF). Complement of `cumulative_prob`.
+pub(crate) fn exceedance(vs: &[f64], threshold: f64) -> f64 {
+    if vs.is_empty() { return 0.0; }
+    vs.iter().filter(|&&x| x > threshold).count() as f64 / vs.len() as f64
+}
+
+/// Conditional tail expectation: mean of samples at or above the `p`-th percentile (upper tail).
+/// Matches the A3 final-stats CTE (results_spec.rs). Empty tail → the threshold itself.
+pub(crate) fn cte(vs: &[f64], p: f64) -> f64 {
+    if vs.is_empty() { return 0.0; }
+    let threshold = percentile(vs, p);
+    let tail: Vec<f64> = vs.iter().copied().filter(|x| *x >= threshold).collect();
+    if tail.is_empty() { threshold } else { mean(&tail) }
+}
+
+/// Weighted conditional tail expectation (upper tail beyond the weighted `p`-th percentile).
+pub(crate) fn weighted_cte(vs: &[f64], w: &[f64], p: f64) -> f64 {
+    if w.len() != vs.len() || vs.is_empty() {
+        return cte(vs, p);
+    }
+    let threshold = weighted_percentile(vs, w, p);
+    let (tail, tail_w): (Vec<f64>, Vec<f64>) = vs
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, x)| *x >= threshold)
+        .map(|(i, x)| (x, w.get(i).copied().unwrap_or(1.0)))
+        .unzip();
+    if tail.is_empty() { threshold } else { weighted_mean(&tail, &tail_w) }
+}
+
+/// Sum of samples.
+pub(crate) fn sum_of(vs: &[f64]) -> f64 {
+    vs.iter().sum()
+}
+
+/// Min / max of samples (NaN-safe via total_cmp). Empty → 0.0, matching the reducer convention.
+/// Weights don't affect an extremum, so there is no weighted variant.
+pub(crate) fn min_of(vs: &[f64]) -> f64 {
+    vs.iter().copied().min_by(f64::total_cmp).unwrap_or(0.0)
+}
+
+pub(crate) fn max_of(vs: &[f64]) -> f64 {
+    vs.iter().copied().max_by(f64::total_cmp).unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod reducer_tests {
+    use super::*;
+
+    // Reference vector 1.0..=10.0. `percentile` uses nearest-rank on the sorted values:
+    // idx = round(p/100 · (n−1)); for n=10, p=80 → round(7.2) = 7 → value 8.0.
+    const V: [f64; 10] = [1., 2., 3., 4., 5., 6., 7., 8., 9., 10.];
+
+    #[test]
+    fn exceedance_is_ccdf_complement_of_cumulative_prob() {
+        // P(X > 5) over 1..=10 = |{6,7,8,9,10}|/10 = 0.5; and exceedance = 1 − cumulative_prob
+        // only when no sample equals the threshold exactly... here x=5 is excluded from both the
+        // >5 count and included in the ≤5 count, so they sum to 1.0.
+        assert_eq!(exceedance(&V, 5.0), 0.5);
+        assert!((exceedance(&V, 5.0) + cumulative_prob(&V, 5.0) - 1.0).abs() < 1e-12);
+        assert_eq!(exceedance(&V, 10.0), 0.0, "nothing exceeds the max");
+        assert_eq!(exceedance(&V, 0.0), 1.0, "everything exceeds below-min");
+    }
+
+    #[test]
+    fn cte_is_mean_of_upper_tail() {
+        // CTE(80) = mean of samples ≥ percentile(80)=8.0 → mean{8,9,10} = 9.0.
+        assert!((cte(&V, 80.0) - 9.0).abs() < 1e-12);
+        // CTE(0) reduces to the overall mean (whole set is the tail).
+        assert!((cte(&V, 0.0) - mean(&V)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn sum_min_max_over_reference() {
+        assert_eq!(sum_of(&V), 55.0);
+        assert_eq!(min_of(&V), 1.0);
+        assert_eq!(max_of(&V), 10.0);
+    }
+
+    #[test]
+    fn empty_reducers_return_zero() {
+        let e: [f64; 0] = [];
+        assert_eq!(exceedance(&e, 1.0), 0.0);
+        assert_eq!(cte(&e, 50.0), 0.0);
+        assert_eq!(sum_of(&e), 0.0);
+        assert_eq!(min_of(&e), 0.0);
+        assert_eq!(max_of(&e), 0.0);
+    }
+
+    #[test]
+    fn weighted_cte_matches_unweighted_on_uniform_weights() {
+        let w = [1.0; 10];
+        assert!((weighted_cte(&V, &w, 80.0) - cte(&V, 80.0)).abs() < 1e-12);
+        // Empty weights → falls back to unweighted.
+        assert!((weighted_cte(&V, &[], 80.0) - cte(&V, 80.0)).abs() < 1e-12);
+    }
+}

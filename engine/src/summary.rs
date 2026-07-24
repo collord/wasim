@@ -369,6 +369,11 @@ fn render_ast(n: &AstNode) -> String {
                 SubmodelStatKind::Percentile => "pdf_percentile",
                 SubmodelStatKind::Sd => "pdf_sd",
                 SubmodelStatKind::CumulativeProb => "pdf_cumprob",
+                SubmodelStatKind::Exceedance => "pdf_exceedance",
+                SubmodelStatKind::Cte => "pdf_cte",
+                SubmodelStatKind::Sum => "pdf_sum",
+                SubmodelStatKind::Min => "pdf_min",
+                SubmodelStatKind::Max => "pdf_max",
             };
             // Show the leaf names for readability (ids are full slash-paths).
             let sub = submodel_id.rsplit('/').next().unwrap_or(submodel_id);

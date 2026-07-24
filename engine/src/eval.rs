@@ -430,15 +430,17 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 .map(|n| eval_ast_scalar(n, ctx))
                 .transpose()?
                 .unwrap_or(0.0);
+            use crate::model::SubmodelStatKind as K;
             let reduced = match statistic {
-                crate::model::SubmodelStatKind::Mean => crate::engine::mean(samples),
-                crate::model::SubmodelStatKind::Percentile => {
-                    crate::engine::percentile(samples, arg_val)
-                }
-                crate::model::SubmodelStatKind::Sd => crate::engine::std(samples),
-                crate::model::SubmodelStatKind::CumulativeProb => {
-                    crate::engine::cumulative_prob(samples, arg_val)
-                }
+                K::Mean => crate::engine::mean(samples),
+                K::Percentile => crate::engine::percentile(samples, arg_val),
+                K::Sd => crate::engine::std(samples),
+                K::CumulativeProb => crate::engine::cumulative_prob(samples, arg_val),
+                K::Exceedance => crate::engine::exceedance(samples, arg_val),
+                K::Cte => crate::engine::cte(samples, arg_val),
+                K::Sum => crate::engine::sum_of(samples),
+                K::Min => crate::engine::min_of(samples),
+                K::Max => crate::engine::max_of(samples),
             };
             Ok(Value::Scalar(reduced))
         }

@@ -336,7 +336,7 @@ fn build_distribution(values: &[f64], bins: usize) -> Distribution {
 /// conditional tail expectation. `weights` (B7) makes the mean/std/percentile/CTE weighted;
 /// empty weights fall back to the unweighted forms. Skewness/kurtosis stay unweighted.
 fn build_final_stats(values: &[f64], weights: &[f64], confidence: f64, cte_pct: f64) -> FinalStats {
-    use crate::engine::{weighted_mean, weighted_percentile, weighted_std};
+    use crate::engine::{weighted_mean, weighted_std};
     let n = values.len();
     let m = weighted_mean(values, weights);
     let s = weighted_std(values, weights);
@@ -358,15 +358,8 @@ fn build_final_stats(values: &[f64], weights: &[f64], confidence: f64, cte_pct: 
     };
 
     // Conditional tail expectation: weighted mean of samples beyond the (weighted) cte percentile.
-    let threshold = weighted_percentile(values, weights, cte_pct);
-    let (tail, tail_w): (Vec<f64>, Vec<f64>) = values
-        .iter()
-        .copied()
-        .enumerate()
-        .filter(|(_, x)| *x >= threshold)
-        .map(|(i, x)| (x, weights.get(i).copied().unwrap_or(1.0)))
-        .unzip();
-    let cte = if tail.is_empty() { threshold } else { weighted_mean(&tail, &tail_w) };
+    // Shared with the `submodel_stat` Cte reducer (Phase 3) via `crate::engine::weighted_cte`.
+    let cte = crate::engine::weighted_cte(values, weights, cte_pct);
 
     FinalStats {
         mean: m,
