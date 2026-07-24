@@ -330,8 +330,15 @@ pub fn run_submodels(
             eprintln!("warn: submodel '{sub_id}' has no runnable interior; submodel_stat → 0.0");
             continue;
         };
-        // The submodel runs its own realizations; the parent config only supplies a seed.
-        let sub_config = RunConfig { seed: config.seed, ..RunConfig::default() };
+        // The submodel runs its own realizations with a sweep-derived seed so two distinct
+        // submodels draw *independent* streams (before this, every child re-seeded from the same
+        // base seed → byte-identical draws). Resolve the effective root exactly as `engine_v2::run`
+        // does, then derive a concrete child seed from the stable container id (`sub_id`). A concrete
+        // `Some(..)` is required: leaving `seed: config.seed` would let `run`'s `.or(model_settings)`
+        // fallback re-collapse two children to the same inherited seed. See `crate::sweep_seed`.
+        let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
+        let child_seed = crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(sub_id));
+        let sub_config = RunConfig { seed: Some(child_seed), ..RunConfig::default() };
         let graph = match ModelGraphV2::build(&sub_model) {
             Ok(g) => g,
             Err(e) => {
@@ -377,7 +384,11 @@ pub fn run_dynamic_submodels(
         // Run over the parent's clock (duration + timestep), keeping the submodel's own MC count.
         sub_model.simulation_settings.duration = parent_settings.duration.clone();
         sub_model.simulation_settings.timestep = parent_settings.timestep.clone();
-        let sub_config = RunConfig { seed: config.seed, ..RunConfig::default() };
+        // Sweep-derived seed (see `run_submodels` above and `crate::sweep_seed`): a concrete
+        // per-submodel seed so distinct dynamic-opt submodels draw independent streams.
+        let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
+        let child_seed = crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(&c.id));
+        let sub_config = RunConfig { seed: Some(child_seed), ..RunConfig::default() };
         let graph = match ModelGraphV2::build(&sub_model) {
             Ok(g) => g,
             Err(e) => {
