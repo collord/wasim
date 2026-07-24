@@ -12,6 +12,7 @@ pub mod params;
 pub mod results_spec;
 pub mod sampling;
 pub mod sensitivity_v2;
+pub mod stream_accum;
 pub mod submodel_v2;
 pub mod summary;
 pub mod sweep_seed;
