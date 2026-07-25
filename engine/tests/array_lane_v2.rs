@@ -168,23 +168,57 @@ fn array_reducer_builtin_stays_ineligible() {
     assert!(array_lane::eligible(&m).is_err(), "sum_array must keep the model on the scalar lane");
 }
 
+// Dimensioned lane (first slice): vector_map builds an array over D, elementwise
+// scales it, sum_array reduces it — the shape the scope spike modeled. The lane must
+// match the scalar lane bit-for-bit on the reduction, the per-member #k columns, and
+// the scalar collapse.
+const DIM: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1000, "seed": 13},
+  "dimensions": [{"id":"D","name":"D","size":4}],
+  "containers": [{"id":"M","name":"M","elements":["M/a","M/b","M/c","M/s"]}],
+  "elements": [
+    {"id":"M/a","name":"a","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"normal","parameters":{"mean":{"value":0,"unit":"1"},"stddev":{"value":1,"unit":"1"}}},"save_results":{"final_value":true}},
+    {"id":"M/b","name":"b","primitive":"node","value_rule":"expression","container":"M","inputs":["M/a"],
+     "expression":{"ast":{"op":"vector_map","over":"D","body":{"op":"add","left":{"op":"index_ref","axis":"row"},"right":{"op":"ref","element_id":"M/a"}}}},
+     "outputs":[{"name":"b","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}},
+    {"id":"M/c","name":"c","primitive":"node","value_rule":"expression","container":"M","inputs":["M/b"],
+     "expression":{"ast":{"op":"multiply","left":{"op":"ref","element_id":"M/b"},"right":{"op":"literal","value":2}}},
+     "outputs":[{"name":"c","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}},
+    {"id":"M/s","name":"s","primitive":"node","value_rule":"expression","container":"M","inputs":["M/c"],
+     "expression":{"ast":{"op":"call","fn":"sum_array","args":[{"op":"ref","element_id":"M/c"}]}},"save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn dimensioned_lane_matches_scalar() {
+    let m = parse_v2(DIM).unwrap();
+    assert!(array_lane::eligible(&m).is_ok(), "vector_map+reducer dimensioned model should be eligible");
+    let scalar = run(DIM, false);
+    let array = run(DIM, true);
+    assert_bit_identical(&scalar, &array); // covers M/s, M/a, and every M/c#k / M/b#k member
+    // sanity: s = sum_d 2*((d+1)+a) = 2*(10 + 4a) = 20 + 8a, mean a≈0 → s≈20
+    assert!((array.elements["M/s"].final_values[0] - (20.0 + 8.0 * array.elements["M/a"].final_values[0])).abs() < 1e-9);
+}
+
 #[test]
 fn eligibility_accepts_and_rejects() {
     let m = parse_v2(RUNSTAT).unwrap();
     assert!(array_lane::eligible(&m).is_ok(), "flat MC + run_stat should be eligible");
 
-    // A model with a dimension is NOT eligible → the flag falls back to scalar.
+    // A dimensioned model using a still-unsupported op (submodel_stat, deferred to the
+    // pre-pass boundary) is NOT eligible → the flag falls back to scalar.
     let dim_model = r#"{
       "wasim_version": "0.9.7",
       "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 10, "seed": 1},
       "dimensions": [{"id":"D","name":"D","size":2}],
       "containers": [{"id":"M","name":"M","elements":["M/v"]}],
       "elements": [{"id":"M/v","name":"v","primitive":"node","value_rule":"expression","container":"M",
-        "expression":{"ast":{"op":"vector_map","over":"D","body":{"op":"index_ref","axis":"row"}}},
-        "outputs":[{"name":"v","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}}]
+        "expression":{"ast":{"op":"submodel_stat","submodel_id":"Sub","output":"o","statistic":"mean"}},
+        "save_results":{"final_value":true}}]
     }"#;
     let dm = parse_v2(dim_model).unwrap();
-    assert!(array_lane::eligible(&dm).is_err(), "dimensioned model must be rejected");
+    assert!(array_lane::eligible(&dm).is_err(), "submodel_stat dimensioned model must be rejected");
     // and it still runs (fallback to scalar) with the flag on:
     let g = ModelGraphV2::build(&dm).unwrap();
     let cfg = RunConfig { array_lane: true, ..Default::default() };

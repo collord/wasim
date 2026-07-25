@@ -30,16 +30,20 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine::{ElementResults, RunConfig, SimulationResults};
 use crate::error::EngineError;
-use crate::eval::{resolve_distribution, run_stat_key, EvalCtx, LookupData, Value};
+use crate::eval::{eval_ast, resolve_distribution, run_stat_key, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::{AstNode, BuiltinFn, SubmodelStatKind};
 use crate::model_v2::{ContainerKind, Element, FixedValue, Model, NodeRule, Primitive};
 use crate::sampling;
 
 /// Is `model` runnable on the array lane? `Ok(())` if so, else a human reason.
+///
+/// Two shapes are accepted: the **flat Monte-Carlo** subset (no dimensions — the fused
+/// scalar-column path, Phases A–D) and, when the model declares dimensions, the
+/// **dimensioned** subset (the correctness-first per-realization path, `dim_eligible`).
 pub fn eligible(model: &Model) -> Result<(), String> {
     if !model.dimensions.is_empty() {
-        return Err("model has dimensions (array axes) — Phase A is flat Monte-Carlo only".into());
+        return dim_eligible(model);
     }
     if model.containers.iter().any(|c| c.kind == ContainerKind::Submodel) {
         return Err("model has submodels".into());
@@ -106,6 +110,75 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         AstNode::Array { .. } => Err("array"),
         AstNode::TimeRef { .. } => Err("time_ref"),
         AstNode::ExternCall { .. } => Err("extern_call"),
+    }
+}
+
+// ── Dimensioned eligibility (correctness-first path) ─────────────────────────────
+//
+// A model with declared dimensions is accepted iff every element is a scalar/sample
+// node, a scalar `fixed`, or an expression built from ops the shared `eval_ast` can
+// evaluate *without* engine state the lane doesn't provide (no submodels, lookups,
+// time, or event predicates). Such elements are evaluated per realization by reusing
+// `eval_ast` directly — bit-identical to the scalar lane by construction — so this
+// path adds array-shaped coverage (vector_map/index/subscript/array/reducers) before
+// the fused coordinate kernel (DIMENSIONED_ARRAY_LANE_SCOPE.md) optimizes it.
+fn dim_eligible(model: &Model) -> Result<(), String> {
+    if model.containers.iter().any(|c| c.kind == ContainerKind::Submodel) {
+        return Err("dimensioned model has submodels (deferred to the pre-pass boundary)".into());
+    }
+    for e in &model.elements {
+        match &e.primitive {
+            Primitive::Node(n) => match &n.rule {
+                NodeRule::Fixed { value: FixedValue::Scalar(_), .. } => {}
+                NodeRule::Fixed { value: FixedValue::Array { .. }, .. } => {
+                    return Err(format!("{}: fixed array not yet supported on the dim lane", e.id()));
+                }
+                NodeRule::Sample { resampling, autocorrelation, correlations, distribution } => {
+                    if resampling.is_some() || autocorrelation.is_some()
+                        || !correlations.is_empty() || distribution.importance.is_some()
+                    {
+                        return Err(format!("{}: sample uses resampling/autocorrelation/correlation/importance", e.id()));
+                    }
+                }
+                NodeRule::Expression(ef) => dim_expr_allowed(&ef.ast)
+                    .map_err(|op| format!("{}: expression uses unsupported op `{op}`", e.id()))?,
+                other => return Err(format!("{}: node rule {:?} not dim-lane-eligible", e.id(), std::mem::discriminant(other))),
+            },
+            _ => return Err(format!("{}: non-node primitive not dim-lane-eligible", e.id())),
+        }
+    }
+    Ok(())
+}
+
+/// Ops the per-realization `eval_ast` path can handle: everything `expr_allowed` covers
+/// plus the array-shaped constructs (`vector_map`/`index_ref`/`index`/`subscript`/
+/// `array`) and any builtin except event predicates (which need engine state). Excludes
+/// `submodel_stat`, `lookup_call`, `time_ref`, `extern_call`.
+fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
+    use AstNode::*;
+    match node {
+        Literal { .. } | Ref { .. } | IndexRef { .. } => Ok(()),
+        Add { left, right } | Subtract { left, right } | Multiply { left, right }
+        | Divide { left, right } | Power { left, right } | Lt { left, right }
+        | Gt { left, right } | Lte { left, right } | Gte { left, right }
+        | Eq { left, right } | Neq { left, right } | And { left, right }
+        | Or { left, right } => { dim_expr_allowed(left)?; dim_expr_allowed(right) }
+        Neg { operand } | Not { operand } => dim_expr_allowed(operand),
+        If { cond, then, else_ } => { dim_expr_allowed(cond)?; dim_expr_allowed(then)?; dim_expr_allowed(else_) }
+        VectorMap { body, .. } => dim_expr_allowed(body),
+        Subscript { array, .. } => dim_expr_allowed(array),
+        Index { array, indices } => { dim_expr_allowed(array)?; for i in indices { dim_expr_allowed(i)?; } Ok(()) }
+        Array { elements } => { for el in elements { dim_expr_allowed(el)?; } Ok(()) }
+        RunStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
+        // Any builtin except the ctx-stateful event predicates; array reducers included.
+        Call { func, args } => match func {
+            BuiltinFn::Occurs | BuiltinFn::Changed => Err("event_predicate"),
+            _ => { for a in args { dim_expr_allowed(a)?; } Ok(()) }
+        },
+        SubmodelStat { .. } => Err("submodel_stat"),
+        LookupCall { .. } => Err("lookup_call"),
+        TimeRef { .. } => Err("time_ref"),
+        ExternCall { .. } => Err("extern_call"),
     }
 }
 
@@ -465,11 +538,17 @@ impl LaneEnv {
 }
 
 /// Run an eligible model on the array lane. Result is bit-identical to the scalar lane.
+///
+/// Dimensioned models take the correctness-first per-realization path (`run_dim_lane`);
+/// the flat Monte-Carlo subset takes the fused scalar-column path below.
 pub fn run_array_lane(
     model: &Model,
     graph: &ModelGraphV2,
     config: &RunConfig,
 ) -> Result<SimulationResults, EngineError> {
+    if !model.dimensions.is_empty() {
+        return run_dim_lane(model, graph, config);
+    }
     let n = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations) as usize;
     let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
     let env = LaneEnv {
@@ -619,6 +698,169 @@ pub fn run_array_lane(
         n_steps: 1,
         output_ids,
     })
+}
+
+/// Correctness-first dimensioned lane (DIMENSIONED_ARRAY_LANE_SCOPE.md, first slice).
+///
+/// Draws are mirrored from the scalar loop exactly (as in the flat lane), then each
+/// realization is evaluated by reusing the shared `eval_ast` over `NamedArray`/scalar
+/// values — so `vector_map`/`index`/`subscript`/`array`/reducers and dimensioned
+/// broadcast are handled by the scalar lane's own evaluator, making the result
+/// **bit-identical** to it. A dimensioned element surfaces both its scalar collapse
+/// (`<id>`) and its per-member `<id>#k` columns, matching `engine_v2`. `run_stat` uses
+/// the same two-pass reduction. (The fused coordinate kernel is the follow-on
+/// optimization; this slice establishes correctness and coverage first, mirroring the
+/// flat lane's A→B sequencing.)
+pub fn run_dim_lane(
+    model: &Model,
+    graph: &ModelGraphV2,
+    config: &RunConfig,
+) -> Result<SimulationResults, EngineError> {
+    let n = config.n_realizations.unwrap_or(model.simulation_settings.n_realizations) as usize;
+    let seed = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
+
+    let dims: HashMap<String, usize> = model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
+    let labels: HashMap<String, Vec<String>> = model.dimensions.iter()
+        .filter(|d| !d.labels.is_empty()).map(|d| (d.id.clone(), d.labels.clone())).collect();
+    let env = LaneEnv {
+        lookups: HashMap::new(), labels, dims, sub: HashMap::new(), prev: HashMap::new(),
+        index_stack: RefCell::new(Vec::new()), fired: RefCell::new(HashSet::new()),
+        dt: model.simulation_settings.timestep.value,
+        dt_unit: model.simulation_settings.timestep.unit.clone(),
+        calendar_start: model.simulation_settings.calendar_start,
+    };
+    let no_run_stats: HashMap<String, f64> = HashMap::new();
+
+    // ── 1. Sampling: mirror the scalar loop's per-realization draws exactly ──
+    let mut sample_cols: HashMap<&str, Vec<f64>> = model.elements.iter()
+        .filter(|e| matches!(&e.primitive, Primitive::Node(n) if matches!(n.rule, NodeRule::Sample { .. })))
+        .map(|e| (e.id(), Vec::with_capacity(n))).collect();
+    for r in 0..n {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        rng.set_stream(r as u64);
+        let mut dist_ctx: HashMap<String, Value> = HashMap::new();
+        for e in &model.elements {
+            if let Primitive::Node(nd) = &e.primitive {
+                if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &nd.rule {
+                    dist_ctx.insert(e.id().to_string(), Value::Scalar(q.value));
+                }
+            }
+        }
+        for e in &model.elements {
+            if let Primitive::Node(nd) = &e.primitive {
+                if let NodeRule::Sample { distribution, .. } = &nd.rule {
+                    let resolved = {
+                        let ctx = env.ctx(&dist_ctx, &no_run_stats);
+                        resolve_distribution(distribution, &ctx)?
+                    };
+                    let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
+                    sample_cols.get_mut(e.id()).unwrap().push(v);
+                    dist_ctx.insert(e.id().to_string(), Value::Scalar(v));
+                }
+            }
+        }
+    }
+
+    // Dimensioned elements → member counts (matching engine_v2's `<id>#k` records).
+    let members: HashMap<&str, usize> = model.elements.iter().filter_map(|e| {
+        let d = e.base.outputs.first().map(|o| o.dimensions.as_slice()).unwrap_or(&[]);
+        if d.is_empty() { return None; }
+        let count: usize = d.iter().map(|id| env.dims.get(id).copied().unwrap_or(0)).product();
+        (count > 0).then_some((e.id(), count))
+    }).collect();
+
+    // ── 2. Per-realization evaluation via eval_ast; two passes iff run_stat present ──
+    let run_stat_targets = collect_run_stats(model)?;
+    let run_pass = |run_stats: &HashMap<String, f64>| -> Result<DimStores, EngineError> {
+        let mut scalar: HashMap<String, Vec<f64>> =
+            model.elements.iter().map(|e| (e.id().to_string(), Vec::with_capacity(n))).collect();
+        let mut member: HashMap<String, Vec<f64>> = HashMap::new();
+        for (&id, &count) in &members {
+            for k in 1..=count { member.insert(format!("{id}#{k}"), Vec::with_capacity(n)); }
+        }
+        for r in 0..n {
+            let mut outputs: HashMap<String, Value> = HashMap::new();
+            for e in &model.elements {
+                if let Primitive::Node(nd) = &e.primitive {
+                    if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &nd.rule {
+                        outputs.insert(e.id().to_string(), Value::Scalar(q.value));
+                    }
+                }
+            }
+            for (id, col) in &sample_cols {
+                outputs.insert(id.to_string(), Value::Scalar(col[r]));
+            }
+            for id in &graph.topo_order {
+                if let Some(ast) = expression_ast(model, id) {
+                    let v = { let ctx = env.ctx(&outputs, run_stats); eval_ast(ast, &ctx)? };
+                    outputs.insert(id.clone(), v);
+                }
+            }
+            for e in &model.elements {
+                let v = outputs.get(e.id());
+                scalar.get_mut(e.id()).unwrap().push(v.map(|v| v.as_scalar()).unwrap_or(0.0));
+                if let Some(&count) = members.get(e.id()) {
+                    let vec = v.map(|v| v.clone().into_vec()).unwrap_or_default();
+                    for k in 1..=count {
+                        member.get_mut(&format!("{}#{k}", e.id())).unwrap()
+                            .push(vec.get(k - 1).copied().unwrap_or(0.0));
+                    }
+                }
+            }
+        }
+        Ok(DimStores { scalar, member })
+    };
+
+    let mut stores = run_pass(&no_run_stats)?;
+    if !run_stat_targets.is_empty() {
+        let mut reduced: HashMap<String, f64> = HashMap::new();
+        for t in &run_stat_targets {
+            let col = stores.scalar.get(&t.element_id).cloned().unwrap_or_default();
+            reduced.insert(t.key.clone(), reduce_run_stat(&col, &t.stat, t.arg));
+        }
+        stores = run_pass(&reduced)?;
+    }
+
+    // ── 3. Assemble results: primary <id> (scalar collapse) + dimensioned <id>#k ──
+    let mut elements = HashMap::new();
+    for e in &model.elements {
+        elements.insert(e.id().to_string(), ElementResults {
+            label: e.base.name.clone(),
+            unit: primary_unit(e).to_string(),
+            final_values: stores.scalar.remove(e.id()).unwrap_or_default(),
+            time_history: None,
+            analysis: None,
+        });
+        if let Some(&count) = members.get(e.id()) {
+            for k in 1..=count {
+                let mid = format!("{}#{k}", e.id());
+                elements.insert(mid.clone(), ElementResults {
+                    label: format!("{}[{k}]", e.base.name),
+                    unit: primary_unit(e).to_string(),
+                    final_values: stores.member.remove(&mid).unwrap_or_default(),
+                    time_history: None,
+                    analysis: None,
+                });
+            }
+        }
+    }
+    let output_ids: Vec<String> = graph.topo_order.iter()
+        .filter(|id| elements.contains_key(id.as_str())).cloned().collect();
+
+    Ok(SimulationResults {
+        time_axis: vec![0.0],
+        time_unit: env.dt_unit,
+        elements,
+        n_realizations: n as u32,
+        n_steps: 1,
+        output_ids,
+    })
+}
+
+/// The two per-realization result stores the dim lane fills (primary + `#k` members).
+struct DimStores {
+    scalar: HashMap<String, Vec<f64>>,
+    member: HashMap<String, Vec<f64>>,
 }
 
 /// One fused pass: evaluate every compiled expression's whole Run column, in topo
