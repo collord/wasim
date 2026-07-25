@@ -392,6 +392,9 @@ fn render_ast(n: &AstNode) -> String {
             let idx: Vec<String> = indices.iter().map(render_ast).collect();
             format!("{}[{}]", render_ast(array), idx.join(", "))
         }
+        AstNode::Subscript { array, dim, label } => {
+            format!("{}[{dim} = '{label}']", render_ast(array))
+        }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
             format!("{func}({})", a.join(", "))

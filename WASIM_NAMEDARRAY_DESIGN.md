@@ -156,13 +156,25 @@ that don't exist in today's models.
   asserts the 2-D result surfaces as `prod#1..#6 = [1,2,3,2,4,6]` — a shape the flat
   `Value::Vector` engine could not represent (it truncated to `min(len)`).
 
-### Phase 3 — label subscript + unified reductions  *(size: M)*
-- Add one AST node `Subscript{ array, dim, label }`; eval resolves `label`→pos via
-  the `EvalCtx` label registry, then `subscript(dim,pos)`. (Static labels first;
-  variable-label selection is the non-goal runtime-index case.)
-- Reimplement `sum_array`/`mean_array`/`min_array`/`max_array` as
-  `reduce(axis, …)` over the value's (single) axis — same numbers, one code path.
-- **Exit:** label-subscript test; array-reducer tests bit-identical.
+### Phase 3 — label subscript + unified reductions  *(size: M)* — ✅ **DONE**
+- Added the `Subscript { array, dim, label }` AST node (`model.rs`, shared v1/v2)
+  and its `ast_node` schema branch. Eval resolves `label`→position via a new
+  `EvalCtx.dim_labels` registry (threaded from `model.dimensions.labels` through
+  `ArrayEnv`; v1 `engine.rs` passes an empty map), then `NamedArray::subscript`
+  fixes that axis — a 1-D array collapses to a `Scalar`, an n-d array yields the
+  (n-1)-d slice. A bare (anonymous) vector resolves the label positionally;
+  unknown dim/label degrades to 0 (dangling-ref policy). Static labels only —
+  variable-label selection is the deferred runtime-index case.
+- `sum_array`/`mean_array`/`min_array`/`max_array` now share one order-fixed
+  `reduce_data` fold — same numbers, one deterministic code path. (Axis-*selective*
+  reduction — collapse one named axis, keep the rest — is deferred; it needs a
+  dimension-id argument on the reducer.)
+- **Exit met:** unit tests for `subscript` (1-D→scalar, 2-D→drop-one-axis,
+  out-of-range/missing → None) and an end-to-end test
+  (`tests/namedarray_subscript_v2.rs`) running `rates[Region='West']→20` (fixed,
+  positional path) and `seq[Region='North']→3` (vector_map tagged-array path).
+  Reducer refactor bit-identical; whole suite green save the unrelated
+  `emit_model_json`.
 
 ### Phase 4 — `Run` as a reducible axis  *(size: L, highest value + risk)*
 - Represent the Monte-Carlo sample as a real axis (`Run`, len = n_realizations) on

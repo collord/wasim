@@ -624,6 +624,15 @@ pub enum AstNode {
         array: Box<AstNode>,
         indices: Vec<AstNode>,
     },
+    // Label subscript: select the slice of `array` where dimension `dim` equals
+    // `label` (Analytica `x[Dim = 'label']`). Resolves `label` to a position via
+    // the dimension's declared labels, then fixes that axis. See
+    // WASIM_NAMEDARRAY_DESIGN.md §4 (Phase 3).
+    Subscript {
+        array: Box<AstNode>,
+        dim: String,
+        label: String,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {

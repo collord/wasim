@@ -73,6 +73,65 @@ impl NamedArray {
     pub fn first(&self) -> f64 {
         self.data.first().copied().unwrap_or(0.0)
     }
+
+    /// Fix axis `dim_id` at position `pos`, dropping it (Analytica `x[Dim='label']`
+    /// once the label is resolved to `pos`). A 1-D array collapses to a `Scalar`;
+    /// an n-d array returns the (n-1)-d slice. If the array lacks that axis or `pos`
+    /// is out of range, returns `None` (caller degrades).
+    pub fn subscript(&self, dim_id: &str, pos: usize) -> Option<Value> {
+        let axis_ix = self.axes.iter().position(|a| a.id == dim_id)?;
+        if pos >= self.axes[axis_ix].len {
+            return None;
+        }
+        // Row-major strides for this array's own axes.
+        let mut strides = vec![1usize; self.axes.len()];
+        for i in (0..self.axes.len().saturating_sub(1)).rev() {
+            strides[i] = strides[i + 1] * self.axes[i + 1].len;
+        }
+        let remaining: Vec<Axis> = self
+            .axes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != axis_ix)
+            .map(|(_, a)| a.clone())
+            .collect();
+        if remaining.is_empty() {
+            // 1-D → scalar: the element at `pos` along the sole axis.
+            return Some(Value::Scalar(self.data.get(pos).copied().unwrap_or(0.0)));
+        }
+        // Gather the slice: iterate the remaining axes' coordinate space, pinning
+        // the fixed axis at `pos`, reading from this array's flat data.
+        let total: usize = remaining.iter().map(|a| a.len).product();
+        let mut out = Vec::with_capacity(total);
+        let mut coord = vec![0usize; remaining.len()];
+        for _ in 0..total {
+            // reconstruct the full flat index (fixed axis = pos)
+            let mut flat = pos * strides[axis_ix];
+            let mut rc = 0;
+            for (i, _) in self.axes.iter().enumerate() {
+                if i == axis_ix {
+                    continue;
+                }
+                flat += coord[rc] * strides[i];
+                rc += 1;
+            }
+            out.push(self.data.get(flat).copied().unwrap_or(0.0));
+            for d in (0..remaining.len()).rev() {
+                coord[d] += 1;
+                if coord[d] < remaining[d].len {
+                    break;
+                }
+                coord[d] = 0;
+            }
+        }
+        Some(Value::Array(NamedArray { axes: remaining, data: out }))
+    }
+}
+
+/// Reduce a value's data to a scalar with a stable, order-fixed fold (used by the
+/// array reducers). Deterministic by construction — no reordering (§6).
+fn reduce_data(data: &[f64], init: f64, fold: impl Fn(f64, f64) -> f64) -> f64 {
+    data.iter().copied().fold(init, fold)
 }
 
 #[derive(Clone, Debug)]
@@ -241,6 +300,9 @@ pub struct EvalCtx<'a> {
     pub step_index: usize,
     /// Dimension id → member count, for `vector_map` comprehensions (§15).
     pub dimensions: &'a HashMap<String, usize>,
+    /// Dimension id → ordered member labels, for label subscript (`x[Dim='label']`,
+    /// Phase 3). Empty for models without declared labels.
+    pub dim_labels: &'a HashMap<String, Vec<String>>,
     /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
     /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
     /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
@@ -649,6 +711,25 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
             let idx = (i.round() as i64 - 1).max(0) as usize;
             Ok(Value::Scalar(v.get(idx).copied().unwrap_or(0.0)))
         }
+
+        // Label subscript `array[dim = label]` (Phase 3): resolve the label to a
+        // position in `dim`'s declared members, then fix that axis on the array.
+        AstNode::Subscript { array, dim, label } => {
+            let val = eval_ast(array, ctx)?;
+            let pos = ctx
+                .dim_labels
+                .get(dim.as_str())
+                .and_then(|labels| labels.iter().position(|l| l == label));
+            match (pos, &val) {
+                // labeled array with a known axis → real slice
+                (Some(p), Value::Array(a)) => Ok(a.subscript(dim, p).unwrap_or(Value::Scalar(0.0))),
+                // known position but the value is a bare vector (anonymous axis) → positional
+                (Some(p), _) => Ok(Value::Scalar(val.into_vec().get(p).copied().unwrap_or(0.0))),
+                // unknown dimension/label → degrade (dangling-ref policy)
+                (None, _) => Ok(Value::Scalar(0.0)),
+            }
+        }
+
         // Opaque source function — preserved for round-tripping, evaluates to 0.0 (§15).
         AstNode::ExternCall { func, .. } if func == "lag" => {
             // The convolution lag variable (§17): bound while sampling a response expression,
@@ -926,24 +1007,30 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
     }
     // Array-consuming functions: evaluate first arg as a vector, return scalar.
     match func {
+        // Array reducers collapse all axes to a scalar via a shared, order-fixed
+        // fold (`reduce_data`) — deterministic by construction (§6). Same numbers
+        // as before; one code path. (Axis-selective reduction — reduce one named
+        // axis, keep the rest — is deferred: it needs a dimension-id argument.)
         BuiltinFn::SumArray => {
             require_args("sum_array", args.len(), 1, 1)?;
-            return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().iter().sum()));
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            return Ok(Value::Scalar(reduce_data(&v, 0.0, |a, b| a + b)));
         }
         BuiltinFn::MeanArray => {
             require_args("mean_array", args.len(), 1, 1)?;
             let v = eval_ast(&args[0], ctx)?.into_vec();
-            return Ok(Value::Scalar(if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 }));
+            let sum = reduce_data(&v, 0.0, |a, b| a + b);
+            return Ok(Value::Scalar(if v.is_empty() { 0.0 } else { sum / v.len() as f64 }));
         }
         BuiltinFn::MinArray => {
             require_args("min_array", args.len(), 1, 1)?;
             let v = eval_ast(&args[0], ctx)?.into_vec();
-            return Ok(Value::Scalar(v.iter().cloned().fold(f64::INFINITY, f64::min)));
+            return Ok(Value::Scalar(reduce_data(&v, f64::INFINITY, f64::min)));
         }
         BuiltinFn::MaxArray => {
             require_args("max_array", args.len(), 1, 1)?;
             let v = eval_ast(&args[0], ctx)?.into_vec();
-            return Ok(Value::Scalar(v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)));
+            return Ok(Value::Scalar(reduce_data(&v, f64::NEG_INFINITY, f64::max)));
         }
         BuiltinFn::ArgminArray => {
             // 1-based index of the minimum member; ties → lowest index (deterministic, the
@@ -1602,6 +1689,7 @@ mod named_array_tests {
     fn vector_map_tags_output_with_over_axis() {
         // Phase 1: `vector_map over "D"` of `index_ref(row)` → [1,2,3] tagged "D".
         let dims: HashMap<String, usize> = [("D".to_string(), 3usize)].into_iter().collect();
+        let labels: HashMap<String, Vec<String>> = HashMap::new();
         let index_stack = RefCell::new(Vec::new());
         let empty_out: HashMap<String, Value> = HashMap::new();
         let empty_lk: HashMap<String, LookupData> = HashMap::new();
@@ -1610,8 +1698,8 @@ mod named_array_tests {
         let ctx = EvalCtx {
             lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
             elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
-            dimensions: &dims, index_stack: &index_stack, submodel_outputs: &empty_sub,
-            lag: None, fired_events: &fired, calendar_start: None,
+            dimensions: &dims, dim_labels: &labels, index_stack: &index_stack,
+            submodel_outputs: &empty_sub, lag: None, fired_events: &fired, calendar_start: None,
         };
         let node = AstNode::VectorMap {
             over: "D".to_string(),
@@ -1623,6 +1711,35 @@ mod named_array_tests {
                 assert_eq!(a.data, vec![1.0, 2.0, 3.0]);
             }
             other => panic!("vector_map should yield a tagged Array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn subscript_selects_by_label() {
+        // 1-D array over axis "Region" with labels [East, West, North]; subscript
+        // `x[Region='West']` → the 2nd element. Also the not-found → 0 path.
+        let a = NamedArray::tagged("Region", vec![10.0, 20.0, 30.0]);
+        match a.subscript("Region", 1).unwrap() {
+            Value::Scalar(x) => assert_eq!(x, 20.0),
+            _ => panic!("1-D subscript should collapse to a scalar"),
+        }
+        assert!(a.subscript("Region", 9).is_none(), "out-of-range position → None");
+        assert!(a.subscript("Other", 0).is_none(), "missing axis → None");
+    }
+
+    #[test]
+    fn subscript_drops_one_axis_of_2d() {
+        // Build c[A,B] via broadcast, then subscript B at position 1 → 1-D over A.
+        let c = arr("A", &[1.0, 2.0]).zip_with(arr("B", &[10.0, 20.0, 30.0]), |x, y| x * y);
+        match c {
+            Value::Array(a) => match a.subscript("B", 1).unwrap() {  // pick B=1 (the "20" column)
+                Value::Array(r) => {
+                    assert_eq!(r.axes.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["A"]);
+                    assert_eq!(r.data, vec![20.0, 40.0]);  // a=0→1*20, a=1→2*20
+                }
+                _ => panic!("2-D subscript should leave a 1-D array over A"),
+            },
+            _ => panic!("expected 2-D array"),
         }
     }
 }

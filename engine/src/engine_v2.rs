@@ -110,6 +110,9 @@ pub struct RunState<'a> {
     elem_idx: HashMap<&'a str, usize>,
     /// Dimension sizes keyed by owned id — feeds `ArrayEnv.dims`.
     dim_sizes_by_id: HashMap<String, usize>,
+    /// Dimension member labels keyed by owned id — feeds `ArrayEnv.dim_labels`
+    /// (label subscript, Phase 3).
+    dim_labels_by_id: HashMap<String, Vec<String>>,
     index_stack: RefCell<Vec<usize>>,
     fired_events: RefCell<HashSet<String>>,
     submodel_outputs: HashMap<(String, String), Vec<f64>>,
@@ -210,6 +213,8 @@ impl<'a> RunState<'a> {
     // index stack, threaded into every EvalCtx via ArrayEnv.
     let dim_sizes_by_id: HashMap<String, usize> =
         model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
+    let dim_labels_by_id: HashMap<String, Vec<String>> =
+        model.dimensions.iter().map(|d| (d.id.clone(), d.labels.clone())).collect();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
     // repopulated each step by the event pass; shared through ArrayEnv via interior mutability.
@@ -219,6 +224,7 @@ impl<'a> RunState<'a> {
     let submodel_outputs = crate::submodel_v2::run_submodels(model, config)?;
     let arr = ArrayEnv {
         dims: &dim_sizes_by_id,
+        dim_labels: &dim_labels_by_id,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
         fired_events: &fired_events,
@@ -516,7 +522,7 @@ impl<'a> RunState<'a> {
         model, graph, config,
         n_real, seed, dt, dt_unit, n_steps, use_event_accurate, run_globals,
         user_weights, importance_weights, any_importance,
-        elem_idx, dim_sizes_by_id, index_stack, fired_events,
+        elem_idx, dim_sizes_by_id, dim_labels_by_id, index_stack, fired_events,
         submodel_outputs, lookups, save_final, save_hist,
         stock_ids, process_ids, per_step_sample_ids, resample_ids,
         species_info, decay_order, cell_media, cell_volume, medium_porosity,
@@ -619,6 +625,7 @@ impl<'a> RunState<'a> {
         let any_importance = &mut self.any_importance;
         let arr = ArrayEnv {
             dims: &self.dim_sizes_by_id,
+            dim_labels: &self.dim_labels_by_id,
             index_stack,
             submodel_outputs,
             fired_events,
@@ -2521,6 +2528,7 @@ fn eval_element(
 /// per-realization samples (§12). Bundled so the many `ctx_at` call sites take one arg.
 pub(crate) struct ArrayEnv<'a> {
     pub dims: &'a HashMap<String, usize>,
+    pub dim_labels: &'a HashMap<String, Vec<String>>,
     pub index_stack: &'a RefCell<Vec<usize>>,
     pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
     /// Ids of events that fired during the current step (§2, for the `occurs` builtin). The
@@ -2543,7 +2551,7 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
@@ -2558,7 +2566,7 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
