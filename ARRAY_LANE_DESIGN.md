@@ -118,14 +118,16 @@ axis-tagged; `eval.rs`). The array lane adds, in `engine_v2`:
 
 | Phase | Deliverable | Size | Risk |
 |---|---|---|---|
-| A | **Eligibility analysis + `--array-lane` opt-in flag** that, when a model is fully eligible, runs it in a *columnar-materialized* evaluator (correctness first, speed later). Golden-diff the scalar lane stays byte-identical; array lane validated against the scalar lane within a documented tolerance. | M | Low — additive, gated |
-| B | **Fusing kernel evaluator** (elementwise chains → one pass, no temps) — the Spike-1 win. Re-bench vs scalar. | M–L | Med |
+| A ✅ | **Eligibility analysis + `array_lane` opt-in flag** that, when a model is fully eligible, runs it columnar (correctness first). Golden-diff the scalar lane stays byte-identical; array lane validated **bit-identical** to the scalar lane. *Shipped: `array_lane.rs` `eligible`/`run_array_lane`, `engine/tests/array_lane_v2.rs`.* | M | Low — additive, gated |
+| B ✅ | **Fusing kernel evaluator** (elementwise chains → one pass, no temps) — the Spike-1 win. *Shipped: each expression compiles once to a postfix bytecode program with short-circuit `if` jumps; `eval_pass` runs one fused pass per Run column, no per-op `Vec`. Bench `engine/tests/array_lane_bench.rs`: **8.4× vs scalar** on a 500k-realization 8-op chain, result bit-identical.* | M–L | Med |
 | C | **Native `Run`-axis reductions** (fold `run_stat`/`submodel_stat` onto axis reduction in the lane; drop the two-pass for lane models). | M | Med |
 | D | **Auto-routing** (per-subgraph eligibility, scalar/array hybrid in one run) + stock vectorization. | L | Med–High |
 | — | Closure/bytecode kernel compiler; runtime-dynamic indices | L | later |
 
-Phase A alone is safe and shippable (opt-in, scalar path untouched). Ship A, then
-B is where the measured 5× lands.
+Phases A–B are shipped and gated (opt-in, scalar path untouched). B is where the
+measured speedup landed — 8.4× on the chain bench, above the 5× Spike-1 projection
+because the scalar lane also pays per-realization ctx/HashMap overhead that the
+fused, slot-indexed column pass eliminates.
 
 ## Non-goals / constraints
 
@@ -145,11 +147,15 @@ B is where the measured 5× lands.
 - **Scalar lane unchanged:** the cross-version golden-diff harness (used for the
   NamedArray series) must stay byte-identical for every model run without the flag.
 - **Array lane determinism:** run an eligible model twice under the flag → identical.
-- **Array vs scalar agreement:** eligible models agree within a documented
-  floating tolerance (not ULP-exact, by design).
-- **Perf:** extend `engine/tests/namedarray_bench.rs` with a scalar-vs-array-lane
-  comparison on an array-heavy model; expect the Spike-1-class speedup once Phase B
-  fusion lands.
+- **Array vs scalar agreement:** the lane is opt-in and *may* differ in the last
+  ULPs by design, but the eligible subset shipped in A–B is in fact **bit-identical**
+  to the scalar lane (`array_lane_v2.rs` asserts `final_values` equality on a
+  `run_stat` model and an arithmetic-with-`if` model): the fused bytecode ops reuse
+  the scalar lane's exact f64 arithmetic and short-circuit `if` selects the same
+  per-realization branch value.
+- **Perf:** `engine/tests/array_lane_bench.rs` compares scalar vs array lane on a
+  500k-realization 8-op chain — **8.4×** and bit-identical (measured). Run with
+  `cargo test --release --test array_lane_bench -- --ignored --nocapture`.
 
 ---
 

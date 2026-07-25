@@ -1,17 +1,26 @@
-//! Array lane (ARRAY_LANE_DESIGN.md, Phase A) — an opt-in columnar evaluator for
-//! the **flat independent Monte-Carlo** subset of a v2 model. Instead of the scalar
+//! Array lane (ARRAY_LANE_DESIGN.md, Phases A–B) — an opt-in evaluator for the
+//! **flat independent Monte-Carlo** subset of a v2 model. Instead of the scalar
 //! realization loop, each value is a `Run`-column (a `Vec<f64>` of length
-//! n_realizations) and every element's expression is evaluated **once** over the
-//! column via the shared `eval_ast` (whose `zip_with` already does elementwise
-//! arithmetic over the column). `run_stat` reduces a column directly — natively,
-//! no two-pass MC re-run.
+//! n_realizations).
 //!
-//! Scope (Phase A): correctness first, not yet speed (materialized columns; the
-//! fusing kernel is Phase B). Eligibility is deliberately narrow — no dimensions,
-//! stocks, submodels, state-machine node rules, sampling correlations, or
-//! array/lookup/time constructs — so draws exactly mirror the scalar lane and the
-//! results are **bit-identical** to it. When a model is ineligible the caller falls
-//! back to the scalar lane, so the default path is untouched.
+//! **Phase A** (columnar, shipped) evaluated each expression via the shared
+//! `eval_ast`, whose `zip_with` allocates a fresh `Vec` per operation. The spike
+//! measured that naive materialization as *slower* than the scalar lane — the temp
+//! allocations eat the interpretation amortization.
+//!
+//! **Phase B** (this file) is the fix: each expression is compiled **once** into a
+//! flat bytecode program (a postfix stack machine with short-circuit `if` jumps) and
+//! then **fused** — evaluated in a single tight pass over the Run column, no
+//! per-operation temporaries. This is Spike-1's fused form, the source of the 5×.
+//! `run_stat` reduces a column directly (native axis reduction, no MC re-run).
+//!
+//! Eligibility is deliberately narrow — no dimensions, stocks, submodels,
+//! state-machine node rules, sampling correlations, or array/lookup/time constructs
+//! — so draws exactly mirror the scalar lane and the results stay **bit-identical**
+//! to it (the bytecode ops reuse the scalar lane's exact f64 arithmetic, and
+//! short-circuit `if` selects the same per-realization branch value the scalar lane's
+//! element-wise `if` would). When a model is ineligible the caller falls back to the
+//! scalar lane, so the default path is untouched.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +30,7 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine::{ElementResults, RunConfig, SimulationResults};
 use crate::error::EngineError;
-use crate::eval::{eval_ast, resolve_distribution, run_stat_key, EvalCtx, LookupData, Value};
+use crate::eval::{resolve_distribution, run_stat_key, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::{AstNode, SubmodelStatKind};
 use crate::model_v2::{ContainerKind, Element, FixedValue, Model, NodeRule, Primitive};
@@ -60,7 +69,7 @@ pub fn eligible(model: &Model) -> Result<(), String> {
 }
 
 /// Only pure elementwise arithmetic / comparison / conditional + `run_stat` map to
-/// a columnar pass today. Reductions over dimensions, submodels, lookups, builtins
+/// the fused kernel today. Reductions over dimensions, submodels, lookups, builtins
 /// (which collapse a vector to a scalar), time, and array construction are excluded.
 fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
     match node {
@@ -91,8 +100,194 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
     }
 }
 
-/// Owns the empty collaborators an `EvalCtx` needs, so the lane can hand out a
-/// minimal ctx borrowing just the live `outputs` and `run_stats`.
+// ── Fused bytecode: one compiled program per expression, one pass per Run column ──
+
+/// A postfix stack-machine instruction over one realization's scalar values. The
+/// binary/unary ops reuse the scalar lane's exact f64 semantics (see `eval.rs`), so
+/// the fused result is bit-identical to `eval_ast` over the same column. `If` lowers
+/// to a short-circuit `JumpIfFalse`/`Jump` pair — only the taken branch executes,
+/// which for pure sub-expressions yields the same value the scalar lane's element-wise
+/// `if` selects.
+#[derive(Debug, Clone)]
+enum Op {
+    Const(f64),
+    /// Push column slot `idx`'s value for the current realization (scalar broadcasts).
+    Col(u32),
+    /// Push reduced run-stat slot `idx` (0.0 until the reduction pass fills it).
+    RunStat(u32),
+    Add, Sub, Mul, Div, Pow,
+    Lt, Gt, Lte, Gte, Eq, Neq, And, Or,
+    Neg, Not,
+    /// Pop cond; if false (== 0.0) jump to the instruction index in the operand.
+    JumpIfFalse(u32),
+    /// Unconditional jump to the instruction index in the operand.
+    Jump(u32),
+}
+
+/// A materialized Run column: a scalar broadcasts across realizations, a vector is
+/// indexed per realization.
+enum ColData {
+    Scalar(f64),
+    Vec(Vec<f64>),
+}
+
+impl ColData {
+    #[inline]
+    fn at(&self, r: usize) -> f64 {
+        match self {
+            ColData::Scalar(s) => *s,
+            ColData::Vec(v) => v[r],
+        }
+    }
+}
+
+/// Compile an eligible expression AST into a fused bytecode program. `slot_of` maps a
+/// referenced element id to its column slot; `rs_of` maps a run-stat key to its slot.
+fn compile(
+    ast: &AstNode,
+    slot_of: &HashMap<&str, u32>,
+    rs_of: &HashMap<String, u32>,
+) -> Result<Vec<Op>, EngineError> {
+    let mut prog = Vec::new();
+    emit(ast, slot_of, rs_of, &mut prog)?;
+    Ok(prog)
+}
+
+fn emit(
+    node: &AstNode,
+    slot_of: &HashMap<&str, u32>,
+    rs_of: &HashMap<String, u32>,
+    prog: &mut Vec<Op>,
+) -> Result<(), EngineError> {
+    macro_rules! bin {
+        ($l:expr, $r:expr, $op:expr) => {{
+            emit($l, slot_of, rs_of, prog)?;
+            emit($r, slot_of, rs_of, prog)?;
+            prog.push($op);
+        }};
+    }
+    match node {
+        AstNode::Literal { value, .. } => prog.push(Op::Const(*value)),
+        AstNode::Ref { element_id, .. } => {
+            let slot = *slot_of.get(element_id.as_str()).ok_or_else(|| {
+                EngineError::InvalidModel(format!("array lane: ref to unknown element '{element_id}'"))
+            })?;
+            prog.push(Op::Col(slot));
+        }
+        AstNode::Add { left, right } => bin!(left, right, Op::Add),
+        AstNode::Subtract { left, right } => bin!(left, right, Op::Sub),
+        AstNode::Multiply { left, right } => bin!(left, right, Op::Mul),
+        AstNode::Divide { left, right } => bin!(left, right, Op::Div),
+        AstNode::Power { left, right } => bin!(left, right, Op::Pow),
+        AstNode::Lt { left, right } => bin!(left, right, Op::Lt),
+        AstNode::Gt { left, right } => bin!(left, right, Op::Gt),
+        AstNode::Lte { left, right } => bin!(left, right, Op::Lte),
+        AstNode::Gte { left, right } => bin!(left, right, Op::Gte),
+        AstNode::Eq { left, right } => bin!(left, right, Op::Eq),
+        AstNode::Neq { left, right } => bin!(left, right, Op::Neq),
+        AstNode::And { left, right } => bin!(left, right, Op::And),
+        AstNode::Or { left, right } => bin!(left, right, Op::Or),
+        AstNode::Neg { operand } => { emit(operand, slot_of, rs_of, prog)?; prog.push(Op::Neg); }
+        AstNode::Not { operand } => { emit(operand, slot_of, rs_of, prog)?; prog.push(Op::Not); }
+        AstNode::If { cond, then, else_ } => {
+            // <cond> JumpIfFalse ELSE <then> Jump END ELSE: <else> END:
+            emit(cond, slot_of, rs_of, prog)?;
+            let jf = prog.len();
+            prog.push(Op::JumpIfFalse(0)); // patched to ELSE
+            emit(then, slot_of, rs_of, prog)?;
+            let jmp = prog.len();
+            prog.push(Op::Jump(0)); // patched to END
+            let else_start = prog.len() as u32;
+            emit(else_, slot_of, rs_of, prog)?;
+            let end = prog.len() as u32;
+            prog[jf] = Op::JumpIfFalse(else_start);
+            prog[jmp] = Op::Jump(end);
+        }
+        AstNode::RunStat { element_id, statistic, arg } => {
+            let arg_val = match arg.as_deref() {
+                Some(AstNode::Literal { value, .. }) => *value,
+                _ => 0.0,
+            };
+            let key = run_stat_key(element_id, statistic, arg_val);
+            let slot = *rs_of.get(&key).ok_or_else(|| {
+                EngineError::InvalidModel(format!("array lane: run_stat key '{key}' not collected"))
+            })?;
+            prog.push(Op::RunStat(slot));
+        }
+        other => {
+            return Err(EngineError::InvalidModel(format!(
+                "array lane: expression op not compilable: {:?}",
+                std::mem::discriminant(other)
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Execute a fused program for realization `r` against the current columns and reduced
+/// run-stats, reusing `stack` across realizations. Returns the single result value.
+#[inline]
+fn exec(prog: &[Op], cols: &[ColData], rstats: &[f64], r: usize, stack: &mut Vec<f64>) -> f64 {
+    stack.clear();
+    let mut ip = 0usize;
+    macro_rules! bin {
+        ($f:expr) => {{
+            let b = stack.pop().unwrap();
+            let a = stack.pop().unwrap();
+            stack.push($f(a, b));
+        }};
+    }
+    while ip < prog.len() {
+        match &prog[ip] {
+            Op::Const(c) => stack.push(*c),
+            Op::Col(s) => stack.push(cols[*s as usize].at(r)),
+            Op::RunStat(s) => stack.push(rstats[*s as usize]),
+            Op::Add => bin!(|a, b| a + b),
+            Op::Sub => bin!(|a, b| a - b),
+            Op::Mul => bin!(|a, b| a * b),
+            Op::Div => bin!(|a, b| a / b),
+            Op::Pow => bin!(|a: f64, b: f64| a.powf(b)),
+            Op::Lt => bin!(|a, b| bool_val(a < b)),
+            Op::Gt => bin!(|a, b| bool_val(a > b)),
+            Op::Lte => bin!(|a, b| bool_val(a <= b)),
+            Op::Gte => bin!(|a, b| bool_val(a >= b)),
+            Op::Eq => bin!(|a: f64, b: f64| bool_val((a - b).abs() < f64::EPSILON)),
+            Op::Neq => bin!(|a: f64, b: f64| bool_val((a - b).abs() >= f64::EPSILON)),
+            Op::And => bin!(|a, b| bool_val(is_true(a) && is_true(b))),
+            Op::Or => bin!(|a, b| bool_val(is_true(a) || is_true(b))),
+            Op::Neg => {
+                let a = stack.pop().unwrap();
+                stack.push(-a);
+            }
+            Op::Not => {
+                let a = stack.pop().unwrap();
+                stack.push(bool_val(!is_true(a)));
+            }
+            Op::JumpIfFalse(t) => {
+                let c = stack.pop().unwrap();
+                if c == 0.0 {
+                    ip = *t as usize;
+                    continue;
+                }
+            }
+            Op::Jump(t) => {
+                ip = *t as usize;
+                continue;
+            }
+        }
+        ip += 1;
+    }
+    stack.pop().unwrap_or(0.0)
+}
+
+#[inline]
+fn bool_val(b: bool) -> f64 { if b { 1.0 } else { 0.0 } }
+#[inline]
+fn is_true(v: f64) -> bool { v != 0.0 }
+
+/// Owns the empty collaborators an `EvalCtx` needs, so the lane can hand out a minimal
+/// ctx borrowing just the live `outputs` (used only by `resolve_distribution` for
+/// formula-valued distribution parameters).
 struct LaneEnv {
     lookups: HashMap<String, LookupData>,
     labels: HashMap<String, Vec<String>>,
@@ -135,6 +330,11 @@ pub fn run_array_lane(
     };
     let no_run_stats: HashMap<String, f64> = HashMap::new();
 
+    // ── Column slots: one per element, dense, in model order ──
+    let slot_of: HashMap<&str, u32> = model.elements.iter().enumerate()
+        .map(|(i, e)| (e.id(), i as u32)).collect();
+    let mut columns: Vec<ColData> = (0..model.elements.len()).map(|_| ColData::Scalar(0.0)).collect();
+
     // ── 1. Sampling: mirror the scalar loop's per-realization draws exactly ──
     // (independent Monte-Carlo, model element order, per-realization ChaCha8 stream).
     let mut sample_cols: HashMap<&str, Vec<f64>> = model.elements.iter()
@@ -169,45 +369,56 @@ pub fn run_array_lane(
         }
     }
 
-    let mut columns: HashMap<String, Value> = HashMap::new();
     for (id, col) in sample_cols {
-        columns.insert(id.to_string(), Value::Vector(col));
+        columns[slot_of[id] as usize] = ColData::Vec(col);
     }
     // Fixed scalars: kept as Scalar so `⊕ vector` broadcasts across the Run column.
     for e in &model.elements {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &n.rule {
-                columns.insert(e.id().to_string(), Value::Scalar(q.value));
+                columns[slot_of[e.id()] as usize] = ColData::Scalar(q.value);
             }
         }
     }
 
-    // ── 2. Evaluate expressions columnar, in topo order. Two passes iff run_stat. ──
+    // ── 2. Compile every expression to fused bytecode (once) ──
     let run_stat_targets = collect_run_stats(model)?;
-    let expr_order: Vec<&str> = graph.topo_order.iter()
-        .map(|s| s.as_str())
-        .filter(|id| is_expression(model, id))
-        .collect();
+    let rs_of: HashMap<String, u32> = run_stat_targets.iter().enumerate()
+        .map(|(i, t)| (t.key.clone(), i as u32)).collect();
 
-    eval_expressions(model, &expr_order, &mut columns, &no_run_stats, &env)?;
-
-    if !run_stat_targets.is_empty() {
-        let mut reduced: HashMap<String, f64> = HashMap::new();
-        for t in &run_stat_targets {
-            let samples = columns.get(&t.element_id).map(|v| v.clone().into_vec()).unwrap_or_default();
-            reduced.insert(t.key.clone(), reduce_run_stat(&samples, &t.stat, t.arg));
+    // Expression elements in topo order, with their compiled programs and slots.
+    let mut exprs: Vec<(u32, Vec<Op>)> = Vec::new();
+    for id in &graph.topo_order {
+        if let Some(ast) = expression_ast(model, id) {
+            let prog = compile(ast, &slot_of, &rs_of)?;
+            exprs.push((slot_of[id.as_str()], prog));
         }
-        eval_expressions(model, &expr_order, &mut columns, &reduced, &env)?;
     }
 
-    // ── 3. Assemble results (single step; columns → final_values) ──
+    // ── 3. Fused evaluation: one pass per column. Two passes iff a run_stat exists. ──
+    let mut rstats: Vec<f64> = vec![0.0; run_stat_targets.len()];
+    let mut stack: Vec<f64> = Vec::with_capacity(32);
+
+    eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
+
+    if !run_stat_targets.is_empty() {
+        for (i, t) in run_stat_targets.iter().enumerate() {
+            let slot = slot_of[t.element_id.as_str()] as usize;
+            let samples = match &columns[slot] {
+                ColData::Vec(v) => v.clone(),
+                ColData::Scalar(s) => vec![*s; n],
+            };
+            rstats[i] = reduce_run_stat(&samples, &t.stat, t.arg);
+        }
+        eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
+    }
+
+    // ── 4. Assemble results (single step; columns → final_values) ──
     let mut elements = HashMap::new();
     for e in &model.elements {
-        let col = match columns.get(e.id()) {
-            Some(Value::Vector(v)) => v.clone(),
-            Some(Value::Scalar(s)) => vec![*s; n],
-            Some(other) => other.clone().into_vec(),
-            None => continue,
+        let col = match &columns[slot_of[e.id()] as usize] {
+            ColData::Vec(v) => v.clone(),
+            ColData::Scalar(s) => vec![*s; n],
         };
         elements.insert(e.id().to_string(), ElementResults {
             label: e.base.name.clone(),
@@ -230,32 +441,23 @@ pub fn run_array_lane(
     })
 }
 
-fn is_expression(model: &Model, id: &str) -> bool {
-    model.elements.iter().any(|e| e.id() == id
-        && matches!(&e.primitive, Primitive::Node(n) if matches!(n.rule, NodeRule::Expression(_))))
+/// One fused pass: evaluate every compiled expression's whole Run column, in topo
+/// order, so later expressions see earlier columns.
+fn eval_pass(exprs: &[(u32, Vec<Op>)], columns: &mut Vec<ColData>, rstats: &[f64], n: usize, stack: &mut Vec<f64>) {
+    for (slot, prog) in exprs {
+        let mut out = Vec::with_capacity(n);
+        for r in 0..n {
+            out.push(exec(prog, columns, rstats, r, stack));
+        }
+        columns[*slot as usize] = ColData::Vec(out);
+    }
 }
 
-fn eval_expressions(
-    model: &Model,
-    order: &[&str],
-    columns: &mut HashMap<String, Value>,
-    run_stats: &HashMap<String, f64>,
-    env: &LaneEnv,
-) -> Result<(), EngineError> {
-    for id in order {
-        let ast = model.elements.iter().find(|e| e.id() == *id).and_then(|e| match &e.primitive {
-            Primitive::Node(n) => match &n.rule { NodeRule::Expression(ef) => Some(&ef.ast), _ => None },
-            _ => None,
-        });
-        if let Some(ast) = ast {
-            let val = {
-                let ctx = env.ctx(columns, run_stats);
-                eval_ast(ast, &ctx)?
-            };
-            columns.insert(id.to_string(), val);
-        }
-    }
-    Ok(())
+fn expression_ast<'a>(model: &'a Model, id: &str) -> Option<&'a AstNode> {
+    model.elements.iter().find(|e| e.id() == id).and_then(|e| match &e.primitive {
+        Primitive::Node(n) => match &n.rule { NodeRule::Expression(ef) => Some(&ef.ast), _ => None },
+        _ => None,
+    })
 }
 
 // ── run_stat collection + reduction (mirrors engine_v2, kept local to the lane) ──
