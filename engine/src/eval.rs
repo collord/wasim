@@ -125,20 +125,26 @@ impl Value {
         }
     }
 
-    /// Element-wise binary op with scalar broadcast.
+    /// Element-wise binary op with scalar broadcast and **align-by-name** for
+    /// named arrays (Phase 2, WASIM_NAMEDARRAY_DESIGN.md §4).
     ///
-    /// Phase 0–1: axes are **carried but not aligned** — vector/array operands
-    /// zip positionally to the shorter length, exactly as before, so results are
-    /// bit-identical. A tagged axis (from an operand `Array`) is propagated onto
-    /// the result so it survives downstream. Align-by-name replaces this arm in
-    /// Phase 2 (WASIM_NAMEDARRAY_DESIGN.md §4).
+    /// - scalar ⊕ anything → element-wise, the other operand's shape preserved;
+    /// - `Array` ⊕ `Array` → axes are unioned by id (canonical, sorted order) and
+    ///   both sides broadcast over the union: equal axis sets collapse to plain
+    ///   element-wise (bit-identical to before), disjoint axes outer-product
+    ///   (`a[A] * b[B] → [A,B]`), shared axes align position-wise;
+    /// - anything involving an **anonymous** `Vector` keeps the positional
+    ///   (min-length) behavior, so nothing that exists today changes numerically.
     pub fn zip_with(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Value {
         match (self, other) {
             (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(f(a, b)),
             // scalar broadcast: keep the other operand's shape (Vector→Vector, Array→Array)
             (Value::Scalar(a), rhs) => rhs.map(move |b| f(a, b)),
             (lhs, Value::Scalar(b)) => lhs.map(move |a| f(a, b)),
-            // both vector-like: positional zip to min length; carry a 1-D axis if present
+            // two named arrays: align by axis name
+            (Value::Array(a), Value::Array(b)) => Value::Array(broadcast_named(a, b, f)),
+            // an anonymous Vector is involved: positional zip to min length; carry a
+            // 1-D axis if the other side has one (unchanged Phase-1 behavior)
             (lhs, rhs) => {
                 let axis_id = single_axis_id(&lhs).or_else(|| single_axis_id(&rhs));
                 let a = lhs.into_vec();
@@ -152,6 +158,59 @@ impl Value {
             }
         }
     }
+}
+
+/// Align-by-name broadcast of two named arrays (Phase 2).
+///
+/// Result axes = the union of both operands' axes by id, in **canonical
+/// (sorted-by-id) order** so `a⊕b` and `b⊕a` share a layout (determinism, §6).
+/// A shared axis aligns position-wise (length = the min, though in practice equal);
+/// an axis present in only one operand is broadcast (repeated) across the other.
+/// Reduces to plain element-wise when the axis sets are equal.
+fn broadcast_named(a: NamedArray, b: NamedArray, f: impl Fn(f64, f64) -> f64) -> NamedArray {
+    // BTreeMap keys iterate sorted → canonical axis order for free.
+    let mut lens: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for ax in a.axes.iter().chain(b.axes.iter()) {
+        lens.entry(ax.id.clone())
+            .and_modify(|l| *l = (*l).min(ax.len))
+            .or_insert(ax.len);
+    }
+    let axes: Vec<Axis> = lens.into_iter().map(|(id, len)| Axis { id, len }).collect();
+    if axes.iter().any(|ax| ax.len == 0) {
+        return NamedArray { axes, data: Vec::new() };
+    }
+    let total: usize = axes.iter().map(|ax| ax.len).product();
+    // result-axis position by id, for projecting a coordinate onto each operand
+    let pos: HashMap<&str, usize> =
+        axes.iter().enumerate().map(|(i, ax)| (ax.id.as_str(), i)).collect();
+
+    let mut data = Vec::with_capacity(total);
+    let mut coord = vec![0usize; axes.len()];
+    for _ in 0..total {
+        let ai = operand_index(&a, &coord, &pos);
+        let bi = operand_index(&b, &coord, &pos);
+        data.push(f(a.data[ai], b.data[bi]));
+        // increment the mixed-radix coordinate (row-major: last axis fastest)
+        for d in (0..axes.len()).rev() {
+            coord[d] += 1;
+            if coord[d] < axes[d].len {
+                break;
+            }
+            coord[d] = 0;
+        }
+    }
+    NamedArray { axes, data }
+}
+
+/// Row-major flat index into `x` for a result coordinate: fold over `x`'s own
+/// axes, reading each axis's component from the result coordinate by id. Axes of
+/// the result not present in `x` are ignored → `x` broadcasts across them.
+fn operand_index(x: &NamedArray, coord: &[usize], pos: &HashMap<&str, usize>) -> usize {
+    let mut idx = 0;
+    for ax in &x.axes {
+        idx = idx * ax.len + coord[pos[ax.id.as_str()]];
+    }
+    idx
 }
 
 /// The id of a value's sole axis, if it is a 1-D tagged array (used to propagate
@@ -1461,6 +1520,81 @@ mod named_array_tests {
         match Value::Vector(vec![1.0, 2.0, 3.0]).zip_with(Value::Vector(vec![4.0, 5.0]), |x, y| x + y) {
             Value::Vector(v) => assert_eq!(v, vec![5.0, 7.0]),
             _ => panic!("expected Vector"),
+        }
+    }
+
+    fn arr(id: &str, data: &[f64]) -> Value {
+        Value::Array(NamedArray::tagged(id, data.to_vec()))
+    }
+
+    #[test]
+    fn broadcast_same_axis_is_elementwise() {
+        // Phase 2: equal axis sets collapse to plain element-wise (bit-identical).
+        match arr("A", &[1.0, 2.0, 3.0]).zip_with(arr("A", &[10.0, 20.0, 30.0]), |x, y| x * y) {
+            Value::Array(r) => {
+                assert_eq!(r.axes.len(), 1);
+                assert_eq!(r.axes[0].id, "A");
+                assert_eq!(r.data, vec![10.0, 40.0, 90.0]);
+            }
+            _ => panic!("expected 1-D Array over A"),
+        }
+    }
+
+    #[test]
+    fn broadcast_disjoint_axes_outer_product() {
+        // a[A=2] * b[B=3] → [A,B] row-major (A outer, B inner; canonical id order).
+        match arr("A", &[1.0, 2.0]).zip_with(arr("B", &[1.0, 2.0, 3.0]), |x, y| x * y) {
+            Value::Array(r) => {
+                assert_eq!(r.axes.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["A", "B"]);
+                assert_eq!(r.axes[0].len, 2);
+                assert_eq!(r.axes[1].len, 3);
+                assert_eq!(r.data, vec![1.0, 2.0, 3.0, 2.0, 4.0, 6.0]);
+            }
+            _ => panic!("expected 2-D Array [A,B]"),
+        }
+    }
+
+    #[test]
+    fn broadcast_axis_order_is_canonical() {
+        // b[B] ⊕ a[A] yields the SAME layout as a[A] ⊕ b[B] (sorted-by-id axes),
+        // proving operand order doesn't affect the result layout (determinism §6).
+        let ab = arr("A", &[1.0, 2.0]).zip_with(arr("B", &[10.0, 20.0, 30.0]), |x, y| x - y);
+        let ba = arr("B", &[10.0, 20.0, 30.0]).zip_with(arr("A", &[1.0, 2.0]), |x, y| y - x);
+        match (ab, ba) {
+            (Value::Array(x), Value::Array(y)) => {
+                assert_eq!(x.axes.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
+                           y.axes.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+                assert_eq!(x.data, y.data, "layout must be operand-order-independent");
+            }
+            _ => panic!("expected arrays"),
+        }
+    }
+
+    #[test]
+    fn broadcast_shared_axis_repeats_across_new_axis() {
+        // Build 2-D c[A,B] = a[A]*b[B], then c + a[A] must broadcast a across B.
+        let a = arr("A", &[1.0, 2.0]);
+        let b = arr("B", &[10.0, 20.0, 30.0]);
+        let c = a.clone().zip_with(b, |x, y| x * y);          // [A,B]
+        match c.zip_with(a, |x, y| x + y) {                    // [A,B] + [A]
+            Value::Array(r) => {
+                // row (a=0): [10,20,30] + 1 ; row (a=1): [20,40,60] + 2
+                assert_eq!(r.data, vec![11.0, 21.0, 31.0, 22.0, 42.0, 62.0]);
+            }
+            _ => panic!("expected [A,B]"),
+        }
+    }
+
+    #[test]
+    fn array_vector_stays_positional() {
+        // An anonymous Vector operand keeps the old positional behavior — no
+        // accidental outer product with a tagged array (bit-identity guard).
+        match arr("A", &[1.0, 2.0, 3.0]).zip_with(Value::Vector(vec![10.0, 20.0, 30.0]), |x, y| x + y) {
+            Value::Array(r) => {
+                assert_eq!(r.axes.len(), 1);
+                assert_eq!(r.data, vec![11.0, 22.0, 33.0]);
+            }
+            _ => panic!("expected 1-D Array"),
         }
     }
 

@@ -138,14 +138,23 @@ that don't exist in today's models.
   (`eval::named_array_tests`) proves `vector_map over "D"` yields an `Array` tagged
   `"D"` with the right data, plus the type mechanics (map/zip/broadcast) hold.
 
-### Phase 2 — align-by-name broadcast  *(size: M, the first semantic change)*
-- Replace `zip_with`'s (Array,Array) arm with `broadcast_zip` (union + align by
-  id). Single-axis-matching and scalar cases are unchanged; the *new* behavior
-  only triggers when two operands carry *different* axis sets — which no current
-  model produces, so the corpus stays bit-identical, but multi-axis arithmetic now
-  works.
-- **Exit:** a new 2-D broadcast test (`a[A]*b[B]` → `[A,B]`) passes; corpus
-  unchanged.
+### Phase 2 — align-by-name broadcast  *(size: M, the first semantic change)* — ✅ **DONE**
+- Added `broadcast_named(a, b, f)` and rewired `zip_with`'s `(Array, Array)` arm to
+  it: result axes = the union of both operands' axes by id in **canonical
+  (sorted-by-id) order**; shared axes align position-wise, disjoint axes
+  outer-product, equal axis sets collapse to plain element-wise. General n-d (not
+  just 2-D) via a mixed-radix coordinate walk + `operand_index` projection.
+- **Bit-identity preserved two ways:** (1) equal-axis `Array⊕Array` reduces to the
+  old element-wise result; (2) any op involving an **anonymous `Vector`** keeps the
+  Phase-1 positional path — so it only changes when two *named* arrays with
+  *different* axes meet, which no current model produces. Full suite green (save the
+  unrelated `emit_model_json`).
+- **Exit met:** unit tests (`eval::named_array_tests`) cover same-axis, disjoint
+  outer-product, operand-order-independent layout, shared-axis broadcast, and the
+  Vector-stays-positional guard; an end-to-end test
+  (`tests/namedarray_broadcast_v2.rs`) runs `va[A] * vb[B]` through the engine and
+  asserts the 2-D result surfaces as `prod#1..#6 = [1,2,3,2,4,6]` — a shape the flat
+  `Value::Vector` engine could not represent (it truncated to `min(len)`).
 
 ### Phase 3 — label subscript + unified reductions  *(size: M)*
 - Add one AST node `Subscript{ array, dim, label }`; eval resolves `label`→pos via
