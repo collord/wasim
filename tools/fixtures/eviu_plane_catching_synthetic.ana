@@ -1,0 +1,67 @@
+{ SYNTHETIC FIXTURE — NOT the real Analytica model.
+  This is a hand-written .ana that mimics the *structure* of the EVIU
+  "when to leave for the airport" plane-catching example so tools/ana_to_wasim.py
+  can be exercised end-to-end. The real docs.analytica.com file was not
+  reachable from this environment (org egress allowlist). Node values here are
+  illustrative, not authoritative. }
+Softwareversion 6.4
+
+Model Eviu_plane_catching
+Title: When to leave for the airport (EVIU, synthetic)
+Author: fixture
+Description: Choose a departure time trading off waiting at the gate against the cost of missing the plane.
+Nodelocation: 100,100,1
+Nodesize: 48,24
+
+Decision Depart_early
+Title: Minutes to leave before scheduled flight
+Units: minutes
+Definition: 90
+Nodelocation: 100,60,1
+
+Chance Travel_time
+Title: Travel time to airport
+Units: minutes
+Description: Uncertain door-to-gate travel time.
+Definition: Lognormal(60, 1.3)
+Nodelocation: 220,60,1
+Nodesize: 48,24
+
+Constant Boarding_buffer
+Title: Boarding buffer before departure
+Units: minutes
+Definition: 20
+Nodelocation: 100,140,1
+
+Constant Wait_cost
+Title: Cost per minute waiting at gate
+Units: USD/minute
+Definition: 0.5
+
+Constant Miss_penalty
+Title: Cost of missing the plane
+Units: USD
+Definition: 400
+
+Variable Slack
+Title: Slack on arrival
+Units: minutes
+Description: Minutes to spare at the gate; negative means the plane was missed.
+Definition: Depart_early - Travel_time - Boarding_buffer
+Nodelocation: 340,100,1
+
+Variable Cost
+Title: Cost of the trip
+Units: USD
+Definition: If Slack >= 0 Then Wait_cost * Slack Else Miss_penalty
+Nodelocation: 460,100,1
+
+Objective Expected_cost
+Title: Expected cost
+Units: USD
+Definition: Mean(Cost)
+Nodelocation: 580,100,1
+
+Variable Sampesize
+Title: Sample size
+Definition: 5000
