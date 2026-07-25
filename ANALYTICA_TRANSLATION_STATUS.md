@@ -295,7 +295,11 @@ majority-faithful conversion, and 1 is nearly free.
   mid-graph sample reductions all sit on that one foundation; doing them piecemeal
   on the flat `Value::Vector` yields bounded versions that help neither the
   converter nor real models. Land the labeled n-d core in v2, then subscript /
-  `Run`-as-axis / runtime indices fall out as small riders.
+  `Run`-as-axis / runtime indices fall out as small riders. **A phased engineering
+  plan for exactly this is scoped in
+  [WASIM_NAMEDARRAY_DESIGN.md](WASIM_NAMEDARRAY_DESIGN.md)** (6 bit-identity-preserving
+  phases; recommended first milestone P0–P3 = type + broadcast + label subscript +
+  ≥2-D, with `Run`-as-axis isolated as its own step).
 - **Do not scope item 4** unless applied multi-index models are the explicit
   goal — it's a paradigm port, not a feature.
 - **Keep the graceful-degradation contract** (validate + run + flag) as the
