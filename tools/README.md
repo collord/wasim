@@ -128,6 +128,37 @@ minutes saved by accounting for uncertainty. That whole computation — the §2
 across-realization reductions plus decision optimization — is exactly what the
 mechanical 0.1.0 conversion cannot express, and what the engine does natively.
 
+## Native re-solution — `platform_decommissioning_native.wasim.json`
+
+The companion to the `Platform_2017` stress test: a compact hand-authored v2
+model (`build_platform_native.py` regenerates it, `engine/tests/platform_native_v2.rs`
+guards it) that distills the real tool's *purpose* — rank decommissioning options
+by multi-attribute value under uncertainty — into WASiM-native machinery.
+
+- A `Decision_MC` **submodel** scores three options (full removal / reef-partial /
+  leave-in-place) across four swing-weighted attributes (cost, reef habitat,
+  access, air quality) **per realization**. Independent per-option cost and
+  reef-benefit multipliers (the real model's `Cost_uncertainty` and `Biomass`
+  Lognormals) make the *ranking itself* uncertain. A `vector_map` over the Option
+  axis builds the min-max value functions and the weighted score; `argmax_array`
+  picks the winner.
+- The submodel exposes **scalar** outputs (each option's score, the chosen index,
+  the chosen cost) — a probe (`submodel_stat` reduces member-0 of a vector output,
+  not per-member) confirmed scalar outputs are the way to reduce across
+  realizations. The parent then composes the answer natively:
+  - `mean` → expected score per option, and `argmax_array` over those → the
+    **recommendation**;
+  - `cumulative_prob` / `exceedance` **differences** → the **probability each
+    option is preferred** (`best_idx ∈ {1,2,3}`, so `P(=j)` is a CDF gap);
+  - `exceedance` → the chance the preferred option's cost blows the budget.
+
+Result (n=4000): expected scores Leave 68 > Reef 62 > Full 23, so the tool
+**recommends Leave-in-place** — but the probabilistic view shows that's not a
+foregone conclusion: **Leave is preferred in ~63% of futures, Reef in ~37%**, and
+Full removal essentially never. That "how robust is the recommendation" question —
+`Probability(option is best)` over the Monte-Carlo sample — is exactly what the
+0.1.0 conversion stubs out and what the engine computes in-graph here.
+
 ## What maps (and what doesn't)
 
 Grounded in `ANALYTICA_ENGINE_GAP_ANALYSIS.md`. The two tools are architecturally
