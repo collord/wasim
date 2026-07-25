@@ -633,6 +633,19 @@ pub enum AstNode {
         dim: String,
         label: String,
     },
+    // Across-realization reduction of a same-model element, evaluated over the
+    // Monte-Carlo `Run` axis (Analytica `Mean(x)`, `Probability(x>t)` feeding a
+    // downstream node — the §2 gap). Unlike `submodel_stat` it needs no submodel
+    // boundary: the engine runs a first pass to collect `element_id`'s
+    // per-realization values, reduces them, and injects the scalar in a second
+    // pass. See WASIM_NAMEDARRAY_DESIGN.md §4 (Phase 4). `arg` (a literal
+    // threshold/percentile) is required by percentile/cumulative_prob/exceedance/cte.
+    RunStat {
+        element_id: String,
+        statistic: SubmodelStatKind,
+        #[serde(default)]
+        arg: Option<Box<AstNode>>,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {

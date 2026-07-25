@@ -134,6 +134,17 @@ fn reduce_data(data: &[f64], init: f64, fold: impl Fn(f64, f64) -> f64) -> f64 {
     data.iter().copied().fold(init, fold)
 }
 
+/// The `run_stats` injection key for a `RunStat` node (Phase 4): identifies a
+/// specific (element, statistic, arg) reduction. Computed identically at
+/// collection time (engine_v2) and at eval time so the pass-2 lookup hits.
+pub(crate) fn run_stat_key(
+    element_id: &str,
+    statistic: &crate::model::SubmodelStatKind,
+    arg: f64,
+) -> String {
+    format!("{element_id}\u{1}{statistic:?}\u{1}{arg}")
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -303,6 +314,10 @@ pub struct EvalCtx<'a> {
     /// Dimension id → ordered member labels, for label subscript (`x[Dim='label']`,
     /// Phase 3). Empty for models without declared labels.
     pub dim_labels: &'a HashMap<String, Vec<String>>,
+    /// Pre-reduced across-realization statistics by target element id, injected in
+    /// the second pass of a `RunStat` run (Phase 4). Empty in the first pass and in
+    /// any run without `run_stat` nodes.
+    pub run_stats: &'a HashMap<String, f64>,
     /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
     /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
     /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
@@ -728,6 +743,20 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 // unknown dimension/label → degrade (dangling-ref policy)
                 (None, _) => Ok(Value::Scalar(0.0)),
             }
+        }
+
+        // Across-realization reduction of a same-model element (Phase 4). The scalar
+        // is pre-computed by the first pass and injected via `run_stats`, keyed by
+        // (element, statistic, arg) so several reductions of one element don't
+        // collide; in the first pass (empty map) it reads 0.0.
+        AstNode::RunStat { element_id, statistic, arg } => {
+            let arg_val = arg
+                .as_deref()
+                .map(|n| eval_ast_scalar(n, ctx))
+                .transpose()?
+                .unwrap_or(0.0);
+            let key = run_stat_key(element_id, statistic, arg_val);
+            Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
         }
 
         // Opaque source function — preserved for round-tripping, evaluates to 0.0 (§15).
@@ -1690,6 +1719,7 @@ mod named_array_tests {
         // Phase 1: `vector_map over "D"` of `index_ref(row)` → [1,2,3] tagged "D".
         let dims: HashMap<String, usize> = [("D".to_string(), 3usize)].into_iter().collect();
         let labels: HashMap<String, Vec<String>> = HashMap::new();
+        let rstats: HashMap<String, f64> = HashMap::new();
         let index_stack = RefCell::new(Vec::new());
         let empty_out: HashMap<String, Value> = HashMap::new();
         let empty_lk: HashMap<String, LookupData> = HashMap::new();
@@ -1698,7 +1728,7 @@ mod named_array_tests {
         let ctx = EvalCtx {
             lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
             elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
-            dimensions: &dims, dim_labels: &labels, index_stack: &index_stack,
+            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, index_stack: &index_stack,
             submodel_outputs: &empty_sub, lag: None, fired_events: &fired, calendar_start: None,
         };
         let node = AstNode::VectorMap {

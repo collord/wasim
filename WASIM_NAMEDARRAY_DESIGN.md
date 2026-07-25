@@ -178,18 +178,32 @@ that don't exist in today's models.
   Reducer refactor bit-identical; whole suite green save the unrelated
   `emit_model_json`.
 
-### Phase 4 — `Run` as a reducible axis  *(size: L, highest value + risk)*
-- Represent the Monte-Carlo sample as a real axis (`Run`, len = n_realizations) on
-  values that vary across realizations. `submodel_stat` and the `results_spec`
-  boundary reductions become `reduce(Run, stat)` on that axis; mid-graph
-  `Mean`/`Probability`/`percentile` fall out with no submodel wrapper — closing the
-  §2 gap.
-- This reorders how realizations flow through eval (today the engine loops
-  realizations outside eval; here a value can hold the sample axis). Gate behind a
-  feature flag; migrate `submodel_stat` first, then the boundary, then retire the
-  duplicate machinery.
-- **Exit:** mid-graph `reduce(Run)` test; `submodel_stat` corpus bit-identical
-  (same reducer, same order); the two native examples reproduce their numbers.
+### Phase 4 — `Run` as a reducible axis  *(size: L, highest value + risk)* — ✅ **DONE (first cut)**
+- Added a `run_stat { element_id, statistic, arg }` AST node: an across-realization
+  reduction of a **plain same-model element** that can feed a downstream node —
+  the §2 gap (`Probability(X>t)` → another variable) — with **no submodel wrapper**.
+- **Resolved the open question** (does `Run` live on every value, or only under a
+  reduction?) with the **least-invasive answer: neither** — a **two-pass run at the
+  `run()` level**, not a value-model change. The per-realization loop is untouched.
+  Pass 1 runs the MC loop, force-saving each `run_stat` target so its
+  per-realization finals are captured (saving is computation-neutral, so pass 1 is
+  draw-identical to a normal run); the targets are reduced (reusing the exact
+  `submodel_stat` reducers, keyed by `(element, stat, arg)`); pass 2 re-runs with
+  the scalars injected via a new `EvalCtx.run_stats`, so downstream nodes see them.
+  Deterministic per-realization content seeds make the two passes draw-identical.
+- **Bit-identical & gated:** a model with **no `run_stat` runs exactly once**, the
+  original single pass — whole corpus unchanged (save the unrelated
+  `emit_model_json`). The 2× cost is paid only when the feature is used.
+- **Exit met:** end-to-end test `tests/namedarray_runstat_v2.rs` —
+  `run_stat(x, exceedance, 6)` = P(x>6) ≈ 0.4 and `run_stat(x, mean)` ≈ 5, with a
+  downstream node consuming the probability (`downstream = prob·1000`).
+- **First-cut limitations (documented, deferred):** (a) arg-taking statistics
+  (percentile/exceedance/cumulative_prob/cte) require a **literal** argument — a
+  non-literal is a hard model error, not a silent 0; (b) **nested** `run_stat` (a
+  target that itself depends on a `run_stat`) is unsupported; (c) `run_stat` is
+  honored only via the one-shot `run()`, not the resumable/streaming `advance` API.
+  Folding `submodel_stat`/`results_spec` onto this path and the full value-model
+  `Run` axis remain as follow-ups, but the **capability** the §2 gap needed is live.
 
 ### Phase 5 — retire `#k`  *(size: M, cleanup)*
 - Results surface reads `NamedArray` axes directly; keep `<id>#k` as a
@@ -290,11 +304,13 @@ gap — worth isolating as its own milestone with its own review.
 which makes multi-dimensional Analytica/GoldSim models representable and is fully
 bit-identical on today's corpus. Decide on P4 separately once P0–P3 prove the type.
 
-**Open questions to resolve before P4:**
-- Does the sample (`Run`) axis live *inside* `NamedArray` for all uncertain
-  values, or only where a reduction consumes it? (Perf: carrying `Run` on every
-  value is n_realizations× memory. Likely: keep today's realization-loop for
-  plain propagation, lift to a `Run` axis only under a reduction node.)
+**Open questions — status:**
+- ✅ **Resolved (P4 first cut):** *Does the `Run` axis live inside `NamedArray` for
+  all uncertain values, or only where a reduction consumes it?* — **Neither.** A
+  two-pass run at the `run()` level keeps the per-realization loop and value model
+  unchanged, and reduces only the explicitly-targeted elements. No n_realizations×
+  memory, and the 2× cost is paid only when `run_stat` is used. A full value-model
+  `Run` axis (batched eval) is deferred unless a workload needs it.
 - Axis id interning — `String` (simple) vs `u32` (fast, stable order). Start
   `String`, intern if profiling demands.
 - Label registry location — `EvalCtx` field vs a resolved-at-build side table.

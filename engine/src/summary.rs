@@ -395,6 +395,9 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::Subscript { array, dim, label } => {
             format!("{}[{dim} = '{label}']", render_ast(array))
         }
+        AstNode::RunStat { element_id, statistic, .. } => {
+            format!("run_stat({element_id}, {statistic:?})")
+        }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
             format!("{func}({})", a.join(", "))
