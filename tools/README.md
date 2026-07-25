@@ -84,12 +84,14 @@ python3 tools/ana_to_wasim.py tools/examples/Platform_2017.ana \
 The conversion (`Platform_2017.wasim.json`, ~470 elements, 71 containers)
 **validates against the schema and runs in the engine** — but the warnings show
 how much of a heavily array-and-subscript Analytica model doesn't survive a
-scalar translation: `Table`/`Subscript` reindexing (`x[Dim=label]`),
-`Choice`/`Checkbox`/`Handle` GUI decisions, and `Subtable`/`Slice` degrade to
-inert stubs. (`var … := …; result` local-variable blocks are now `let`-lowered
-rather than stubbed — see the mapping table — which moved 34 definitions out of
-full-stub and recovered ~35 dependency edges; many still carry a stubbed
-subscript inside, the next blocker.) This is the expected outcome
+scalar translation: `Table`/`Subscript` reindexing (`x[Dim=label]`), `Handle`
+metaprogramming, and `Subtable`/`Slice` degrade to inert stubs. Two converter
+passes have since reclaimed a large chunk: `var … := …; result` local-variable
+blocks are `let`-lowered, and `Checkbox`/`Choice` decisions become their value
+(see the mapping table). Together they cut full-stub definitions from **259 to
+163** (54% → 34% of elements) and lifted faithful constants from 40 to 103;
+what remains stubbed is dominated by label-subscript and `Handle`. This is the
+expected outcome
 the gap analysis predicts for an Intelligent-Arrays model, and it drove two
 robustness fixes worth having anywhere: distributions with formula-valued
 parameters (which the engine evaluates to 0 and would crash a `lognormal`
@@ -186,6 +188,8 @@ maps cleanly and produces a scalar / 1-step model.
 | `If c Then a Else b` **and** `If(c, a, b)` | `if` AST node |
 | `Var x := e; … result` local-variable blocks (also `Var … Do …`) | inlined (`let`-lowered): bindings resolved in order and substituted into the return expression; an unparseable binding stubs locally |
 | `1M`, `10K` numeric suffixes | expanded (`1000000`, `10000`) |
+| `Checkbox(v)` | its boolean value `v` (0/1) — a decision toggle |
+| `Choice(index, n[, …])` | the selected 1-based position `n` — GUI dropped, value kept |
 | `Normal`, `Lognormal`, `Uniform`, `Triangular`, `Beta`, `Gamma`, `Exponential`, `Bernoulli`, `Weibull` | `random_variable` distribution (top-level Chance defs). `Lognormal(median, gsdev)` → log-space `(ln median, ln gsdev)`; `Exponential(rate)` → `mean = 1/rate` |
 | `Min`/`Max` (2 args) | scalar `min`/`max` |
 | `Sum`/`Mean`/`Min`/`Max`/`Size` (reduction over an index) | `sum_array`/`mean_array`/`min_array`/`max_array`/`size_array` |

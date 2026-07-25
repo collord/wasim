@@ -24,8 +24,9 @@ def lower(defn):
     res, err = A.parse_definition(defn)
     if res is None:
         return None, [], -1, err
-    ast, stubs = A.strip_stub_markers(A._as_ast(res))
-    return A._render_ast(res), sorted(A._collect_refs(ast)), len(stubs), None
+    resolved = A._as_ast(res)  # resolve pending Calls (Checkbox, Choice, builtins…)
+    ast, stubs = A.strip_stub_markers(resolved)
+    return A._render_ast(resolved), sorted(A._collect_refs(ast)), len(stubs), None
 
 
 # ── var-block lowering ────────────────────────────────────────────────────────
@@ -42,6 +43,14 @@ check("million-suffix + trailing binding", "1000000" in (r or "") and "base" in 
 # one unconvertible fragment stubs locally, the rest survives
 r, refs, ns, _ = lower("var bad := A[Dim=lbl]; var good := m + n; good + 1")
 check("bad binding stubs locally, good survives", set(["m", "n"]).issubset(set(refs)))
+
+# ── Choice / Checkbox decisions ───────────────────────────────────────────────
+r, _, ns, _ = lower("Checkbox(1)")
+check("Checkbox(1) -> 1", r == "1" and ns == 0)
+r, _, ns, _ = lower("Choice(Platform_regions, 2)")
+check("Choice(index, 2) -> selected position 2", r == "2" and ns == 0)
+r, refs, ns, _ = lower("Table(Scenarios)(Checkbox(1), Checkbox(0), Checkbox(1))")
+check("Checkbox inside Table lowers to 0/1 array", "1" in (r or "") and "0" in (r or ""))
 
 # ── numeric suffixes ──────────────────────────────────────────────────────────
 r, _, _, _ = lower("2K + 3M")

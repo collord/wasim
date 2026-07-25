@@ -543,6 +543,18 @@ def resolve_call(call: Call) -> dict:
         if len(args) >= 3:
             return {"op": "if", "cond": args[0], "then": args[1], "else": args[2]}
 
+    if name == "checkbox":
+        # Checkbox(v) is a GUI boolean toggle; its value is v (0/1). Keep the
+        # value, drop the GUI — faithful for a headless engine.
+        return args[0] if args else {"op": "literal", "value": 0.0}
+
+    if name == "choice":
+        # Choice(index, default[, multi]) is a GUI selector; its value is the
+        # chosen 1-based position (the `default`). The index arg is presentational.
+        if len(args) >= 2:
+            return args[1]
+        return {"op": "literal", "value": 1.0}
+
     if name in ("table", "array", "subscript", "slice"):
         # Table(Index)(v1..vn) collapses to an array literal of the values.
         # (Index dimensioning is not represented in v0.1.0 scalar arrays.)

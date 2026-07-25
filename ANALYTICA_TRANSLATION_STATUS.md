@@ -22,9 +22,14 @@ model (Platform_2017) it is roughly a third of the logic, because Analytica's
 Intelligent-Array/subscript/GUI-decision idioms have no 1:1 WASiM form. **A fully
 automatic, faithful importer for the general corpus is not feasible today** and
 should not be scoped as one. What *is* feasible and valuable is an **assisted
-pipeline**: mechanistic skeleton (done) → a handful of targeted engine/converter
-features that lift the highest-frequency idioms → human review of a shrinking set
-of flagged stubs. Each feature is independently sizable and independently useful.
+pipeline**: mechanistic skeleton (done) → targeted features that lift the
+highest-frequency idioms → human review of a shrinking set of flagged stubs. Two
+converter-only passes have shipped (`let`-block lowering + `Choice`/`Checkbox`
+decisions), cutting full-stub definitions on Platform_2017 from 259 to 163. The
+remaining blockers, however, are **not** a list of independent point features:
+label subscript, multi-dimensional broadcast, and mid-graph sample reductions all
+converge on one engine change — a **labeled n-d value type** (§9.3) — which is the
+honest next step rather than more piecemeal work.
 
 ---
 
@@ -96,20 +101,20 @@ uncertainty, heavily dimensioned over Platform × Attribute × Option × Scenari
 | metric | value |
 |---|---|
 | statements parsed | 7651 → 479 elements, 71 containers |
-| expression elements | 386 |
-| — faithful (stub-free) | **130 (33%)** |
-| — fully stubbed (`literal 0`) | 225 (58%) |
-| — partial (some sub-exprs stubbed) | 31 |
+| elements | 479 |
+| — full-stub (`literal 0`) | **163 (34%)** |
+| — non-full-stub (faithful or partial) | **316 (66%)** |
+| faithful constants | 103 |
 | `random_variable` emitted | 1 of 14 `Chance` nodes (the rest are subscript/table lookups, or had formula-valued distribution params) |
 | real dependency edges in graph | 345 |
-| conversion warnings | 305 |
 
-> **Numbers reflect `let`-block lowering (§7 item 1, now landed).** Before it,
-> the same model measured 114/387 faithful, 259 full-stub, 310 edges. Lowering
-> `Var … := …; result` blocks moved **34 definitions out of full-stub** (+16
-> faithful, +17 partial) and recovered **+35 dependency edges** — most of the
-> newly-partial defs still carry a stubbed label-subscript inside, which is why
-> the jump is moderate: idioms #1 and #2 stack (§4).
+> **Numbers reflect two landed converter tweaks — `let`-block lowering (§7 item 1)
+> and `Choice`/`Checkbox` decisions (§7 item 5).** The untouched baseline measured
+> **259 full-stub (54%)**, 40 constants, 310 edges. The two passes cut full-stubs
+> to **163 (−37%)**, raised faithful constants 40 → 103, and recovered +35 edges.
+> `let`-lowering also confirmed empirically that idioms #1 and #2 **stack**: most
+> reclaimed blocks now expose a label-subscript inside (§4) — which is why §7's
+> ranking is revised below.
 
 Warning breakdown (what a large Intelligent-Arrays model loses):
 
@@ -154,9 +159,11 @@ how much they'd buy:
    feeding downstream nodes. The §2 gap. The engine does these at the submodel
    boundary (`submodel_stat`) and results layer, not as an arbitrary mid-graph
    value.
-5. **`Choice` / `Checkbox` / `Handle` decisions & metaprogramming** — GUI-bound
-   decision inputs and reflection. No declarative numeric equivalent; correctly
-   dropped.
+5. **`Choice` / `Checkbox` decisions** — GUI-bound decision inputs. **Landed
+   (§7 item 5):** lowered to their value (`Checkbox(v)`→`v`, `Choice(idx,n)`→`n`),
+   reclaiming ~63 nodes as faithful constants. **`Handle` / metaprogramming**
+   (reflection, `Parent_module`, `definition of`) stays correctly dropped — no
+   declarative numeric equivalent.
 
 Note the shape: **#1 and #2 are the bulk of the Platform stubs, and #2 is
 entirely a converter-side fix.** The list is short and idiom-driven — which is
@@ -201,7 +208,7 @@ Broken into the honest sub-questions:
 | Emit schema-valid, runnable skeleton | **Yes** | Done |
 | Faithfully translate the scalar arithmetic+probabilistic subset | **Yes** | Done |
 | Faithfully translate a *small* self-contained decision model | **Mostly** (~90%) | EVIU: only the VoI layer stubs |
-| Faithfully translate a *large applied* Intelligent-Arrays model | **No** | Platform: ~30% faithful |
+| Faithfully translate a *large applied* Intelligent-Arrays model | **No** | Platform: 66% of nodes non-stub after tweaks 1 & 5; the faithful *logic* is less |
 | Auto-produce a *native* re-solution | **No** | Needs modeling judgment |
 
 **Verdict.** A *fully automatic, faithful, general-purpose importer* is **not
@@ -224,21 +231,39 @@ But that's the wrong target. The **feasible and useful** pathway is a
 
 ---
 
-## 7. What would move the needle (ranked)
+## 7. What would move the needle (ranked, revised as items land)
 
-Smallest-intervention-first, each independently shippable and independently
-useful beyond translation:
+Two converter-only items have shipped and taught us how the rest sequence.
+The **key correction from implementing #1:** label subscript is *not*
+independently shippable at useful fidelity — see the boxed note below.
 
 1. **`var`-block lowering in the converter** *(converter-only, small)* — ✅ **DONE.**
-   Parses `var x := e; … result` by inlining locals into the WASiM AST
-   (`parse_var_block` in `ana_to_wasim.py`, tested in `tools/test_ana_to_wasim.py`).
-   Reclaimed 34 Platform definitions from full-stub, +35 dependency edges. Confirmed
-   the prediction that #1 and #2 stack: most reclaimed defs now expose a
-   label-subscript (blocker #1), so the *next* increment is item 2.
-2. **Label-keyed subscript** *(engine + schema, medium)* — a `subscript` AST node
-   that reindexes an array by *label* against a named dimension (`x[Dim=label]`).
-   Attacks the #1 blocker. Pairs with emitting Analytica `Index` label sets as
-   first-class WASiM dimensions (the converter already recovers the labels).
+   Inlines `var x := e; … result` into the WASiM AST (`parse_var_block`, tested in
+   `tools/test_ana_to_wasim.py`). Reclaimed 34 Platform definitions, +35 edges.
+5. **`Choice`/`Checkbox` → decision values** *(converter-only, small)* — ✅ **DONE**
+   (promoted from #5 because it turned out independently shippable with the biggest
+   converter payoff). `Checkbox(v)`→`v`, `Choice(idx,n)`→`n`, including inside
+   `Table(…)`. Reclaimed ~63 nodes as faithful constants; full-stubs 259→163 with #1.
+2. **Label-keyed subscript** *(engine + schema, **large**, not medium)* — a
+   `subscript` node reindexing an array by label against a named dimension
+   (`x[Dim=label]`). **Reclassified.** The Platform evidence is that real subscripts
+   are **multi-dimensional with variable (not literal) labels over base tables that
+   are themselves array-shaped** (`table[Cost='Site Clearance'][Platform=SelVar][Alt=SelVar]`).
+   A bounded 1-D static-label version — the only piece that fits today's flat
+   `Value::Vector` — helps neither the converter (its subscripts aren't that shape)
+   nor real models. Faithful subscript therefore **requires the NamedArray value
+   type** (§9.3 / tweak table #2) and runtime index resolution (#4) underneath it;
+   it is *not* the cheap standalone win the first draft implied.
+
+> **Roadmap correction.** After landing #1 and #5, the converter-only wins are
+> largely spent. The remaining blockers (label subscript, multi-dim broadcast,
+> mid-graph sample reductions) are **all engine-side and all sit on the same
+> foundation** — a labeled n-d value type (§9.3). The honest next step is not
+> another point feature; it is the **`NamedArray` core**, after which label
+> subscript, `Run`-as-axis, and runtime indices become small riders rather than
+> independent projects.
+
+3. **Across-realization reduction as a first-class AST node** *(engine, medium)* —
 3. **Across-realization reduction as a first-class AST node** *(engine, medium)* —
    the §2 gap. Move the results-layer weighted-empirical-CDF machinery one layer
    inward so `Probability`/`Mean`/`GetFract` can feed downstream nodes without a
@@ -262,11 +287,15 @@ majority-faithful conversion, and 1 is nearly free.
   example per domain *is* the product: mechanical skeleton, an explicit to-port
   list, and a worked reference for the hard parts. Don't market or scope it as a
   one-click importer.
-- **Item 1 (`var`-block lowering) is done** — converter-only, and it confirmed
-  empirically that #1 and #2 stack (reclaimed blocks mostly expose a subscript).
-- **Do item 2 (label subscript) next** if Analytica interop is a real priority;
-  together with items 3–4 they're the engine-side gaps that both convert *and*
-  enrich WASiM's own modeling power.
+- **Items 1 and 5 (converter-only) are done** — `let`-lowering and
+  `Choice`/`Checkbox`, together cutting full-stubs 259→163. The cheap
+  converter-side wins are now largely spent.
+- **The next real step is the `NamedArray` value type (§9.3), not another point
+  feature.** Implementing #1 proved that label subscript, multi-dim broadcast, and
+  mid-graph sample reductions all sit on that one foundation; doing them piecemeal
+  on the flat `Value::Vector` yields bounded versions that help neither the
+  converter nor real models. Land the labeled n-d core in v2, then subscript /
+  `Run`-as-axis / runtime indices fall out as small riders.
 - **Do not scope item 4** unless applied multi-index models are the explicit
   goal — it's a paradigm port, not a feature.
 - **Keep the graceful-degradation contract** (validate + run + flag) as the
@@ -374,17 +403,21 @@ Smallest-first; each shippable alone.
 
 | # | Tweak | Layer / size | Helps Analytica | Helps generally (`inter alia`) |
 |---|---|---|---|---|
-| 1 | **`let`-bindings** (`var x:=e; … r`) ✅ **done** (inlined in converter) | converter-only / small | reclaimed 34 Platform stubs, +35 edges (§4.2) | any transpiler (GoldSim), readable emitted expressions |
-| 2 | **`NamedArray` value type** (§9.3) | eval core / large | intelligent arrays, ≥2-D tables | GoldSim vectors/matrices, cleaner results, retires `#k` |
-| 3 | **`Run` as a reducible named axis** | eval + reductions / medium | sample-as-axis (§2/§4.4) mid-graph | unifies 3 reduction mechanisms → less engine code |
-| 4 | **Label subscript + runtime index sets** | eval + schema / medium | `x[Dim=label]`, `Subset`, `SortIndex` (§4.1) | data-driven models (cohorts, scenario tables) |
-| 5 | **`Choice`/`Checkbox` → enum inputs** | converter + schema / small | recovers dropped GUI decisions (§4.5) | typed enumerated inputs for any front end |
-| — | `ndarray` as `NamedArray` backing store | dep / opt | (perf only) | n-d kernel speed once §2 is the bottleneck |
+| 1 | **`let`-bindings** (`var x:=e; … r`) ✅ **done** | converter-only / small | reclaimed 34 Platform stubs, +35 edges (§4.2) | any transpiler (GoldSim), readable emitted expressions |
+| 5 | **`Choice`/`Checkbox` → decision values** ✅ **done** | converter-only / small | ~63 nodes → faithful constants (§4.5) | typed enumerated inputs for any front end |
+| 2 | **`NamedArray` value type** (§9.3) — *the keystone* | eval core / large | intelligent arrays, ≥2-D tables, **enables label subscript** | GoldSim vectors/matrices, cleaner results, retires `#k` |
+| 3 | **`Run` as a reducible named axis** | eval + reductions / medium (rider on #2) | sample-as-axis (§2/§4.4) mid-graph | unifies 3 reduction mechanisms → less engine code |
+| 4 | **Label subscript + runtime index sets** | eval + schema / medium (rider on #2) | `x[Dim=label]`, `Subset`, `SortIndex` (§4.1) | data-driven models (cohorts, scenario tables) |
+| — | `ndarray` as `NamedArray` backing store | dep / opt | (perf only) | n-d kernel speed once #2 is the bottleneck |
 
-Do **1** first (nearly free, biggest single stub class). **2 + 3** are the
-structural core and are best designed together — a `NamedArray` whose axis list
-*includes* `Run` gives you §4.3 and §4.4 at once. **4** rides on 2. **5** is
-independent and cheap.
+**Revised sequencing (post-landing #1, #5).** The converter-only wins (1, 5) are
+done. Everything left converges on **#2 (`NamedArray`)** as the keystone: #3 and #4
+are riders on it, not independent projects — a `NamedArray` whose axis list
+*includes* `Run` gives §4.3 and §4.4 together, and label subscript is just indexing
+one axis by label. Attempting #4 on the flat `Value::Vector` first (a 1-D
+static-label version) was considered and rejected: it fits neither Platform's real
+subscripts (multi-dim, variable-labeled) nor the converter's v1 output, so it would
+be throwaway. Do #2, then 3/4 fall out.
 
 ### 9.5 Sequencing & risks (be honest about cost)
 
