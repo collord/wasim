@@ -107,24 +107,36 @@ The ordering guarantees the corpus stays bit-identical until the one phase that
 *intends* a semantic change (Phase 2), which is gated behind multi-axis inputs
 that don't exist in today's models.
 
-### Phase 0 — introduce the type, no behavior change  *(size: M)*
-- Add `NamedArray` + `Value::Array`; make `into_vec`/`as_scalar`/`map` handle it.
-- Internally represent every value that is *today* a `Vector` as a 1-D `Array`
-  with a single **anonymous** axis (a reserved id). `zip_with` on two anonymous
-  1-D arrays = today's positional zip. **Golden test: the whole corpus is
-  bit-identical.** This is pure plumbing; the ~100 mechanical sites compile via
-  the shims.
-- **Exit:** `cargo test` fully green, byte-identical results snapshot.
+### Phase 0 — introduce the type, no behavior change  *(size: M)* — ✅ **DONE**
+- Added `Axis`, `NamedArray { axes, data }`, and `Value::Array(NamedArray)` in
+  `eval.rs`; `as_scalar`/`into_vec`/`map`/`zip_with`/`axes()` handle it. Only two
+  exhaustive matches (the `If` and `LookupCall` vector arms) needed an update —
+  collapsed to an `into_vec()` catch-all that also carries a 1-D axis.
+- **Deviation from the draft (intentional, lower-risk):** `Vector` is **kept**
+  alongside `Array` (the anonymous 1-D case) rather than retired in this phase.
+  Nothing constructs `Array` in Phase 0, so the corpus is trivially bit-identical;
+  `Vector` retires in a later cleanup once producers/consumers are axis-aware.
+- `zip_with` **carries** an operand's 1-D axis onto the result but still zips
+  **positionally** (min-length), exactly as before — so Phase 2's align-by-name is
+  a localized change to one arm.
+- **Exit met:** whole suite green except one pre-existing, unrelated failure
+  (`emit_model_json` writes to a hard-coded author-only path); verified it fails
+  identically without this change.
 
-### Phase 1 — axis-tagged producers  *(size: M)*
-- Tag outputs with real axis ids where the dimension is known:
-  `vector_map{over}` → axis `over`; `array` literal / fixed vector → the declared
-  output dimension; `index`/`submodel_stat`-sweep → the swept axis.
-- Thread the `over` id into `EvalCtx` (it already tracks the index *stack*; add the
-  axis *id* alongside).
-- Still single-axis everywhere, so still bit-identical. Now values *know* their
-  axis.
-- **Exit:** results carry axis ids; corpus bit-identical.
+### Phase 1 — axis-tagged producers  *(size: M)* — ✅ **DONE** (vector_map)
+- `vector_map { over }` now tags its result `Value::Array` with axis id `over`
+  (the id is already in the AST node — no `EvalCtx` change needed). Consumers read
+  `.data` via `into_vec`/`as_scalar`, so it stays bit-identical; the axis now
+  travels with swept values (`exp_cost`, `prob_miss`, `multi_score` in the native
+  examples) ready for Phase 2.
+- Tagging `array` literals / fixed vectors with their *declared output* dimension
+  needs the element's output dims threaded into eval; **deferred to Phase 1b**
+  (it's plumbing, and those values already flow correctly untagged). The swept
+  axis — the one that matters for align-by-name and reductions — is covered.
+- **Exit met:** corpus bit-identical (all `vector_map`-heavy suites +
+  `eviu_native`/`platform_native` rot-guards pass); a unit test
+  (`eval::named_array_tests`) proves `vector_map over "D"` yields an `Array` tagged
+  `"D"` with the right data, plus the type mechanics (map/zip/broadcast) hold.
 
 ### Phase 2 — align-by-name broadcast  *(size: M, the first semantic change)*
 - Replace `zip_with`'s (Array,Array) arm with `broadcast_zip` (union + align by

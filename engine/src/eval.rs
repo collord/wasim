@@ -33,49 +33,133 @@ pub struct LookupData {
 
 // ── Value ─────────────────────────────────────────────────────────────────────
 
+/// Reserved id for an anonymous (untagged) axis — a `Vector` promoted to a 1-D
+/// `NamedArray` that doesn't (yet) know which model dimension it ranges over.
+pub const ANON_AXIS: &str = "";
+
+/// One named axis of a [`NamedArray`]: a model dimension id and its length.
+/// Labels are intentionally NOT stored here — align-by-name needs only id+len at
+/// runtime; label→position resolution (for label subscript) is a model-static
+/// lookup threaded via `EvalCtx`. See WASIM_NAMEDARRAY_DESIGN.md §3.
+#[derive(Clone, Debug)]
+pub struct Axis {
+    pub id: String,
+    pub len: usize,
+}
+
+/// A dense, row-major array over named axes (NamedArray, §3). 0-D is a `Scalar`;
+/// today only the 1-D case is produced (Phase 0–1), replacing an anonymous
+/// `Vector` with an axis-tagged one. Axes are carried but not yet used for
+/// alignment — `zip_with` still operates positionally, so behavior is
+/// bit-identical until Phase 2 turns on align-by-name.
+#[derive(Clone, Debug)]
+pub struct NamedArray {
+    pub axes: Vec<Axis>,
+    pub data: Vec<f64>,
+}
+
+impl NamedArray {
+    /// A 1-D array tagged with the model dimension `id` it ranges over.
+    pub fn tagged(id: impl Into<String>, data: Vec<f64>) -> Self {
+        let len = data.len();
+        NamedArray { axes: vec![Axis { id: id.into(), len }], data }
+    }
+
+    /// A 1-D array over an anonymous axis (a promoted `Vector`).
+    pub fn anon(data: Vec<f64>) -> Self {
+        Self::tagged(ANON_AXIS, data)
+    }
+
+    pub fn first(&self) -> f64 {
+        self.data.first().copied().unwrap_or(0.0)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
     Vector(Vec<f64>),
+    /// Axis-tagged n-d value (Phase 0+). During the migration this coexists with
+    /// `Vector` (the anonymous 1-D case); `Vector` retires in a later phase.
+    Array(NamedArray),
 }
 
 impl Value {
-    /// Collapse to a single f64. Vectors return their first element (or 0.0).
+    /// Collapse to a single f64. Vectors/arrays return their first element (or 0.0).
     pub fn as_scalar(&self) -> f64 {
         match self {
             Value::Scalar(v) => *v,
             Value::Vector(vs) => vs.first().copied().unwrap_or(0.0),
+            Value::Array(a) => a.first(),
         }
     }
 
-    /// Consume into Vec<f64>. Scalars become a 1-element vec.
+    /// Consume into Vec<f64> (row-major). Scalars become a 1-element vec.
     pub fn into_vec(self) -> Vec<f64> {
         match self {
             Value::Scalar(v) => vec![v],
             Value::Vector(vs) => vs,
+            Value::Array(a) => a.data,
         }
     }
 
-    /// Element-wise unary op; scalars stay scalar.
+    /// The array axes carried by this value, if any (None for scalar/anonymous vector).
+    pub fn axes(&self) -> Option<&[Axis]> {
+        match self {
+            Value::Array(a) => Some(&a.axes),
+            _ => None,
+        }
+    }
+
+    /// Element-wise unary op; scalars stay scalar, arrays keep their axes.
     pub fn map(self, f: impl Fn(f64) -> f64) -> Value {
         match self {
             Value::Scalar(v) => Value::Scalar(f(v)),
             Value::Vector(vs) => Value::Vector(vs.into_iter().map(f).collect()),
+            Value::Array(mut a) => {
+                for x in &mut a.data {
+                    *x = f(*x);
+                }
+                Value::Array(a)
+            }
         }
     }
 
     /// Element-wise binary op with scalar broadcast.
-    /// (scalar, scalar) → scalar; anything else → vector.
+    ///
+    /// Phase 0–1: axes are **carried but not aligned** — vector/array operands
+    /// zip positionally to the shorter length, exactly as before, so results are
+    /// bit-identical. A tagged axis (from an operand `Array`) is propagated onto
+    /// the result so it survives downstream. Align-by-name replaces this arm in
+    /// Phase 2 (WASIM_NAMEDARRAY_DESIGN.md §4).
     pub fn zip_with(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Value {
         match (self, other) {
             (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(f(a, b)),
-            (Value::Vector(vs), Value::Scalar(b)) => Value::Vector(vs.into_iter().map(|a| f(a, b)).collect()),
-            (Value::Scalar(a), Value::Vector(vs)) => Value::Vector(vs.into_iter().map(|b| f(a, b)).collect()),
-            (Value::Vector(a), Value::Vector(b)) => {
+            // scalar broadcast: keep the other operand's shape (Vector→Vector, Array→Array)
+            (Value::Scalar(a), rhs) => rhs.map(move |b| f(a, b)),
+            (lhs, Value::Scalar(b)) => lhs.map(move |a| f(a, b)),
+            // both vector-like: positional zip to min length; carry a 1-D axis if present
+            (lhs, rhs) => {
+                let axis_id = single_axis_id(&lhs).or_else(|| single_axis_id(&rhs));
+                let a = lhs.into_vec();
+                let b = rhs.into_vec();
                 let n = a.len().min(b.len());
-                Value::Vector((0..n).map(|i| f(a[i], b[i])).collect())
+                let data: Vec<f64> = (0..n).map(|i| f(a[i], b[i])).collect();
+                match axis_id {
+                    Some(id) => Value::Array(NamedArray::tagged(id, data)),
+                    None => Value::Vector(data),
+                }
             }
         }
+    }
+}
+
+/// The id of a value's sole axis, if it is a 1-D tagged array (used to propagate
+/// the axis through positional `zip_with` in Phase 0–1).
+fn single_axis_id(v: &Value) -> Option<String> {
+    match v.axes() {
+        Some(ax) if ax.len() == 1 => Some(ax[0].id.clone()),
+        _ => None,
     }
 }
 
@@ -341,13 +425,20 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 Value::Scalar(c) => {
                     if is_true(c) { eval_ast(then, ctx) } else { eval_ast(else_, ctx) }
                 }
-                Value::Vector(cs) => {
+                // vector/array cond → element-wise; carry a 1-D axis onto the result
+                other => {
+                    let axis = single_axis_id(&other);
+                    let cs = other.into_vec();
                     let then_vs = eval_ast(then, ctx)?.into_vec();
                     let else_vs = eval_ast(else_, ctx)?.into_vec();
-                    Ok(Value::Vector(cs.iter().enumerate().map(|(i, &c)| {
+                    let data: Vec<f64> = cs.iter().enumerate().map(|(i, &c)| {
                         if is_true(c) { then_vs.get(i).copied().unwrap_or(0.0) }
                         else          { else_vs.get(i).copied().unwrap_or(0.0) }
-                    }).collect()))
+                    }).collect();
+                    Ok(match axis {
+                        Some(id) => Value::Array(NamedArray::tagged(id, data)),
+                        None => Value::Vector(data),
+                    })
                 }
             }
         }
@@ -396,14 +487,21 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                     };
                     Ok(Value::Scalar(v))
                 }
-                Value::Vector(xs) => {
+                // vector/array input → element-wise; carry a 1-D axis onto the result
+                other => {
+                    let axis = single_axis_id(&other);
+                    let xs = other.into_vec();
                     let ys: Result<Vec<f64>, _> = xs.iter()
                         .map(|&x| match nd_coord {
                             Some(c) => eval_lookup_nd(element_id, x, &[c], ctx),
                             None => eval_lookup(element_id, x, &mode, ctx),
                         })
                         .collect();
-                    Ok(Value::Vector(ys?))
+                    let data = ys?;
+                    Ok(match axis {
+                        Some(id) => Value::Array(NamedArray::tagged(id, data)),
+                        None => Value::Vector(data),
+                    })
                 }
             }
         }
@@ -449,10 +547,14 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         // GoldSim arrays): `vector_map` pushes the current 1-based member index onto the
         // shared stack, `index_ref` reads it, `index` subtracts 1 to select.
         AstNode::VectorMap { over, body } => {
+            // Phase 1: the comprehension's result ranges over the `over` dimension,
+            // so tag it with that axis id. Consumers still read `.data` positionally
+            // (via into_vec/as_scalar), so this is bit-identical — the axis just now
+            // travels with the value for Phase-2 align-by-name.
             let size = *ctx.dimensions.get(over.as_str()).unwrap_or(&0);
             if size == 0 {
-                // Unknown/empty dimension: degrade to an empty vector (dangling-ref policy).
-                return Ok(Value::Vector(Vec::new()));
+                // Unknown/empty dimension: degrade to an empty (tagged) array.
+                return Ok(Value::Array(NamedArray::tagged(over.clone(), Vec::new())));
             }
             let mut out = Vec::with_capacity(size);
             for i in 1..=size {
@@ -461,7 +563,7 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 ctx.index_stack.borrow_mut().pop();
                 out.push(r?.as_scalar());
             }
-            Ok(Value::Vector(out))
+            Ok(Value::Array(NamedArray::tagged(over.clone(), out)))
         }
         AstNode::IndexRef { axis } => {
             let stack = ctx.index_stack.borrow();
@@ -1287,4 +1389,106 @@ fn monotone_cubic(xs: &[f64], ys: &[f64], x: f64, lo: usize) -> f64 {
     let h01 = -2.0 * t3 + 3.0 * t2;
     let h11 = t3 - t2;
     h00 * y0 + h10 * h * m0 + h01 * y1 + h11 * h * m1
+}
+
+#[cfg(test)]
+mod named_array_tests {
+    //! Phase 0–1 tests for the NamedArray value type (WASIM_NAMEDARRAY_DESIGN.md).
+    //! Phase 0: the type mechanics (construction, map, zip_with axis-carry, scalar
+    //! broadcast) are correct and — crucially — still *positional*, so behavior is
+    //! bit-identical. Phase 1: `vector_map` tags its output with the `over` axis.
+    use super::*;
+
+    #[test]
+    fn tagged_and_anon_construction() {
+        let a = NamedArray::tagged("Region", vec![10.0, 20.0, 30.0]);
+        assert_eq!(a.axes.len(), 1);
+        assert_eq!(a.axes[0].id, "Region");
+        assert_eq!(a.axes[0].len, 3);
+        assert_eq!(a.first(), 10.0);
+        assert_eq!(NamedArray::anon(vec![1.0]).axes[0].id, ANON_AXIS);
+    }
+
+    #[test]
+    fn scalar_and_vec_views() {
+        let v = Value::Array(NamedArray::tagged("D", vec![7.0, 8.0]));
+        assert_eq!(v.as_scalar(), 7.0);
+        assert_eq!(v.clone().into_vec(), vec![7.0, 8.0]);
+        assert_eq!(v.axes().unwrap()[0].id, "D");
+        assert!(Value::Scalar(1.0).axes().is_none());
+        assert!(Value::Vector(vec![1.0]).axes().is_none());
+    }
+
+    #[test]
+    fn map_preserves_axis() {
+        let out = Value::Array(NamedArray::tagged("D", vec![1.0, 2.0])).map(|x| x * 10.0);
+        match out {
+            Value::Array(a) => {
+                assert_eq!(a.axes[0].id, "D");
+                assert_eq!(a.data, vec![10.0, 20.0]);
+            }
+            _ => panic!("map should keep an Array an Array"),
+        }
+    }
+
+    #[test]
+    fn zip_scalar_broadcast_keeps_shape() {
+        // Array ⊕ Scalar → Array (axis preserved), numbers element-wise.
+        let arr = Value::Array(NamedArray::tagged("D", vec![1.0, 2.0, 3.0]));
+        match arr.zip_with(Value::Scalar(100.0), |a, b| a + b) {
+            Value::Array(a) => {
+                assert_eq!(a.axes[0].id, "D");
+                assert_eq!(a.data, vec![101.0, 102.0, 103.0]);
+            }
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn zip_is_positional_and_carries_axis() {
+        // Phase 0–1: two array-likes zip POSITIONALLY (bit-identical to the old
+        // Vector behavior), and a present 1-D axis propagates to the result.
+        let a = Value::Array(NamedArray::tagged("D", vec![1.0, 2.0, 3.0]));
+        let b = Value::Vector(vec![10.0, 20.0, 30.0]);
+        match a.zip_with(b, |x, y| x * y) {
+            Value::Array(r) => {
+                assert_eq!(r.axes[0].id, "D");
+                assert_eq!(r.data, vec![10.0, 40.0, 90.0]);
+            }
+            _ => panic!("expected Array (axis carried)"),
+        }
+        // Vector ⊕ Vector (no axis) stays a Vector; still positional min-length.
+        match Value::Vector(vec![1.0, 2.0, 3.0]).zip_with(Value::Vector(vec![4.0, 5.0]), |x, y| x + y) {
+            Value::Vector(v) => assert_eq!(v, vec![5.0, 7.0]),
+            _ => panic!("expected Vector"),
+        }
+    }
+
+    #[test]
+    fn vector_map_tags_output_with_over_axis() {
+        // Phase 1: `vector_map over "D"` of `index_ref(row)` → [1,2,3] tagged "D".
+        let dims: HashMap<String, usize> = [("D".to_string(), 3usize)].into_iter().collect();
+        let index_stack = RefCell::new(Vec::new());
+        let empty_out: HashMap<String, Value> = HashMap::new();
+        let empty_lk: HashMap<String, LookupData> = HashMap::new();
+        let empty_sub: HashMap<(String, String), Vec<f64>> = HashMap::new();
+        let fired = RefCell::new(std::collections::HashSet::new());
+        let ctx = EvalCtx {
+            lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
+            elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
+            dimensions: &dims, index_stack: &index_stack, submodel_outputs: &empty_sub,
+            lag: None, fired_events: &fired, calendar_start: None,
+        };
+        let node = AstNode::VectorMap {
+            over: "D".to_string(),
+            body: Box::new(AstNode::IndexRef { axis: crate::model::IndexAxis::Row }),
+        };
+        match eval_ast(&node, &ctx).unwrap() {
+            Value::Array(a) => {
+                assert_eq!(a.axes[0].id, "D", "vector_map result must carry the `over` axis");
+                assert_eq!(a.data, vec![1.0, 2.0, 3.0]);
+            }
+            other => panic!("vector_map should yield a tagged Array, got {other:?}"),
+        }
+    }
 }
