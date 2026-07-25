@@ -120,14 +120,16 @@ axis-tagged; `eval.rs`). The array lane adds, in `engine_v2`:
 |---|---|---|---|
 | A ✅ | **Eligibility analysis + `array_lane` opt-in flag** that, when a model is fully eligible, runs it columnar (correctness first). Golden-diff the scalar lane stays byte-identical; array lane validated **bit-identical** to the scalar lane. *Shipped: `array_lane.rs` `eligible`/`run_array_lane`, `engine/tests/array_lane_v2.rs`.* | M | Low — additive, gated |
 | B ✅ | **Fusing kernel evaluator** (elementwise chains → one pass, no temps) — the Spike-1 win. *Shipped: each expression compiles once to a postfix bytecode program with short-circuit `if` jumps; `eval_pass` runs one fused pass per Run column, no per-op `Vec`. Bench `engine/tests/array_lane_bench.rs`: **8.4× vs scalar** on a 500k-realization 8-op chain, result bit-identical.* | M–L | Med |
-| C | **Native `Run`-axis reductions** (fold `run_stat`/`submodel_stat` onto axis reduction in the lane; drop the two-pass for lane models). | M | Med |
+| C ✅ | **Native `Run`-axis reductions** — fold `run_stat` onto an inline column reduction and **drop the two-pass** for lane models. *Shipped: `augmented_order` builds a topo order where every `run_stat` target precedes its consumer; when it exists (acyclic), a single pass evaluates each column and reduces its `run_stat`s inline. A `run_stat` on a genuine cycle (ensemble feedback) has no such order → the two-pass fallback is retained. Bench: **26.6× vs scalar** on a 500k-realization §2 model, bit-identical.* | M | Med |
 | D | **Auto-routing** (per-subgraph eligibility, scalar/array hybrid in one run) + stock vectorization. | L | Med–High |
 | — | Closure/bytecode kernel compiler; runtime-dynamic indices | L | later |
 
-Phases A–B are shipped and gated (opt-in, scalar path untouched). B is where the
-measured speedup landed — 8.4× on the chain bench, above the 5× Spike-1 projection
-because the scalar lane also pays per-realization ctx/HashMap overhead that the
-fused, slot-indexed column pass eliminates.
+Phases A–C are shipped and gated (opt-in, scalar path untouched). Measured speedups:
+**8.4×** on a pure arithmetic chain (B's fused kernel) and **26.6×** on the §2
+mid-graph-reduction shape (C's single pass — the scalar lane must run the whole
+simulation twice for a `run_stat`, the array lane reduces the materialized column
+inline). Both bit-identical to the scalar lane. The §2 shape is exactly Analytica's
+hard case, so the largest win lands where it matters most for compat.
 
 ## Non-goals / constraints
 

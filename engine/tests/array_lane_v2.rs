@@ -72,6 +72,53 @@ fn array_lane_arithmetic_matches_scalar() {
     assert_bit_identical(&run(ARITH, false), &run(ARITH, true));
 }
 
+// Phase C single-pass ordering: `run_stat` targets an **expression** (`M/z`), and its
+// consumer (`M/d`) is declared *before* the target in element order. The augmented
+// topo order must still evaluate `M/z` before reducing it, so a single inline pass
+// matches the scalar lane's two passes bit-for-bit.
+const RUNSTAT_EXPR_TARGET: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 500, "seed": 9},
+  "containers": [{"id": "M", "name": "M", "elements": ["M/x","M/d","M/z"]}],
+  "elements": [
+    {"id":"M/x","name":"x","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"uniform","parameters":{"min":{"value":0,"unit":"1"},"max":{"value":4,"unit":"1"}}},"save_results":{"final_value":true}},
+    {"id":"M/d","name":"d","primitive":"node","value_rule":"expression","container":"M",
+     "expression":{"ast":{"op":"multiply","left":{"op":"run_stat","element_id":"M/z","statistic":"mean"},"right":{"op":"literal","value":10}}},"save_results":{"final_value":true}},
+    {"id":"M/z","name":"z","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x"],
+     "expression":{"ast":{"op":"add","left":{"op":"ref","element_id":"M/x"},"right":{"op":"literal","value":1}}},"save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn run_stat_over_expression_target_single_pass() {
+    let scalar = run(RUNSTAT_EXPR_TARGET, false);
+    let array = run(RUNSTAT_EXPR_TARGET, true);
+    assert_bit_identical(&scalar, &array);
+    // mean(z) = mean(x)+1 ≈ 3, d = 10*mean(z) ≈ 30
+    assert!((array.elements["M/d"].final_values[0] - 30.0).abs() < 1.0);
+}
+
+// Cyclic run_stat feedback: `M/c = run_stat(M/e, mean) * 0.5` and `M/e = M/c + x`.
+// No topo order places the target before the consumer, so the lane must fall back to
+// the two-pass evaluation — and still match the scalar lane (which does the same).
+const RUNSTAT_CYCLE: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 400, "seed": 5},
+  "containers": [{"id": "M", "name": "M", "elements": ["M/x","M/c","M/e"]}],
+  "elements": [
+    {"id":"M/x","name":"x","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"uniform","parameters":{"min":{"value":0,"unit":"1"},"max":{"value":2,"unit":"1"}}},"save_results":{"final_value":true}},
+    {"id":"M/c","name":"c","primitive":"node","value_rule":"expression","container":"M",
+     "expression":{"ast":{"op":"multiply","left":{"op":"run_stat","element_id":"M/e","statistic":"mean"},"right":{"op":"literal","value":0.5}}},"save_results":{"final_value":true}},
+    {"id":"M/e","name":"e","primitive":"node","value_rule":"expression","container":"M","inputs":["M/c","M/x"],
+     "expression":{"ast":{"op":"add","left":{"op":"ref","element_id":"M/c"},"right":{"op":"ref","element_id":"M/x"}}},"save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn run_stat_cycle_falls_back_and_matches_scalar() {
+    assert_bit_identical(&run(RUNSTAT_CYCLE, false), &run(RUNSTAT_CYCLE, true));
+}
+
 #[test]
 fn eligibility_accepts_and_rejects() {
     let m = parse_v2(RUNSTAT).unwrap();

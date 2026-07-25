@@ -385,32 +385,60 @@ pub fn run_array_lane(
     let run_stat_targets = collect_run_stats(model)?;
     let rs_of: HashMap<String, u32> = run_stat_targets.iter().enumerate()
         .map(|(i, t)| (t.key.clone(), i as u32)).collect();
+    // Which run-stat slots reduce which element's column (fill after that column finalizes).
+    let mut targets_of: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, t) in run_stat_targets.iter().enumerate() {
+        targets_of.entry(t.element_id.as_str()).or_default().push(i);
+    }
 
-    // Expression elements in topo order, with their compiled programs and slots.
-    let mut exprs: Vec<(u32, Vec<Op>)> = Vec::new();
-    for id in &graph.topo_order {
-        if let Some(ast) = expression_ast(model, id) {
-            let prog = compile(ast, &slot_of, &rs_of)?;
-            exprs.push((slot_of[id.as_str()], prog));
+    let mut progs: HashMap<u32, Vec<Op>> = HashMap::new();
+    for e in &model.elements {
+        if let Some(ast) = expression_ast(model, e.id()) {
+            progs.insert(slot_of[e.id()], compile(ast, &slot_of, &rs_of)?);
         }
     }
 
-    // ── 3. Fused evaluation: one pass per column. Two passes iff a run_stat exists. ──
     let mut rstats: Vec<f64> = vec![0.0; run_stat_targets.len()];
     let mut stack: Vec<f64> = Vec::with_capacity(32);
 
-    eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
-
-    if !run_stat_targets.is_empty() {
-        for (i, t) in run_stat_targets.iter().enumerate() {
-            let slot = slot_of[t.element_id.as_str()] as usize;
-            let samples = match &columns[slot] {
-                ColData::Vec(v) => v.clone(),
-                ColData::Scalar(s) => vec![*s; n],
-            };
-            rstats[i] = reduce_run_stat(&samples, &t.stat, t.arg);
+    // ── 3. Fused evaluation ──
+    // Phase C: a run_stat's target is materialized here (unlike the scalar lane), so
+    // when a topo order exists that places every run_stat target before its consumer,
+    // we fold the reduction inline in a **single** pass. That augmented order can only
+    // fail to exist when a run_stat participates in a genuine cycle (ensemble
+    // feedback); that case keeps the correctness-preserving two-pass fallback.
+    match augmented_order(model, &slot_of) {
+        Some(order) => {
+            for id in &order {
+                let slot = slot_of[id.as_str()];
+                if let Some(prog) = progs.get(&slot) {
+                    let mut out = Vec::with_capacity(n);
+                    for r in 0..n {
+                        out.push(exec(prog, &columns, &rstats, r, &mut stack));
+                    }
+                    columns[slot as usize] = ColData::Vec(out);
+                }
+                // This element's column is now final — reduce any run_stats over it.
+                if let Some(slots) = targets_of.get(id.as_str()) {
+                    for &i in slots {
+                        let t = &run_stat_targets[i];
+                        rstats[i] = reduce_over_column(&columns[slot as usize], &t.stat, t.arg, n);
+                    }
+                }
+            }
         }
-        eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
+        None => {
+            // Cyclic run_stat feedback: mirror the scalar lane's two passes exactly.
+            let exprs: Vec<(u32, &Vec<Op>)> = graph.topo_order.iter()
+                .filter_map(|id| progs.get(&slot_of[id.as_str()]).map(|p| (slot_of[id.as_str()], p)))
+                .collect();
+            eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
+            for (i, t) in run_stat_targets.iter().enumerate() {
+                let slot = slot_of[t.element_id.as_str()] as usize;
+                rstats[i] = reduce_over_column(&columns[slot], &t.stat, t.arg, n);
+            }
+            eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
+        }
     }
 
     // ── 4. Assemble results (single step; columns → final_values) ──
@@ -442,14 +470,98 @@ pub fn run_array_lane(
 }
 
 /// One fused pass: evaluate every compiled expression's whole Run column, in topo
-/// order, so later expressions see earlier columns.
-fn eval_pass(exprs: &[(u32, Vec<Op>)], columns: &mut Vec<ColData>, rstats: &[f64], n: usize, stack: &mut Vec<f64>) {
+/// order, so later expressions see earlier columns. Used only by the two-pass fallback.
+fn eval_pass(exprs: &[(u32, &Vec<Op>)], columns: &mut Vec<ColData>, rstats: &[f64], n: usize, stack: &mut Vec<f64>) {
     for (slot, prog) in exprs {
         let mut out = Vec::with_capacity(n);
         for r in 0..n {
             out.push(exec(prog, columns, rstats, r, stack));
         }
         columns[*slot as usize] = ColData::Vec(out);
+    }
+}
+
+/// Reduce a finalized Run column with a run-stat, avoiding a copy for the vector case.
+fn reduce_over_column(col: &ColData, stat: &SubmodelStatKind, arg: f64, n: usize) -> f64 {
+    match col {
+        ColData::Vec(v) => reduce_run_stat(v, stat, arg),
+        ColData::Scalar(s) => reduce_run_stat(&vec![*s; n], stat, arg),
+    }
+}
+
+/// A topological order over **all** elements in which every `run_stat` target
+/// precedes its consumer (in addition to the ordinary ref-dependency edges), or
+/// `None` when no such order exists — i.e. a `run_stat` sits on a cycle (genuine
+/// across-realization feedback), which forces the two-pass fallback. Deterministic:
+/// ready elements are emitted in model-declaration order.
+fn augmented_order(model: &Model, slot_of: &HashMap<&str, u32>) -> Option<Vec<String>> {
+    let ids: Vec<&str> = model.elements.iter().map(|e| e.id()).collect();
+    let mut indeg: HashMap<&str, usize> = ids.iter().map(|&i| (i, 0)).collect();
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in &model.elements {
+        if let Some(ast) = expression_ast(model, e.id()) {
+            let mut deps: Vec<String> = Vec::new();
+            collect_expr_deps(ast, &mut deps);
+            deps.sort();
+            deps.dedup();
+            for d in deps {
+                // Only edges between real elements matter (dangling refs are inert).
+                if slot_of.contains_key(d.as_str()) && d != e.id() {
+                    // Map the borrowed key back to the &str owned by `ids`.
+                    if let Some(&src) = ids.iter().find(|&&x| x == d) {
+                        adj.entry(src).or_default().push(e.id());
+                        *indeg.get_mut(e.id()).unwrap() += 1;
+                    }
+                }
+            }
+        }
+    }
+    // Kahn's algorithm, emitting ready nodes in model order for determinism.
+    let mut order: Vec<String> = Vec::with_capacity(ids.len());
+    let mut ready: Vec<&str> = ids.iter().copied().filter(|id| indeg[id] == 0).collect();
+    let mut emitted: HashSet<&str> = HashSet::new();
+    while let Some(&next) = ready.first() {
+        ready.remove(0);
+        if !emitted.insert(next) { continue; }
+        order.push(next.to_string());
+        if let Some(succs) = adj.get(next) {
+            for &s in succs {
+                let d = indeg.get_mut(s).unwrap();
+                *d -= 1;
+                if *d == 0 {
+                    // Insert keeping model order among the ready set.
+                    let pos = ids.iter().position(|&x| x == s).unwrap();
+                    let ins = ready.iter().position(|&x| ids.iter().position(|&y| y == x).unwrap() > pos)
+                        .unwrap_or(ready.len());
+                    ready.insert(ins, s);
+                }
+            }
+        }
+    }
+    (order.len() == ids.len()).then_some(order)
+}
+
+/// Element ids this expression depends on for ordering: ordinary refs **and**
+/// `run_stat` targets (whose columns must be finalized before the reduction).
+fn collect_expr_deps(node: &AstNode, out: &mut Vec<String>) {
+    use AstNode::*;
+    match node {
+        Ref { element_id, .. } => out.push(element_id.clone()),
+        RunStat { element_id, arg, .. } => {
+            out.push(element_id.clone());
+            if let Some(a) = arg { collect_expr_deps(a, out); }
+        }
+        Add { left, right } | Subtract { left, right } | Multiply { left, right }
+        | Divide { left, right } | Power { left, right } | Lt { left, right }
+        | Gt { left, right } | Lte { left, right } | Gte { left, right }
+        | Eq { left, right } | Neq { left, right } | And { left, right } | Or { left, right } => {
+            collect_expr_deps(left, out); collect_expr_deps(right, out);
+        }
+        Neg { operand } | Not { operand } => collect_expr_deps(operand, out),
+        If { cond, then, else_ } => {
+            collect_expr_deps(cond, out); collect_expr_deps(then, out); collect_expr_deps(else_, out);
+        }
+        _ => {}
     }
 }
 
@@ -534,4 +646,51 @@ fn primary_unit(elem: &Element) -> &str {
         }
     }
     elem.base.outputs.first().map(|o| o.unit.as_str()).unwrap_or("1")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::augmented_order;
+    use crate::model_v2::Model;
+    use std::collections::HashMap;
+
+    fn slots(m: &Model) -> HashMap<&str, u32> {
+        m.elements.iter().enumerate().map(|(i, e)| (e.id(), i as u32)).collect()
+    }
+
+    // run_stat over an expression target, consumer declared first → still orderable.
+    #[test]
+    fn augmented_order_orders_expression_target_before_consumer() {
+        let json = r#"{
+          "wasim_version": "0.9.7",
+          "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 4, "seed": 1},
+          "containers": [{"id":"M","name":"M","elements":["M/x","M/d","M/z"]}],
+          "elements": [
+            {"id":"M/x","name":"x","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"uniform","parameters":{"min":{"value":0,"unit":"1"},"max":{"value":1,"unit":"1"}}}},
+            {"id":"M/d","name":"d","primitive":"node","value_rule":"expression","container":"M","expression":{"ast":{"op":"run_stat","element_id":"M/z","statistic":"mean"}}},
+            {"id":"M/z","name":"z","primitive":"node","value_rule":"expression","container":"M","expression":{"ast":{"op":"add","left":{"op":"ref","element_id":"M/x"},"right":{"op":"literal","value":1}}}}
+          ]
+        }"#;
+        let m = crate::v2_parse::parse(json).unwrap();
+        let order = augmented_order(&m, &slots(&m)).expect("acyclic → Some");
+        let pos = |id: &str| order.iter().position(|x| x == id).unwrap();
+        assert!(pos("M/z") < pos("M/d"), "run_stat target M/z must precede consumer M/d: {order:?}");
+        assert!(pos("M/x") < pos("M/z"), "ref dep M/x must precede M/z");
+    }
+
+    // Cyclic run_stat feedback (M/c ← mean(M/e), M/e ← M/c) → no valid order.
+    #[test]
+    fn augmented_order_rejects_run_stat_cycle() {
+        let json = r#"{
+          "wasim_version": "0.9.7",
+          "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 4, "seed": 1},
+          "containers": [{"id":"M","name":"M","elements":["M/c","M/e"]}],
+          "elements": [
+            {"id":"M/c","name":"c","primitive":"node","value_rule":"expression","container":"M","expression":{"ast":{"op":"run_stat","element_id":"M/e","statistic":"mean"}}},
+            {"id":"M/e","name":"e","primitive":"node","value_rule":"expression","container":"M","expression":{"ast":{"op":"add","left":{"op":"ref","element_id":"M/c"},"right":{"op":"literal","value":1}}}}
+          ]
+        }"#;
+        let m = crate::v2_parse::parse(json).unwrap();
+        assert!(augmented_order(&m, &slots(&m)).is_none(), "run_stat cycle → None (two-pass fallback)");
+    }
 }

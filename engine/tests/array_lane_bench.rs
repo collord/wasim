@@ -62,3 +62,60 @@ fn bench_array_lane_vs_scalar() {
         scalar_t / array_t
     );
 }
+
+/// The §2 shape: a mid-graph across-realization reduction (`run_stat`) feeding
+/// downstream — Analytica's hard case. In the scalar lane this forces a full
+/// two-pass simulation; the array lane reduces the materialized column inline in a
+/// single pass (Phase C).
+fn runstat_model(n_real: u32) -> String {
+    format!(r#"{{
+      "wasim_version": "0.9.7",
+      "simulation_settings": {{"duration": {{"value": 1, "unit": "d"}}, "timestep": {{"value": 1, "unit": "d"}}, "n_realizations": {n_real}, "seed": 21}},
+      "containers": [{{"id": "M", "name": "M", "elements": ["M/a","M/loss","M/mean_loss","M/tail","M/z"]}}],
+      "elements": [
+        {{"id":"M/a","name":"a","primitive":"node","value_rule":"sample","container":"M","distribution":{{"family":"normal","parameters":{{"mean":{{"value":100,"unit":"1"}},"stddev":{{"value":30,"unit":"1"}}}}}},"save_results":{{"final_value":false}}}},
+        {{"id":"M/loss","name":"loss","primitive":"node","value_rule":"expression","container":"M","inputs":["M/a"],
+         "expression":{{"ast":{{"op":"if","cond":{{"op":"gt","left":{{"op":"ref","element_id":"M/a"}},"right":{{"op":"literal","value":120}}}},"then":{{"op":"subtract","left":{{"op":"ref","element_id":"M/a"}},"right":{{"op":"literal","value":120}}}},"else":{{"op":"literal","value":0}}}}}},"save_results":{{"final_value":false}}}},
+        {{"id":"M/mean_loss","name":"mean_loss","primitive":"node","value_rule":"expression","container":"M",
+         "expression":{{"ast":{{"op":"run_stat","element_id":"M/loss","statistic":"mean"}}}},"save_results":{{"final_value":true}}}},
+        {{"id":"M/tail","name":"tail","primitive":"node","value_rule":"expression","container":"M",
+         "expression":{{"ast":{{"op":"run_stat","element_id":"M/loss","statistic":"cte","arg":{{"op":"literal","value":0.95}}}}}},"save_results":{{"final_value":true}}}},
+        {{"id":"M/z","name":"z","primitive":"node","value_rule":"expression","container":"M","inputs":["M/loss","M/mean_loss"],
+         "expression":{{"ast":{{"op":"divide","left":{{"op":"ref","element_id":"M/loss"}},"right":{{"op":"add","left":{{"op":"run_stat","element_id":"M/loss","statistic":"mean"}},"right":{{"op":"literal","value":1}}}}}}}},"save_results":{{"final_value":true}}}}
+      ]
+    }}"#)
+}
+
+#[test]
+#[ignore]
+fn bench_runstat_array_lane_vs_scalar() {
+    let json = runstat_model(500_000);
+    let m = parse_v2(&json).unwrap();
+    let g = ModelGraphV2::build(&m).unwrap();
+
+    let scalar_cfg = RunConfig { array_lane: false, ..Default::default() };
+    let array_cfg = RunConfig { array_lane: true, ..Default::default() };
+
+    // Warm + bit-identity probe on the whole element set.
+    let sw = run_v2(&m, &g, &scalar_cfg).unwrap();
+    let aw = run_v2(&m, &g, &array_cfg).unwrap();
+    for id in ["M/mean_loss", "M/tail", "M/z"] {
+        assert_eq!(sw.elements[id].final_values[0].to_bits(), aw.elements[id].final_values[0].to_bits(),
+            "{id}: array lane must be bit-identical");
+    }
+
+    let mut st = f64::INFINITY;
+    let mut at = f64::INFINITY;
+    for _ in 0..5 {
+        let t = std::time::Instant::now();
+        std::hint::black_box(run_v2(&m, &g, &scalar_cfg).unwrap());
+        st = st.min(t.elapsed().as_secs_f64());
+        let t = std::time::Instant::now();
+        std::hint::black_box(run_v2(&m, &g, &array_cfg).unwrap());
+        at = at.min(t.elapsed().as_secs_f64());
+    }
+    eprintln!(
+        "BENCH run_stat n=500000  scalar={st:.4}s  array(single-pass)={at:.4}s  speedup={:.2}x  (mean_loss={:.4})",
+        st / at, aw.elements["M/mean_loss"].final_values[0]
+    );
+}
