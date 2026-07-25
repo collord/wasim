@@ -261,6 +261,139 @@ majority-faithful conversion, and 1 is nearly free.
 
 ---
 
+## 9. Appendix — array model & architectural directions
+
+The blockers in §4 aren't a pile of missing builtins; they're **one missing
+abstraction** showing up in different disguises. This appendix names it, relates
+it to the "adopt a Rust array library?" question, and lists the architectural
+tweaks that generalize the problem space — each of which pays off well beyond
+Analytica (`inter alia`: GoldSim vectors, the results layer, engine simplicity).
+
+### 9.1 "Intelligent Arrays" is xarray, not numpy — and that's the whole point
+
+numpy is **positional**: axes are anonymous and ordered; you broadcast by
+trailing-shape rules and reshape/transpose by hand. Analytica's Intelligent
+Arrays are **named**: every axis is a first-class Index with an identity, and
+operations **align by name** — multiply an array over `[Platform, Year]` by one
+over `[Year, Scenario]` and it aligns on `Year`, outer-products the rest, with no
+axis-order bookkeeping. On top of that you **subscript by label**
+(`cost[Platform='Gail']`) and index membership can be **built at runtime**
+(`Subset`, `Sequence`, `SortIndex`).
+
+The right analogy is **xarray / pandas / APL–J / Julia AxisArrays** — *labeled*
+tensors. numpy is the layer *underneath* xarray. So the part a Rust array library
+gives you (n-d storage, elementwise kernels, reductions) is **not** the blocker;
+the named-axis semantics (align-by-name, label subscript, runtime indices) are —
+and no Rust crate provides those.
+
+### 9.2 Does WASiM need a Rust array library?
+
+Two separable layers:
+
+| Layer | Provider | Is it the gap? |
+|---|---|---|
+| n-d storage, broadcast kernels, reductions, BLAS | a crate (`ndarray`, `faer`) | **No** — the easy half |
+| named-axis identity, align-by-name, label index, runtime index sets | **in-house** (nobody in Rust) | **Yes** — §4's blockers |
+
+If/when n-d *storage & kernels* are wanted, **`ndarray`** is the fit: pure-Rust,
+numpy-like, **WASM-clean** (BLAS is optional/feature-gated). Avoid the heavier
+options given this engine's posture — `faer` (matrix-shaped, not labeled),
+`polars`/`arrow` (tabular, named *columns* not n-d axes), `candle`/`burn`/`tch`
+(ML stacks: GPU, autodiff, dozens of transitive deps). Three hard constraints
+from *this* codebase rule out the aggressive choices:
+
+1. **WASM target.** BLAS/LAPACK backends don't cross to `wasm32`; keep any array
+   lib on its pure-Rust path, feature-gate native acceleration to the CLI build.
+2. **Bit-reproducibility.** The engine sorts with `total_cmp` and fixes reduction
+   order on purpose; SIMD/parallel/BLAS reductions reorder float ops and break the
+   bit-identity guarantee. Adopted kernels must run in deterministic, fixed order.
+3. **Minimal-dependency ethos.** Today the engine has exactly one dependency
+   (serde). `ndarray` is a defensible add; an ML tensor stack is a philosophical
+   break.
+
+**Bottom line:** an array crate is an eventual *substrate for speed*, not the
+thing that unblocks fidelity. Reach for it under a WASiM-owned named-array type,
+not instead of one.
+
+### 9.3 The unifying idea — axes as one algebra (the north star)
+
+Today the runtime value is `Value::Scalar(f64) | Value::Vector(Vec<f64>)`. A
+`Vector` carries **no axis identity** — *which* dimension it ranges over lives
+out-of-band in `outputs[].dimensions` and the `<id>#k` result-naming convention.
+And "reduce across a population" exists **three times**: `results_spec` (across
+realizations at the output boundary), `submodel_stat` (across realizations
+mid-graph, via a submodel), and `sum_array`/`mean_array` (across an array axis).
+Time and Run(sample) are engine-privileged axes, not values.
+
+Analytica's model — and xarray's — is the generalization: **a value is a labeled
+array over named axes, and Time and Run are just two of those axes.** If WASiM
+moved to
+
+```rust
+enum Value { Scalar(f64), Array(NamedArray) }
+struct NamedArray { dims: Vec<DimId>, shape: Vec<usize>, data: Vec<f64> }  // row-major
+```
+
+then the disguises in §4 collapse into one abstraction:
+
+- **Align-by-name broadcast** (Intelligent Arrays, §4.3) = the binary-op rule on
+  `NamedArray`: union the dim sets, broadcast missing axes. Falls out for free.
+- **Label subscript** `x[Dim=label]` (§4.1) = index an axis by label → drop that
+  axis. One operation.
+- **Across-realization reduction** (§4.4, the §2 gap) = **reduce over the `Run`
+  axis**, identical to reducing over any user axis. `submodel_stat`,
+  `results_spec`, and `sum_array` become one `reduce(axis, stat)` — the mid-graph
+  `Probability`/`Mean`/`GetFract` that both example models needed is then just
+  `reduce(Run, …)`, no submodel wrapper required.
+- **The `#k` expansion hack disappears** — results carry their axes, so array
+  outputs no longer need per-member `<id>#k` series stitched back together.
+- **Time-history unifies with array results** — if Time is (optionally) an axis,
+  a time series and an array output are the same shape of thing.
+
+That is simultaneously the **Analytica-alignment** move *and* the engine's biggest
+**simplification** (three reduction paths → one; the `#k` convention retired; v1
+`Vector` and v2 array results reconciled). It generalizes the problem space rather
+than bolting on cases.
+
+### 9.4 The tweaks, ranked — Analytica payoff *and* general payoff
+
+Smallest-first; each shippable alone.
+
+| # | Tweak | Layer / size | Helps Analytica | Helps generally (`inter alia`) |
+|---|---|---|---|---|
+| 1 | **`let`-bindings in the AST** (`var x:=e; … r`) | converter + a `let` AST node / small | reclaims the 149 var-block stubs (§4.2) | any transpiler (GoldSim), CSE, readable emitted expressions |
+| 2 | **`NamedArray` value type** (§9.3) | eval core / large | intelligent arrays, ≥2-D tables | GoldSim vectors/matrices, cleaner results, retires `#k` |
+| 3 | **`Run` as a reducible named axis** | eval + reductions / medium | sample-as-axis (§2/§4.4) mid-graph | unifies 3 reduction mechanisms → less engine code |
+| 4 | **Label subscript + runtime index sets** | eval + schema / medium | `x[Dim=label]`, `Subset`, `SortIndex` (§4.1) | data-driven models (cohorts, scenario tables) |
+| 5 | **`Choice`/`Checkbox` → enum inputs** | converter + schema / small | recovers dropped GUI decisions (§4.5) | typed enumerated inputs for any front end |
+| — | `ndarray` as `NamedArray` backing store | dep / opt | (perf only) | n-d kernel speed once §2 is the bottleneck |
+
+Do **1** first (nearly free, biggest single stub class). **2 + 3** are the
+structural core and are best designed together — a `NamedArray` whose axis list
+*includes* `Run` gives you §4.3 and §4.4 at once. **4** rides on 2. **5** is
+independent and cheap.
+
+### 9.5 Sequencing & risks (be honest about cost)
+
+- **Not a big-bang.** Ship `let`-lowering (1) now. Prototype `NamedArray` (2)
+  behind the existing `Value` enum — `Scalar`/`Vector` become the 0-D/1-D cases —
+  so the migration is additive, not a rewrite. Add `Run` to the axis set (3), then
+  retire `submodel_stat`/`results_spec` onto the unified reducer once it's proven.
+- **Determinism is the sharpest risk.** A named-array reducer must fix summation
+  order (stable fold, no SIMD/rayon reordering) or the bit-identity guarantee
+  breaks. Design the reduce kernel deterministic-by-construction.
+- **WASM binary size & the `Scalar` fast path.** Most nodes are scalar; keep the
+  0-D case a plain `f64` so the common path pays nothing and the wasm stays small.
+- **The v1/v2 split.** There are two model/eval paths (`model.rs`/`engine.rs` and
+  `model_v2.rs`/`engine_v2.rs`). Land `NamedArray` in v2 only; treat it as the
+  convergence point rather than porting both.
+- **Scope discipline.** Runtime *dynamic* index membership (index length computed
+  mid-run) is the genuinely hard tail (§4.1); pre-declared label indices cover
+  most of the corpus. Ship label subscript over fixed dimensions first; defer
+  data-length-varying indices until a model actually demands it.
+
+---
+
 *Evidence: `tools/ana_to_wasim.py`, `tools/examples/*` (EVIU + Platform_2017,
 mechanistic and native), engine rot guards, and this session's engine probes.
 Method: two real `.ana` models converted end-to-end and re-solved natively;
