@@ -62,6 +62,13 @@ pub fn run(
     graph: &ModelGraphV2,
     config: &RunConfig,
 ) -> Result<SimulationResults, EngineError> {
+    // Opt-in array lane (ARRAY_LANE_DESIGN.md Phase A): columnar over the Run axis
+    // for the flat-Monte-Carlo subset. Falls back to the scalar lane below when the
+    // flag is off or the model is ineligible, so the default path is untouched.
+    if config.array_lane && crate::array_lane::eligible(model).is_ok() {
+        return crate::array_lane::run_array_lane(model, graph, config);
+    }
+
     let targets = collect_run_stats(model)?;
     if targets.is_empty() {
         // No across-realization RunStat: the original single pass, bit-identical.

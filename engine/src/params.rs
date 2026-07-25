@@ -64,6 +64,8 @@ impl ModelParams {
             units: base.units,
             // realization weights are a runtime analysis input, not a params override; carry base.
             realization_weights: base.realization_weights,
+            // array lane is a runtime execution mode, not a params override; carry base.
+            array_lane: base.array_lane,
         }
     }
 }

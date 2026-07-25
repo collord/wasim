@@ -39,6 +39,13 @@ pub struct RunConfig {
     /// weights are normalized to sum 1 and applied to weighted statistics (mean/percentile/std/CTE
     /// and the A3 analysis layer). Weighted reductions on uniform weights equal the unweighted ones.
     pub realization_weights: Vec<f64>,
+    /// Opt-in **array lane** (ARRAY_LANE_DESIGN.md, Phase A). When true and the (v2)
+    /// model is array-lane-eligible — flat independent Monte-Carlo: no dimensions,
+    /// stocks, submodels, or state-machine node rules; arithmetic/comparison/if +
+    /// `run_stat` only — the run is evaluated columnar over the `Run` axis instead of
+    /// the scalar realization loop. Falls back to the scalar lane when ineligible, so
+    /// the default (false) path is completely untouched.
+    pub array_lane: bool,
 }
 
 /// Dimensional-analysis strictness for a run (B5). See `RunConfig.units`.
@@ -68,6 +75,7 @@ impl Default for RunConfig {
             timebase: TimebaseMode::Fixed,
             units: UnitsMode::Warn,
             realization_weights: Vec::new(),
+            array_lane: false,
         }
     }
 }
