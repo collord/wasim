@@ -67,6 +67,34 @@ on top needs the results-layer / optimization features called out there.
 Note: `.ana` from this era is classic-Mac **CR-delimited** with `~`/`~~`
 line-wrap markers inside long values; the converter normalizes both.
 
+## Stress test — `Platform_2017` (a real 300-node model)
+
+`tools/examples/Platform_2017.ana` is a large real Lumina model — the **PLATFORM
+decommissioning decision tool**, a multi-attribute decision-analysis framework
+for choosing how to decommission offshore oil & gas platforms (full removal /
+partial removal to reef / leave-in-place), scored across attributes (cost, reef
+biomass, access, air quality, compliance) with stakeholder swing weights, under
+cost uncertainty. 7651 statements, ~470 real nodes.
+
+```bash
+python3 tools/ana_to_wasim.py tools/examples/Platform_2017.ana \
+    -o tools/examples/Platform_2017.wasim.json
+```
+
+The conversion (`Platform_2017.wasim.json`, ~470 elements, 71 containers)
+**validates against the schema and runs in the engine** — but ~300 of the
+warnings show how much of a heavily array-and-subscript Analytica model doesn't
+survive a scalar translation: `Table`/`Subscript` reindexing (`x[Dim=label]`),
+`Choice`/`Checkbox`/`Handle` GUI decisions, `Subtable`/`Slice`, and `var … ; …`
+local-variable blocks all degrade to inert stubs. This is the expected outcome
+the gap analysis predicts for an Intelligent-Arrays model, and it drove two
+robustness fixes worth having anywhere: distributions with formula-valued
+parameters (which the engine evaluates to 0 and would crash a `lognormal`
+sampler) degrade to stubs, and references to non-emitted ids (system indices
+`Time`/`Run`, skipped `Function`s) are rewritten to inert `0.0` so the model
+still builds. It is guarded by `engine/tests/platform_conversion_v2.rs`. Its
+native counterpart is `platform_decommissioning_native.wasim.json` below.
+
 ## Native re-solution — `eviu_plane_catching_native.wasim.json`
 
 The mechanical conversion above stubs the value-of-information layer because it

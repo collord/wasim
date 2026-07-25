@@ -1,0 +1,300 @@
+
+298 conversion warning(s):
+  - [Emission_factors] could not parse Definition (expected ), got ('ident', 'm')); emitted inert stub. Raw: Table(Equipment_type,Engine_type,Emission_types)( 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 13.2,0.5,6.1m,1.1,646.08,0.47,0.43
+  - [Emissions] could not parse Definition (expected keyword 'else', got ('[', '[')); emitted inert stub. Raw: IF Equipment_type = 'DB50 Heavy Lifting Barge' THEN Total_kw*Emission_factors*Duty_cycle[Air_quality_platform='DB50']*Op
+  - [Total_kw] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Equipment_list[Equipment_fields='Power (kW)']*Equipment_list[Equipment_fields='No.']
+  - [Air_quality_threshol] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Air_quality_attribu3] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := Air_quality_attribu1[Platform=Platforms_to_conside,Platform_da_for_hlv_=Selected_options_by_,hlv_size=Max_
+  - [Air_quality_attribu1] unconvertible sub-expression preserved as inert stub: Stepinterp(Air_quality_threshol, Attribute_level_by_t, Air_quality_impact_f, Air_quality_threshol)
+  - [Threshold] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Input_biomass_estim] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Biomass_records,Biomass_fields)( 'ELLEN','bottom',696.525,'Anarrhichthys ocellatus',42.28580662,38.98902769,1400,2
+  - [Mean_biomass_by_str1] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','Mean (g/m2)']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],B
+  - [Se_biomass_by_strata] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','SE (g/m2)']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Bio
+  - [Area_by_strata__spec] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','Area']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Biomass_
+  - [Biomass_stock] could not parse Definition (trailing tokens at ('ident', 'k')); emitted inert stub. Raw: Biomass_by_strata__s * Area_by_strata__spec /1k
+  - [Lognormal] Lognormal with non-constant median/gsdev — emitted as lognormal_moments with raw params (verify).
+  - [Lognormal] distribution has non-constant / unresolved parameters (engine can't evaluate formula params) — emitted inert stub instead of a mis-parameterized draw.
+  - [Biomass_by_strata__s] unconvertible sub-expression preserved as inert stub: Lognormal(mean: Mean_biomass_by_str1, stddev: Se_biomass_by_strata)
+  - [Mean_total_length] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','mean TL']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Bioma
+  - [Max_length] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','L']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Biomass_rec
+  - [K] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','k']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Biomass_rec
+  - [To1] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','to']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Biomass_re
+  - [A] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','a (TL)']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Biomas
+  - [B] could not parse Definition (trailing tokens at ('ident', 'cols')); emitted inert stub. Raw: Index cols:= ['Platform','Strata','Species','b (TL)']; VAR x :=  MdTable(Input_biomass_estim[Biomass_fields=cols],Biomas
+  - [T] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Dynamic(T0-1,Self[Time-1]-1)
+  - [Biomass_growth_rates] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Dynamic(1 - (Weight_/Weight_by_time[Time='Year 1']), 1-(Weight_by_time[Time-1]/Weight_by_time[Time]))
+  - [Mortality_rate_by_ti] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Dynamic(Mortality_parameter*(Weight_*0.2)^-0.25, Mortality_parameter*(Weight_by_time[Time-1]*0.2)^-0.25)
+  - [Biomass_increase] could not parse Definition (unexpected token ('op', '@')); emitted inert stub. Raw: Dynamic(Biomass_stock*(1-Mortality_rate_by_ti)*Biomass_growth_rates, (IF @Time = 2 THEN (Self[Time-1]+Biomass_stock)*(1-
+  - [Biomass_growth_rate1] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Dynamic(1 - (Weight_/Weight_by_time1),  	1 - (Weight_by_time1[Time - 1]/Weight_by_time1))
+  - [Mortality_rate_by_t1] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Dynamic(Mortality_parameter*(Weight_*0.2)^-0.25, Mortality_parameter*(Weight_by_time1[Time-1]*0.2)^-0.25)
+  - [Biomass_increase1] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Dynamic(Biomass_stock*(1-Mortality_rate_by_t1)*Biomass_growth_rate1, 	Self[Time-1]*(1-Mortality_rate_by_t1)*Biomass_grow
+  - [Biomass_yield_by_pla] could not parse Definition (trailing tokens at ('ident', 'x')); emitted inert stub. Raw: Var x:= IF IsNan(Biomass_increase) THEN 0 ELSE Biomass_increase; SUM(x,Species)
+  - [Biomass_yield_for_pl] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := (Biomass_yield_by_opt[Platform=Platforms_to_conside,Decommissioning_alt6=Selected_options_by_]); IF result
+  - [Biomass_yield_by_opt] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Decommissioning_alt6 = '1 Complete platform removal' THEN 0 ELSE Biomass_yield_by__pl[Strata="bottom"]+Biomass_yield_
+  - [Biomass_platforms_to] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Substitute_platforms[Platform=Platforms_to_conside]
+  - [Biomass_yield_mapped] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Biomass_yield_by_pla[Biomass_platforms=Biomass_platform_map]
+  - [Biomass_yield_by__pl] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Biomass_yield_mapped[Biomass_platform_ma1=Biomass_platforms_to]
+  - [Biomass_records] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Strata] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Species] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Biomass_platforms] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Shell_mound_dredgin1] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: VAR result := (IF Remove_shell_mounds_ = 1 THEN 'Worst' ELSE 'Medium' ); IF Result = «null» THEN 'Average' ELSE result
+  - [Selected_platforms_d] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Platform_depth_descr[Platform=Platforms_to_conside]
+  - [Attribute_rating_fo3] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Benthic_impact_attri[Attribute_levels=Shell_mound_dredgin1,Comp_rmvl_scenarios=Selected_scenarios]
+  - [Attribute_rating_fo2] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Anchoring_impacts = 'No action' THEN 'No action' ELSE Benthic_impact_attri[Attribute_levels=Anchoring_impacts]
+  - [Benthic_impact_attr1] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Benthic_impacts_rati = 'No action' THEN 'No action' ELSE Attribute_level_by_r[Attribute_score=Benthic_impacts_rati]
+  - [Benthic_impact_attri] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Attribute_ratings_by[Attributes='Benthic impacts']
+  - [Attribute_rating_fo4] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Anchoring_impacts = 'No action' THEN 'No action' ELSE Benthic_impact_attri[Attribute_levels=Jacket_removal_impac]
+  - [Platforms_to_conside] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Decommissioning_alt6] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Platform_da_for_hlv_] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Platform_Data] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Platform,Platform_da_weight_d)( 188,4090,2469,2590, 190,4095,2461,2595, 192,4010,2404,2510, 161,8298,6334,4844, 26
+  - [Selected_options_by_] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Defne_slctd_scenario[Platform=Platforms_to_conside]
+  - [Regions_by_platforms] unconvertible sub-expression preserved as inert stub: Choice(Platform_regions, 2, 0)
+  - [Regions_by_platforms] unconvertible sub-expression preserved as inert stub: Choice(Platform_regions, 1, 0)
+  - [Scenarios_to_conside] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Scenarios_to_conside] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Define_all_scenarios] unconvertible sub-expression preserved as inert stub: Choice(Platform_decommissi1, 1, 0)
+  - [Define_all_scenarios] unconvertible sub-expression preserved as inert stub: Choice(Platform_decommissi1, 2, 0)
+  - [Define_all_scenarios] unconvertible sub-expression preserved as inert stub: Choice(Platform_decommissi1, 3, 0)
+  - [Defne_slctd_scenario] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Define_all_scenarios[Scenarios=Selected_scenarios])
+  - [Selected_scenarios] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Partial_removal_scen] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Comp_rmvl_scenarios] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Regions_to_consider] unconvertible sub-expression preserved as inert stub: Choice(Platform_regions, 2)
+  - [Va1] no Definition — emitted as constant 0.
+  - [Attribute_ratings_by] unconvertible sub-expression preserved as inert stub: Null
+  - [Score_by_attribute_b] could not parse Definition (expected keyword 'else', got ('[', '[')); emitted inert stub. Raw: IF Attribute_is_qualita THEN Attribute_ratings_by[Attribute_levels=Attribute_rating_by_]  ELSE Attribute_rating_by_
+  - [Best_levels] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Attributes)(0,100,100,100,100,100,10K,2,100)
+  - [Best_ocean_access_im] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Average_impacts_by_r[Decommissioning_Alt6='1 Complete platform removal',Access_type='Easy Access',Ocean_use_type='Take']
+  - [Best_case_bio_yield] unconvertible sub-expression preserved as inert stub: Sample(Biomass_yield_by_pla)
+  - [Utility_difference_b] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: (Multi_attribute_scor[Selected_scenarios=Scenario_B_for_compa] - Multi_attribute_scor[Selected_scenarios= Scenario_A_for
+  - [Utility_difference] unconvertible sub-expression preserved as inert stub: Tornado2(Utility_difference_b, Attributes1, Parameter_ranges_for, Levels3)
+  - [Select_platform] unconvertible sub-expression preserved as inert stub: Choice(Platforms_to_conside, 0, 1)
+  - [Optimal_strategy_by_] unconvertible sub-expression preserved as inert stub: Argmax(Multi_attribute_scor, Selected_scenarios)
+  - [Scenario_A_for_compa] unconvertible sub-expression preserved as inert stub: Choice(Selected_scenarios, 1, 0)
+  - [Scenario_B_for_compa] unconvertible sub-expression preserved as inert stub: Choice(Selected_scenarios, 2, 0)
+  - [Recommended_decision] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Optimal_strategy_by_[Swing_weight_levels = Compliance_wt, Platforms_to_conside = Platforms_by_depth]
+  - [Platforms_by_depth] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Select_swing_weights] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_for_str, 0)
+  - [GetFract] across-realization/dynamic statistic has no mid-graph v0.1.0 equivalent (see gap analysis §2); preserved as inert stub — reconstruct in the results layer or as an accumulator.
+  - [Parameter_ranges_for] unconvertible sub-expression preserved as inert stub: Handle(Cost_uncertainty)
+  - [Parameter_ranges_for] unconvertible sub-expression preserved as inert stub: GetFract(Cost_uncertainty, Array(levels3, [0.1, 0.5, 0.9]))
+  - [Swing_weight_levels] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Birds_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_levels, 3)
+  - [Water_quality_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_levels, 5, 0)
+  - [Air_quality_wt] unconvertible sub-expression preserved as inert stub: Choice(0, 11, 1)
+  - [Marine_mammals_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_levels, 7, 1)
+  - [Compliance_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_for_str, 2)
+  - [Benthic_resource_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_levels, 3, 0)
+  - [Fish_productivity_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_levels, 7, 0)
+  - [Ocean_access_wt] unconvertible sub-expression preserved as inert stub: Choice(Swing_weight_levels, 5, 0)
+  - [Cost_wt] unconvertible sub-expression preserved as inert stub: Choice(0, 21, 1)
+  - [Attributes1] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Swing_weight_ranges] no Definition — emitted as constant 0.
+  - [Number_of_platforms] could not parse Definition (trailing tokens at ('ident', 'j')); emitted inert stub. Raw: For j := Selected_scenarios DO ( size(subset(Selected_options_by_[Selected_scenarios=j]<>'No action')) )
+  - [Cost_weight_sensitiv] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Sensitivity_factors_] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Levels4 = 'Base' THEN 1 ELSE Cost_weight_range_pc[Low_high = Levels4]
+  - [Equivalent_cost_sens] unconvertible sub-expression preserved as inert stub: Tornado2(Cost_equivalance_dif, Cost_weights, Adjusted_cost_weight, Levels4)
+  - [Air_quality_cost_w] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Air Quality']
+  - [Water_quality_cost_w] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2Cost_weight_by_atttr[Attributes='Water Quality']
+  - [Marine_mammals_cost_] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Marine Mammals']
+  - [Birds_cost_w] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Birds']
+  - [Stewardship_cost_w] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Stewardship']
+  - [Benthic_impacts_cost] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Marine Resource Impacts - Benthic']
+  - [Fish_biomass_cost_w] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Marine Resource Impacts - Fish Biomass (kg)']
+  - [Ocean_access_cost_w] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Increased area of ocean access (Sq. na mi)']
+  - [Decommissioning_cos3] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_weights_by_att2[Attributes='Costs ($M)']
+  - [Cost_equivalance_dif] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: (Equivalent_value_by_[Selected_scenarios=Scenario_B_for_compa] - Equivalent_value_by_[Selected_scenarios= Scenario_A_for
+  - [Adjusted_cost_weight] unconvertible sub-expression preserved as inert stub: Evaluate(Cost_weights)
+  - [Cost_weights] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Switchover_cost_weig] could not parse Definition (trailing tokens at ('ident', 'delta_weights')); emitted inert stub. Raw: var delta_weights := (Equivalent_cost_by_3[Selected_scenarios = "Scenario 2"] - Equivalent_cost_by_3[Selected_scenarios 
+  - [Cost_difference_from] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Total_equivalent_cos[Selected_scenarios=Scenario_A_for_compa] - Total_equivalent_cos[Selected_scenarios= Scenario_B_for_
+  - [Cost_difference_torn] unconvertible sub-expression preserved as inert stub: Tornado2(Cost_difference_from, Attributes1, If (Levels3 = 0) Then Original_input_value Else If (Levels3 = 0) Then 0 Else 5, Levels3)
+  - [Excluded_module] unconvertible sub-expression preserved as inert stub: handle(ACP_option_library)
+  - [Node_order_by_module] unconvertible sub-expression preserved as inert stub: Choice(0, 1, 0)
+  - [Which_modules_to_lis] unconvertible sub-expression preserved as inert stub: Choice(0, 3, 0)
+  - [Selected_modules] could not parse Definition (trailing tokens at ('ident', 'parmod')); emitted inert stub. Raw: Metavar parmod:= Parent_module( Handle(self) ) ; IF IsNull(parmod) THEN Error('Expecting a parent Module: You must add t
+  - [Eg0] unconvertible sub-expression preserved as inert stub: Objectsbymodule(Top_model())
+  - [Objects_in_this_modu] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Eg2] unconvertible sub-expression preserved as inert stub: Orderobjs(Objects_in_this_modu, Node_order_by_module)
+  - [Eg1] unconvertible sub-expression preserved as inert stub: Objs_ordered_by_mod(Id_of_this_module, Node_order_by_module)
+  - [Id_of_this_module] could not parse Definition (trailing tokens at ('ident', 'OF')); emitted inert stub. Raw: Isin OF Self
+  - [Test_top_model] unconvertible sub-expression preserved as inert stub: Top_model()
+  - [Test_indented_module] could not parse Definition (trailing tokens at ('ident', 'top')); emitted inert stub. Raw: Var top := Top_model( ) ; INDEX i := Indented_modules(top); Array(i, Submodules(top))
+  - [Asl_Eg0] unconvertible sub-expression preserved as inert stub: Objectsbymodule(Top_model())
+  - [Asl_Eg2] unconvertible sub-expression preserved as inert stub: Orderobjs(Objects_in_this_modu, Node_order_by_module)
+  - [Asl_Eg1] unconvertible sub-expression preserved as inert stub: Objs_ordered_by_mod(Id_of_this_module, Node_order_by_module)
+  - [Asl_Eg] unconvertible sub-expression preserved as inert stub: Objectsinclass(Id_of_this_module, 0)
+  - [Asl_X] no Definition — emitted as constant 0.
+  - [Outline_tree_on_left] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Calculate_on_open_] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Hide__save__button_] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [ParentButtonCheckbox] unconvertible sub-expression preserved as inert stub: checkbox(0)
+  - [Remove_all_navigatio] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [ToolbarTabsCheckbox] unconvertible sub-expression preserved as inert stub: checkbox(0)
+  - [Uncertainty_icon_in_] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Model_title_checkbox] unconvertible sub-expression preserved as inert stub: checkbox(1)
+  - [Highlight_node_on_mo] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Glow_on_mouse_over_] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Balloon_on_mouse_ove] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Shadows] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Bevels] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Eg3] could not parse Definition (expected ), got ('ident', 'OF')); emitted inert stub. Raw: Varlist_as_text(Outputs OF  Selection_method)
+  - [Eg6] could not parse Definition (trailing tokens at ('op', ';')); emitted inert stub. Raw: Getnodeinfo( handle(Eg5) );
+  - [Eg5] could not parse Definition (expected ), got ('ident', 'OF')); emitted inert stub. Raw: List_from_val(Domain OF Selection_method )
+  - [Hide_node_fields] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Test_node] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: NOT Getnodeinfo(handle(Select_node_info))[Nodeinfo_fields =Select_node_info]
+  - [Select_node_info] unconvertible sub-expression preserved as inert stub: Choice(Nodeinfo_fields, 2, 0)
+  - [Id_of_top_model] unconvertible sub-expression preserved as inert stub: Top_model()
+  - [Lumina_logo_] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Use_top_diagram_size] unconvertible sub-expression preserved as inert stub: checkbox(1)
+  - [Balloon_delay] unconvertible sub-expression preserved as inert stub: Choice(Balloon_delay_choice, 6, 0)
+  - [Identifier_in_balloo] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Definition_in_balloo] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [DiagramTitleCheckBox] unconvertible sub-expression preserved as inert stub: checkbox(0)
+  - [Use_Flash_Buttons] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Banner_logo_and_tabs] unconvertible sub-expression preserved as inert stub: checkbox(1)
+  - [Auto_recalc_results] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Hierarchy_across_top] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Auto_calc] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Node_effect_on_mouse] unconvertible sub-expression preserved as inert stub: Choice(0, 1, 0)
+  - [Standard_awp_styles1] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Standard_awp_styles1] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Navigation_styles] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [y_pos_originNode] unconvertible sub-expression preserved as inert stub: getPosValue(handle(originNode), 0)
+  - [hide_outline] could not parse Definition (trailing tokens at ('ident', 'then')); emitted inert stub. Raw: if (Navigation_style = "Outline on left") then  false else true;
+  - [x_pos_originNode] unconvertible sub-expression preserved as inert stub: getPosValue(handle(originNode), 0)
+  - [Awp_style_variables] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Main_style] unconvertible sub-expression preserved as inert stub: Choice(Main_styles, 2, 0)
+  - [Defaults_for_Ana_sty] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Defaults_for_Ana_sty] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Style_options] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Navigation_style] unconvertible sub-expression preserved as inert stub: Choice(Navigation_styles, 1, 0)
+  - [All_nav_styles] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Defaults_for_Web_app] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Defaults_for_Web_app] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Show_As_Tab_Checkbox] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Add_Scroll_Bars] unconvertible sub-expression preserved as inert stub: checkbox(0)
+  - [ShowIONodeButtonText] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Resolution_Choices] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Minimum_Resolution] unconvertible sub-expression preserved as inert stub: Choice(Resolution_Choices, 7, 0)
+  - [ShowDescription] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Table_or_graph] unconvertible sub-expression preserved as inert stub: Choice(0, 1, 0)
+  - [ShowTitle] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Frame_nodes] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Select_module] unconvertible sub-expression preserved as inert stub: Choice(Modules, 1, 0, result: Modules)
+  - [Select_frame_node] unconvertible sub-expression preserved as inert stub: Choice(Frame_nodes, 1, 0, result: Frame_nodes)
+  - [Modules] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [No_border_] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Description_length] unconvertible sub-expression preserved as inert stub: Choice(0, 3, 0)
+  - [Set_as_a_frame_node] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Table_or_graph_] could not parse Definition (unexpected token ('op', '@')); emitted inert stub. Raw: Choice(table_or_graph_opts,1,0,result:@(table_or_graph_opts))
+  - [Show_index_menus] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Access_type_by_selec] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Access_type_by_platf[Platform=Platforms_to_conside]
+  - [Ocean_access_data] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Access_fields,Platform_regions)( 5873.68,20.92767K, 4435.33,15.8029K, 4,23, 0.3,0.3, 7m,7m, 1.6,1.6, 1.21,6.95, 0.
+  - [Access_impacts_by_re] could not parse Definition (expected ), got ('ident', 'm')); emitted inert stub. Raw: Table(Decommissioning_alt6,Ocean_use_type,User_groups,Access_type)( 0.3,0, 0.3,0, 0,0, 0,0, 1.6,0, 0.3,0, 0.3,0, 0,0, 0,
+  - [Use_type_by_selected] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Use_type_by_platform[Platform=Platforms_to_conside])
+  - [Access_impacts_for_s] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: Var result :=  Access_impacts_by_re[Decommissioning_Alt6=Selected_options_by_ ,Access_type=Access_type_by_selec,@Ocean_u
+  - [Total_state_and_fede] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: SUM(Ocean_access_data[Access_fields='Sq NM'],Platform_regions)
+  - [Access_impacts_] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: Var result := IF Access_impacts_for_s = "No Action" THEN 'No Action' ELSE Access_impacts_for_s/Total_state_and_fede; res
+  - [Explosive_severing_b] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Explosive_severing_b] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Use_explosives_on_ja] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Explosive_severing_f[Platforms_to_conside= IF Complete_removal_rel  THEN Platforms_to_conside ELSE Null  ])
+  - [Marine_mam_attribute] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Marine_mammals_ratin = 'No action' THEN 'No action' ELSE Attribute_level_by_r[Attribute_score=Marine_mammals_ratin]
+  - [Explosive_severing_f] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Explosive_severing_b[Platform=Platforms_to_conside,scenarios=Comp_rmvl_scenarios])
+  - [Sound_impacts] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: VAR result := (IF Use_explosives_on_ja = 1 THEN 'Worst' ELSE IF Selected_options_by_ = "No action" THEN 'No action' ELSE
+  - [Attribute_rating_fo5] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Sound_impacts = 'No action' THEN 'No action' ELSE Marine_mammals_attr1[Attribute_levels=Sound_impacts]
+  - [Marine_mammals_attr1] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Attribute_ratings_by[Attributes='Marine mammals']
+  - [Attribute_rating_fo7] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Sound_impacts = 'No action' THEN 'No action' ELSE Marine_mammals_attr1[Attribute_levels=Other_short_term_imp]
+  - [Medium_level_for_mar] unconvertible sub-expression preserved as inert stub: Choice(Scores, 8)
+  - [Scores] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Score_for_poor_level] unconvertible sub-expression preserved as inert stub: Choice(Scores, 6)
+  - [Medium_level_for_bir] unconvertible sub-expression preserved as inert stub: Choice(Scores, 8)
+  - [Shell_mound_dredgin2] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: VAR result := (IF Remove_shell_mounds_ = 1 THEN 'Worst' ELSE 'Medium' ); IF Result = «null» THEN 'Medium' ELSE result
+  - [Selected_platforms_1] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Platform_depth_desc1[Platform=Platforms_to_conside]
+  - [Water_quality_attri2] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Attribute_ratings_by[Attributes='Water quality']
+  - [Attribute_rating_fo1] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Anchoring_impacts = 'No action' THEN 'No action'  ELSE Water_quality_attri2[Attribute_levels=Shell_mound_dredgin2,Com
+  - [Attribute_rating_for] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Anchoring_impacts = 'No action' THEN 'No action' ELSE Water_quality_attri2[Attribute_levels=Spill_leak_impact]
+  - [Water_quality_attrib] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Benthic_impacts_rati = 'No action' THEN 'No action' ELSE Attribute_level_by_r[Attribute_score=Water_quality_rating]
+  - [Score_for_medium_lev] unconvertible sub-expression preserved as inert stub: Choice(Scores, 1)
+  - [Proj_mgmt__engr___pl] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Input_decommiss_csts[Decommissioning_cos1="Proj mgmt & Engr & Planning"][Decommissioning_alt6=Selected_options_by_]
+  - [Platform___structura] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Platfrm_strcl_r_cost[Decommissioning_alt6=Selected_options_by_]
+  - [Site_clearance] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Input_decommiss__cos[Decommissioning_cos1='Site Clearance '][Platform=Platforms_to_conside][Decommissioning_alt6=Selecte
+  - [Conductor_removal_co] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Input_decommiss__cos[Decommissioning_cos1='Conductors ', Platform=Platforms_to_conside][Decommissioning_alt6=Selected_op
+  - [Platform_preparation] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Input_decommiss__cos[Decommissioning_cos1='Platform Preparation '][Platform=Platforms_to_conside][Decommissioning_alt6=S
+  - [Permitting___complia] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := Permit_Compli_cost/size(Platforms_to_conside)[Decommissioning_alt6=Selected_options_by_]; IF result = Null
+  - [Trans_disp_metal] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Input_decommiss__cos[Decommissioning_cos1="Transportation & Disposal (metal)"][Platform=Platforms_to_conside][Decommissi
+  - [HLV_Mobilization_Cos] could not parse Definition (trailing tokens at ('ident', 'maxHLV')); emitted inert stub. Raw: var maxHLV := Max(Hlv_options_number,Platforms_to_conside); var num := size(Platforms_to_conside); var result := (Base_H
+  - [Abrasive_cutter_fix1] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := Abrasive_cutter_fixe/size(Platforms_to_conside)[Decommissioning_alt6=Selected_options_by_]; IF result = Nu
+  - [Tran_disp_conductor] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Input_decommiss__cos[Decommissioning_cos1="Transportation & Disposal (conductor)"][Platform=Platforms_to_conside][Decomm
+  - [Socioeconomic_impact] no Definition — emitted as constant 0.
+  - [Commercial_fishery] no Definition — emitted as constant 0.
+  - [Recreational_fishery] no Definition — emitted as constant 0.
+  - [Ecosystem_values] no Definition — emitted as constant 0.
+  - [Scuba_and_dive] no Definition — emitted as constant 0.
+  - [Cost_variables] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Cost_levels_by_compo] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Levels4 = 'Base' THEN 1 ELSE Range_percentage_[Low_high = Levels4]
+  - [Decommissioning_cos2] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Tornado2(Direct_cost_total[Platforms_to_conside=Select_platform,  			Selected_scenarios=Scenario_A_for_compa]/1M,  	Cost
+  - [Cost_variables_by_le] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost_levels_by_compo * Original_input_value[Platforms_to_conside=Select_platform, Selected_scenarios=Scenario_A_for_comp
+  - [Contingency_costs1] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: (Weather_contingency+ Misc_contig_costs) [Platform=Platforms_to_conside][Decommissioning_alt6=Selected_options_by_]
+  - [Weather_contingency] could not parse Definition (trailing tokens at ('ident', 'pile_removal_costs')); emitted inert stub. Raw: var pile_removal_costs := Input_decommiss__cos[Decommissioning_cos1="Pile - removal"]; var dr_contingency := Input_decom
+  - [Misc_contig_costs] could not parse Definition (trailing tokens at ('ident', 'pile_removal_costs')); emitted inert stub. Raw: var pile_removal_costs := Input_decommiss__cos[Decommissioning_cos1="Pile - removal"]; var dr_contingency := Input_decom
+  - [Total_contigency_cos] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: (Weather_contingency + Misc_contig_costs)[Platform=Platforms_to_conside]
+  - [Permit_Compli_cost] could not parse Definition (trailing tokens at ('ident', 'M')); emitted inert stub. Raw: 2.555M
+  - [Total_cost_wi_cngcy] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Total_cost_w__contin[Platform=Platforms_to_conside][Decommissioning_alt6=Selected_options_by_]
+  - [Base_HLV_mobil__cost] could not parse Definition (expected ), got ('ident', 'M')); emitted inert stub. Raw: Table(Hlv_size)(14.04M,18.36M,45.36M)
+  - [Va3] no Definition — emitted as constant 0.
+  - [Abrasive_cutter_fixe] could not parse Definition (trailing tokens at (',', ',')); emitted inert stub. Raw: 83,900
+  - [Npv_programtic_costs] unconvertible sub-expression preserved as inert stub: NPV(Discount_rate, Indirect_costs_by_ti, Time)
+  - [Cathodic_protection] could not parse Definition (unexpected token ('eof', None)); emitted inert stub. Raw: (
+  - [Input_decommissionin] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Platform,Decommissioning_cos1)( 0,0,957.71K,4.157409M,0,0,1.759372M,1.46502M,1.515498M,558.932K,280.54K,1.327488M,
+  - [Input_decommiss_csts] could not parse Definition (expected keyword 'else', got ('[', '[')); emitted inert stub. Raw: (IF Decommissioning_cos1 = "HLV Mobilization & Demobilization" THEN    IF Decommissioning_alt6 = '1 Complete platform re
+  - [Options_and_savings] Index has no constant members (dynamic/label index?) — no v0.1.0 dimension equivalent; emitted inert scalar stub.
+  - [Partial_platform_rem] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Platform)( 3727,3780,3352,6743,8325,5883,12.342K,10.734K,7135,1200,5775,4922,14.773K,12.081K,2771,14.135K,10.945K,
+  - [Total_platform_remov] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Platform)( 6405,6535,5796,9147,14.016K,9400,38.36K,33.924K,11.69K,1426,11.256K,9044,78.38K,32.815K,4046,67.515K,29
+  - [Tran_disp_cond_prf] could not parse Definition (trailing tokens at ('ident', 'removed_length')); emitted inert stub. Raw: var removed_length := 65+85;  var total_length := Platform_depth_data+ 65 + Conductor_removal_le;  removed_length/total_
+  - [Hlv_day_rate_partia2] could not parse Definition (trailing tokens at ('ident', 'x')); emitted inert stub. Raw: var x:= Hlv_by_platform_remo[Platform_da_for_hlv_='1 Complete platform removal']-Max_HLV_size_require; Input_hlv_day_rat
+  - [Hlv_day_rate_partia1] could not parse Definition (trailing tokens at ('ident', 'x')); emitted inert stub. Raw: var x:= Hlv_by_platform_remo[Platform_da_for_hlv_='1 Complete platform removal']-Hlv_for_selected_pla; Input_hlv_day_rat
+  - [Total_cost_w_o_conti] could not parse Definition (trailing tokens at ('ident', 'I')); emitted inert stub. Raw: Index I := Subset(Decommissioning_cos1 <> "  contingency portion"); Index J := Subset(I <> " contingency portion"); SUM(
+  - [Total_decms_costs] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := Total_cost_w__contin[Platform=Platforms_to_conside][Decommissioning_alt6=Selected_options_by_]; IF result 
+  - [Avoided_cost] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: IF Selected_options_by_ = "No action" THEN 0 ELSE Total_cost_w__contin[@Decommissioning_alt6 = 1]-Total_decms_costs
+  - [Percent_of_avoided_c] unconvertible sub-expression preserved as inert stub: Choice(Percent_avoided_cos1, 12, 0)
+  - [Mob_demob_cost_compl] could not parse Definition (trailing tokens at ('ident', 'maxHLV')); emitted inert stub. Raw: var maxHLV := Max(Hlv_options_no__par1[Platform_da_for_hlv_='1 Complete platform removal'],Platforms_to_conside); var nu
+  - [Input_reef_enhanceme] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Platform)( 60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,0,0,0,60K)
+  - [Reef_enhancement_co3] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: VAR result := IF Reef_enhancements_fo THEN Reef_enhancement_co2[Platform=Platforms_to_conside] ELSE 0; result
+  - [Reef_enhancement_co1] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: VAR result := Reef_enhancement_co3[Partial_removal_scen=Selected_scenarios]; IF Selected_options_by_ = "No action" THEN 
+  - [Reef_enhancement_by1] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Reef_enhancement_by1] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Reef_enhancements_f4] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Reef_enhancement_by1[Platform=Platforms_to_conside,Scenarios=Partial_removal_scen])
+  - [Partial_removal_rele] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: (IF Selected_options_by_ = "2 Partial platform removal" THEN 1 ELSE 0)[Selected_scenarios=Partial_removal_scen]
+  - [Reef_enhancements_fo] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Reef_enhancements_f4[Platforms_to_conside= IF Partial_removal_rele THEN Platforms_to_conside ELSE Null])
+  - [Worst_case_shell_mou] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := (Volume_of_shell_moun*Shellm_rmvl_unit_cst)+ ($240K); If IsNan(result) THEN 0 ELSE result
+  - [Mob_demob_cost_parti] could not parse Definition (trailing tokens at ('ident', 'maxHLV')); emitted inert stub. Raw: var maxHLV := Max(Hlv_options_no__par1[Platform_da_for_hlv_="2 Partial platform removal"],Platforms_to_conside); var num
+  - [Worst_case_mob_demob] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Base_HLV_mobil__cost[Hlv_size=4000]
+  - [Best_case_mob_demob] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Base_HLV_mobil__cost[Hlv_size=500]/8
+  - [Total_dcmsng_costs] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := (Total_decms_costs + Npv_programtic_costs)/1M; IF Selected_options_by_ = 'No action' THEN 'No action' ELSE
+  - [Pm_engr_planin_costs] could not parse Definition (trailing tokens at ('ident', 'platform_prep')); emitted inert stub. Raw: var platform_prep := Input_decommiss__cos[Decommissioning_cos1='Platform Preparation ']; var conductors := Input_decommi
+  - [Platfrm_strcl_r_cost] could not parse Definition (trailing tokens at ('ident', 'deck_removal_costs')); emitted inert stub. Raw: var deck_removal_costs := Input_decommiss__cos[Decommissioning_cos1="Deck - removal"]; var pile_removal_costs := Input_d
+  - [Epc_percent_of_total] could not parse Definition (trailing tokens at ('op', '%')); emitted inert stub. Raw: 8%
+  - [Pjmt_engr_plan_costs] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Pm_engr_planin_costs[Decommissioning_cos1='Platform Preparation '][Platform=Platforms_to_conside]
+  - [Hlv_for_selected_pla] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Hlv_by_platform_remo[Platform=Platforms_to_conside])
+  - [Hlv_for_select_platf] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Hlv_for_selected_pla[Platform_da_for_hlv_=Selected_options_by_]
+  - [Hlv_for_selected_pl1] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Hlv_for_selected_pla[Platform_da_for_hlv_='1 Complete platform removal']
+  - [Hlv_for_selected_pl3] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Hlv_for_selected_pla[Platform_da_for_hlv_="2 Partial platform removal"]
+  - [Dcom_n_avoided_cost1] could not parse Definition (trailing tokens at ('ident', 'M')); emitted inert stub. Raw: Sum(Decommissioning_cos4, Platforms_to_conside)/1M
+  - [Shell_mound_removal1] unconvertible sub-expression preserved as inert stub: Checkbox(1)
+  - [Shell_mound_removal1] unconvertible sub-expression preserved as inert stub: Checkbox(0)
+  - [Remove_shell_mounds_] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Shell_mound_remova12[Platforms_to_conside= IF Complete_removal_rel THEN Platforms_to_conside ELSE Null])
+  - [Volume_of_shell_moun] could not parse Definition (expected ), got ('ident', 'K')); emitted inert stub. Raw: Table(Platform)(7260,8590,4590,'No data','No data','No data','No data',500,7370,4200,5500,6840,'No data','No data',7200,
+  - [Shell_mound_volume_b] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Volume_of_shell_moun[Platform=Platforms_to_conside]
+  - [Shell_mound_removal9] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: var result := (Shell_mound_volume_1*Shellm_rmvl_unit_cst) + ($240K/Number_of_platforms_); If IsNan(result) THEN 'No data
+  - [Smound_removal_costs] could not parse Definition (expected ), got ('ident', 'result')); emitted inert stub. Raw: (VAR result := Shell_mound_removal9[Comp_rmvl_scenarios=Selected_scenarios]; IF IsNumber(result) THEN result ELSE 0)
+  - [Shell_mound_remova12] could not parse Definition (expected ), got ('[', '[')); emitted inert stub. Raw: Subtable(Shell_mound_removal1[Platform=Platforms_to_conside,Scenarios=Comp_rmvl_scenarios])
+  - [Complete_removal_rel] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: (IF Selected_options_by_ = "1 Complete platform removal"  THEN 1 ELSE 0)[Selected_scenarios=Comp_rmvl_scenarios]
+  - [Shell_mound_volume_1] could not parse Definition (trailing tokens at ('ident', 'result')); emitted inert stub. Raw: VAR result := IF Remove_shell_mounds_ THEN Volume_of_shell_moun[Platform=Platforms_to_conside] ELSE null; result
+  - [Number_of_platforms_] could not parse Definition (trailing tokens at ('ident', 'j')); emitted inert stub. Raw: For j := Comp_rmvl_scenarios DO ( size(subset(Remove_shell_mounds_[Comp_rmvl_scenarios=j]=1)) )
+  - [Shell_mound__remova2] could not parse Definition (expected keyword 'else', got ('op', ';')); emitted inert stub. Raw: (IF SUM(Remove_shell_mounds_,Platforms_to_conside) = 0 THEN Msgbox ('Shell mound removal not selected for any of the com
+  - [Shell_mound_removal4] unconvertible sub-expression preserved as inert stub: Choice(Remove_shell_mounds, 2, 0, result: Remove_shell_mound_b)
+  - [Shell_mound_removal4] unconvertible sub-expression preserved as inert stub: Choice(Remove_shell_mounds, 1, 0, result: Remove_shell_mound_b)
+  - [graph] 3 reference(s) to non-model ids (system indices / skipped nodes) replaced with inert 0.0: Run, Time, hlv_size

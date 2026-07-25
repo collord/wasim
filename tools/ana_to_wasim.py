@@ -756,8 +756,29 @@ def call_to_distribution(call: Call, unit: str) -> Optional[dict]:
     else:
         return None
 
+    # Guard: the engine evaluates formula-valued distribution params as 0.0, which
+    # makes (log)normal stddev non-finite and crashes sampling — and is silently
+    # wrong for the rest. Only emit a random_variable when every parameter is a
+    # finite constant; otherwise return None so the caller emits an inert stub.
+    if not _all_params_finite(params):
+        warn(call.name, "distribution has non-constant / unresolved parameters "
+                        "(engine can't evaluate formula params) — emitted inert stub "
+                        "instead of a mis-parameterized draw.")
+        return None
+
     dist: dict[str, Any] = {"family": fam, "parameters": params}
     return dist
+
+
+def _all_params_finite(params: dict[str, Any]) -> bool:
+    for v in params.values():
+        if isinstance(v, dict) and "value" in v:
+            x = v["value"]
+            if not isinstance(x, (int, float)) or x != x or x in (float("inf"), float("-inf")):
+                return False
+        else:
+            return False  # a formula string or anything non-Quantity
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -946,6 +967,44 @@ def _collect_refs(ast: Any) -> set[str]:
 # Stage 6 — top-level assembly
 # --------------------------------------------------------------------------- #
 
+def _sanitize_dangling_refs(elements: list[dict]) -> None:
+    """Replace refs to non-emitted elements with inert stubs, in place.
+
+    A converted expression may reference an id that never became an element —
+    an Analytica system index (`Time`, `Run`), a user `Function` (skipped), or a
+    node the converter dropped. Left alone these are dangling edges the engine's
+    graph builder rejects. Rewrite each to `literal 0.0` so the model still
+    builds and runs; the original text already survives in the element `display`.
+    """
+    ids = {e["id"] for e in elements}
+    missing: set[str] = set()
+
+    def fix(node: Any) -> Any:
+        if isinstance(node, dict):
+            if node.get("op") == "ref" and node.get("element_id") not in ids:
+                missing.add(node["element_id"])
+                return {"op": "literal", "value": 0.0}
+            return {k: fix(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [fix(v) for v in node]
+        return node
+
+    for e in elements:
+        if e["type"] == "expression":
+            e["expression"]["ast"] = fix(e["expression"]["ast"])
+            e["inputs"] = [i for i in e.get("inputs", []) if i in ids]
+        elif e["type"] == "array":
+            for ex in e.get("expressions", []):
+                ex["ast"] = fix(ex["ast"])
+            e["inputs"] = [i for i in e.get("inputs", []) if i in ids]
+
+    if missing:
+        warn("graph", f"{len(missing)} reference(s) to non-model ids "
+                      f"(system indices / skipped nodes) replaced with inert 0.0: "
+                      f"{', '.join(sorted(missing)[:8])}"
+                      f"{' …' if len(missing) > 8 else ''}")
+
+
 def convert(text: str, model_name: Optional[str] = None) -> dict:
     nodes, sample_size = lex_ana(text)
 
@@ -980,6 +1039,8 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
             el = None
         if el is not None:
             elements.append(el)
+
+    _sanitize_dangling_refs(elements)
 
     # populate container children back-refs
     child_map: dict[str, list[str]] = {c["id"]: [] for c in containers}
