@@ -5,15 +5,18 @@ document — the design and phasing for extending the opt-in array lane from the
 flat-Monte-Carlo subset (Phases A–D, shipped) to models with **named dimension axes**.
 It commits to a layout and a boundary, and phases the work.*
 
-> **Status.** The **correctness-first first slice has shipped** (`run_dim_lane` in
-> `array_lane.rs`): dimensioned models with `vector_map`/`index`/`subscript`/`array`/
-> reducers + elementwise + `run_stat` now run on the lane, **bit-identical** to the
-> scalar lane (`array_lane_v2::dimensioned_lane_matches_scalar`, incl. `#k` members).
-> It reaches bit-identity the low-risk way — reusing the scalar lane's own `eval_ast`
-> per realization rather than the fused coordinate kernel — mirroring the flat lane's
-> A→B sequencing (correctness first, fuse second). The **fused coordinate kernel**
-> designed below is now the *optimization* follow-on, and **`submodel_stat`** (Phase 4)
-> is the remaining coverage gap before EVIU/Platform run end-to-end.
+> **Status — the committed Analytica models now run on the lane, bit-identical.**
+> `run_dim_lane` (in `array_lane.rs`) evaluates dimensioned models per realization via
+> the shared `eval_ast`, so `vector_map`/`index`/`subscript`/`array`/reducers +
+> elementwise + `run_stat` + **`submodel_stat`** + fixed arrays all work, reaching
+> bit-identity the low-risk way (reuse the scalar evaluator, not a fused kernel —
+> mirroring the flat lane's A→B sequencing). **`submodel_stat` is served by the existing
+> `run_submodels` pre-pass** (a one-directional feed; submodels stay on the scalar
+> engine). **Both `eviu_plane_catching_native` and `platform_decommissioning_native` are
+> now eligible and produce results bit-identical to the scalar lane end to end**
+> (`dim_lane_examples_v2.rs`: 234k / 176k values, 0 mismatches). The remaining item is
+> the **fused coordinate kernel** — a pure *optimization*, the dimensioned analogue of
+> Phase B.
 
 ## Why — the real next lever
 
@@ -143,8 +146,8 @@ the scalar lane — the same conservative gate, widened.
 
 | Phase | Deliverable | Size | Risk |
 |---|---|---|---|
-| 1 ✅ | **Correctness-first dimensioned lane** — `run_dim_lane` evaluates dimensioned elements per realization via the shared `eval_ast` (so `vector_map`/`index`/`subscript`/`array`/reducers/broadcast all work), mirrors the scalar draws, surfaces `<id>` + `<id>#k`, and reduces `run_stat` two-pass. *Shipped, bit-identical.* Covers the pure-array shape end-to-end for no-submodel models. | L | Low–Med |
-| 2 | **`submodel_stat`** via the `run_submodels` pre-pass boundary (a one-directional feed, not a loop splice). Unblocks EVIU + Platform end-to-end. | M | Med |
+| 1 ✅ | **Correctness-first dimensioned lane** — `run_dim_lane` evaluates dimensioned elements per realization via the shared `eval_ast` (so `vector_map`/`index`/`subscript`/`array`/reducers/broadcast/fixed-arrays all work), mirrors the scalar draws, surfaces `<id>` + `<id>#k`, and reduces `run_stat` two-pass. *Shipped, bit-identical.* | L | Low–Med |
+| 2 ✅ | **`submodel_stat`** via the `run_submodels` pre-pass boundary (a one-directional feed, not a loop splice; submodel interior elements are also evaluated in the parent context, as the scalar lane does). *Shipped — **EVIU + Platform run end-to-end, bit-identical** (`dim_lane_examples_v2.rs`).* | M | Med |
 | 3 | **Fused coordinate kernel** (optimization): Run-major `[Run, D…]` columns + `operand_index` projection + chunked Run axis, replacing the per-realization `eval_ast` for the elementwise/reduction subset — the dimensioned analogue of Phase B. | L | Med |
 | — | Dynamic (per-cell runtime) indices; axis-selective reduction; closure/bytecode compiler | L | later |
 

@@ -206,19 +206,19 @@ fn eligibility_accepts_and_rejects() {
     let m = parse_v2(RUNSTAT).unwrap();
     assert!(array_lane::eligible(&m).is_ok(), "flat MC + run_stat should be eligible");
 
-    // A dimensioned model using a still-unsupported op (submodel_stat, deferred to the
-    // pre-pass boundary) is NOT eligible → the flag falls back to scalar.
+    // A dimensioned model using a still-unsupported op (the `occurs` event predicate,
+    // which needs engine state the lane doesn't provide) is NOT eligible → falls back.
     let dim_model = r#"{
       "wasim_version": "0.9.7",
       "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 10, "seed": 1},
       "dimensions": [{"id":"D","name":"D","size":2}],
       "containers": [{"id":"M","name":"M","elements":["M/v"]}],
       "elements": [{"id":"M/v","name":"v","primitive":"node","value_rule":"expression","container":"M",
-        "expression":{"ast":{"op":"submodel_stat","submodel_id":"Sub","output":"o","statistic":"mean"}},
+        "expression":{"ast":{"op":"call","fn":"occurs","args":[{"op":"ref","element_id":"M/v"}]}},
         "save_results":{"final_value":true}}]
     }"#;
     let dm = parse_v2(dim_model).unwrap();
-    assert!(array_lane::eligible(&dm).is_err(), "submodel_stat dimensioned model must be rejected");
+    assert!(array_lane::eligible(&dm).is_err(), "event-predicate dimensioned model must be rejected");
     // and it still runs (fallback to scalar) with the flag on:
     let g = ModelGraphV2::build(&dm).unwrap();
     let cfg = RunConfig { array_lane: true, ..Default::default() };

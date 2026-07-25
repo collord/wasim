@@ -123,16 +123,14 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
 // path adds array-shaped coverage (vector_map/index/subscript/array/reducers) before
 // the fused coordinate kernel (DIMENSIONED_ARRAY_LANE_SCOPE.md) optimizes it.
 fn dim_eligible(model: &Model) -> Result<(), String> {
-    if model.containers.iter().any(|c| c.kind == ContainerKind::Submodel) {
-        return Err("dimensioned model has submodels (deferred to the pre-pass boundary)".into());
-    }
+    // Submodels are allowed: they run on the existing scalar pre-pass (`run_submodels`)
+    // and feed the parent lane one-directionally via `submodel_stat`. Their interior
+    // elements are also evaluated in the parent context (as the scalar lane does), so
+    // they must be dim-eligible too — the loop below checks every element uniformly.
     for e in &model.elements {
         match &e.primitive {
             Primitive::Node(n) => match &n.rule {
-                NodeRule::Fixed { value: FixedValue::Scalar(_), .. } => {}
-                NodeRule::Fixed { value: FixedValue::Array { .. }, .. } => {
-                    return Err(format!("{}: fixed array not yet supported on the dim lane", e.id()));
-                }
+                NodeRule::Fixed { .. } => {} // scalar or array constant
                 NodeRule::Sample { resampling, autocorrelation, correlations, distribution } => {
                     if resampling.is_some() || autocorrelation.is_some()
                         || !correlations.is_empty() || distribution.importance.is_some()
@@ -170,12 +168,13 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         Index { array, indices } => { dim_expr_allowed(array)?; for i in indices { dim_expr_allowed(i)?; } Ok(()) }
         Array { elements } => { for el in elements { dim_expr_allowed(el)?; } Ok(()) }
         RunStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
+        // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
+        SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
         // Any builtin except the ctx-stateful event predicates; array reducers included.
         Call { func, args } => match func {
             BuiltinFn::Occurs | BuiltinFn::Changed => Err("event_predicate"),
             _ => { for a in args { dim_expr_allowed(a)?; } Ok(()) }
         },
-        SubmodelStat { .. } => Err("submodel_stat"),
         LookupCall { .. } => Err("lookup_call"),
         TimeRef { .. } => Err("time_ref"),
         ExternCall { .. } => Err("extern_call"),
@@ -722,8 +721,12 @@ pub fn run_dim_lane(
     let dims: HashMap<String, usize> = model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
     let labels: HashMap<String, Vec<String>> = model.dimensions.iter()
         .filter(|d| !d.labels.is_empty()).map(|d| (d.id.clone(), d.labels.clone())).collect();
+    // Submodel pre-pass (§12): identical call to the scalar engine's, so `submodel_stat`
+    // reduces bit-identical per-realization samples. Submodels stay on the scalar engine;
+    // only their statistics enter the lane (a one-directional boundary — no loop splice).
+    let sub = crate::submodel_v2::run_submodels(model, config)?;
     let env = LaneEnv {
-        lookups: HashMap::new(), labels, dims, sub: HashMap::new(), prev: HashMap::new(),
+        lookups: HashMap::new(), labels, dims, sub, prev: HashMap::new(),
         index_stack: RefCell::new(Vec::new()), fired: RefCell::new(HashSet::new()),
         dt: model.simulation_settings.timestep.value,
         dt_unit: model.simulation_settings.timestep.unit.clone(),
@@ -782,8 +785,12 @@ pub fn run_dim_lane(
             let mut outputs: HashMap<String, Value> = HashMap::new();
             for e in &model.elements {
                 if let Primitive::Node(nd) = &e.primitive {
-                    if let NodeRule::Fixed { value: FixedValue::Scalar(q), .. } = &nd.rule {
-                        outputs.insert(e.id().to_string(), Value::Scalar(q.value));
+                    match &nd.rule {
+                        NodeRule::Fixed { value: FixedValue::Scalar(q), .. } =>
+                            { outputs.insert(e.id().to_string(), Value::Scalar(q.value)); }
+                        NodeRule::Fixed { value: FixedValue::Array { values, .. }, .. } =>
+                            { outputs.insert(e.id().to_string(), Value::Vector(values.clone())); }
+                        _ => {}
                     }
                 }
             }
