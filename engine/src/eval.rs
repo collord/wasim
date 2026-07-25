@@ -124,7 +124,7 @@ impl NamedArray {
                 coord[d] = 0;
             }
         }
-        Some(Value::Array(NamedArray { axes: remaining, data: out }))
+        Some(Value::array(NamedArray { axes: remaining, data: out }))
     }
 }
 
@@ -149,9 +149,12 @@ pub(crate) fn run_stat_key(
 pub enum Value {
     Scalar(f64),
     Vector(Vec<f64>),
-    /// Axis-tagged n-d value (Phase 0+). During the migration this coexists with
-    /// `Vector` (the anonymous 1-D case); `Vector` retires in a later phase.
-    Array(NamedArray),
+    /// Axis-tagged n-d value (Phase 0+). **Boxed** so `Value` stays small (the
+    /// common `Scalar`/`Vector` path is on the hot return of every `eval_ast`; an
+    /// unboxed `NamedArray`'s two `Vec`s would grow `Value` from 32→48 bytes and
+    /// slow every move ~10% on array-heavy models). During the migration this
+    /// coexists with `Vector` (the anonymous 1-D case).
+    Array(Box<NamedArray>),
 }
 
 impl Value {
@@ -171,6 +174,11 @@ impl Value {
             Value::Vector(vs) => vs,
             Value::Array(a) => a.data,
         }
+    }
+
+    /// Wrap a `NamedArray` as a boxed `Value::Array`.
+    pub fn array(a: NamedArray) -> Value {
+        Value::Array(Box::new(a))
     }
 
     /// The array axes carried by this value, if any (None for scalar/anonymous vector).
@@ -212,7 +220,7 @@ impl Value {
             (Value::Scalar(a), rhs) => rhs.map(move |b| f(a, b)),
             (lhs, Value::Scalar(b)) => lhs.map(move |a| f(a, b)),
             // two named arrays: align by axis name
-            (Value::Array(a), Value::Array(b)) => Value::Array(broadcast_named(a, b, f)),
+            (Value::Array(a), Value::Array(b)) => Value::array(broadcast_named(*a, *b, f)),
             // an anonymous Vector is involved: positional zip to min length; carry a
             // 1-D axis if the other side has one (unchanged Phase-1 behavior)
             (lhs, rhs) => {
@@ -222,7 +230,7 @@ impl Value {
                 let n = a.len().min(b.len());
                 let data: Vec<f64> = (0..n).map(|i| f(a[i], b[i])).collect();
                 match axis_id {
-                    Some(id) => Value::Array(NamedArray::tagged(id, data)),
+                    Some(id) => Value::array(NamedArray::tagged(id, data)),
                     None => Value::Vector(data),
                 }
             }
@@ -572,7 +580,7 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                         else          { else_vs.get(i).copied().unwrap_or(0.0) }
                     }).collect();
                     Ok(match axis {
-                        Some(id) => Value::Array(NamedArray::tagged(id, data)),
+                        Some(id) => Value::array(NamedArray::tagged(id, data)),
                         None => Value::Vector(data),
                     })
                 }
@@ -635,7 +643,7 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                         .collect();
                     let data = ys?;
                     Ok(match axis {
-                        Some(id) => Value::Array(NamedArray::tagged(id, data)),
+                        Some(id) => Value::array(NamedArray::tagged(id, data)),
                         None => Value::Vector(data),
                     })
                 }
@@ -690,7 +698,7 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
             let size = *ctx.dimensions.get(over.as_str()).unwrap_or(&0);
             if size == 0 {
                 // Unknown/empty dimension: degrade to an empty (tagged) array.
-                return Ok(Value::Array(NamedArray::tagged(over.clone(), Vec::new())));
+                return Ok(Value::array(NamedArray::tagged(over.clone(), Vec::new())));
             }
             let mut out = Vec::with_capacity(size);
             for i in 1..=size {
@@ -699,7 +707,7 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 ctx.index_stack.borrow_mut().pop();
                 out.push(r?.as_scalar());
             }
-            Ok(Value::Array(NamedArray::tagged(over.clone(), out)))
+            Ok(Value::array(NamedArray::tagged(over.clone(), out)))
         }
         AstNode::IndexRef { axis } => {
             let stack = ctx.index_stack.borrow();
@@ -1586,7 +1594,7 @@ mod named_array_tests {
 
     #[test]
     fn scalar_and_vec_views() {
-        let v = Value::Array(NamedArray::tagged("D", vec![7.0, 8.0]));
+        let v = Value::array(NamedArray::tagged("D", vec![7.0, 8.0]));
         assert_eq!(v.as_scalar(), 7.0);
         assert_eq!(v.clone().into_vec(), vec![7.0, 8.0]);
         assert_eq!(v.axes().unwrap()[0].id, "D");
@@ -1596,7 +1604,7 @@ mod named_array_tests {
 
     #[test]
     fn map_preserves_axis() {
-        let out = Value::Array(NamedArray::tagged("D", vec![1.0, 2.0])).map(|x| x * 10.0);
+        let out = Value::array(NamedArray::tagged("D", vec![1.0, 2.0])).map(|x| x * 10.0);
         match out {
             Value::Array(a) => {
                 assert_eq!(a.axes[0].id, "D");
@@ -1609,7 +1617,7 @@ mod named_array_tests {
     #[test]
     fn zip_scalar_broadcast_keeps_shape() {
         // Array ⊕ Scalar → Array (axis preserved), numbers element-wise.
-        let arr = Value::Array(NamedArray::tagged("D", vec![1.0, 2.0, 3.0]));
+        let arr = Value::array(NamedArray::tagged("D", vec![1.0, 2.0, 3.0]));
         match arr.zip_with(Value::Scalar(100.0), |a, b| a + b) {
             Value::Array(a) => {
                 assert_eq!(a.axes[0].id, "D");
@@ -1623,7 +1631,7 @@ mod named_array_tests {
     fn zip_is_positional_and_carries_axis() {
         // Phase 0–1: two array-likes zip POSITIONALLY (bit-identical to the old
         // Vector behavior), and a present 1-D axis propagates to the result.
-        let a = Value::Array(NamedArray::tagged("D", vec![1.0, 2.0, 3.0]));
+        let a = Value::array(NamedArray::tagged("D", vec![1.0, 2.0, 3.0]));
         let b = Value::Vector(vec![10.0, 20.0, 30.0]);
         match a.zip_with(b, |x, y| x * y) {
             Value::Array(r) => {
@@ -1640,7 +1648,7 @@ mod named_array_tests {
     }
 
     fn arr(id: &str, data: &[f64]) -> Value {
-        Value::Array(NamedArray::tagged(id, data.to_vec()))
+        Value::array(NamedArray::tagged(id, data.to_vec()))
     }
 
     #[test]
@@ -1771,5 +1779,21 @@ mod named_array_tests {
             },
             _ => panic!("expected 2-D array"),
         }
+    }
+}
+
+#[cfg(test)]
+mod size_probe {
+    /// Perf guard: `Value` is returned by value on every `eval_ast`, so it must
+    /// stay small. The NamedArray payload is boxed precisely to keep this at 24
+    /// bytes; an unboxed `NamedArray` (two `Vec`s) would push it to 48 and cost
+    /// ~10% on array-heavy models (measured). Don't let it grow.
+    #[test]
+    fn value_stays_small() {
+        assert!(
+            std::mem::size_of::<super::Value>() <= 24,
+            "Value grew to {} bytes — keep the Array payload boxed (perf, hot eval path)",
+            std::mem::size_of::<super::Value>()
+        );
     }
 }
