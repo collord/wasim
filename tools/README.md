@@ -30,6 +30,43 @@ PY
 
 To confirm it runs, feed it through the engine (`wasim_engine::simulate_json`).
 
+## Worked example — EVIU "plane catching" (Max Henrion)
+
+`tools/examples/` contains a real Analytica model end-to-end:
+
+| file | what |
+|---|---|
+| `EVIU_plane_catching_3.ana` | the source model (Lumina example, 2008) |
+| `EVIU_plane_catching.wasim.json` | converter output — **validates against `oldmodel.schema.json` and runs in the engine** |
+| `EVIU_plane_catching.warnings.txt` | the conversion warnings |
+
+```bash
+python3 tools/ana_to_wasim.py tools/examples/EVIU_plane_catching_3.ana \
+    -o tools/examples/EVIU_plane_catching.wasim.json
+```
+
+**Converts cleanly (the probabilistic core):** the three uncertain inputs
+(`Time_to_drive_to_air`, `Time_from_parking_to` as `Lognormal(median, gsdev)` →
+log-space `random_variable`s; `Gate_time_before_dep` as `Triangular`), the
+summed `Time_from_home_to_g1`, the `Cost` objective (subtraction + `If … Then …
+Else` miss-penalty), `Loss_if_miss_the_pla = 400`, the 26 candidate departure
+times, and the `View1` label index (labels preserved). Sample size `2000` is
+read from the model's `Samplesize` system variable; the two `Module`s become
+nested containers.
+
+**Degrades to inert stubs (with warnings) — the EVIU machinery itself:**
+`Prob_of_missing_plan = Probability(…)` (across-realization statistic),
+`Best_time_* = ArgMin(Mid/Mean(Cost), …)` (optimize-over-the-decision-axis),
+and `Eviu = Cost[Time_i_leave_home = …] − Cost[…]` (label-based subscript
+reindex). These are precisely the three constructs
+`ANALYTICA_ENGINE_GAP_ANALYSIS.md` flags as the hard parts — sample-as-axis
+reductions, decision optimization coupled to the sample, and runtime index
+remapping. The arithmetic skeleton is faithful; the value-of-information layer
+on top needs the results-layer / optimization features called out there.
+
+Note: `.ana` from this era is classic-Mac **CR-delimited** with `~`/`~~`
+line-wrap markers inside long values; the converter normalizes both.
+
 ## What maps (and what doesn't)
 
 Grounded in `ANALYTICA_ENGINE_GAP_ANALYSIS.md`. The two tools are architecturally

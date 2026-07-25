@@ -64,7 +64,13 @@ OBJECT_CLASSES = {
     "model", "module", "library", "form",
     "variable", "chance", "decision", "objective", "constant",
     "index", "determ", "function", "button", "alias", "text", "picture",
-    "metavar",
+    "metavar", "formnode", "close",
+}
+
+# Classes that produce no WASiM element (GUI aliases, presentation, scoping).
+SKIP_CLASSES = {
+    "model", "module", "library", "form", "text", "picture", "button",
+    "alias", "metavar", "formnode", "close",
 }
 
 # Attribute keywords we read (others are skipped). GUI/layout attributes
@@ -101,84 +107,77 @@ def strip_brace_comments(text: str) -> str:
     return "".join(out)
 
 
-def lex_ana(text: str) -> list[AnaNode]:
-    """Parse the .ana text into a flat list of AnaNode objects.
+_SYSVAR_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s*:=\s*(.+)$")
 
-    A new object starts at a `<Class> <Ident>` header line whose first token is a
-    known class keyword. Everything until the next header is that object's
-    attribute block. An attribute starts at a line matching `Keyword:`; any
-    following line that is neither a new attribute nor a new header is treated
-    as a continuation of the current attribute's value (this is how multi-line
-    `Definition:` bodies — e.g. `If ... Then ... Else ...` — are kept whole).
+
+def normalize_ana(text: str) -> str:
+    """Undo Analytica's line-wrap encoding, leaving one statement per `\\n`.
+
+    The `.ana` serialization is classic-Mac CR-delimited. Python text-mode reads
+    translate CR/CRLF to `\\n` (universal newlines), so by the time we see the
+    text, statements are `\\n`-separated and long values were wrapped with:
+      * `~~` before the break  → soft wrap (join with nothing), and
+      * `~`  before the break  → hard break inside the value.
+    We collapse both to a single-line value (hard breaks become spaces, which is
+    safe for both prose and expressions). Defensive `\\r` variants are handled in
+    case the file was read in binary mode.
     """
-    text = strip_brace_comments(text)
+    for br in ("\r\n", "\r", "\n"):
+        text = text.replace("~~" + br, "").replace("~" + br, " ")
+    return text
+
+
+def lex_ana(text: str) -> tuple[list[AnaNode], Optional[int]]:
+    """Parse the .ana text into (nodes, sample_size).
+
+    Each statement (one per line after `normalize_ana`) is either an object
+    header `<Class> <Ident>`, an attribute `Keyword: value`, a system variable
+    `Name := value` (only `Samplesize` is read), or a `Close <Ident>` scope pop.
+    """
+    text = strip_brace_comments(normalize_ana(text))
     nodes: list[AnaNode] = []
     cur: Optional[AnaNode] = None
-    cur_attr: Optional[str] = None
-    # Track module nesting via `Model`/`Module` headers. `.ana` doesn't indent,
-    # so we approximate: every non-module node belongs to the most recent module.
     module_stack: list[str] = []
+    sample_size: Optional[int] = None
 
-    def flush_attr_join(node: AnaNode, key: str, extra: str) -> None:
-        if key in node.attrs:
-            node.attrs[key] = node.attrs[key].rstrip() + " " + extra.strip()
-        else:
-            node.attrs[key] = extra
-
-    for raw in text.splitlines():
-        line = raw.rstrip("\n")
-        if not line.strip():
-            cur_attr = None
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
             continue
 
-        header = _HEADER_RE.match(line.strip())
+        header = _HEADER_RE.match(line)
         if header and header.group(1).lower() in OBJECT_CLASSES:
             cls = header.group(1).lower()
             ident = header.group(2)
+            if cls == "close":
+                if module_stack:
+                    module_stack.pop()
+                cur = None
+                continue
             parent = module_stack[-1] if module_stack else None
             cur = AnaNode(cls=cls, ident=ident, parent=parent)
             nodes.append(cur)
-            cur_attr = None
             if cls in ("model", "module", "library", "form"):
-                # New module becomes the current parent scope.
                 module_stack.append(ident)
             continue
 
+        sv = _SYSVAR_RE.match(line)
+        if sv:
+            if sv.group(1).lower() in ("samplesize", "sampesize", "sample_size"):
+                n = _try_number(sv.group(2).strip())
+                if n is not None:
+                    sample_size = int(n)
+            cur = None  # system vars live outside any node
+            continue
+
         m = _ATTR_RE.match(line)
-        if m and m.group(1).lower() in KNOWN_ATTRS:
-            if cur is None:
-                continue
-            cur_attr = m.group(1).lower()
-            flush_attr_join(cur, cur_attr, m.group(2))
-            continue
-        if m and _looks_like_attr(m.group(1)):
-            # A recognized-shape but unknown attribute keyword: end the current
-            # attribute, but don't record the value.
-            cur_attr = None
-            continue
+        if m and cur is not None and m.group(1).lower() in KNOWN_ATTRS:
+            key = m.group(1).lower()
+            # First occurrence wins (later duplicate attrs are GUI variants).
+            cur.attrs.setdefault(key, m.group(2).strip())
+        # Any other line (GUI attrs, unknown keywords) is ignored.
 
-        # Continuation line for the current attribute (e.g. wrapped Definition).
-        if cur is not None and cur_attr is not None:
-            flush_attr_join(cur, cur_attr, line.strip())
-
-    return nodes
-
-
-# Attribute-ish tokens we should treat as terminators even when we don't store
-# them (so a `Nodelocation:` line never leaks into a Definition body).
-def _looks_like_attr(word: str) -> bool:
-    w = word.lower()
-    return (
-        w in KNOWN_ATTRS
-        or w.startswith("node")
-        or w.startswith("window")
-        or w.startswith("att_")
-        or w in {
-            "identifier", "class", "graphflags", "diagstate", "fontstyle",
-            "numberformat", "valuestate", "reformval", "checkboxes", "sysvar",
-            "attribute", "author", "isresult", "flags",
-        }
-    )
+    return nodes, sample_size
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +187,7 @@ def _looks_like_attr(word: str) -> bool:
 class Tok:
     NUM = "num"
     IDENT = "ident"
+    STR = "str"
     OP = "op"
     LP = "("
     RP = ")"
@@ -201,6 +201,7 @@ class Tok:
 _TOKEN_RE = re.compile(
     r"""
       (?P<ws>\s+)
+    | (?P<str>'[^']*'|"[^"]*")
     | (?P<num>\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?|\d+[kKmMgG]\b)
     | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
     | (?P<op><=|>=|<>|[-+*/^<>=])
@@ -225,6 +226,9 @@ def tokenize_expr(s: str) -> list[tuple[str, Any]]:
         kind = m.lastgroup
         val = m.group()
         if kind == "ws":
+            continue
+        if kind == "str":
+            toks.append((Tok.STR, val[1:-1]))
             continue
         if kind == "num":
             if val[-1] in _SUFFIX:
@@ -262,6 +266,9 @@ class ParseError(Exception):
 
 # Keywords that are control words, not identifiers/refs.
 _KEYWORDS = {"if", "then", "else", "and", "or", "not"}
+
+# Bare identifiers with no finite numeric AST form — kept as inert stubs.
+_OPAQUE_IDENTS = {"inf", "infinity", "undefined", "null", "nan", "self"}
 
 # Binary operator → WASiM AST op + binding power (left, right).
 _BINOPS = {
@@ -380,6 +387,10 @@ class ExprParser:
         kind, val = self.next()
         if kind == Tok.NUM:
             return {"op": "literal", "value": float(val)}
+        if kind == Tok.STR:
+            # String literal (e.g. Index labels). No numeric AST form — carry the
+            # text so an Index can use it as a label; inert (0.0) in arithmetic.
+            return {"op": "literal", "value": 0.0, "_string": val}
         if kind == Tok.LP:
             inner = self.parse_expr(0)
             self.expect(Tok.RP)
@@ -391,6 +402,10 @@ class ExprParser:
         if kind == Tok.IDENT:
             if val.lower() in _KEYWORDS:
                 raise ParseError(f"unexpected keyword {val!r}")
+            if val.lower() in _OPAQUE_IDENTS:
+                # INF / Undefined / NaN etc. — no finite JSON literal; keep the
+                # symbol in provenance and evaluate to an inert 0.0.
+                return {"op": "literal", "value": 0.0, "_stub_display": val}
             if self.peek()[0] == Tok.LP:
                 self.next()  # consume (
                 pos, named = self.parse_call_args()
@@ -616,6 +631,8 @@ def strip_stub_markers(node: Any) -> tuple[Any, list[str]]:
             if "_stub_display" in n:
                 stubs.append(n["_stub_display"])
                 return {"op": "literal", "value": 0.0}
+            if "_string" in n:
+                return {"op": "literal", "value": float(n.get("value", 0.0))}
             return {k: walk(v) for k, v in n.items()}
         if isinstance(n, list):
             return [walk(v) for v in n]
@@ -651,6 +668,8 @@ def _q(value: float, unit: str = "1") -> dict:
 
 def _param_value(node: Any) -> Optional[float]:
     if isinstance(node, dict) and node.get("op") == "literal":
+        if "_string" in node or "_stub_display" in node:
+            return None
         return float(node["value"])
     if isinstance(node, dict) and node.get("op") == "neg":
         inner = _param_value(node["operand"])
@@ -819,7 +838,10 @@ def build_element(node: AnaNode, container: Optional[str]) -> Optional[dict]:
     for s in stubs:
         warn(ident, f"unconvertible sub-expression preserved as inert stub: {s}")
 
-    if ast.get("op") == "literal" and node.cls in ("decision", "constant", "variable", "determ"):
+    # A genuine bare number -> constant (but NOT a formula that merely stubbed
+    # to 0.0 — those stay expressions so the original text survives in `display`).
+    if (ast.get("op") == "literal" and not stubs
+            and node.cls in ("decision", "constant", "variable", "determ")):
         base.update({
             "type": "constant",
             "value": _q(ast["value"], units),
@@ -828,13 +850,15 @@ def build_element(node: AnaNode, container: Optional[str]) -> Optional[dict]:
         })
         return base
 
-    # Everything else -> expression element.
+    # Everything else -> expression element. For a partially/fully stubbed
+    # definition, keep the ORIGINAL Analytica text in `display` (more faithful
+    # than the re-rendered, stub-flattened AST).
     inputs = sorted(_collect_refs(ast))
     base.update({
         "type": "expression",
         "expression": {
             "ast": ast,
-            "display": _render_ast(_as_ast(parsed)),
+            "display": definition if stubs else _render_ast(_as_ast(parsed)),
             "source": "explicit" if not stubs else "inferred",
         },
         "inputs": inputs,
@@ -855,14 +879,20 @@ def _build_index_element(node: AnaNode, base: dict, units: str) -> Optional[dict
     definition = node.attrs.get("definition", "").strip()
     parsed, err = parse_definition(definition) if definition else (None, "empty")
     values: list[float] = []
+    labels: list[str] = []
     if parsed is not None:
         ast = _as_ast(parsed)
-        ast, _ = strip_stub_markers(ast)
         if ast.get("op") == "array":
-            for e in ast["elements"]:
-                v = _param_value(e)
-                if v is not None:
-                    values.append(v)
+            for i, e in enumerate(ast["elements"], start=1):
+                if isinstance(e, dict) and "_string" in e:
+                    # Label index: ordinal position is the value, text is the label.
+                    values.append(float(i))
+                    labels.append(e["_string"])
+                else:
+                    v = _param_value(e)
+                    if v is not None:
+                        values.append(v)
+                        labels.append(_num(v))
     if not values:
         warn(node.ident, "Index has no constant members (dynamic/label index?) — "
                          "no v0.1.0 dimension equivalent; emitted inert scalar stub.")
@@ -878,11 +908,11 @@ def _build_index_element(node: AnaNode, base: dict, units: str) -> Optional[dict
         "type": "array",
         "values_unit": units,
         "expressions": [
-            {"ast": {"op": "literal", "value": v}, "display": _num(v),
+            {"ast": {"op": "literal", "value": v}, "display": lbl,
              "source": "explicit"}
-            for v in values
+            for v, lbl in zip(values, labels)
         ],
-        "labels": [str(int(v)) if v == int(v) else _num(v) for v in values],
+        "labels": labels,
         "inputs": [],
     })
     return base
@@ -916,18 +946,8 @@ def _collect_refs(ast: Any) -> set[str]:
 # Stage 6 — top-level assembly
 # --------------------------------------------------------------------------- #
 
-def find_sample_size(nodes: list[AnaNode]) -> Optional[int]:
-    for n in nodes:
-        if n.ident.lower() in ("samplesize", "sampesize", "sample_size"):
-            v = _try_number(n.attrs.get("definition", "").strip()
-                            or n.attrs.get("value", "").strip())
-            if v is not None:
-                return int(v)
-    return None
-
-
 def convert(text: str, model_name: Optional[str] = None) -> dict:
-    nodes = lex_ana(text)
+    nodes, sample_size = lex_ana(text)
 
     # Containers from Model/Module nodes.
     containers: list[dict] = []
@@ -944,8 +964,7 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
 
     elements: list[dict] = []
     for n in nodes:
-        if n.cls in ("module", "model", "library", "form", "text", "picture",
-                     "button", "alias", "metavar"):
+        if n.cls in SKIP_CLASSES:
             continue
         if n.cls == "function":
             warn(n.ident, "Analytica user Function — no v0.1.0 element equivalent; skipped.")
@@ -971,7 +990,7 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
     for c in containers:
         c["children"] = child_map[c["id"]]
 
-    n_real = find_sample_size(nodes) or 1000
+    n_real = sample_size or 1000
 
     # Choose a sensible top-level name.
     if model_name is None:
