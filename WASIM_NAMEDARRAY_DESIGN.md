@@ -157,8 +157,10 @@ that don't exist in today's models.
   `Value::Vector` engine could not represent (it truncated to `min(len)`).
 
 ### Phase 3 — label subscript + unified reductions  *(size: M)* — ✅ **DONE**
-- Added the `Subscript { array, dim, label }` AST node (`model.rs`, shared v1/v2)
-  and its `ast_node` schema branch. Eval resolves `label`→position via a new
+- Added the `Subscript { array, dim, label }` AST node (`model.rs`, shared v1/v2).
+  It's a v2 array-programming op (like `index`/`vector_map`, it is validated by
+  `parse_v2`, not by the v1 `oldmodel.schema.json`, which intentionally omits those
+  ops). Eval resolves `label`→position via a new
   `EvalCtx.dim_labels` registry (threaded from `model.dimensions.labels` through
   `ArrayEnv`; v1 `engine.rs` passes an empty map), then `NamedArray::subscript`
   fixes that axis — a 1-D array collapses to a `Scalar`, an n-d array yields the
