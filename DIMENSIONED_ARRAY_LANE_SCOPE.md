@@ -148,12 +148,35 @@ the scalar lane — the same conservative gate, widened.
 |---|---|---|---|
 | 1 ✅ | **Correctness-first dimensioned lane** — `run_dim_lane` evaluates dimensioned elements per realization via the shared `eval_ast` (so `vector_map`/`index`/`subscript`/`array`/reducers/broadcast/fixed-arrays all work), mirrors the scalar draws, surfaces `<id>` + `<id>#k`, and reduces `run_stat` two-pass. *Shipped, bit-identical.* | L | Low–Med |
 | 2 ✅ | **`submodel_stat`** via the `run_submodels` pre-pass boundary (a one-directional feed, not a loop splice; submodel interior elements are also evaluated in the parent context, as the scalar lane does). *Shipped — **EVIU + Platform run end-to-end, bit-identical** (`dim_lane_examples_v2.rs`).* | M | Med |
-| 3 | **Fused coordinate kernel** (optimization): Run-major `[Run, D…]` columns + `operand_index` projection + chunked Run axis, replacing the per-realization `eval_ast` for the elementwise/reduction subset — the dimensioned analogue of Phase B. | L | Med |
+| 3 ◑ | **Speed.** *Shipped: the safe per-realization optimizations — reuse one `outputs` map across realizations (constants seeded once, no per-realization rebuild or array re-clone), hoist the topo-ordered expression list (no O(elements) scan per id) and the `#k` member keys. **~2.3× vs the scalar engine, bit-identical** (`dim_lane_examples_v2::bench_dim_lane_vs_scalar`).* **Deferred: the fused coordinate kernel** (Run-major `[Run, D…]` columns + `operand_index` projection) — measurement showed the residual cost is `eval_ast`'s tree-walk and per-realization `NamedArray` allocations, which only a parallel coordinate VM removes; see the note below. | L | Med |
 | — | Dynamic (per-cell runtime) indices; axis-selective reduction; closure/bytecode compiler | L | later |
 
 *(The original 0–4 plan folded together: reusing `eval_ast` collapsed the separate
 "column type / coordinate kernel / axis-reductions / indexing" phases into one
 correctness-first slice, deferring the coordinate kernel to a pure optimization pass.)*
+
+### On the fused coordinate kernel (deferred, with evidence)
+
+Phase 3's fusion was measured before it was built. The correctness-first dim lane is
+**already ~2.3× faster** than the scalar engine (it skips the full engine's per-step /
+importance / history / event machinery and runs `run_stat` single-structure), and the
+cheap per-realization optimizations above are in. Profiling what's left points at
+`eval_ast`'s tree-walk (per-node `HashMap<String,Value>` ref lookups) and the
+per-realization `NamedArray`/`Vec` allocations that `vector_map`/broadcast/reducers
+make. Removing those means **not** reusing `eval_ast` — a parallel, slot-indexed,
+coordinate-aware VM — because `eval_ast`'s `&HashMap<String,Value>` context is shared
+with the scalar lane and can't be swapped for a slot vector without touching it.
+
+That VM is real work at real risk, and unlike the flat lane (pure scalar arithmetic →
+8× from bytecode) the dimensioned models carry irreducible per-realization array
+materialization (`vector_map` builds a 25-wide array each realization) plus gather/index
+ops (`argmin_array`, `get_element`, `index`, `subscript`) that a coordinate kernel must
+reproduce bit-for-bit — so the realistic ceiling is more like 3–5×, not 8×. Against a
+banked, bit-identical 2.3× with the correctness goal already met, the marginal ~2× is a
+weak return for a large, high-risk build. **Recommendation: stop here unless a specific
+dimensioned model is a measured bottleneck**; if it is, build the coordinate VM for the
+elementwise + reduction + `vector_map` subset first (the array hot path) and keep
+`eval_ast` per-realization for the gather/index tail.
 
 Each phase is validated the same way as A–D: **golden-diff the scalar lane byte-identical**
 without the flag, and assert the lane **bit-identical** to the scalar lane with it — the

@@ -40,3 +40,24 @@ fn native_eviu_runs_on_dim_lane_bit_identically() {
 fn native_platform_runs_on_dim_lane_bit_identically() {
     assert_lane_matches_scalar("platform_decommissioning_native.wasim.json");
 }
+
+// Perf guard (ignored by default): the dimensioned lane vs the scalar engine on the
+// two native models. Run: cargo test --release --test dim_lane_examples_v2 -- --ignored --nocapture
+#[test]
+#[ignore]
+fn bench_dim_lane_vs_scalar() {
+    use std::time::Instant;
+    for name in ["eviu_plane_catching_native.wasim.json", "platform_decommissioning_native.wasim.json"] {
+        let m = parse_v2(&example(name)).unwrap();
+        let g = ModelGraphV2::build(&m).unwrap();
+        let sc = RunConfig { n_realizations: Some(20_000), array_lane: false, ..Default::default() };
+        let ac = RunConfig { n_realizations: Some(20_000), array_lane: true, ..Default::default() };
+        run_v2(&m, &g, &sc).unwrap(); run_v2(&m, &g, &ac).unwrap();
+        let (mut st, mut at) = (f64::INFINITY, f64::INFINITY);
+        for _ in 0..5 {
+            let t = Instant::now(); std::hint::black_box(run_v2(&m, &g, &sc).unwrap()); st = st.min(t.elapsed().as_secs_f64());
+            let t = Instant::now(); std::hint::black_box(run_v2(&m, &g, &ac).unwrap()); at = at.min(t.elapsed().as_secs_f64());
+        }
+        eprintln!("BENCH {name:45} scalar={st:.4}s dimlane={at:.4}s speedup={:.2}x", st / at);
+    }
+}

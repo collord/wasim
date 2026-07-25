@@ -774,44 +774,54 @@ pub fn run_dim_lane(
 
     // ── 2. Per-realization evaluation via eval_ast; two passes iff run_stat present ──
     let run_stat_targets = collect_run_stats(model)?;
+    // Precompute the per-realization work once (hoisted out of the hot loop): the
+    // topo-ordered expression list (avoids an O(elements) scan per id per realization),
+    // the constant fixed values (avoids re-cloning e.g. a 25-wide array every
+    // realization), and the `#k` member keys (avoids per-realization `format!`).
+    let expr_list: Vec<(&str, &AstNode)> = graph.topo_order.iter()
+        .filter_map(|id| expression_ast(model, id).map(|ast| (id.as_str(), ast))).collect();
+    let fixed_vals: Vec<(&str, Value)> = model.elements.iter().filter_map(|e| {
+        if let Primitive::Node(nd) = &e.primitive {
+            match &nd.rule {
+                NodeRule::Fixed { value: FixedValue::Scalar(q), .. } => Some((e.id(), Value::Scalar(q.value))),
+                NodeRule::Fixed { value: FixedValue::Array { values, .. }, .. } => Some((e.id(), Value::Vector(values.clone()))),
+                _ => None,
+            }
+        } else { None }
+    }).collect();
+    let member_info: Vec<(&str, Vec<String>)> = members.iter()
+        .map(|(&id, &count)| (id, (1..=count).map(|k| format!("{id}#{k}")).collect())).collect();
+    let elem_ids: Vec<&str> = model.elements.iter().map(|e| e.id()).collect();
+
     let run_pass = |run_stats: &HashMap<String, f64>| -> Result<DimStores, EngineError> {
         let mut scalar: HashMap<String, Vec<f64>> =
-            model.elements.iter().map(|e| (e.id().to_string(), Vec::with_capacity(n))).collect();
+            elem_ids.iter().map(|&id| (id.to_string(), Vec::with_capacity(n))).collect();
         let mut member: HashMap<String, Vec<f64>> = HashMap::new();
-        for (&id, &count) in &members {
-            for k in 1..=count { member.insert(format!("{id}#{k}"), Vec::with_capacity(n)); }
+        for (_, keys) in &member_info {
+            for key in keys { member.insert(key.clone(), Vec::with_capacity(n)); }
         }
+        // One reused map: fixed values seeded once (constant across realizations); samples
+        // and expression results are overwritten each realization in topo order, so a
+        // consumer always reads the current realization's value. Bit-identical to the
+        // per-realization rebuild — same `eval_ast`, same order, same values.
+        let mut outputs: HashMap<String, Value> = HashMap::with_capacity(elem_ids.len());
+        for (id, v) in &fixed_vals { outputs.insert(id.to_string(), v.clone()); }
         for r in 0..n {
-            let mut outputs: HashMap<String, Value> = HashMap::new();
-            for e in &model.elements {
-                if let Primitive::Node(nd) = &e.primitive {
-                    match &nd.rule {
-                        NodeRule::Fixed { value: FixedValue::Scalar(q), .. } =>
-                            { outputs.insert(e.id().to_string(), Value::Scalar(q.value)); }
-                        NodeRule::Fixed { value: FixedValue::Array { values, .. }, .. } =>
-                            { outputs.insert(e.id().to_string(), Value::Vector(values.clone())); }
-                        _ => {}
-                    }
-                }
-            }
             for (id, col) in &sample_cols {
                 outputs.insert(id.to_string(), Value::Scalar(col[r]));
             }
-            for id in &graph.topo_order {
-                if let Some(ast) = expression_ast(model, id) {
-                    let v = { let ctx = env.ctx(&outputs, run_stats); eval_ast(ast, &ctx)? };
-                    outputs.insert(id.clone(), v);
-                }
+            for (id, ast) in &expr_list {
+                let v = { let ctx = env.ctx(&outputs, run_stats); eval_ast(ast, &ctx)? };
+                outputs.insert(id.to_string(), v);
             }
-            for e in &model.elements {
-                let v = outputs.get(e.id());
-                scalar.get_mut(e.id()).unwrap().push(v.map(|v| v.as_scalar()).unwrap_or(0.0));
-                if let Some(&count) = members.get(e.id()) {
-                    let vec = v.map(|v| v.clone().into_vec()).unwrap_or_default();
-                    for k in 1..=count {
-                        member.get_mut(&format!("{}#{k}", e.id())).unwrap()
-                            .push(vec.get(k - 1).copied().unwrap_or(0.0));
-                    }
+            for &id in &elem_ids {
+                let v = outputs.get(id);
+                scalar.get_mut(id).unwrap().push(v.map(|v| v.as_scalar()).unwrap_or(0.0));
+            }
+            for (id, keys) in &member_info {
+                let vec = outputs.get(*id).map(|v| v.clone().into_vec()).unwrap_or_default();
+                for (k, key) in keys.iter().enumerate() {
+                    member.get_mut(key).unwrap().push(vec.get(k).copied().unwrap_or(0.0));
                 }
             }
         }
