@@ -67,6 +67,39 @@ on top needs the results-layer / optimization features called out there.
 Note: `.ana` from this era is classic-Mac **CR-delimited** with `~`/`~~`
 line-wrap markers inside long values; the converter normalizes both.
 
+## Native re-solution — `eviu_plane_catching_native.wasim.json`
+
+The mechanical conversion above stubs the value-of-information layer because it
+has no faithful scalar translation. `tools/examples/eviu_plane_catching_native.wasim.json`
+is the **companion hand-authored model that actually solves the problem** the
+way WASiM is built for — a v2 model (`build_eviu_native.py` regenerates it). It
+is guarded by `engine/tests/eviu_native_v2.rs`, so it runs on every `cargo test`.
+
+The idea: the expensive Analytica constructs (`Probability(…)`, `ArgMin` over
+the decision axis, `Cost[leave = …]`) all reduce to the engine's own
+**sweep-composition** pattern — the same one `loss_exceedance_curve` uses:
+
+- A `Trip` **submodel** samples the three uncertain legs and emits `travel`
+  (total home-to-gate time) over its own Monte-Carlo loop.
+- `submodel_stat` reduces `travel` **across realizations** — `mean`, `percentile`
+  (median), and `exceedance` (`P(travel > t)`, the CCDF).
+- The expected-cost decision curve is those reducers swept over the `Depart`
+  axis with `vector_map`, using the identity
+  `E[Cost(lead)] = lead − mean(travel) + Loss · P(travel > lead)` — no
+  per-realization cost array needed, so it composes from scalar reducers with
+  the lead time as the reducer `arg`.
+- `argmin_array` + `get_element` pull the optimum out of the curve **in-graph**;
+  a parallel deterministic curve (travel fixed at its median) gives the naive
+  optimum, and `EVIU = E[cost | naive decision] − min E[cost]`.
+
+Result (n = 2000): a U-shaped expected-cost curve; the stochastic optimum leaves
+**~130 min** early for a min expected cost of **~40 min**, while ignoring
+uncertainty picks **105 min** — which costs **~167 min** in expectation because
+you still miss the plane ~40% of the time. **EVIU ≈ 125–130 min**: the expected
+minutes saved by accounting for uncertainty. That whole computation — the §2
+across-realization reductions plus decision optimization — is exactly what the
+mechanical 0.1.0 conversion cannot express, and what the engine does natively.
+
 ## What maps (and what doesn't)
 
 Grounded in `ANALYTICA_ENGINE_GAP_ANALYSIS.md`. The two tools are architecturally

@@ -1,0 +1,777 @@
+{
+  "wasim_version": "0.9.7",
+  "source": {
+    "generator": "hand-authored",
+    "notes": "WASiM-native EVIU (expected value of including uncertainty) for the airport plane-catching problem. The across-realization expected-cost curve is composed natively from submodel_stat (mean / exceedance) swept over the Depart decision axis via vector_map \u2014 the same sweep-composition pattern as loss_exceedance_curve. See tools/examples/README section."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 1,
+      "unit": "1"
+    },
+    "n_realizations": 2000,
+    "seed": 12345
+  },
+  "dimensions": [
+    {
+      "id": "Depart",
+      "name": "Departure lead time",
+      "size": 25,
+      "labels": [
+        "60",
+        "65",
+        "70",
+        "75",
+        "80",
+        "85",
+        "90",
+        "95",
+        "100",
+        "105",
+        "110",
+        "115",
+        "120",
+        "125",
+        "130",
+        "135",
+        "140",
+        "145",
+        "150",
+        "155",
+        "160",
+        "165",
+        "170",
+        "175",
+        "180"
+      ]
+    }
+  ],
+  "containers": [
+    {
+      "id": "Model",
+      "name": "Plane catching (EVIU, native)",
+      "children": [
+        "Model/Trip"
+      ],
+      "elements": [
+        "Model/depart_times",
+        "Model/mean_travel",
+        "Model/median_travel",
+        "Model/prob_miss",
+        "Model/exp_cost",
+        "Model/min_exp_cost",
+        "Model/best_depart_idx",
+        "Model/best_depart",
+        "Model/det_cost",
+        "Model/det_best_idx",
+        "Model/det_best_depart",
+        "Model/exp_cost_at_det",
+        "Model/eviu"
+      ]
+    },
+    {
+      "id": "Model/Trip",
+      "name": "Trip",
+      "parent": "Model",
+      "kind": "submodel",
+      "simulation_settings": {
+        "duration": {
+          "value": 1,
+          "unit": "1"
+        },
+        "timestep": {
+          "value": 1,
+          "unit": "1"
+        },
+        "n_realizations": 2000,
+        "seed": 12345
+      },
+      "interface": {
+        "inputs": [],
+        "outputs": [
+          "Model/Trip/travel"
+        ]
+      },
+      "elements": [
+        "Model/Trip/drive",
+        "Model/Trip/park",
+        "Model/Trip/gate",
+        "Model/Trip/travel"
+      ]
+    }
+  ],
+  "elements": [
+    {
+      "id": "Model/Trip/drive",
+      "name": "Drive to airport",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Trip",
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 3.6888794541139363,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.26236426446749106,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/Trip/park",
+      "name": "Park to gate",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Trip",
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 3.4011973816621555,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.26236426446749106,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/Trip/gate",
+      "name": "Gate buffer",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Trip",
+      "distribution": {
+        "family": "triangular",
+        "parameters": {
+          "min": {
+            "value": 20,
+            "unit": "1"
+          },
+          "mode": {
+            "value": 30,
+            "unit": "1"
+          },
+          "max": {
+            "value": 40,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/Trip/travel",
+      "name": "Total home-to-gate time",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Trip",
+      "inputs": [
+        "Model/Trip/drive",
+        "Model/Trip/park",
+        "Model/Trip/gate"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "ref",
+              "element_id": "Model/Trip/drive"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Model/Trip/park"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "Model/Trip/gate"
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "travel",
+          "unit": "min",
+          "dimensions": []
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/depart_times",
+      "name": "Candidate lead times",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "container": "Model",
+      "values": [
+        60.0,
+        65.0,
+        70.0,
+        75.0,
+        80.0,
+        85.0,
+        90.0,
+        95.0,
+        100.0,
+        105.0,
+        110.0,
+        115.0,
+        120.0,
+        125.0,
+        130.0,
+        135.0,
+        140.0,
+        145.0,
+        150.0,
+        155.0,
+        160.0,
+        165.0,
+        170.0,
+        175.0,
+        180.0
+      ],
+      "unit": "min",
+      "outputs": [
+        {
+          "name": "depart_times",
+          "unit": "min",
+          "dimensions": [
+            "Depart"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Model/mean_travel",
+      "name": "Mean travel time",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Trip"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Trip",
+          "output": "Model/Trip/travel",
+          "statistic": "mean"
+        }
+      },
+      "outputs": [
+        {
+          "name": "mean_travel",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/median_travel",
+      "name": "Median travel time",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Trip"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Trip",
+          "output": "Model/Trip/travel",
+          "statistic": "percentile",
+          "arg": {
+            "op": "literal",
+            "value": 50.0
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "median_travel",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/prob_miss",
+      "name": "P(miss) vs lead time",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Trip",
+        "Model/depart_times"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Depart",
+          "body": {
+            "op": "submodel_stat",
+            "submodel_id": "Model/Trip",
+            "output": "Model/Trip/travel",
+            "statistic": "exceedance",
+            "arg": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "Model/depart_times"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "prob_miss",
+          "unit": "1",
+          "dimensions": [
+            "Depart"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/exp_cost",
+      "name": "Expected cost vs lead time",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Trip",
+        "Model/depart_times",
+        "Model/mean_travel"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Depart",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "subtract",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "Model/depart_times"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/mean_travel"
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 400.0
+              },
+              "right": {
+                "op": "submodel_stat",
+                "submodel_id": "Model/Trip",
+                "output": "Model/Trip/travel",
+                "statistic": "exceedance",
+                "arg": {
+                  "op": "index",
+                  "array": {
+                    "op": "ref",
+                    "element_id": "Model/depart_times"
+                  },
+                  "indices": [
+                    {
+                      "op": "index_ref",
+                      "axis": "row"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_cost",
+          "unit": "min",
+          "dimensions": [
+            "Depart"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/det_cost",
+      "name": "Deterministic cost vs lead time",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/depart_times",
+        "Model/median_travel"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Depart",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "subtract",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "Model/depart_times"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/median_travel"
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 400.0
+              },
+              "right": {
+                "op": "if",
+                "cond": {
+                  "op": "gt",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "Model/median_travel"
+                  },
+                  "right": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "Model/depart_times"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  }
+                },
+                "then": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "else": {
+                  "op": "literal",
+                  "value": 0.0
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "det_cost",
+          "unit": "min",
+          "dimensions": [
+            "Depart"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/min_exp_cost",
+      "name": "Min expected cost",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/exp_cost"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "min_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/exp_cost"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "min_exp_cost",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/best_depart_idx",
+      "name": "Best lead-time index",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/exp_cost"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmin_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/exp_cost"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "best_depart_idx",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/best_depart",
+      "name": "Best lead time (min)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/depart_times",
+        "Model/best_depart_idx"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/depart_times"
+            },
+            {
+              "op": "ref",
+              "element_id": "Model/best_depart_idx"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "best_depart",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/det_best_idx",
+      "name": "Deterministic best index",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/det_cost"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmin_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/det_cost"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "det_best_idx",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/det_best_depart",
+      "name": "Deterministic best lead time (min)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/depart_times",
+        "Model/det_best_idx"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/depart_times"
+            },
+            {
+              "op": "ref",
+              "element_id": "Model/det_best_idx"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "det_best_depart",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/exp_cost_at_det",
+      "name": "Expected cost of the naive decision",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/exp_cost",
+        "Model/det_best_idx"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/exp_cost"
+            },
+            {
+              "op": "ref",
+              "element_id": "Model/det_best_idx"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_cost_at_det",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/eviu",
+      "name": "EVIU (minutes saved)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/exp_cost_at_det",
+        "Model/min_exp_cost"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "Model/exp_cost_at_det"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "Model/min_exp_cost"
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "eviu",
+          "unit": "min"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    }
+  ]
+}
