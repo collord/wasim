@@ -119,6 +119,55 @@ fn run_stat_cycle_falls_back_and_matches_scalar() {
     assert_bit_identical(&run(RUNSTAT_CYCLE, false), &run(RUNSTAT_CYCLE, true));
 }
 
+// Phase D coverage: a model whose expression uses elementwise math builtins
+// (exp/ln/sqrt/min/max/abs) — the shape of real Analytica transforms. It must now be
+// array-lane-eligible and bit-identical to the scalar lane.
+const BUILTINS: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 800, "seed": 4},
+  "containers": [{"id": "M", "name": "M", "elements": ["M/a","M/b","M/y"]}],
+  "elements": [
+    {"id":"M/a","name":"a","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"normal","parameters":{"mean":{"value":0,"unit":"1"},"stddev":{"value":1,"unit":"1"}}},"save_results":{"final_value":true}},
+    {"id":"M/b","name":"b","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"uniform","parameters":{"min":{"value":1,"unit":"1"},"max":{"value":5,"unit":"1"}}},"save_results":{"final_value":true}},
+    {"id":"M/y","name":"y","primitive":"node","value_rule":"expression","container":"M","inputs":["M/a","M/b"],
+     "expression":{"ast":
+       {"op":"add",
+         "left":{"op":"call","fn":"exp","args":[{"op":"ref","element_id":"M/a"}]},
+         "right":{"op":"multiply",
+           "left":{"op":"call","fn":"sqrt","args":[{"op":"ref","element_id":"M/b"}]},
+           "right":{"op":"call","fn":"max","args":[
+             {"op":"call","fn":"abs","args":[{"op":"ref","element_id":"M/a"}]},
+             {"op":"call","fn":"ln","args":[{"op":"ref","element_id":"M/b"}]},
+             {"op":"literal","value":0.5}]}}}},
+     "save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn builtins_are_eligible_and_match_scalar() {
+    let m = parse_v2(BUILTINS).unwrap();
+    assert!(array_lane::eligible(&m).is_ok(), "elementwise math builtins should be eligible");
+    assert_bit_identical(&run(BUILTINS, false), &run(BUILTINS, true));
+}
+
+#[test]
+fn array_reducer_builtin_stays_ineligible() {
+    // sum_array collapses an axis to a scalar — not elementwise, must keep the model
+    // on the scalar lane.
+    let json = r#"{
+      "wasim_version": "0.9.7",
+      "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 10, "seed": 1},
+      "containers": [{"id":"M","name":"M","elements":["M/x","M/s"]}],
+      "elements": [
+        {"id":"M/x","name":"x","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"uniform","parameters":{"min":{"value":0,"unit":"1"},"max":{"value":1,"unit":"1"}}}},
+        {"id":"M/s","name":"s","primitive":"node","value_rule":"expression","container":"M",
+         "expression":{"ast":{"op":"call","fn":"sum_array","args":[{"op":"ref","element_id":"M/x"}]}},"save_results":{"final_value":true}}
+      ]
+    }"#;
+    let m = parse_v2(json).unwrap();
+    assert!(array_lane::eligible(&m).is_err(), "sum_array must keep the model on the scalar lane");
+}
+
 #[test]
 fn eligibility_accepts_and_rejects() {
     let m = parse_v2(RUNSTAT).unwrap();

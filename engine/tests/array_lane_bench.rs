@@ -86,6 +86,50 @@ fn runstat_model(n_real: u32) -> String {
     }}"#)
 }
 
+/// Transcendental-heavy elementwise chain (exp/ln/sqrt/max) — the shape of real
+/// Analytica transforms, now fused (Phase D coverage).
+fn builtins_model(n_real: u32) -> String {
+    format!(r#"{{
+      "wasim_version": "0.9.7",
+      "simulation_settings": {{"duration": {{"value": 1, "unit": "d"}}, "timestep": {{"value": 1, "unit": "d"}}, "n_realizations": {n_real}, "seed": 8}},
+      "containers": [{{"id": "M", "name": "M", "elements": ["M/a","M/b","M/y"]}}],
+      "elements": [
+        {{"id":"M/a","name":"a","primitive":"node","value_rule":"sample","container":"M","distribution":{{"family":"normal","parameters":{{"mean":{{"value":0,"unit":"1"}},"stddev":{{"value":1,"unit":"1"}}}}}},"save_results":{{"final_value":false}}}},
+        {{"id":"M/b","name":"b","primitive":"node","value_rule":"sample","container":"M","distribution":{{"family":"uniform","parameters":{{"min":{{"value":1,"unit":"1"}},"max":{{"value":5,"unit":"1"}}}}}},"save_results":{{"final_value":false}}}},
+        {{"id":"M/y","name":"y","primitive":"node","value_rule":"expression","container":"M","inputs":["M/a","M/b"],
+         "expression":{{"ast":{{"op":"add","left":{{"op":"call","fn":"exp","args":[{{"op":"ref","element_id":"M/a"}}]}},"right":{{"op":"multiply","left":{{"op":"call","fn":"sqrt","args":[{{"op":"ref","element_id":"M/b"}}]}},"right":{{"op":"call","fn":"max","args":[{{"op":"call","fn":"abs","args":[{{"op":"ref","element_id":"M/a"}}]}},{{"op":"call","fn":"ln","args":[{{"op":"ref","element_id":"M/b"}}]}}]}}}}}}}},"save_results":{{"final_value":true}}}}
+      ]
+    }}"#)
+}
+
+#[test]
+#[ignore]
+fn bench_builtins_array_lane_vs_scalar() {
+    let json = builtins_model(500_000);
+    let m = parse_v2(&json).unwrap();
+    let g = ModelGraphV2::build(&m).unwrap();
+    let (scalar_t, scalar_v) = best_of_id(&m, &g, false, 5, "M/y");
+    let (array_t, array_v) = best_of_id(&m, &g, true, 5, "M/y");
+    assert_eq!(scalar_v.to_bits(), array_v.to_bits(), "builtins array lane must be bit-identical");
+    eprintln!(
+        "BENCH builtins n=500000  scalar={scalar_t:.4}s  array={array_t:.4}s  speedup={:.2}x  (y[0]={scalar_v:.6})",
+        scalar_t / array_t
+    );
+}
+
+fn best_of_id(m: &wasim_engine::ModelV2, g: &ModelGraphV2, lane: bool, reps: usize, id: &str) -> (f64, f64) {
+    let cfg = RunConfig { array_lane: lane, ..Default::default() };
+    let probe = run_v2(m, g, &cfg).unwrap().elements[id].final_values[0];
+    let mut best = f64::INFINITY;
+    for _ in 0..reps {
+        let t = Instant::now();
+        let r = run_v2(m, g, &cfg).unwrap();
+        std::hint::black_box(r.elements[id].final_values[0]);
+        best = best.min(t.elapsed().as_secs_f64());
+    }
+    (best, probe)
+}
+
 #[test]
 #[ignore]
 fn bench_runstat_array_lane_vs_scalar() {

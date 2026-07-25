@@ -121,15 +121,58 @@ axis-tagged; `eval.rs`). The array lane adds, in `engine_v2`:
 | A ✅ | **Eligibility analysis + `array_lane` opt-in flag** that, when a model is fully eligible, runs it columnar (correctness first). Golden-diff the scalar lane stays byte-identical; array lane validated **bit-identical** to the scalar lane. *Shipped: `array_lane.rs` `eligible`/`run_array_lane`, `engine/tests/array_lane_v2.rs`.* | M | Low — additive, gated |
 | B ✅ | **Fusing kernel evaluator** (elementwise chains → one pass, no temps) — the Spike-1 win. *Shipped: each expression compiles once to a postfix bytecode program with short-circuit `if` jumps; `eval_pass` runs one fused pass per Run column, no per-op `Vec`. Bench `engine/tests/array_lane_bench.rs`: **8.4× vs scalar** on a 500k-realization 8-op chain, result bit-identical.* | M–L | Med |
 | C ✅ | **Native `Run`-axis reductions** — fold `run_stat` onto an inline column reduction and **drop the two-pass** for lane models. *Shipped: `augmented_order` builds a topo order where every `run_stat` target precedes its consumer; when it exists (acyclic), a single pass evaluates each column and reduces its `run_stat`s inline. A `run_stat` on a genuine cycle (ensemble feedback) has no such order → the two-pass fallback is retained. Bench: **26.6× vs scalar** on a 500k-realization §2 model, bit-identical.* | M | Med |
-| D | **Auto-routing** (per-subgraph eligibility, scalar/array hybrid in one run) + stock vectorization. | L | Med–High |
-| — | Closure/bytecode kernel compiler; runtime-dynamic indices | L | later |
+| D ◑ | **Coverage widening + auto-routing + stock vectorization.** *Shipped: elementwise math builtins in the fused kernel (`abs`/`sqrt`/`exp`/`ln`/`log`/`log2`/trig+hyperbolic/`floor`/`ceil`/`round`/`sign`/`int`/`step`/`mod`/`atan2`/`pv_factor`/`annuity_factor`/variadic `min`/`max`) — see `builtin_shape`/`apply_unary`/`apply_binary`; bench **7.6× vs scalar** on a transcendental chain, bit-identical. Non-elementwise builtins (array reducers, event predicates, gamma/erf/date) stay ineligible. **Deferred (design below): the interleaved scalar/array hybrid boundary and stock vectorization** — both would touch the scalar lane's stateful main loop, against the prime constraint.* | L | Med–High |
+| — | Dimensioned-array lane (the real next lever — see below); closure/bytecode kernel compiler; runtime-dynamic indices | L | later |
 
 Phases A–C are shipped and gated (opt-in, scalar path untouched). Measured speedups:
-**8.4×** on a pure arithmetic chain (B's fused kernel) and **26.6×** on the §2
+**8.4×** on a pure arithmetic chain (B's fused kernel), **26.6×** on the §2
 mid-graph-reduction shape (C's single pass — the scalar lane must run the whole
 simulation twice for a `run_stat`, the array lane reduces the materialized column
-inline). Both bit-identical to the scalar lane. The §2 shape is exactly Analytica's
-hard case, so the largest win lands where it matters most for compat.
+inline), and **7.6×** on a transcendental-heavy chain (D's builtins). All
+bit-identical to the scalar lane. The §2 shape is exactly Analytica's hard case, so
+the largest win lands where it matters most for compat.
+
+### Phase D: what shipped, and why the rest is deferred
+
+Phase D as originally scoped bundled three things of very different risk. Splitting
+them by the prime constraint ("never touch the scalar lane"):
+
+- **Coverage widening (shipped, low risk).** Adding pure elementwise math builtins to
+  the fused kernel stays entirely inside `array_lane.rs` and is verified bit-identical
+  by reusing the scalar lane's exact f64 formulas. This is the practical Analytica
+  lever for *flat-MC* models (lognormal transforms, discounting, `max(·,0)` floors).
+
+- **Whole-model auto-routing (already the shipped semantics).** The `array_lane` flag
+  already means "use the lane iff the model is eligible, else fall back" — auto-routing
+  at model granularity. Making it the *default* is deliberately **not** done: it would
+  be a transparent swap, and the opt-in gate is what lets a future ULP-diverging
+  optimization (deterministic-SIMD fusion) land without silently changing results.
+
+- **Interleaved scalar/array hybrid + stock vectorization (deferred, high risk).** A
+  per-*subgraph* hybrid — array lane for the eligible bulk, scalar engine for a few
+  ineligible elements, in one run — needs a boundary that feeds per-realization
+  columns *into* the scalar engine's realization loop (importance sampling,
+  Iman-Conover, history stores, event-accurate stepping). That is the scalar lane's
+  hot path; splicing into it violates the constraint that makes the whole dual-mode
+  design safe. Stock vectorization has the same problem from the other side: it makes
+  the array lane time-stepping and must reproduce the scalar integrator's exact order
+  across the full `Stock` trait matrix (floor, capacity, overflow routing, compound
+  growth, priority withdrawals). **Design for when it's taken up:** run the eligible
+  subgraph on the array lane first, materialize its Run columns, then run *only* the
+  ineligible suffix on the scalar engine with those columns injected as a read-only
+  per-realization input source — i.e. add an input *provider* to the scalar loop
+  rather than editing the loop body, and gate it so a model with no ineligible suffix
+  (today's case) never exercises it. Restricted stocks (`level += rate·dt`, no
+  clamps/routing) are the tractable first slice of vectorization and should ship before
+  the full trait matrix.
+
+**Honest coverage finding.** The committed example models
+(`eviu_plane_catching_native`, `platform_decommissioning_native`) are **not** blocked
+by the builtins gap — they are blocked by **dimensions** (array axes / `vector_map`).
+So the highest-value *next* lever for those specific models is a **dimensioned-array
+lane** (Run × named axes in one columnar pass over the existing `NamedArray`
+substrate), not the hybrid boundary. The builtins win shipped here applies to the
+flat-MC class; the dimensioned lane is its own future phase.
 
 ## Non-goals / constraints
 
@@ -150,11 +193,13 @@ hard case, so the largest win lands where it matters most for compat.
   NamedArray series) must stay byte-identical for every model run without the flag.
 - **Array lane determinism:** run an eligible model twice under the flag → identical.
 - **Array vs scalar agreement:** the lane is opt-in and *may* differ in the last
-  ULPs by design, but the eligible subset shipped in A–B is in fact **bit-identical**
+  ULPs by design, but the eligible subset shipped in A–D is in fact **bit-identical**
   to the scalar lane (`array_lane_v2.rs` asserts `final_values` equality on a
-  `run_stat` model and an arithmetic-with-`if` model): the fused bytecode ops reuse
-  the scalar lane's exact f64 arithmetic and short-circuit `if` selects the same
-  per-realization branch value.
+  `run_stat` model, an arithmetic-with-`if` model, a `run_stat`-over-expression model,
+  and an `exp`/`ln`/`sqrt`/`max` builtins model): the fused bytecode ops reuse the
+  scalar lane's exact f64 arithmetic, short-circuit `if` selects the same
+  per-realization branch value, and each builtin applies the identical `eval_call`
+  formula (variadic `min`/`max` folded in emit order with the same init).
 - **Perf:** `engine/tests/array_lane_bench.rs` compares scalar vs array lane on a
   500k-realization 8-op chain — **8.4×** and bit-identical (measured). Run with
   `cargo test --release --test array_lane_bench -- --ignored --nocapture`.

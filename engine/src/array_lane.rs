@@ -32,7 +32,7 @@ use crate::engine::{ElementResults, RunConfig, SimulationResults};
 use crate::error::EngineError;
 use crate::eval::{resolve_distribution, run_stat_key, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
-use crate::model::{AstNode, SubmodelStatKind};
+use crate::model::{AstNode, BuiltinFn, SubmodelStatKind};
 use crate::model_v2::{ContainerKind, Element, FixedValue, Model, NodeRule, Primitive};
 use crate::sampling;
 
@@ -87,7 +87,16 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
             Some(a) => expr_allowed(a),
             None => Ok(()),
         },
-        AstNode::Call { .. } => Err("call"),
+        // A call is eligible iff it is a pure elementwise scalar-math builtin and every
+        // argument is itself eligible. Non-elementwise builtins (array reducers, event
+        // predicates, private-helper specials) keep the model on the scalar lane.
+        AstNode::Call { func, args } => match builtin_shape(func) {
+            Some(BuiltinShape::Un(_)) | Some(BuiltinShape::Bin(_)) | Some(BuiltinShape::Fold(_)) => {
+                for a in args { expr_allowed(a)?; }
+                Ok(())
+            }
+            None => Err("call"),
+        },
         AstNode::LookupCall { .. } => Err("lookup_call"),
         AstNode::SubmodelStat { .. } => Err("submodel_stat"),
         AstNode::VectorMap { .. } => Err("vector_map"),
@@ -118,10 +127,69 @@ enum Op {
     Add, Sub, Mul, Div, Pow,
     Lt, Gt, Lte, Gte, Eq, Neq, And, Or,
     Neg, Not,
+    /// Pop 1, push a unary math builtin's result (abs/exp/ln/sqrt/…).
+    Un(UnFn),
+    /// Pop 2, push a fixed-arity binary math builtin's result (atan2/mod/pv/annuity).
+    Bin2(BinFn),
+    /// Pop `argc` (in emit order), push their min/max fold — variadic `min`/`max`.
+    Fold(FoldFn, u32),
     /// Pop cond; if false (== 0.0) jump to the instruction index in the operand.
     JumpIfFalse(u32),
     /// Unconditional jump to the instruction index in the operand.
     Jump(u32),
+}
+
+/// Unary elementwise math builtins the fused kernel supports (each a direct f64
+/// method, so bit-identical to `eval_call`'s scalar path).
+#[derive(Debug, Clone, Copy)]
+enum UnFn { Abs, Sqrt, Exp, Ln, Log10, Log2, Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Floor, Ceil, Round, Sign, Trunc, Step }
+
+/// Fixed-arity binary math builtins.
+#[derive(Debug, Clone, Copy)]
+enum BinFn { Atan2, Mod, PvFactor, AnnuityFactor }
+
+/// Variadic min/max fold builtins.
+#[derive(Debug, Clone, Copy)]
+enum FoldFn { Min, Max }
+
+/// Lower a `BuiltinFn` to its fused-kernel shape, or `None` if it is not a pure
+/// elementwise scalar-math builtin (array reducers, event predicates, and the
+/// private-helper specials — gamma/erf/date extraction — stay ineligible, keeping
+/// such models on the scalar lane).
+enum BuiltinShape { Un(UnFn), Bin(BinFn), Fold(FoldFn) }
+
+fn builtin_shape(f: &BuiltinFn) -> Option<BuiltinShape> {
+    use BuiltinFn as F;
+    Some(match f {
+        F::Abs => BuiltinShape::Un(UnFn::Abs),
+        F::Sqrt => BuiltinShape::Un(UnFn::Sqrt),
+        F::Exp => BuiltinShape::Un(UnFn::Exp),
+        F::Ln => BuiltinShape::Un(UnFn::Ln),
+        F::Log => BuiltinShape::Un(UnFn::Log10),
+        F::Log2 => BuiltinShape::Un(UnFn::Log2),
+        F::Sin => BuiltinShape::Un(UnFn::Sin),
+        F::Cos => BuiltinShape::Un(UnFn::Cos),
+        F::Tan => BuiltinShape::Un(UnFn::Tan),
+        F::Asin => BuiltinShape::Un(UnFn::Asin),
+        F::Acos => BuiltinShape::Un(UnFn::Acos),
+        F::Atan => BuiltinShape::Un(UnFn::Atan),
+        F::Sinh => BuiltinShape::Un(UnFn::Sinh),
+        F::Cosh => BuiltinShape::Un(UnFn::Cosh),
+        F::Tanh => BuiltinShape::Un(UnFn::Tanh),
+        F::Floor => BuiltinShape::Un(UnFn::Floor),
+        F::Ceil => BuiltinShape::Un(UnFn::Ceil),
+        F::Round => BuiltinShape::Un(UnFn::Round),
+        F::Sign => BuiltinShape::Un(UnFn::Sign),
+        F::Int => BuiltinShape::Un(UnFn::Trunc),
+        F::Step => BuiltinShape::Un(UnFn::Step),
+        F::Atan2 => BuiltinShape::Bin(BinFn::Atan2),
+        F::Mod => BuiltinShape::Bin(BinFn::Mod),
+        F::PvFactor => BuiltinShape::Bin(BinFn::PvFactor),
+        F::AnnuityFactor => BuiltinShape::Bin(BinFn::AnnuityFactor),
+        F::Min => BuiltinShape::Fold(FoldFn::Min),
+        F::Max => BuiltinShape::Fold(FoldFn::Max),
+        _ => return None,
+    })
 }
 
 /// A materialized Run column: a scalar broadcasts across realizations, a vector is
@@ -214,6 +282,30 @@ fn emit(
             })?;
             prog.push(Op::RunStat(slot));
         }
+        AstNode::Call { func, args } => {
+            let bad_arity = |name: &str| EngineError::InvalidModel(
+                format!("array lane: builtin '{name}' called with {} args", args.len()));
+            match builtin_shape(func) {
+                Some(BuiltinShape::Un(u)) => {
+                    if args.len() != 1 { return Err(bad_arity("unary")); }
+                    emit(&args[0], slot_of, rs_of, prog)?;
+                    prog.push(Op::Un(u));
+                }
+                Some(BuiltinShape::Bin(b)) => {
+                    if args.len() != 2 { return Err(bad_arity("binary")); }
+                    emit(&args[0], slot_of, rs_of, prog)?;
+                    emit(&args[1], slot_of, rs_of, prog)?;
+                    prog.push(Op::Bin2(b));
+                }
+                Some(BuiltinShape::Fold(fk)) => {
+                    if args.is_empty() { return Err(bad_arity("min/max")); }
+                    for a in args { emit(a, slot_of, rs_of, prog)?; }
+                    prog.push(Op::Fold(fk, args.len() as u32));
+                }
+                None => return Err(EngineError::InvalidModel(format!(
+                    "array lane: builtin {:?} not compilable", std::mem::discriminant(func)))),
+            }
+        }
         other => {
             return Err(EngineError::InvalidModel(format!(
                 "array lane: expression op not compilable: {:?}",
@@ -263,6 +355,27 @@ fn exec(prog: &[Op], cols: &[ColData], rstats: &[f64], r: usize, stack: &mut Vec
                 let a = stack.pop().unwrap();
                 stack.push(bool_val(!is_true(a)));
             }
+            Op::Un(u) => {
+                let a = stack.pop().unwrap();
+                stack.push(apply_unary(*u, a));
+            }
+            Op::Bin2(b) => {
+                let y = stack.pop().unwrap();
+                let x = stack.pop().unwrap();
+                stack.push(apply_binary(*b, x, y));
+            }
+            Op::Fold(fk, argc) => {
+                // Fold over the top `argc` values in **emit order** (arg0 deepest), with the
+                // same init as `eval_call`, so min/max match bit-for-bit even with NaN args.
+                let base = stack.len() - *argc as usize;
+                let (init, f): (f64, fn(f64, f64) -> f64) = match fk {
+                    FoldFn::Min => (f64::INFINITY, f64::min),
+                    FoldFn::Max => (f64::NEG_INFINITY, f64::max),
+                };
+                let acc = stack[base..].iter().copied().fold(init, f);
+                stack.truncate(base);
+                stack.push(acc);
+            }
             Op::JumpIfFalse(t) => {
                 let c = stack.pop().unwrap();
                 if c == 0.0 {
@@ -284,6 +397,45 @@ fn exec(prog: &[Op], cols: &[ColData], rstats: &[f64], r: usize, stack: &mut Vec
 fn bool_val(b: bool) -> f64 { if b { 1.0 } else { 0.0 } }
 #[inline]
 fn is_true(v: f64) -> bool { v != 0.0 }
+
+/// Exactly the scalar formulas `eval_call` applies (eval.rs), so the fused result is
+/// bit-identical to the scalar lane's builtin evaluation.
+#[inline]
+fn apply_unary(u: UnFn, a: f64) -> f64 {
+    match u {
+        UnFn::Abs => a.abs(),
+        UnFn::Sqrt => a.sqrt(),
+        UnFn::Exp => a.exp(),
+        UnFn::Ln => a.ln(),
+        UnFn::Log10 => a.log10(),
+        UnFn::Log2 => a.log2(),
+        UnFn::Sin => a.sin(),
+        UnFn::Cos => a.cos(),
+        UnFn::Tan => a.tan(),
+        UnFn::Asin => a.asin(),
+        UnFn::Acos => a.acos(),
+        UnFn::Atan => a.atan(),
+        UnFn::Sinh => a.sinh(),
+        UnFn::Cosh => a.cosh(),
+        UnFn::Tanh => a.tanh(),
+        UnFn::Floor => a.floor(),
+        UnFn::Ceil => a.ceil(),
+        UnFn::Round => a.round(),
+        UnFn::Sign => a.signum(),
+        UnFn::Trunc => a.trunc(),
+        UnFn::Step => if a >= 0.0 { 1.0 } else { 0.0 },
+    }
+}
+
+#[inline]
+fn apply_binary(b: BinFn, x: f64, y: f64) -> f64 {
+    match b {
+        BinFn::Atan2 => x.atan2(y),
+        BinFn::Mod => x % y,
+        BinFn::PvFactor => (1.0 + x).powf(y),
+        BinFn::AnnuityFactor => if x == 0.0 { y } else { (1.0 - (1.0 + x).powf(-y)) / x },
+    }
+}
 
 /// Owns the empty collaborators an `EvalCtx` needs, so the lane can hand out a minimal
 /// ctx borrowing just the live `outputs` (used only by `resolve_distribution` for
@@ -561,6 +713,7 @@ fn collect_expr_deps(node: &AstNode, out: &mut Vec<String>) {
         If { cond, then, else_ } => {
             collect_expr_deps(cond, out); collect_expr_deps(then, out); collect_expr_deps(else_, out);
         }
+        Call { args, .. } => { for a in args { collect_expr_deps(a, out); } }
         _ => {}
     }
 }
@@ -619,6 +772,7 @@ fn walk_run_stats(node: &AstNode, out: &mut Vec<RunStatTarget>, seen: &mut HashS
         If { cond, then, else_ } => {
             walk_run_stats(cond, out, seen)?; walk_run_stats(then, out, seen)?; walk_run_stats(else_, out, seen)?;
         }
+        Call { args, .. } => { for a in args { walk_run_stats(a, out, seen)?; } }
         _ => {}
     }
     Ok(())
