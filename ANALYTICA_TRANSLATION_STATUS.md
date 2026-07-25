@@ -96,12 +96,20 @@ uncertainty, heavily dimensioned over Platform × Attribute × Option × Scenari
 | metric | value |
 |---|---|
 | statements parsed | 7651 → 479 elements, 71 containers |
-| expression elements | 387 |
-| — faithful (stub-free) | **114 (29%)** |
-| — fully stubbed (`literal 0`) | 259 (67%) |
-| — partial (some sub-exprs stubbed) | 14 |
+| expression elements | 386 |
+| — faithful (stub-free) | **130 (33%)** |
+| — fully stubbed (`literal 0`) | 225 (58%) |
+| — partial (some sub-exprs stubbed) | 31 |
 | `random_variable` emitted | 1 of 14 `Chance` nodes (the rest are subscript/table lookups, or had formula-valued distribution params) |
-| conversion warnings | 298 |
+| real dependency edges in graph | 345 |
+| conversion warnings | 305 |
+
+> **Numbers reflect `let`-block lowering (§7 item 1, now landed).** Before it,
+> the same model measured 114/387 faithful, 259 full-stub, 310 edges. Lowering
+> `Var … := …; result` blocks moved **34 definitions out of full-stub** (+16
+> faithful, +17 partial) and recovered **+35 dependency edges** — most of the
+> newly-partial defs still carry a stubbed label-subscript inside, which is why
+> the jump is moderate: idioms #1 and #2 stack (§4).
 
 Warning breakdown (what a large Intelligent-Arrays model loses):
 
@@ -133,9 +141,11 @@ how much they'd buy:
    reindex, and no runtime-computed index membership. **This is the single
    highest-frequency blocker.**
 2. **`var … := …; result` local-variable blocks** — Analytica's `Definition`
-   bodies routinely bind locals and return `result`. The converter has no
-   let-binding lowering, so the whole definition fails to parse → stub. Purely a
-   *converter* gap (the WASiM AST can represent the inlined result); high payoff.
+   bodies routinely bind locals and return `result`. ~~The converter has no
+   let-binding lowering, so the whole definition fails to parse → stub.~~
+   **Landed (§7 item 1):** the converter now inlines these. Pure *converter* work;
+   it reclaimed 34 Platform definitions from full-stub. What remains after
+   lowering is usually a label-subscript inside the block (blocker #1).
 3. **Multi-dimensional Intelligent Arrays + automatic broadcasting** — the model
    is natively `[Platform, Attribute, Option, Scenario]`. WASiM arrays are 1-D
    vectors over one named dimension with *explicit* comprehension. No automatic
@@ -219,10 +229,12 @@ But that's the wrong target. The **feasible and useful** pathway is a
 Smallest-intervention-first, each independently shippable and independently
 useful beyond translation:
 
-1. **`var`-block lowering in the converter** *(converter-only, small)* — parse
-   `var x := e; … result` by inlining locals into the WASiM AST. Pure parser
-   work, no engine change; would reclaim a large share of the 149 "unparseable"
-   Platform defs. **Highest payoff per unit effort.**
+1. **`var`-block lowering in the converter** *(converter-only, small)* — ✅ **DONE.**
+   Parses `var x := e; … result` by inlining locals into the WASiM AST
+   (`parse_var_block` in `ana_to_wasim.py`, tested in `tools/test_ana_to_wasim.py`).
+   Reclaimed 34 Platform definitions from full-stub, +35 dependency edges. Confirmed
+   the prediction that #1 and #2 stack: most reclaimed defs now expose a
+   label-subscript (blocker #1), so the *next* increment is item 2.
 2. **Label-keyed subscript** *(engine + schema, medium)* — a `subscript` AST node
    that reindexes an array by *label* against a named dimension (`x[Dim=label]`).
    Attacks the #1 blocker. Pairs with emitting Analytica `Index` label sets as
@@ -250,10 +262,11 @@ majority-faithful conversion, and 1 is nearly free.
   example per domain *is* the product: mechanical skeleton, an explicit to-port
   list, and a worked reference for the hard parts. Don't market or scope it as a
   one-click importer.
-- **Do item 1 (`var`-block lowering) next** — it's converter-only, small, and
-  reclaims the largest single warning class.
-- **Then items 2–3** if Analytica interop is a real priority; they're the
-  engine-side gaps that both convert *and* enrich WASiM's own modeling power.
+- **Item 1 (`var`-block lowering) is done** — converter-only, and it confirmed
+  empirically that #1 and #2 stack (reclaimed blocks mostly expose a subscript).
+- **Do item 2 (label subscript) next** if Analytica interop is a real priority;
+  together with items 3–4 they're the engine-side gaps that both convert *and*
+  enrich WASiM's own modeling power.
 - **Do not scope item 4** unless applied multi-index models are the explicit
   goal — it's a paradigm port, not a feature.
 - **Keep the graceful-degradation contract** (validate + run + flag) as the
@@ -361,7 +374,7 @@ Smallest-first; each shippable alone.
 
 | # | Tweak | Layer / size | Helps Analytica | Helps generally (`inter alia`) |
 |---|---|---|---|---|
-| 1 | **`let`-bindings in the AST** (`var x:=e; … r`) | converter + a `let` AST node / small | reclaims the 149 var-block stubs (§4.2) | any transpiler (GoldSim), CSE, readable emitted expressions |
+| 1 | **`let`-bindings** (`var x:=e; … r`) ✅ **done** (inlined in converter) | converter-only / small | reclaimed 34 Platform stubs, +35 edges (§4.2) | any transpiler (GoldSim), readable emitted expressions |
 | 2 | **`NamedArray` value type** (§9.3) | eval core / large | intelligent arrays, ≥2-D tables | GoldSim vectors/matrices, cleaner results, retires `#k` |
 | 3 | **`Run` as a reducible named axis** | eval + reductions / medium | sample-as-axis (§2/§4.4) mid-graph | unifies 3 reduction mechanisms → less engine code |
 | 4 | **Label subscript + runtime index sets** | eval + schema / medium | `x[Dim=label]`, `Subset`, `SortIndex` (§4.1) | data-driven models (cohorts, scenario tables) |

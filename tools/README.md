@@ -82,11 +82,14 @@ python3 tools/ana_to_wasim.py tools/examples/Platform_2017.ana \
 ```
 
 The conversion (`Platform_2017.wasim.json`, ~470 elements, 71 containers)
-**validates against the schema and runs in the engine** — but ~300 of the
-warnings show how much of a heavily array-and-subscript Analytica model doesn't
-survive a scalar translation: `Table`/`Subscript` reindexing (`x[Dim=label]`),
-`Choice`/`Checkbox`/`Handle` GUI decisions, `Subtable`/`Slice`, and `var … ; …`
-local-variable blocks all degrade to inert stubs. This is the expected outcome
+**validates against the schema and runs in the engine** — but the warnings show
+how much of a heavily array-and-subscript Analytica model doesn't survive a
+scalar translation: `Table`/`Subscript` reindexing (`x[Dim=label]`),
+`Choice`/`Checkbox`/`Handle` GUI decisions, and `Subtable`/`Slice` degrade to
+inert stubs. (`var … := …; result` local-variable blocks are now `let`-lowered
+rather than stubbed — see the mapping table — which moved 34 definitions out of
+full-stub and recovered ~35 dependency edges; many still carry a stubbed
+subscript inside, the next blocker.) This is the expected outcome
 the gap analysis predicts for an Intelligent-Arrays model, and it drove two
 robustness fixes worth having anywhere: distributions with formula-valued
 parameters (which the engine evaluates to 0 and would crash a `lognormal`
@@ -181,6 +184,8 @@ maps cleanly and produces a scalar / 1-step model.
 |---|---|
 | `+ - * / ^`, comparisons, `And`/`Or`/`Not` | binary/unary AST ops |
 | `If c Then a Else b` **and** `If(c, a, b)` | `if` AST node |
+| `Var x := e; … result` local-variable blocks (also `Var … Do …`) | inlined (`let`-lowered): bindings resolved in order and substituted into the return expression; an unparseable binding stubs locally |
+| `1M`, `10K` numeric suffixes | expanded (`1000000`, `10000`) |
 | `Normal`, `Lognormal`, `Uniform`, `Triangular`, `Beta`, `Gamma`, `Exponential`, `Bernoulli`, `Weibull` | `random_variable` distribution (top-level Chance defs). `Lognormal(median, gsdev)` → log-space `(ln median, ln gsdev)`; `Exponential(rate)` → `mean = 1/rate` |
 | `Min`/`Max` (2 args) | scalar `min`/`max` |
 | `Sum`/`Mean`/`Min`/`Max`/`Size` (reduction over an index) | `sum_array`/`mean_array`/`min_array`/`max_array`/`size_array` |

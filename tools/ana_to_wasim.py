@@ -34,6 +34,7 @@ No third-party dependencies (stdlib only).
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -202,7 +203,7 @@ _TOKEN_RE = re.compile(
     r"""
       (?P<ws>\s+)
     | (?P<str>'[^']*'|"[^"]*")
-    | (?P<num>\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?|\d+[kKmMgG]\b)
+    | (?P<num>(?:\d+\.\d+|\d+)[kKmMgG]\b|\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?)
     | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
     | (?P<op><=|>=|<>|[-+*/^<>=])
     | (?P<lp>\()
@@ -642,6 +643,116 @@ def strip_stub_markers(node: Any) -> tuple[Any, list[str]]:
     return cleaned, stubs
 
 
+# A local-variable block: `Var name := expr; [Var …;] final_expr` (also the
+# `Var name := expr Do body` spelling). Detected by a leading `var` binding.
+_VAR_HEAD_RE = re.compile(r"^\s*var\s+[A-Za-z_][A-Za-z0-9_]*\s*:=", re.IGNORECASE)
+_VAR_BIND_RE = re.compile(r"^\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*(.*)$",
+                          re.IGNORECASE | re.DOTALL)
+
+
+def _split_top_level(text: str) -> list[str]:
+    """Split on `;` (and a top-level `Do` keyword) outside parens/brackets/quotes."""
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    quote: Optional[str] = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if quote is not None:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in "'\"":
+            quote = ch
+            buf.append(ch)
+        elif ch in "([":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]":
+            depth -= 1
+            buf.append(ch)
+        elif ch == ";" and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        elif (depth == 0 and (ch in " \t") and text[i:i + 4].lower() in (" do ",)
+              and (i + 4 <= n)):
+            # a top-level " Do " separator (Var x := e Do body)
+            parts.append("".join(buf))
+            buf = []
+            i += 3  # skip "do" plus the leading space already matched
+        else:
+            buf.append(ch)
+        i += 1
+    if buf:
+        parts.append("".join(buf))
+    return [p for p in (s.strip() for s in parts) if p]
+
+
+def _substitute_refs(node: Any, mapping: dict[str, Any]) -> Any:
+    """Replace `ref` nodes whose id is a bound local with a copy of its AST."""
+    if isinstance(node, dict):
+        if node.get("op") == "ref" and node.get("element_id") in mapping:
+            return copy.deepcopy(mapping[node["element_id"]])
+        return {k: _substitute_refs(v, mapping) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_substitute_refs(v, mapping) for v in node]
+    return node
+
+
+def _parse_one(fragment: str) -> Any:
+    """Parse a single expression fragment into an AST (resolving pending Calls).
+
+    A fragment that doesn't parse (e.g. it contains a label subscript, §4.1)
+    degrades to an inert stub carrying its text — so one unconvertible binding
+    stubs on its own instead of failing the whole block.
+    """
+    try:
+        return _as_ast(ExprParser(tokenize_expr(fragment)).parse())
+    except (ParseError, Exception):  # noqa: BLE001 - defensive by design
+        return _stub(fragment)
+
+
+def parse_var_block(text: str) -> tuple[Optional[Any], Optional[str]]:
+    """Lower an Analytica `Var … := …; … result` block to an inlined AST.
+
+    Bindings are resolved in order (each may reference earlier ones and the
+    enclosing scope), then inlined into the final (return) expression. Local
+    names shadow model elements only within the block. Unconvertible
+    sub-expressions inside the block still degrade to stubs downstream — the win
+    is that the *rest* of the definition now survives instead of the whole thing
+    stubbing on the leading `var`.
+    """
+    stmts = _split_top_level(text)
+    if not stmts:
+        return None, "empty var block"
+    resolved: dict[str, Any] = {}
+    body_ast: Optional[Any] = None
+    last_bound: Optional[str] = None
+    try:
+        for stmt in stmts:
+            m = _VAR_BIND_RE.match(stmt)
+            if m:
+                name, expr = m.group(1), m.group(2).strip()
+                ast = _substitute_refs(_parse_one(expr), resolved)
+                resolved[name] = ast
+                last_bound = name
+            else:
+                # A non-binding statement is the return expression (normally last).
+                body_ast = _substitute_refs(_parse_one(stmt), resolved)
+        if body_ast is None:
+            # No bare return expression: the block ends on its last binding.
+            if last_bound is None:
+                return None, "var block with no body"
+            body_ast = resolved[last_bound]
+        return body_ast, None
+    except (ParseError, Exception) as e:  # noqa: BLE001 - defensive by design
+        return None, f"var block: {e}"
+
+
 def parse_definition(text: str) -> tuple[Optional[Any], Optional[str]]:
     """Parse an Analytica definition into a (parse_result, error) pair.
 
@@ -651,6 +762,8 @@ def parse_definition(text: str) -> tuple[Optional[Any], Optional[str]]:
     text = text.strip()
     if not text:
         return None, "empty definition"
+    if _VAR_HEAD_RE.match(text):
+        return parse_var_block(text)
     try:
         toks = tokenize_expr(text)
         return ExprParser(toks).parse(), None

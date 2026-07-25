@@ -1338,13 +1338,460 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Equipment_type",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Engine_type",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Emission_types",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 13.2
+            },
+            {
+              "op": "literal",
+              "value": 0.5
+            },
+            {
+              "op": "literal",
+              "value": 6100000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 646.08
+            },
+            {
+              "op": "literal",
+              "value": 0.47
+            },
+            {
+              "op": "literal",
+              "value": 0.43
+            },
+            {
+              "op": "literal",
+              "value": 13.2
+            },
+            {
+              "op": "literal",
+              "value": 0.5
+            },
+            {
+              "op": "literal",
+              "value": 6100000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 646.08
+            },
+            {
+              "op": "literal",
+              "value": 0.47
+            },
+            {
+              "op": "literal",
+              "value": 0.43
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 13.2
+            },
+            {
+              "op": "literal",
+              "value": 0.5
+            },
+            {
+              "op": "literal",
+              "value": 6100000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 646.08
+            },
+            {
+              "op": "literal",
+              "value": 0.47
+            },
+            {
+              "op": "literal",
+              "value": 0.43
+            },
+            {
+              "op": "literal",
+              "value": 13.9
+            },
+            {
+              "op": "literal",
+              "value": 0.4
+            },
+            {
+              "op": "literal",
+              "value": 6500000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 690.71
+            },
+            {
+              "op": "literal",
+              "value": 0.49
+            },
+            {
+              "op": "literal",
+              "value": 0.45
+            },
+            {
+              "op": "literal",
+              "value": 13.2
+            },
+            {
+              "op": "literal",
+              "value": 0.5
+            },
+            {
+              "op": "literal",
+              "value": 6100000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 646.08
+            },
+            {
+              "op": "literal",
+              "value": 0.47
+            },
+            {
+              "op": "literal",
+              "value": 0.43
+            },
+            {
+              "op": "literal",
+              "value": 13.2
+            },
+            {
+              "op": "literal",
+              "value": 0.5
+            },
+            {
+              "op": "literal",
+              "value": 6100000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 646.08
+            },
+            {
+              "op": "literal",
+              "value": 0.47
+            },
+            {
+              "op": "literal",
+              "value": 0.43
+            },
+            {
+              "op": "literal",
+              "value": 13.9
+            },
+            {
+              "op": "literal",
+              "value": 0.4
+            },
+            {
+              "op": "literal",
+              "value": 6500000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 690.71
+            },
+            {
+              "op": "literal",
+              "value": 0.49
+            },
+            {
+              "op": "literal",
+              "value": 0.45
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 13.2
+            },
+            {
+              "op": "literal",
+              "value": 0.5
+            },
+            {
+              "op": "literal",
+              "value": 6100000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 646.08
+            },
+            {
+              "op": "literal",
+              "value": 0.47
+            },
+            {
+              "op": "literal",
+              "value": 0.43
+            },
+            {
+              "op": "literal",
+              "value": 13.9
+            },
+            {
+              "op": "literal",
+              "value": 0.4
+            },
+            {
+              "op": "literal",
+              "value": 6500000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 690.71
+            },
+            {
+              "op": "literal",
+              "value": 0.49
+            },
+            {
+              "op": "literal",
+              "value": 0.45
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 13.9
+            },
+            {
+              "op": "literal",
+              "value": 0.4
+            },
+            {
+              "op": "literal",
+              "value": 6500000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.1
+            },
+            {
+              "op": "literal",
+              "value": 690.71
+            },
+            {
+              "op": "literal",
+              "value": 0.49
+            },
+            {
+              "op": "literal",
+              "value": 0.45
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
         },
-        "display": "Table(Equipment_type,Engine_type,Emission_types)( 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 0,0,0,0,0,0,0, 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 13.9,0.4,6.5m,1.1,690.71,0.49,0.45, 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 13.9,0.4,6.5m,1.1,690.71,0.49,0.45, 0,0,0,0,0,0,0, 13.2,0.5,6.1m,1.1,646.08,0.47,0.43, 13.9,0.4,6.5m,1.1,690.71,0.49,0.45, 0,0,0,0,0,0,0, 0,0,0,0,0,0,0, 13.9,0.4,6.5m,1.1,690.71,0.49,0.45, 0,0,0,0,0,0,0)",
-        "source": "inferred"
+        "display": "[Equipment_type, Engine_type, Emission_types, 13.2, 0.5, 6100000, 1.1, 646.08, 0.47, 0.43, 13.2, 0.5, 6100000, 1.1, 646.08, 0.47, 0.43, 0, 0, 0, 0, 0, 0, 0, 13.2, 0.5, 6100000, 1.1, 646.08, 0.47, 0.43, 13.9, 0.4, 6500000, 1.1, 690.71, 0.49, 0.45, 13.2, 0.5, 6100000, 1.1, 646.08, 0.47, 0.43, 13.2, 0.5, 6100000, 1.1, 646.08, 0.47, 0.43, 13.9, 0.4, 6500000, 1.1, 690.71, 0.49, 0.45, 0, 0, 0, 0, 0, 0, 0, 13.2, 0.5, 6100000, 1.1, 646.08, 0.47, 0.43, 13.9, 0.4, 6500000, 1.1, 690.71, 0.49, 0.45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13.9, 0.4, 6500000, 1.1, 690.71, 0.49, 0.45, 0, 0, 0, 0, 0, 0, 0]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Emission_types",
+        "Engine_type",
+        "Equipment_type"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "g/kW-hr",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Emission_types",
@@ -1870,8 +2317,26 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := Air_quality_attribu1[Platform=Platforms_to_conside,Platform_da_for_hlv_=Selected_options_by_,hlv_size=Max_HLV_size_require]; IF result = Null THEN 'No Action' else result",
         "source": "inferred"
@@ -2236,13 +2701,39 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "Biomass_by_strata__s",
+              "output": "value"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Area_by_strata__spec",
+              "output": "value"
+            }
+          },
+          "right": {
+            "op": "literal",
+            "value": 1000.0
+          }
         },
-        "display": "Biomass_by_strata__s * Area_by_strata__spec /1k",
-        "source": "inferred"
+        "display": "((Biomass_by_strata__s * Area_by_strata__spec) / 1000)",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Area_by_strata__spec",
+        "Biomass_by_strata__s"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "kg",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Biomass_by_strata__s",
@@ -2785,13 +3276,40 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "if",
+              "cond": {
+                "op": "literal",
+                "value": 0.0
+              },
+              "then": {
+                "op": "literal",
+                "value": 0.0
+              },
+              "else": {
+                "op": "ref",
+                "element_id": "Biomass_increase",
+                "output": "value"
+              }
+            }
+          ]
         },
         "display": "Var x:= IF IsNan(Biomass_increase) THEN 0 ELSE Biomass_increase; SUM(x,Species)",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [
+        "Biomass_increase"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "kg",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Biomass_yield_for_pl",
@@ -2802,13 +3320,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := (Biomass_yield_by_opt[Platform=Platforms_to_conside,Decommissioning_alt6=Selected_options_by_]); IF result = Null THEN 'No Action' else result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "kg",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Biomass_yield_by_opt",
@@ -4749,13 +5292,466 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Platform",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Platform_da_weight_d",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 188.0
+            },
+            {
+              "op": "literal",
+              "value": 4090.0
+            },
+            {
+              "op": "literal",
+              "value": 2469.0
+            },
+            {
+              "op": "literal",
+              "value": 2590.0
+            },
+            {
+              "op": "literal",
+              "value": 190.0
+            },
+            {
+              "op": "literal",
+              "value": 4095.0
+            },
+            {
+              "op": "literal",
+              "value": 2461.0
+            },
+            {
+              "op": "literal",
+              "value": 2595.0
+            },
+            {
+              "op": "literal",
+              "value": 192.0
+            },
+            {
+              "op": "literal",
+              "value": 4010.0
+            },
+            {
+              "op": "literal",
+              "value": 2404.0
+            },
+            {
+              "op": "literal",
+              "value": 2510.0
+            },
+            {
+              "op": "literal",
+              "value": 161.0
+            },
+            {
+              "op": "literal",
+              "value": 8298.0
+            },
+            {
+              "op": "literal",
+              "value": 6334.0
+            },
+            {
+              "op": "literal",
+              "value": 4844.0
+            },
+            {
+              "op": "literal",
+              "value": 265.0
+            },
+            {
+              "op": "literal",
+              "value": 11300.0
+            },
+            {
+              "op": "literal",
+              "value": 7186.0
+            },
+            {
+              "op": "literal",
+              "value": 8100.0
+            },
+            {
+              "op": "literal",
+              "value": 255.0
+            },
+            {
+              "op": "literal",
+              "value": 9400.0
+            },
+            {
+              "op": "literal",
+              "value": 5929.0
+            },
+            {
+              "op": "literal",
+              "value": 6100.0
+            },
+            {
+              "op": "literal",
+              "value": 700.0
+            },
+            {
+              "op": "literal",
+              "value": 34000.0
+            },
+            {
+              "op": "literal",
+              "value": 11540.0
+            },
+            {
+              "op": "literal",
+              "value": 15000.0
+            },
+            {
+              "op": "literal",
+              "value": 739.0
+            },
+            {
+              "op": "literal",
+              "value": 31320.0
+            },
+            {
+              "op": "literal",
+              "value": 10289.0
+            },
+            {
+              "op": "literal",
+              "value": 13020.0
+            },
+            {
+              "op": "literal",
+              "value": 205.0
+            },
+            {
+              "op": "literal",
+              "value": 9342.0
+            },
+            {
+              "op": "literal",
+              "value": 5968.0
+            },
+            {
+              "op": "literal",
+              "value": 6122.0
+            },
+            {
+              "op": "literal",
+              "value": 95.0
+            },
+            {
+              "op": "literal",
+              "value": 1102.0
+            },
+            {
+              "op": "literal",
+              "value": 963.0
+            },
+            {
+              "op": "literal",
+              "value": 668.0
+            },
+            {
+              "op": "literal",
+              "value": 318.0
+            },
+            {
+              "op": "literal",
+              "value": 9390.0
+            },
+            {
+              "op": "literal",
+              "value": 5100.0
+            },
+            {
+              "op": "literal",
+              "value": 6300.0
+            },
+            {
+              "op": "literal",
+              "value": 290.0
+            },
+            {
+              "op": "literal",
+              "value": 8203.0
+            },
+            {
+              "op": "literal",
+              "value": 4608.0
+            },
+            {
+              "op": "literal",
+              "value": 5653.0
+            },
+            {
+              "op": "literal",
+              "value": 1198.0
+            },
+            {
+              "op": "literal",
+              "value": 69920.0
+            },
+            {
+              "op": "literal",
+              "value": 13808.0
+            },
+            {
+              "op": "literal",
+              "value": 27020.0
+            },
+            {
+              "op": "literal",
+              "value": 675.0
+            },
+            {
+              "op": "literal",
+              "value": 30190.0
+            },
+            {
+              "op": "literal",
+              "value": 11593.0
+            },
+            {
+              "op": "literal",
+              "value": 13557.0
+            },
+            {
+              "op": "literal",
+              "value": 173.0
+            },
+            {
+              "op": "literal",
+              "value": 3118.0
+            },
+            {
+              "op": "literal",
+              "value": 2260.0
+            },
+            {
+              "op": "literal",
+              "value": 1807.0
+            },
+            {
+              "op": "literal",
+              "value": 1075.0
+            },
+            {
+              "op": "literal",
+              "value": 60556.0
+            },
+            {
+              "op": "literal",
+              "value": 13257.0
+            },
+            {
+              "op": "literal",
+              "value": 28136.0
+            },
+            {
+              "op": "literal",
+              "value": 603.0
+            },
+            {
+              "op": "literal",
+              "value": 28132.0
+            },
+            {
+              "op": "literal",
+              "value": 10684.0
+            },
+            {
+              "op": "literal",
+              "value": 11132.0
+            },
+            {
+              "op": "literal",
+              "value": 430.0
+            },
+            {
+              "op": "literal",
+              "value": 21421.0
+            },
+            {
+              "op": "literal",
+              "value": 10628.0
+            },
+            {
+              "op": "literal",
+              "value": 10471.0
+            },
+            {
+              "op": "literal",
+              "value": 190.0
+            },
+            {
+              "op": "literal",
+              "value": 3738.0
+            },
+            {
+              "op": "literal",
+              "value": 2304.0
+            },
+            {
+              "op": "literal",
+              "value": 2238.0
+            },
+            {
+              "op": "literal",
+              "value": 154.0
+            },
+            {
+              "op": "literal",
+              "value": 4110.0
+            },
+            {
+              "op": "literal",
+              "value": 3319.0
+            },
+            {
+              "op": "literal",
+              "value": 2847.0
+            },
+            {
+              "op": "literal",
+              "value": 842.0
+            },
+            {
+              "op": "literal",
+              "value": 27250.0
+            },
+            {
+              "op": "literal",
+              "value": 10428.0
+            },
+            {
+              "op": "literal",
+              "value": 15050.0
+            },
+            {
+              "op": "literal",
+              "value": 163.0
+            },
+            {
+              "op": "literal",
+              "value": 5637.0
+            },
+            {
+              "op": "literal",
+              "value": 4710.0
+            },
+            {
+              "op": "literal",
+              "value": 4151.0
+            },
+            {
+              "op": "literal",
+              "value": 242.0
+            },
+            {
+              "op": "literal",
+              "value": 7652.0
+            },
+            {
+              "op": "literal",
+              "value": 3974.0
+            },
+            {
+              "op": "literal",
+              "value": 4552.0
+            },
+            {
+              "op": "literal",
+              "value": 90.0
+            },
+            {
+              "op": "literal",
+              "value": 3900.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3300.0
+            },
+            {
+              "op": "literal",
+              "value": 58.0
+            },
+            {
+              "op": "literal",
+              "value": 2887.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2387.0
+            },
+            {
+              "op": "literal",
+              "value": 30.0
+            },
+            {
+              "op": "literal",
+              "value": 2600.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2300.0
+            },
+            {
+              "op": "literal",
+              "value": 211.0
+            },
+            {
+              "op": "literal",
+              "value": 4508.0
+            },
+            {
+              "op": "literal",
+              "value": 3595.0
+            },
+            {
+              "op": "literal",
+              "value": 3442.0
+            }
+          ]
         },
-        "display": "Table(Platform,Platform_da_weight_d)( 188,4090,2469,2590, 190,4095,2461,2595, 192,4010,2404,2510, 161,8298,6334,4844, 265,11.3K,7186,8100, 255,9400,5929,6100, 700,34K,11.54K,15K, 739,31.32K,10.289K,13.02K, 205,9342,5968,6122, 95,1102,963,668, 318,9390,5100,6300, 290,8203,4608,5653, 1198,69.92K,13.808K,27.02K, 675,30.19K,11.593K,13.557K, 173,3118,2260,1807, 1075,60.556K,13.257K,28.136K, 603,28.132K,10.684K,11.132K, 430,21.421K,10.628K,10.471K, 190,3738,2304,2238, 154,4110,3319,2847, 842,27.25K,10.428K,15.05K, 163,5637,4710,4151, 242,7652,3974,4552, 90,3900,'n./a',3300, 58,2887,'n/a',2387, 30,2600,'n/a',2300, 211,4508,3595,3442)",
-        "source": "inferred"
+        "display": "[Platform, Platform_da_weight_d, 188, 4090, 2469, 2590, 190, 4095, 2461, 2595, 192, 4010, 2404, 2510, 161, 8298, 6334, 4844, 265, 11300, 7186, 8100, 255, 9400, 5929, 6100, 700, 34000, 11540, 15000, 739, 31320, 10289, 13020, 205, 9342, 5968, 6122, 95, 1102, 963, 668, 318, 9390, 5100, 6300, 290, 8203, 4608, 5653, 1198, 69920, 13808, 27020, 675, 30190, 11593, 13557, 173, 3118, 2260, 1807, 1075, 60556, 13257, 28136, 603, 28132, 10684, 11132, 430, 21421, 10628, 10471, 190, 3738, 2304, 2238, 154, 4110, 3319, 2847, 842, 27250, 10428, 15050, 163, 5637, 4710, 4151, 242, 7652, 3974, 4552, 90, 3900, 0, 3300, 58, 2887, 0, 2387, 30, 2600, 0, 2300, 211, 4508, 3595, 3442]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Platform",
+        "Platform_da_weight_d"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "Various",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Selected_options_by_",
@@ -6261,13 +7257,57 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Attributes",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 100.0
+            },
+            {
+              "op": "literal",
+              "value": 100.0
+            },
+            {
+              "op": "literal",
+              "value": 100.0
+            },
+            {
+              "op": "literal",
+              "value": 100.0
+            },
+            {
+              "op": "literal",
+              "value": 100.0
+            },
+            {
+              "op": "literal",
+              "value": 10000.0
+            },
+            {
+              "op": "literal",
+              "value": 2.0
+            },
+            {
+              "op": "literal",
+              "value": 100.0
+            }
+          ]
         },
-        "display": "Table(Attributes)(0,100,100,100,100,100,10K,2,100)",
-        "source": "inferred"
+        "display": "[Attributes, 0, 100, 100, 100, 100, 100, 10000, 2, 100]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Attributes"
+      ]
     },
     {
       "id": "Worst_levels",
@@ -8400,13 +9440,30 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "Cost_weights_by_att2",
+            "output": "value"
+          },
+          "right": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var delta_weights := (Equivalent_cost_by_3[Selected_scenarios = \"Scenario 2\"] - Equivalent_cost_by_3[Selected_scenarios = \"Scenario 1\"])/(Score_by_attribute_b[Selected_scenarios = \"Scenario 2\"] - Score_by_attribute_b[Selected_scenarios = \"Scenario 1\"]); var new_weights := Cost_weights_by_att2 - delta_weights; new_weights",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [
+        "Cost_weights_by_att2"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$M",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Equivalent_cost_by_3",
@@ -8705,8 +9762,17 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
         },
         "display": "Var top := Top_model( ) ; INDEX i := Indented_modules(top); Array(i, Submodules(top))",
         "source": "inferred"
@@ -11864,13 +12930,106 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Access_fields",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Platform_regions",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 5873.68
+            },
+            {
+              "op": "literal",
+              "value": 20927.67
+            },
+            {
+              "op": "literal",
+              "value": 4435.33
+            },
+            {
+              "op": "literal",
+              "value": 15802.9
+            },
+            {
+              "op": "literal",
+              "value": 4.0
+            },
+            {
+              "op": "literal",
+              "value": 23.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 7000000.0
+            },
+            {
+              "op": "literal",
+              "value": 7000000.0
+            },
+            {
+              "op": "literal",
+              "value": 1.6
+            },
+            {
+              "op": "literal",
+              "value": 1.6
+            },
+            {
+              "op": "literal",
+              "value": 1.21
+            },
+            {
+              "op": "literal",
+              "value": 6.95
+            },
+            {
+              "op": "literal",
+              "value": 0.03
+            },
+            {
+              "op": "literal",
+              "value": 0.16
+            },
+            {
+              "op": "literal",
+              "value": 6.4
+            },
+            {
+              "op": "literal",
+              "value": 36.8
+            }
+          ]
         },
-        "display": "Table(Access_fields,Platform_regions)( 5873.68,20.92767K, 4435.33,15.8029K, 4,23, 0.3,0.3, 7m,7m, 1.6,1.6, 1.21,6.95, 0.03,0.16, 6.4,36.8)",
-        "source": "inferred"
+        "display": "[Access_fields, Platform_regions, 5873.68, 20927.67, 4435.33, 15802.9, 4, 23, 0.3, 0.3, 7000000, 7000000, 1.6, 1.6, 1.21, 6.95, 0.03, 0.16, 6.4, 36.8]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Access_fields",
+        "Platform_regions"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "various",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Access_impacts_by_re",
@@ -11881,13 +13040,206 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Decommissioning_alt6",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Ocean_use_type",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "User_groups",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Access_type",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1.6
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 7000000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 7000000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.9
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.3
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 7000000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
         },
-        "display": "Table(Decommissioning_alt6,Ocean_use_type,User_groups,Access_type)( 0.3,0, 0.3,0, 0,0, 0,0, 1.6,0, 0.3,0, 0.3,0, 0,0, 0,0, 0,0, 0.3,0, 0.3,0, 7m,0, 7m,0, 0.9,0, 0.3,0, 0.3,0, 7m,0, 0,0, 0,0)",
-        "source": "inferred"
+        "display": "[Decommissioning_alt6, Ocean_use_type, User_groups, Access_type, 0.3, 0, 0.3, 0, 0, 0, 0, 0, 1.6, 0, 0.3, 0, 0.3, 0, 0, 0, 0, 0, 0, 0, 0.3, 0, 0.3, 0, 7000000, 0, 7000000, 0, 0.9, 0, 0.3, 0, 0.3, 0, 7000000, 0, 0, 0, 0, 0]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Access_type",
+        "Decommissioning_alt6",
+        "Ocean_use_type",
+        "User_groups"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "Sq. nautical miles",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Access_type",
@@ -12195,13 +13547,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "Var result :=  Access_impacts_by_re[Decommissioning_Alt6=Selected_options_by_ ,Access_type=Access_type_by_selec,@Ocean_use_type=1] ; IF result = Null THEN 'No Action' else result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "sq. nautical miles",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Total_state_and_fede",
@@ -12229,13 +13606,51 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "ref",
+              "element_id": "Access_impacts_for_s",
+              "output": "value"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "divide",
+            "left": {
+              "op": "ref",
+              "element_id": "Access_impacts_for_s",
+              "output": "value"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Total_state_and_fede",
+              "output": "value"
+            }
+          }
         },
-        "display": "Var result := IF Access_impacts_for_s = \"No Action\" THEN 'No Action' ELSE Access_impacts_for_s/Total_state_and_fede; result",
-        "source": "inferred"
+        "display": "If (Access_impacts_for_s = 0) Then 0 Else (Access_impacts_for_s / Total_state_and_fede)",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Access_impacts_for_s",
+        "Total_state_and_fede"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "%",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Average_access_impac",
@@ -13802,13 +15217,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := Permit_Compli_cost/size(Platforms_to_conside)[Decommissioning_alt6=Selected_options_by_]; IF result = Null THEN 0 ELSE result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Trans_disp_metal",
@@ -13836,13 +15276,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var maxHLV := Max(Hlv_options_number,Platforms_to_conside); var num := size(Platforms_to_conside); var result := (Base_HLV_mobil__cost[@Hlv_size=maxHLV]/num)[Decommissioning_alt6=Selected_options_by_]; IF result = Null THEN 0 ELSE result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Shell_mound_removal",
@@ -13880,13 +15345,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := Abrasive_cutter_fixe/size(Platforms_to_conside)[Decommissioning_alt6=Selected_options_by_]; IF result = Null THEN 0 ELSE result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Tran_disp_conductor",
@@ -14361,13 +15851,65 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "Weather_contig_pcent",
+            "output": "value"
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "add",
+                  "left": {
+                    "op": "add",
+                    "left": {
+                      "op": "literal",
+                      "value": 0.0
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 0.0
+                    }
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 0.0
+                  }
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.0
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.0
+              }
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          }
         },
         "display": "var pile_removal_costs := Input_decommiss__cos[Decommissioning_cos1=\"Pile - removal\"]; var dr_contingency := Input_decommiss__cos[Decommissioning_cos1=\"  contingency portion\"]; var jr_contingency := Input_decommiss__cos[Decommissioning_cos1=\" contingency portion\"]; var conductors_cost := Input_decommiss__cos[Decommissioning_cos1=\"Conductors \"]; var platform_prepcost := Input_decommiss__cos[Decommissioning_cos1=\"Platform Preparation \"]; var siteclearance_cost := Input_decommiss__cos[Decommissioning_cos1=\"Site Clearance \"]; Weather_contig_pcent*(pile_removal_costs + dr_contingency + jr_contingency + conductors_cost + platform_prepcost + siteclearance_cost)",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [
+        "Weather_contig_pcent"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Weather_contig_pcent",
@@ -14518,13 +16060,62 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "multiply",
+          "left": {
+            "op": "literal",
+            "value": 0.15
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "add",
+                  "left": {
+                    "op": "add",
+                    "left": {
+                      "op": "literal",
+                      "value": 0.0
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 0.0
+                    }
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 0.0
+                  }
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.0
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.0
+              }
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          }
         },
         "display": "var pile_removal_costs := Input_decommiss__cos[Decommissioning_cos1=\"Pile - removal\"]; var dr_contingency := Input_decommiss__cos[Decommissioning_cos1=\"  contingency portion\"]; var jr_contingency := Input_decommiss__cos[Decommissioning_cos1=\" contingency portion\"]; var conductors_cost := Input_decommiss__cos[Decommissioning_cos1=\"Conductors \"]; var platform_prepcost := Input_decommiss__cos[Decommissioning_cos1=\"Platform Preparation \"]; var siteclearance_cost := Input_decommiss__cos[Decommissioning_cos1=\"Site Clearance \"]; var misc_contig_pcent := .15; misc_contig_pcent*(pile_removal_costs + dr_contingency + jr_contingency + conductors_cost + platform_prepcost + siteclearance_cost)",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Total_contigency_cos",
@@ -14549,16 +16140,16 @@
       "container": "Cost_input_values",
       "description": "Permitting and Regulatory Compliance will be a fixed $2.555M that will be shared equally among those platforms selected for decommissioning",
       "source_type": "Variable",
-      "type": "expression",
-      "expression": {
-        "ast": {
-          "op": "literal",
-          "value": 0.0
-        },
-        "display": "2.555M",
-        "source": "inferred"
+      "type": "constant",
+      "value": {
+        "value": 2555000.0,
+        "unit": "$"
       },
-      "inputs": []
+      "editable": false,
+      "bounds": {
+        "min": null,
+        "max": null
+      }
     },
     {
       "id": "Total_cost_wi_cngcy",
@@ -14586,13 +16177,40 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Hlv_size",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 14040000.0
+            },
+            {
+              "op": "literal",
+              "value": 18360000.0
+            },
+            {
+              "op": "literal",
+              "value": 45360000.0
+            }
+          ]
         },
-        "display": "Table(Hlv_size)(14.04M,18.36M,45.36M)",
-        "source": "inferred"
+        "display": "[Hlv_size, 14040000, 18360000, 45360000]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Hlv_size"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Va3",
@@ -16590,13 +18208,1762 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Platform",
+              "output": "value"
+            },
+            {
+              "op": "ref",
+              "element_id": "Decommissioning_cos1",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 957710.0
+            },
+            {
+              "op": "literal",
+              "value": 4157409.0000000005
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1759372.0
+            },
+            {
+              "op": "literal",
+              "value": 1465020.0
+            },
+            {
+              "op": "literal",
+              "value": 1515498.0
+            },
+            {
+              "op": "literal",
+              "value": 558932.0
+            },
+            {
+              "op": "literal",
+              "value": 280540.0
+            },
+            {
+              "op": "literal",
+              "value": 1327488.0
+            },
+            {
+              "op": "literal",
+              "value": 363358.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 957710.0
+            },
+            {
+              "op": "literal",
+              "value": 4329792.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1759372.0
+            },
+            {
+              "op": "literal",
+              "value": 1465020.0
+            },
+            {
+              "op": "literal",
+              "value": 1515498.0
+            },
+            {
+              "op": "literal",
+              "value": 558932.0
+            },
+            {
+              "op": "literal",
+              "value": 280540.0
+            },
+            {
+              "op": "literal",
+              "value": 1327488.0
+            },
+            {
+              "op": "literal",
+              "value": 379381.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 957710.0
+            },
+            {
+              "op": "literal",
+              "value": 3316694.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1759372.0
+            },
+            {
+              "op": "literal",
+              "value": 1465020.0
+            },
+            {
+              "op": "literal",
+              "value": 1584834.0
+            },
+            {
+              "op": "literal",
+              "value": 558932.0
+            },
+            {
+              "op": "literal",
+              "value": 280540.0
+            },
+            {
+              "op": "literal",
+              "value": 1327488.0
+            },
+            {
+              "op": "literal",
+              "value": 288320.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1163564.0
+            },
+            {
+              "op": "literal",
+              "value": 1650362.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2451460.0
+            },
+            {
+              "op": "literal",
+              "value": 2113020.0
+            },
+            {
+              "op": "literal",
+              "value": 4095035.0
+            },
+            {
+              "op": "literal",
+              "value": 2804512.0
+            },
+            {
+              "op": "literal",
+              "value": 1801392.0
+            },
+            {
+              "op": "literal",
+              "value": 3086592.0
+            },
+            {
+              "op": "literal",
+              "value": 136641.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1215564.0
+            },
+            {
+              "op": "literal",
+              "value": 5910614.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2357980.0
+            },
+            {
+              "op": "literal",
+              "value": 2113020.0
+            },
+            {
+              "op": "literal",
+              "value": 1224874.0
+            },
+            {
+              "op": "literal",
+              "value": 2320592.0
+            },
+            {
+              "op": "literal",
+              "value": 1337696.0
+            },
+            {
+              "op": "literal",
+              "value": 3686400.0
+            },
+            {
+              "op": "literal",
+              "value": 544298.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1891564.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2033980.0000000002
+            },
+            {
+              "op": "literal",
+              "value": 1789020.0
+            },
+            {
+              "op": "literal",
+              "value": 1617438.0
+            },
+            {
+              "op": "literal",
+              "value": 3009664.0
+            },
+            {
+              "op": "literal",
+              "value": 2006543.9999999998
+            },
+            {
+              "op": "literal",
+              "value": 3609600.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2628383.0
+            },
+            {
+              "op": "literal",
+              "value": 11450280.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2955020.0
+            },
+            {
+              "op": "literal",
+              "value": 2002619.9999999998
+            },
+            {
+              "op": "literal",
+              "value": 3204124.0
+            },
+            {
+              "op": "literal",
+              "value": 24245526.0
+            },
+            {
+              "op": "literal",
+              "value": 22344086.0
+            },
+            {
+              "op": "literal",
+              "value": 11136000.0
+            },
+            {
+              "op": "literal",
+              "value": 1153674.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3264383.0
+            },
+            {
+              "op": "literal",
+              "value": 4862948.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2394180.0
+            },
+            {
+              "op": "literal",
+              "value": 1859220.0
+            },
+            {
+              "op": "literal",
+              "value": 3290160.0
+            },
+            {
+              "op": "literal",
+              "value": 28580360.0
+            },
+            {
+              "op": "literal",
+              "value": 26806640.0
+            },
+            {
+              "op": "literal",
+              "value": 11517312.0
+            },
+            {
+              "op": "literal",
+              "value": 484543.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1839564.0
+            },
+            {
+              "op": "literal",
+              "value": 5063282.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1464972.0
+            },
+            {
+              "op": "literal",
+              "value": 1141020.0
+            },
+            {
+              "op": "literal",
+              "value": 1617438.0
+            },
+            {
+              "op": "literal",
+              "value": 2434416.0
+            },
+            {
+              "op": "literal",
+              "value": 1682064.0
+            },
+            {
+              "op": "literal",
+              "value": 3088128.0
+            },
+            {
+              "op": "literal",
+              "value": 449637.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 745891.0
+            },
+            {
+              "op": "literal",
+              "value": 739207.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 704308.0
+            },
+            {
+              "op": "literal",
+              "value": 600276.0
+            },
+            {
+              "op": "literal",
+              "value": 576167.0
+            },
+            {
+              "op": "literal",
+              "value": 380868.0
+            },
+            {
+              "op": "literal",
+              "value": 223996.0
+            },
+            {
+              "op": "literal",
+              "value": 386304.0
+            },
+            {
+              "op": "literal",
+              "value": 51767.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1605564.0
+            },
+            {
+              "op": "literal",
+              "value": 3811997.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1817052.0
+            },
+            {
+              "op": "literal",
+              "value": 1448820.0
+            },
+            {
+              "op": "literal",
+              "value": 2765024.0
+            },
+            {
+              "op": "literal",
+              "value": 2962352.0
+            },
+            {
+              "op": "literal",
+              "value": 2153840.0
+            },
+            {
+              "op": "literal",
+              "value": 3221760.0
+            },
+            {
+              "op": "literal",
+              "value": 353202.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1709564.0
+            },
+            {
+              "op": "literal",
+              "value": 2065538.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1594420.0
+            },
+            {
+              "op": "literal",
+              "value": 1277820.0
+            },
+            {
+              "op": "literal",
+              "value": 1303359.0
+            },
+            {
+              "op": "literal",
+              "value": 2715216.0
+            },
+            {
+              "op": "literal",
+              "value": 1854176.0
+            },
+            {
+              "op": "literal",
+              "value": 2904576.0
+            },
+            {
+              "op": "literal",
+              "value": 182419.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 4865911.0
+            },
+            {
+              "op": "literal",
+              "value": 15845720.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3939517.0
+            },
+            {
+              "op": "literal",
+              "value": 3090420.0
+            },
+            {
+              "op": "literal",
+              "value": 4291672.0
+            },
+            {
+              "op": "literal",
+              "value": 42223087.0
+            },
+            {
+              "op": "literal",
+              "value": 39994576.0
+            },
+            {
+              "op": "literal",
+              "value": 24994176.0
+            },
+            {
+              "op": "literal",
+              "value": 1638218.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3900383.0
+            },
+            {
+              "op": "literal",
+              "value": 4751731.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2973220.0
+            },
+            {
+              "op": "literal",
+              "value": 2269620.0
+            },
+            {
+              "op": "literal",
+              "value": 4439246.0
+            },
+            {
+              "op": "literal",
+              "value": 25646976.0
+            },
+            {
+              "op": "literal",
+              "value": 23559376.0
+            },
+            {
+              "op": "literal",
+              "value": 11151360.0
+            },
+            {
+              "op": "literal",
+              "value": 465291.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1269710.0
+            },
+            {
+              "op": "literal",
+              "value": 1803662.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1759372.0
+            },
+            {
+              "op": "literal",
+              "value": 1465020.0
+            },
+            {
+              "op": "literal",
+              "value": 1031873.0
+            },
+            {
+              "op": "literal",
+              "value": 546452.0
+            },
+            {
+              "op": "literal",
+              "value": 280540.0
+            },
+            {
+              "op": "literal",
+              "value": 1087488.0
+            },
+            {
+              "op": "literal",
+              "value": 149682.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 4306129.0
+            },
+            {
+              "op": "literal",
+              "value": 13578128.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3941117.0
+            },
+            {
+              "op": "literal",
+              "value": 3090420.0
+            },
+            {
+              "op": "literal",
+              "value": 5238879.0
+            },
+            {
+              "op": "literal",
+              "value": 37738143.0
+            },
+            {
+              "op": "literal",
+              "value": 35504728.0
+            },
+            {
+              "op": "literal",
+              "value": 21579264.0
+            },
+            {
+              "op": "literal",
+              "value": 1395133.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3900383.0
+            },
+            {
+              "op": "literal",
+              "value": 2840279.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2562820.0
+            },
+            {
+              "op": "literal",
+              "value": 1859220.0
+            },
+            {
+              "op": "literal",
+              "value": 2738288.0
+            },
+            {
+              "op": "literal",
+              "value": 24765552.0
+            },
+            {
+              "op": "literal",
+              "value": 22677952.0
+            },
+            {
+              "op": "literal",
+              "value": 10494720.0
+            },
+            {
+              "op": "literal",
+              "value": 269388.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3302492.0
+            },
+            {
+              "op": "literal",
+              "value": 1958236.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2878500.0
+            },
+            {
+              "op": "literal",
+              "value": 2269620.0
+            },
+            {
+              "op": "literal",
+              "value": 2738288.0
+            },
+            {
+              "op": "literal",
+              "value": 18988272.0
+            },
+            {
+              "op": "literal",
+              "value": 16925632.0
+            },
+            {
+              "op": "literal",
+              "value": 8083200.0
+            },
+            {
+              "op": "literal",
+              "value": 176009.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1295710.0
+            },
+            {
+              "op": "literal",
+              "value": 3984545.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1759372.0
+            },
+            {
+              "op": "literal",
+              "value": 1465020.0
+            },
+            {
+              "op": "literal",
+              "value": 1482900.0
+            },
+            {
+              "op": "literal",
+              "value": 765112.0
+            },
+            {
+              "op": "literal",
+              "value": 486720.0
+            },
+            {
+              "op": "literal",
+              "value": 1190400.0
+            },
+            {
+              "op": "literal",
+              "value": 348666.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 957710.0
+            },
+            {
+              "op": "literal",
+              "value": 2711575.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3244004.0
+            },
+            {
+              "op": "literal",
+              "value": 2902020.0
+            },
+            {
+              "op": "literal",
+              "value": 1256707.0
+            },
+            {
+              "op": "literal",
+              "value": 3544078.0
+            },
+            {
+              "op": "literal",
+              "value": 2824464.0
+            },
+            {
+              "op": "literal",
+              "value": 1410048.0
+            },
+            {
+              "op": "literal",
+              "value": 224967.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3635383.0
+            },
+            {
+              "op": "literal",
+              "value": 6340742.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3719188.0
+            },
+            {
+              "op": "literal",
+              "value": 3090420.0
+            },
+            {
+              "op": "literal",
+              "value": 2870891.0
+            },
+            {
+              "op": "literal",
+              "value": 23411824.0
+            },
+            {
+              "op": "literal",
+              "value": 21465200.0
+            },
+            {
+              "op": "literal",
+              "value": 9043200.0
+            },
+            {
+              "op": "literal",
+              "value": 636394.0
+            },
+            {
+              "op": "literal",
+              "value": 1282000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 957710.0
+            },
+            {
+              "op": "literal",
+              "value": 2588012.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 3313004.0
+            },
+            {
+              "op": "literal",
+              "value": 2971020.0
+            },
+            {
+              "op": "literal",
+              "value": 928428.0
+            },
+            {
+              "op": "literal",
+              "value": 3561630.0
+            },
+            {
+              "op": "literal",
+              "value": 2804576.0
+            },
+            {
+              "op": "literal",
+              "value": 1623168.0
+            },
+            {
+              "op": "literal",
+              "value": 215648.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1605564.0
+            },
+            {
+              "op": "literal",
+              "value": 2234321.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 2054396.0
+            },
+            {
+              "op": "literal",
+              "value": 1789020.0
+            },
+            {
+              "op": "literal",
+              "value": 1224873.0
+            },
+            {
+              "op": "literal",
+              "value": 2689432.0
+            },
+            {
+              "op": "literal",
+              "value": 1662176.0
+            },
+            {
+              "op": "literal",
+              "value": 2726400.0
+            },
+            {
+              "op": "literal",
+              "value": 190504.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 814739.0
+            },
+            {
+              "op": "literal",
+              "value": 1548820.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1740000.0
+            },
+            {
+              "op": "literal",
+              "value": 1740000.0
+            },
+            {
+              "op": "literal",
+              "value": 720000.0
+            },
+            {
+              "op": "literal",
+              "value": 636000.0
+            },
+            {
+              "op": "literal",
+              "value": 636000.0
+            },
+            {
+              "op": "literal",
+              "value": 1497600.0
+            },
+            {
+              "op": "literal",
+              "value": 147414.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 933106.0
+            },
+            {
+              "op": "literal",
+              "value": 1226624.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1656000.0
+            },
+            {
+              "op": "literal",
+              "value": 1656000.0
+            },
+            {
+              "op": "literal",
+              "value": 828000.0
+            },
+            {
+              "op": "literal",
+              "value": 552000.0
+            },
+            {
+              "op": "literal",
+              "value": 552000.0
+            },
+            {
+              "op": "literal",
+              "value": 1108608.0
+            },
+            {
+              "op": "literal",
+              "value": 116748.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 759825.0
+            },
+            {
+              "op": "literal",
+              "value": 777000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1656000.0
+            },
+            {
+              "op": "literal",
+              "value": 1656000.0
+            },
+            {
+              "op": "literal",
+              "value": 1104000.0
+            },
+            {
+              "op": "literal",
+              "value": 552000.0
+            },
+            {
+              "op": "literal",
+              "value": 552000.0
+            },
+            {
+              "op": "literal",
+              "value": 998400.0
+            },
+            {
+              "op": "literal",
+              "value": 73953.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 894058.0
+            },
+            {
+              "op": "literal",
+              "value": 2183370.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 1620000.0
+            },
+            {
+              "op": "literal",
+              "value": 1620000.0
+            },
+            {
+              "op": "literal",
+              "value": 648000.0
+            },
+            {
+              "op": "literal",
+              "value": 648000.0
+            },
+            {
+              "op": "literal",
+              "value": 648000.0
+            },
+            {
+              "op": "literal",
+              "value": 1731072.0
+            },
+            {
+              "op": "literal",
+              "value": 207809.0
+            },
+            {
+              "op": "literal",
+              "value": 709000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
         },
-        "display": "Table(Platform,Decommissioning_cos1)( 0,0,957.71K,4.157409M,0,0,1.759372M,1.46502M,1.515498M,558.932K,280.54K,1.327488M,363.358K,709K,0,0, 0,0,957.71K,4.329792M,0,0,1.759372M,1.46502M,1.515498M,558.932K,280.54K,1.327488M,379.381K,709K,0,0, 0,0,957.71K,3.316694M,0,0,1.759372M,1.46502M,1.584834M,558.932K,280.54K,1.327488M,288.32K,709K,0,0, 0,0,1.163564M,1.650362M,0,0,2.45146M,2.11302M,4.095035M,2.804512M,1.801392M,3.086592M,136.641K,709K,0,0, 0,0,1.215564M,5.910614M,0,0,2.35798M,2.11302M,1.224874M,2.320592M,1.337696M,3.6864M,544.298K,709K,0,0, 0,0,1.891564M,0,0,0,2.03398M,1.78902M,1.617438M,3.009664M,2.006544M,3.6096M,0,709K,0,0, 0,0,2.628383M,11.45028M,0,0,2.95502M,2.00262M,3.204124M,24.245526M,22.344086M,11.136M,1.153674M,1.282M,0,0, 0,0,3.264383M,4.862948M,0,0,2.39418M,1.85922M,3.29016M,28.58036M,26.80664M,11.517312M,484.543K,1.282M,0,0, 0,0,1.839564M,5.063282M,0,0,1.464972M,1.14102M,1.617438M,2.434416M,1.682064M,3.088128M,449.637K,709K,0,0, 0,0,745.891K,739.207K,0,0,704.308K,600.276K,576.167K,380.868K,223.996K,386.304K,51.767K,709K,0,0, 0,0,1.605564M,3.811997M,0,0,1.817052M,1.44882M,2.765024M,2.962352M,2.15384M,3.22176M,353.202K,1.282M,0,0, 0,0,1.709564M,2.065538M,0,0,1.59442M,1.27782M,1.303359M,2.715216M,1.854176M,2.904576M,182.419K,709K,0,0, 0,0,4.865911M,15.84572M,0,0,3.939517M,3.09042M,4.291672M,42.223087M,39.994576M,24.994176M,1.638218M,1.282M,0,0, 0,0,3.900383M,4.751731M,0,0,2.97322M,2.26962M,4.439246M,25.646976M,23.559376M,11.15136M,465.291K,1.282M,0,0, 0,0,1.26971M,1.803662M,0,0,1.759372M,1.46502M,1.031873M,546.452K,280.54K,1.087488M,149.682K,709K,0,0, 0,0,4.306129M,13.578128M,0,0,3.941117M,3.09042M,5.238879M,37.738143M,35.504728M,21.579264M,1.395133M,1.282M,0,0, 0,0,3.900383M,2.840279M,0,0,2.56282M,1.85922M,2.738288M,24.765552M,22.677952M,10.49472M,269.388K,1.282M,0,0, 0,0,3.302492M,1.958236M,0,0,2.8785M,2.26962M,2.738288M,18.988272M,16.925632M,8.0832M,176.009K,1.282M,0,0, 0,0,1.29571M,3.984545M,0,0,1.759372M,1.46502M,1.4829M,765.112K,486.72K,1.1904M,348.666K,709K,0,0, 0,0,957.71K,2.711575M,0,0,3.244004M,2.90202M,1.256707M,3.544078M,2.824464M,1.410048M,224.967K,709K,0,0, 0,0,3.635383M,6.340742M,0,0,3.719188M,3.09042M,2.870891M,23.411824M,21.4652M,9.0432M,636.394K,1.282M,0,0, 0,0,957.71K,2.588012M,0,0,3.313004M,2.97102M,928.428K,3.56163M,2.804576M,1.623168M,215.648K,709K,0,0, 0,0,1.605564M,2.234321M,0,0,2.054396M,1.78902M,1.224873M,2.689432M,1.662176M,2.7264M,190.504K,709K,0,0, 0,0,814.739K,1.54882M,0,0,1.74M,1.74M,720K,636K,636K,1.4976M,147.414K,709K,0,0, 0,0,933.106K,1.226624M,0,0,1.656M,1.656M,828K,552K,552K,1.108608M,116.748K,709K,0,0, 0,0,759.825K,777K,0,0,1.656M,1.656M,1.104M,552K,552K,998.4K,73.953K,709K,0,0, 0,0,894.058K,2.18337M,0,0,1.62M,1.62M,648K,648K,648K,1.731072M,207.809K,709K,0,0)",
-        "source": "inferred"
+        "display": "[Platform, Decommissioning_cos1, 0, 0, 957710, 4157409.0000000005, 0, 0, 1759372, 1465020, 1515498, 558932, 280540, 1327488, 363358, 709000, 0, 0, 0, 0, 957710, 4329792, 0, 0, 1759372, 1465020, 1515498, 558932, 280540, 1327488, 379381, 709000, 0, 0, 0, 0, 957710, 3316694, 0, 0, 1759372, 1465020, 1584834, 558932, 280540, 1327488, 288320, 709000, 0, 0, 0, 0, 1163564, 1650362, 0, 0, 2451460, 2113020, 4095035, 2804512, 1801392, 3086592, 136641, 709000, 0, 0, 0, 0, 1215564, 5910614, 0, 0, 2357980, 2113020, 1224874, 2320592, 1337696, 3686400, 544298, 709000, 0, 0, 0, 0, 1891564, 0, 0, 0, 2033980.0000000002, 1789020, 1617438, 3009664, 2006543.9999999998, 3609600, 0, 709000, 0, 0, 0, 0, 2628383, 11450280, 0, 0, 2955020, 2002619.9999999998, 3204124, 24245526, 22344086, 11136000, 1153674, 1282000, 0, 0, 0, 0, 3264383, 4862948, 0, 0, 2394180, 1859220, 3290160, 28580360, 26806640, 11517312, 484543, 1282000, 0, 0, 0, 0, 1839564, 5063282, 0, 0, 1464972, 1141020, 1617438, 2434416, 1682064, 3088128, 449637, 709000, 0, 0, 0, 0, 745891, 739207, 0, 0, 704308, 600276, 576167, 380868, 223996, 386304, 51767, 709000, 0, 0, 0, 0, 1605564, 3811997, 0, 0, 1817052, 1448820, 2765024, 2962352, 2153840, 3221760, 353202, 1282000, 0, 0, 0, 0, 1709564, 2065538, 0, 0, 1594420, 1277820, 1303359, 2715216, 1854176, 2904576, 182419, 709000, 0, 0, 0, 0, 4865911, 15845720, 0, 0, 3939517, 3090420, 4291672, 42223087, 39994576, 24994176, 1638218, 1282000, 0, 0, 0, 0, 3900383, 4751731, 0, 0, 2973220, 2269620, 4439246, 25646976, 23559376, 11151360, 465291, 1282000, 0, 0, 0, 0, 1269710, 1803662, 0, 0, 1759372, 1465020, 1031873, 546452, 280540, 1087488, 149682, 709000, 0, 0, 0, 0, 4306129, 13578128, 0, 0, 3941117, 3090420, 5238879, 37738143, 35504728, 21579264, 1395133, 1282000, 0, 0, 0, 0, 3900383, 2840279, 0, 0, 2562820, 1859220, 2738288, 24765552, 22677952, 10494720, 269388, 1282000, 0, 0, 0, 0, 3302492, 1958236, 0, 0, 2878500, 2269620, 2738288, 18988272, 16925632, 8083200, 176009, 1282000, 0, 0, 0, 0, 1295710, 3984545, 0, 0, 1759372, 1465020, 1482900, 765112, 486720, 1190400, 348666, 709000, 0, 0, 0, 0, 957710, 2711575, 0, 0, 3244004, 2902020, 1256707, 3544078, 2824464, 1410048, 224967, 709000, 0, 0, 0, 0, 3635383, 6340742, 0, 0, 3719188, 3090420, 2870891, 23411824, 21465200, 9043200, 636394, 1282000, 0, 0, 0, 0, 957710, 2588012, 0, 0, 3313004, 2971020, 928428, 3561630, 2804576, 1623168, 215648, 709000, 0, 0, 0, 0, 1605564, 2234321, 0, 0, 2054396, 1789020, 1224873, 2689432, 1662176, 2726400, 190504, 709000, 0, 0, 0, 0, 814739, 1548820, 0, 0, 1740000, 1740000, 720000, 636000, 636000, 1497600, 147414, 709000, 0, 0, 0, 0, 933106, 1226624, 0, 0, 1656000, 1656000, 828000, 552000, 552000, 1108608, 116748, 709000, 0, 0, 0, 0, 759825, 777000, 0, 0, 1656000, 1656000, 1104000, 552000, 552000, 998400, 73953, 709000, 0, 0, 0, 0, 894058, 2183370, 0, 0, 1620000, 1620000, 648000, 648000, 648000, 1731072, 207809, 709000, 0, 0]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Decommissioning_cos1",
+        "Platform"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Decommissioning_cost",
@@ -18940,13 +22307,136 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Platform",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 3727.0
+            },
+            {
+              "op": "literal",
+              "value": 3780.0
+            },
+            {
+              "op": "literal",
+              "value": 3352.0
+            },
+            {
+              "op": "literal",
+              "value": 6743.0
+            },
+            {
+              "op": "literal",
+              "value": 8325.0
+            },
+            {
+              "op": "literal",
+              "value": 5883.0
+            },
+            {
+              "op": "literal",
+              "value": 12342.0
+            },
+            {
+              "op": "literal",
+              "value": 10734.0
+            },
+            {
+              "op": "literal",
+              "value": 7135.0
+            },
+            {
+              "op": "literal",
+              "value": 1200.0
+            },
+            {
+              "op": "literal",
+              "value": 5775.0
+            },
+            {
+              "op": "literal",
+              "value": 4922.0
+            },
+            {
+              "op": "literal",
+              "value": 14773.0
+            },
+            {
+              "op": "literal",
+              "value": 12081.0
+            },
+            {
+              "op": "literal",
+              "value": 2771.0
+            },
+            {
+              "op": "literal",
+              "value": 14135.0
+            },
+            {
+              "op": "literal",
+              "value": 10945.0
+            },
+            {
+              "op": "literal",
+              "value": 10884.0
+            },
+            {
+              "op": "literal",
+              "value": 3484.0
+            },
+            {
+              "op": "literal",
+              "value": 4160.0
+            },
+            {
+              "op": "literal",
+              "value": 10650.0
+            },
+            {
+              "op": "literal",
+              "value": 5487.0
+            },
+            {
+              "op": "literal",
+              "value": 4389.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 4248.0
+            }
+          ]
         },
-        "display": "Table(Platform)( 3727,3780,3352,6743,8325,5883,12.342K,10.734K,7135,1200,5775,4922,14.773K,12.081K,2771,14.135K,10.945K,10.884K,3484,4160,10.65K,5487,4389,0,0,0,4248)",
-        "source": "inferred"
+        "display": "[Platform, 3727, 3780, 3352, 6743, 8325, 5883, 12342, 10734, 7135, 1200, 5775, 4922, 14773, 12081, 2771, 14135, 10945, 10884, 3484, 4160, 10650, 5487, 4389, 0, 0, 0, 4248]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Platform"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "Tons",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Total_platform_remov",
@@ -18957,13 +22447,136 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Platform",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 6405.0
+            },
+            {
+              "op": "literal",
+              "value": 6535.0
+            },
+            {
+              "op": "literal",
+              "value": 5796.0
+            },
+            {
+              "op": "literal",
+              "value": 9147.0
+            },
+            {
+              "op": "literal",
+              "value": 14016.0
+            },
+            {
+              "op": "literal",
+              "value": 9400.0
+            },
+            {
+              "op": "literal",
+              "value": 38360.0
+            },
+            {
+              "op": "literal",
+              "value": 33924.0
+            },
+            {
+              "op": "literal",
+              "value": 11690.0
+            },
+            {
+              "op": "literal",
+              "value": 1426.0
+            },
+            {
+              "op": "literal",
+              "value": 11256.0
+            },
+            {
+              "op": "literal",
+              "value": 9044.0
+            },
+            {
+              "op": "literal",
+              "value": 78380.0
+            },
+            {
+              "op": "literal",
+              "value": 32815.0
+            },
+            {
+              "op": "literal",
+              "value": 4046.0
+            },
+            {
+              "op": "literal",
+              "value": 67515.0
+            },
+            {
+              "op": "literal",
+              "value": 29516.0
+            },
+            {
+              "op": "literal",
+              "value": 22478.0
+            },
+            {
+              "op": "literal",
+              "value": 5929.0
+            },
+            {
+              "op": "literal",
+              "value": 5497.0
+            },
+            {
+              "op": "literal",
+              "value": 28713.0
+            },
+            {
+              "op": "literal",
+              "value": 6977.0
+            },
+            {
+              "op": "literal",
+              "value": 8646.0
+            },
+            {
+              "op": "literal",
+              "value": 4797.0
+            },
+            {
+              "op": "literal",
+              "value": 3597.0
+            },
+            {
+              "op": "literal",
+              "value": 3050.0
+            },
+            {
+              "op": "literal",
+              "value": 5772.0
+            }
+          ]
         },
-        "display": "Table(Platform)( 6405,6535,5796,9147,14.016K,9400,38.36K,33.924K,11.69K,1426,11.256K,9044,78.38K,32.815K,4046,67.515K,29.516K,22.478K,5929,5497,28.713K,6977,8646,4797,3597,3050,5772)",
-        "source": "inferred"
+        "display": "[Platform, 6405, 6535, 5796, 9147, 14016, 9400, 38360, 33924, 11690, 1426, 11256, 9044, 78380, 32815, 4046, 67515, 29516, 22478, 5929, 5497, 28713, 6977, 8646, 4797, 3597, 3050, 5772]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Platform"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "Tons",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Trans_disp_strct_prf",
@@ -19003,13 +22616,46 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "literal",
+              "value": 65.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 85.0
+            }
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "ref",
+                "element_id": "Platform_depth_data",
+                "output": "value"
+              },
+              "right": {
+                "op": "literal",
+                "value": 65.0
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Conductor_removal_le",
+              "output": "value"
+            }
+          }
         },
-        "display": "var removed_length := 65+85;  var total_length := Platform_depth_data+ 65 + Conductor_removal_le;  removed_length/total_length",
-        "source": "inferred"
+        "display": "((65 + 85) / ((Platform_depth_data + 65) + Conductor_removal_le))",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Conductor_removal_le",
+        "Platform_depth_data"
+      ]
     },
     {
       "id": "Conductor_removal_le",
@@ -19483,13 +23129,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := Total_cost_w__contin[Platform=Platforms_to_conside][Decommissioning_alt6=Selected_options_by_]; IF result = null then 0 else result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Percent_avoided_cos1",
@@ -19786,13 +23457,38 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var maxHLV := Max(Hlv_options_no__par1[Platform_da_for_hlv_='1 Complete platform removal'],Platforms_to_conside); var num := size(Platforms_to_conside); var result := (Base_HLV_mobil__cost[@Hlv_size=maxHLV]/num)[Decommissioning_alt6=Selected_options_by_]; IF result = Null THEN 0 ELSE result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Input_reef_enhanceme",
@@ -19803,13 +23499,136 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Platform",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 60000.0
+            }
+          ]
         },
-        "display": "Table(Platform)( 60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,60K,0,0,0,60K)",
-        "source": "inferred"
+        "display": "[Platform, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 60000, 0, 0, 0, 60000]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Platform"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$/acre",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Acres_of_rock_by_pla",
@@ -19995,7 +23814,14 @@
         "display": "VAR result := IF Reef_enhancements_fo THEN Reef_enhancement_co2[Platform=Platforms_to_conside] ELSE 0; result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Reef_enhancement_co1",
@@ -20006,13 +23832,45 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "ref",
+              "element_id": "Selected_options_by_",
+              "output": "value"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "if",
+            "cond": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "then": {
+              "op": "literal",
+              "value": 0.0
+            },
+            "else": {
+              "op": "literal",
+              "value": 0.0
+            }
+          }
         },
         "display": "VAR result := Reef_enhancement_co3[Partial_removal_scen=Selected_scenarios]; IF Selected_options_by_ = \"No action\" THEN 0 ELSE IF IsNumber(result) THEN result ELSE 0",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [
+        "Selected_options_by_"
+      ]
     },
     {
       "id": "Reef_enhancement_by1",
@@ -20537,8 +24395,19 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := (Volume_of_shell_moun*Shellm_rmvl_unit_cst)+ ($240K); If IsNan(result) THEN 0 ELSE result",
         "source": "inferred"
@@ -21201,7 +25070,14 @@
         "display": "var maxHLV := Max(Hlv_options_no__par1[Platform_da_for_hlv_=\"2 Partial platform removal\"],Platforms_to_conside); var num := size(Platforms_to_conside); (Base_HLV_mobil__cost[@Hlv_size=maxHLV]/num)[Decommissioning_alt6=Selected_options_by_]",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Worst_case_mob_demob",
@@ -21246,13 +25122,59 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "ref",
+              "element_id": "Selected_options_by_",
+              "output": "value"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "divide",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "ref",
+                "element_id": "Total_decms_costs",
+                "output": "value"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Npv_programtic_costs",
+                "output": "value"
+              }
+            },
+            "right": {
+              "op": "literal",
+              "value": 1000000.0
+            }
+          }
         },
-        "display": "var result := (Total_decms_costs + Npv_programtic_costs)/1M; IF Selected_options_by_ = 'No action' THEN 'No action' ELSE result",
-        "source": "inferred"
+        "display": "If (Selected_options_by_ = 0) Then 0 Else ((Total_decms_costs + Npv_programtic_costs) / 1000000)",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Npv_programtic_costs",
+        "Selected_options_by_",
+        "Total_decms_costs"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$M",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Pm_engr_planin_costs",
@@ -21263,13 +25185,53 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "Epc_percent_of_total",
+            "output": "value"
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 0.0
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.0
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.0
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Platfrm_strcl_r_cost",
+              "output": "value"
+            }
+          }
         },
         "display": "var platform_prep := Input_decommiss__cos[Decommissioning_cos1='Platform Preparation ']; var conductors := Input_decommiss__cos[Decommissioning_cos1='Conductors ']; var site_clearance := Input_decommiss__cos[Decommissioning_cos1='Site Clearance ']; Epc_percent_of_total*(platform_prep+conductors+site_clearance+Platfrm_strcl_r_cost)",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [
+        "Epc_percent_of_total",
+        "Platfrm_strcl_r_cost"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Platfrm_strcl_r_cost",
@@ -21823,13 +25785,36 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "divide",
+          "left": {
+            "op": "call",
+            "fn": "sum_array",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "Decommissioning_cos4",
+                "output": "value"
+              }
+            ]
+          },
+          "right": {
+            "op": "literal",
+            "value": 1000000.0
+          }
         },
-        "display": "Sum(Decommissioning_cos4, Platforms_to_conside)/1M",
-        "source": "inferred"
+        "display": "(sum_array(Decommissioning_cos4) / 1000000)",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Decommissioning_cos4"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$ million",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Shell_mound_removal1",
@@ -22352,13 +26337,136 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Platform",
+              "output": "value"
+            },
+            {
+              "op": "literal",
+              "value": 7260.0
+            },
+            {
+              "op": "literal",
+              "value": 8590.0
+            },
+            {
+              "op": "literal",
+              "value": 4590.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 500.0
+            },
+            {
+              "op": "literal",
+              "value": 7370.0
+            },
+            {
+              "op": "literal",
+              "value": 4200.0
+            },
+            {
+              "op": "literal",
+              "value": 5500.0
+            },
+            {
+              "op": "literal",
+              "value": 6840.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 7200.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 500.0
+            },
+            {
+              "op": "literal",
+              "value": 500.0
+            },
+            {
+              "op": "literal",
+              "value": 6800.0
+            },
+            {
+              "op": "literal",
+              "value": 12500.0
+            },
+            {
+              "op": "literal",
+              "value": 1500.0
+            },
+            {
+              "op": "literal",
+              "value": 10900.0
+            },
+            {
+              "op": "literal",
+              "value": 3720.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
         },
-        "display": "Table(Platform)(7260,8590,4590,'No data','No data','No data','No data',500,7370,4200,5500,6840,'No data','No data',7200,'No data',500,500,6800,12.5K,1500,10.9K,3720,'No data','No data','No data','No data')",
-        "source": "inferred"
+        "display": "[Platform, 7260, 8590, 4590, 0, 0, 0, 0, 500, 7370, 4200, 5500, 6840, 0, 0, 7200, 0, 500, 500, 6800, 12500, 1500, 10900, 3720, 0, 0, 0, 0]",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Platform"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "cubic yard",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Remove_shell_mound_b",
@@ -22419,13 +26527,31 @@
       "type": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "if",
+          "cond": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "then": {
+            "op": "literal",
+            "value": 0.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
         },
         "display": "var result := (Shell_mound_volume_1*Shellm_rmvl_unit_cst) + ($240K/Number_of_platforms_); If IsNan(result) THEN 'No data' ELSE result",
         "source": "inferred"
       },
-      "inputs": []
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "$",
+          "display_unit": null
+        }
+      ]
     },
     {
       "id": "Smound_removal_costs",
