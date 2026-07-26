@@ -171,6 +171,9 @@ Glasserman insists on.
   realizations**. WASiM's cross-realization reducers (`run_stat`: mean/percentile/CTE/…)
   operate on a *single* element, so `b*` cannot yet be estimated inside the model — a genuine
   engine gap. You can still hard-code a `b` as a `constant` to demonstrate the technique.
+  **Scoped fix:** [`CONTROL_VARIATE_SCOPE.md`](CONTROL_VARIATE_SCOPE.md) proposes a bivariate
+  cross-realization reducer (`run_stat2` with `cov`/`beta`/`corr`) that makes `b*` computable
+  in-model, reusing the existing two-pass `run_stat` machinery.
 - **Greeks / sensitivities.** Delta, vega, etc. (Glasserman Ch. 7) would use the engine's
   `sensitivity_v2` layer rather than the payoff estimator here.
 
