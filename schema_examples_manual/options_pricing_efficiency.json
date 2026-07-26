@@ -1,0 +1,307 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "European call option priced by Monte Carlo, set up for a pricing-EFFICIENCY analysis in the sense of Glasserman, Monte Carlo Methods in Financial Engineering, Ch. 1. One standard normal Z is drawn per realization; the terminal asset price is simulated EXACTLY from the lognormal law S_T = S0*exp((r - sigma^2/2)T + sigma*sqrt(T)*Z), so there is NO time-discretization bias. Two estimators of the discounted payoff are computed side by side from the SAME draw: a plain estimator (est_plain) and an antithetic-variates estimator (est_antithetic) that averages the payoff under Z and -Z. A live closed-form Black-Scholes price (bs_price, built from the erf builtin) is the exact reference. Run with results_spec.final_stats = true on est_plain / est_antithetic / bs_price: FinalStats.mean is the price estimate, FinalStats.std is the payoff sample standard deviation, and FinalStats.ci_half_width is the Monte Carlo error ( z * s / sqrt(N) ). Efficiency = 1 / (variance * work): compare the two estimators' std at equal cost, and watch ci_half_width shrink as 1/sqrt(N) when you raise n_realizations. All prices in USD; r, sigma, T, Z are dimensionless (T is the maturity in years as a pure number). See OPTIONS_PRICING_EFFICIENCY.md."
+  },
+  "simulation_settings": {
+    "duration": { "value": 1.0, "unit": "yr" },
+    "timestep": { "value": 1.0, "unit": "yr" },
+    "n_realizations": 100000,
+    "sampling_method": "monte_carlo",
+    "seed": 12345
+  },
+  "containers": [
+    { "id": "contract",   "name": "Contract & Market", "parent": null, "children": [] },
+    { "id": "estimators", "name": "Monte Carlo Estimators", "parent": null, "children": [] },
+    { "id": "reference",  "name": "Closed-Form Reference", "parent": null, "children": [] }
+  ],
+  "elements": [
+
+    {
+      "id": "S0", "name": "Spot Price", "type": "constant", "container": "contract",
+      "description": "Current price of the underlying asset (S0), in USD.",
+      "value": { "value": 100.0, "unit": "USD" },
+      "editable": true, "bounds": { "min": 0.0, "max": null }
+    },
+    {
+      "id": "K", "name": "Strike", "type": "constant", "container": "contract",
+      "description": "Strike price K of the European call, in USD. Default is at-the-money (K = S0).",
+      "value": { "value": 100.0, "unit": "USD" },
+      "editable": true, "bounds": { "min": 0.0, "max": null }
+    },
+    {
+      "id": "r", "name": "Risk-Free Rate", "type": "constant", "container": "contract",
+      "description": "Continuously compounded annual risk-free rate. Dimensionless (per-year, applied as r*T).",
+      "value": { "value": 0.05, "unit": "1" },
+      "editable": true, "bounds": { "min": -0.10, "max": 1.0 }
+    },
+    {
+      "id": "sigma", "name": "Volatility", "type": "constant", "container": "contract",
+      "description": "Annualized volatility sigma of the underlying (dimensionless).",
+      "value": { "value": 0.20, "unit": "1" },
+      "editable": true, "bounds": { "min": 0.001, "max": 3.0 }
+    },
+    {
+      "id": "T", "name": "Maturity (years)", "type": "constant", "container": "contract",
+      "description": "Time to maturity in years, carried as a pure number so the exponent (r - sigma^2/2)*T stays dimensionless. Independent of the cosmetic 1-step simulation clock.",
+      "value": { "value": 1.0, "unit": "1" },
+      "editable": true, "bounds": { "min": 0.001, "max": 30.0 }
+    },
+
+    {
+      "id": "Z", "name": "Standard Normal Shock", "type": "random_variable", "container": "estimators",
+      "description": "One standard normal draw per realization. Drives the exact lognormal terminal price. -Z is reused for the antithetic estimator.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean":   { "value": 0.0, "unit": "1" },
+          "stddev": { "value": 1.0, "unit": "1" }
+        }
+      },
+      "save_results": { "final_value": true, "time_history": false }
+    },
+
+    {
+      "id": "sigma2", "name": "Variance sigma^2", "type": "expression", "container": "estimators",
+      "description": "sigma * sigma, reused by the drift term and by Black-Scholes d1.",
+      "inputs": ["sigma"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left":  { "op": "ref", "element_id": "sigma" },
+          "right": { "op": "ref", "element_id": "sigma" } },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "sqrtT", "name": "sqrt(T)", "type": "expression", "container": "estimators",
+      "description": "Square root of maturity.",
+      "inputs": ["T"],
+      "expression": {
+        "ast": { "op": "call", "fn": "sqrt", "args": [ { "op": "ref", "element_id": "T" } ] },
+        "display": "sqrt(T)"
+      }
+    },
+    {
+      "id": "diffusion", "name": "Diffusion Scale sigma*sqrt(T)", "type": "expression", "container": "estimators",
+      "description": "sigma * sqrt(T): the standard deviation of log-return over [0, T]. Also the denominator of Black-Scholes d1/d2.",
+      "inputs": ["sigma", "sqrtT"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left":  { "op": "ref", "element_id": "sigma" },
+          "right": { "op": "ref", "element_id": "sqrtT" } },
+        "display": "sigma * sqrt(T)"
+      }
+    },
+    {
+      "id": "drift", "name": "Log Drift (r - sigma^2/2)*T", "type": "expression", "container": "estimators",
+      "description": "Risk-neutral log drift over [0, T]: (r - sigma^2/2) * T.",
+      "inputs": ["r", "sigma2", "T"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "subtract",
+            "left": { "op": "ref", "element_id": "r" },
+            "right": { "op": "multiply",
+              "left": { "op": "literal", "value": 0.5 },
+              "right": { "op": "ref", "element_id": "sigma2" } } },
+          "right": { "op": "ref", "element_id": "T" } },
+        "display": "(r - sigma^2/2) * T"
+      }
+    },
+    {
+      "id": "discount", "name": "Discount Factor exp(-rT)", "type": "expression", "container": "estimators",
+      "description": "exp(-r*T): pulls the maturity payoff back to time 0.",
+      "inputs": ["r", "T"],
+      "expression": {
+        "ast": { "op": "call", "fn": "exp", "args": [
+          { "op": "neg", "operand": { "op": "multiply",
+            "left": { "op": "ref", "element_id": "r" },
+            "right": { "op": "ref", "element_id": "T" } } } ] },
+        "display": "exp(-r*T)"
+      }
+    },
+
+    {
+      "id": "ST_plus", "name": "Terminal Price S_T(+Z)", "type": "expression", "container": "estimators",
+      "description": "Exact lognormal terminal price under the shock +Z: S0 * exp(drift + diffusion*Z). Exact simulation => no Euler discretization bias.",
+      "inputs": ["S0", "drift", "diffusion", "Z"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "S0" },
+          "right": { "op": "call", "fn": "exp", "args": [
+            { "op": "add",
+              "left": { "op": "ref", "element_id": "drift" },
+              "right": { "op": "multiply",
+                "left": { "op": "ref", "element_id": "diffusion" },
+                "right": { "op": "ref", "element_id": "Z" } } } ] } },
+        "display": "S0 * exp(drift + diffusion*Z)"
+      }
+    },
+    {
+      "id": "ST_minus", "name": "Terminal Price S_T(-Z)", "type": "expression", "container": "estimators",
+      "description": "Antithetic partner: same draw, opposite sign. S0 * exp(drift - diffusion*Z).",
+      "inputs": ["S0", "drift", "diffusion", "Z"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "S0" },
+          "right": { "op": "call", "fn": "exp", "args": [
+            { "op": "subtract",
+              "left": { "op": "ref", "element_id": "drift" },
+              "right": { "op": "multiply",
+                "left": { "op": "ref", "element_id": "diffusion" },
+                "right": { "op": "ref", "element_id": "Z" } } } ] } },
+        "display": "S0 * exp(drift - diffusion*Z)"
+      }
+    },
+
+    {
+      "id": "payoff_plus", "name": "Payoff max(S_T(+Z)-K,0)", "type": "expression", "container": "estimators",
+      "description": "Undiscounted call payoff under +Z.",
+      "inputs": ["ST_plus", "K"],
+      "expression": {
+        "ast": { "op": "call", "fn": "max", "args": [
+          { "op": "subtract",
+            "left": { "op": "ref", "element_id": "ST_plus" },
+            "right": { "op": "ref", "element_id": "K" } },
+          { "op": "literal", "value": 0.0 } ] },
+        "display": "max(S_T(+Z) - K, 0)"
+      }
+    },
+    {
+      "id": "payoff_minus", "name": "Payoff max(S_T(-Z)-K,0)", "type": "expression", "container": "estimators",
+      "description": "Undiscounted call payoff under -Z (antithetic partner).",
+      "inputs": ["ST_minus", "K"],
+      "expression": {
+        "ast": { "op": "call", "fn": "max", "args": [
+          { "op": "subtract",
+            "left": { "op": "ref", "element_id": "ST_minus" },
+            "right": { "op": "ref", "element_id": "K" } },
+          { "op": "literal", "value": 0.0 } ] },
+        "display": "max(S_T(-Z) - K, 0)"
+      }
+    },
+
+    {
+      "id": "est_plain", "name": "Plain MC Estimator", "type": "expression", "container": "estimators",
+      "description": "Per-realization plain estimator of the option price: discount * payoff(+Z). Its across-realization mean (FinalStats.mean) is the plain Monte Carlo price; FinalStats.std / sqrt(N) is its standard error.",
+      "inputs": ["discount", "payoff_plus"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "discount" },
+          "right": { "op": "ref", "element_id": "payoff_plus" } },
+        "display": "discount * payoff_plus"
+      }
+    },
+    {
+      "id": "est_antithetic", "name": "Antithetic MC Estimator", "type": "expression", "container": "estimators",
+      "description": "Per-realization antithetic estimator: discount * 0.5 * (payoff(+Z) + payoff(-Z)). Same expected value as est_plain but lower variance because the two legs are negatively correlated. Compare FinalStats.std against est_plain to read the efficiency gain.",
+      "inputs": ["discount", "payoff_plus", "payoff_minus"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "discount" },
+          "right": { "op": "multiply",
+            "left": { "op": "literal", "value": 0.5 },
+            "right": { "op": "add",
+              "left": { "op": "ref", "element_id": "payoff_plus" },
+              "right": { "op": "ref", "element_id": "payoff_minus" } } } },
+        "display": "discount * 0.5 * (payoff_plus + payoff_minus)"
+      }
+    },
+
+    {
+      "id": "lnSK", "name": "ln(S0/K)", "type": "expression", "container": "reference",
+      "description": "Log moneyness, used by Black-Scholes d1.",
+      "inputs": ["S0", "K"],
+      "expression": {
+        "ast": { "op": "call", "fn": "ln", "args": [
+          { "op": "divide",
+            "left": { "op": "ref", "element_id": "S0" },
+            "right": { "op": "ref", "element_id": "K" } } ] },
+        "display": "ln(S0 / K)"
+      }
+    },
+    {
+      "id": "d1", "name": "Black-Scholes d1", "type": "expression", "container": "reference",
+      "description": "d1 = ( ln(S0/K) + (r + sigma^2/2) T ) / ( sigma sqrt(T) ).",
+      "inputs": ["lnSK", "r", "sigma2", "T", "diffusion"],
+      "expression": {
+        "ast": { "op": "divide",
+          "left": { "op": "add",
+            "left": { "op": "ref", "element_id": "lnSK" },
+            "right": { "op": "multiply",
+              "left": { "op": "add",
+                "left": { "op": "ref", "element_id": "r" },
+                "right": { "op": "multiply",
+                  "left": { "op": "literal", "value": 0.5 },
+                  "right": { "op": "ref", "element_id": "sigma2" } } },
+              "right": { "op": "ref", "element_id": "T" } } },
+          "right": { "op": "ref", "element_id": "diffusion" } },
+        "display": "(ln(S0/K) + (r + sigma^2/2)T) / (sigma sqrt(T))"
+      }
+    },
+    {
+      "id": "d2", "name": "Black-Scholes d2", "type": "expression", "container": "reference",
+      "description": "d2 = d1 - sigma sqrt(T).",
+      "inputs": ["d1", "diffusion"],
+      "expression": {
+        "ast": { "op": "subtract",
+          "left": { "op": "ref", "element_id": "d1" },
+          "right": { "op": "ref", "element_id": "diffusion" } },
+        "display": "d1 - sigma sqrt(T)"
+      }
+    },
+    {
+      "id": "Nd1", "name": "N(d1)", "type": "expression", "container": "reference",
+      "description": "Standard normal CDF at d1, built exactly from erf: Phi(x) = 0.5*(1 + erf(x/sqrt(2))). 1/sqrt(2) = 0.7071067811865476.",
+      "inputs": ["d1"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "literal", "value": 0.5 },
+          "right": { "op": "add",
+            "left": { "op": "literal", "value": 1.0 },
+            "right": { "op": "call", "fn": "erf", "args": [
+              { "op": "multiply",
+                "left": { "op": "ref", "element_id": "d1" },
+                "right": { "op": "literal", "value": 0.7071067811865476 } } ] } } },
+        "display": "0.5*(1 + erf(d1/sqrt(2)))"
+      }
+    },
+    {
+      "id": "Nd2", "name": "N(d2)", "type": "expression", "container": "reference",
+      "description": "Standard normal CDF at d2.",
+      "inputs": ["d2"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "literal", "value": 0.5 },
+          "right": { "op": "add",
+            "left": { "op": "literal", "value": 1.0 },
+            "right": { "op": "call", "fn": "erf", "args": [
+              { "op": "multiply",
+                "left": { "op": "ref", "element_id": "d2" },
+                "right": { "op": "literal", "value": 0.7071067811865476 } } ] } } },
+        "display": "0.5*(1 + erf(d2/sqrt(2)))"
+      }
+    },
+    {
+      "id": "bs_price", "name": "Black-Scholes Price (exact)", "type": "expression", "container": "reference",
+      "description": "Closed-form European call price: S0*N(d1) - K*exp(-rT)*N(d2). Deterministic (same in every realization), so FinalStats.mean equals the exact price. Bias of a Monte Carlo estimator = its FinalStats.mean minus this value; because terminal prices are simulated exactly, that bias is zero up to Monte Carlo error.",
+      "inputs": ["S0", "Nd1", "K", "discount", "Nd2"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": { "op": "subtract",
+          "left": { "op": "multiply",
+            "left": { "op": "ref", "element_id": "S0" },
+            "right": { "op": "ref", "element_id": "Nd1" } },
+          "right": { "op": "multiply",
+            "left": { "op": "multiply",
+              "left": { "op": "ref", "element_id": "K" },
+              "right": { "op": "ref", "element_id": "discount" } },
+            "right": { "op": "ref", "element_id": "Nd2" } } },
+        "display": "S0*N(d1) - K*exp(-rT)*N(d2)"
+      }
+    }
+
+  ]
+}
