@@ -167,6 +167,9 @@ pub enum NodeRule {
         input: String,
         window: usize,
         statistic: FilterStat,
+        /// Fold the input's terminal value S(T) into the statistic after the run (a running monitor
+        /// otherwise stops one step short of the terminal date). See the v1 `Filter` doc.
+        include_terminal: bool,
     },
     /// [gate_logic] Boolean logic tree → 1.0/0.0.
     GateLogic {

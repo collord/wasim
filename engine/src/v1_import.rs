@@ -191,12 +191,13 @@ fn normalize_element(elem: &v1::Element, dt: f64) -> Vec<v2::Element> {
             }
         }
 
-        ElementKind::Filter { input, window, statistic } => {
+        ElementKind::Filter { input, window, statistic, include_terminal } => {
             v2::Primitive::Node(v2::Node {
                 rule: v2::NodeRule::Filter {
                     input: input.clone(),
                     window: window.unwrap_or(0),
                     statistic: filter_stat(statistic),
+                    include_terminal: *include_terminal,
                 },
             })
         }

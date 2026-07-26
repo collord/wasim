@@ -410,6 +410,13 @@ pub enum ElementKind {
         #[serde(default)]
         window: Option<usize>,
         statistic: String,
+        /// Fold the input's *terminal* value S(T) into the running statistic after the run. A
+        /// filter reads its input one step stale, so a running monitor otherwise stops at t_{m-1}
+        /// and misses the terminal date; set this for a barrier/lookback monitor that must cover
+        /// S(T). Correct when the input resolves to a terminal level (a stock, or a chain of
+        /// terminal reads); an ordinary-expression input folds its one-step-stale value.
+        #[serde(default)]
+        include_terminal: bool,
     },
     Script {
         language: String,

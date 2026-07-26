@@ -1457,38 +1457,10 @@ impl<'a> RunState<'a> {
                             hyst_state.insert(elem_id.clone(), active);
                             Value::Scalar(if active { output_above.value } else { output_below.value })
                         }
-                        NodeRule::Filter { input, window, statistic } => {
+                        NodeRule::Filter { input, window, statistic, .. } => {
                             let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
-                            let val = match statistic {
-                                FilterStat::Ema => {
-                                    let alpha = 2.0 / (*window as f64 + 1.0);
-                                    let ema = match filter_ema.get(elem_id.as_str()) {
-                                        Some(&p) => alpha * x + (1.0 - alpha) * p,
-                                        None => x,
-                                    };
-                                    filter_ema.insert(elem_id.clone(), ema);
-                                    ema
-                                }
-                                _ => {
-                                    let buf = filter_buf.entry(elem_id.clone()).or_default();
-                                    buf.push_back(x);
-                                    // window == 0 => expanding (cumulative) window: keep every
-                                    // value seen so far, i.e. a running mean/sum/min/max since t0.
-                                    if *window > 0 {
-                                        while buf.len() > *window {
-                                            buf.pop_front();
-                                        }
-                                    }
-                                    match statistic {
-                                        FilterStat::Mean => buf.iter().sum::<f64>() / buf.len() as f64,
-                                        FilterStat::Min => buf.iter().cloned().fold(f64::INFINITY, f64::min),
-                                        FilterStat::Max => buf.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-                                        FilterStat::Sum => buf.iter().sum(),
-                                        FilterStat::Ema => unreachable!(),
-                                    }
-                                }
-                            };
-                            Value::Scalar(val)
+                            Value::Scalar(fold_filter(elem_id, statistic, *window, x,
+                                &mut filter_buf, &mut filter_ema))
                         }
                         NodeRule::Status { set, reset } => {
                             // Latch: set fires → 1, reset fires → 0; set wins a simultaneous
@@ -2581,6 +2553,24 @@ impl<'a> RunState<'a> {
                 }
             }
             if step_idx == n_steps - 1 {
+                // Terminal fold for `include_terminal` filters: a filter reads its input one step
+                // stale, so a running monitor otherwise stops at t_{m-1} and misses the terminal
+                // observation S(T). Now that `outputs` holds each stock's published S(T), fold that
+                // terminal value into the filter once more (topo order, so a filter over another
+                // filter/expression sees an already-updated input). This makes running min/max/mean
+                // natively cover the terminal date — e.g. a barrier/lookback monitor.
+                for fid in &graph.topo_order {
+                    let felem = &model.elements[elem_idx[fid.as_str()]];
+                    if let Primitive::Node(node) = &felem.primitive {
+                        if let NodeRule::Filter { input, window, statistic, include_terminal } = &node.rule {
+                            if *include_terminal {
+                                let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                let v = fold_filter(fid, statistic, *window, x, &mut filter_buf, &mut filter_ema);
+                                outputs.insert(fid.clone(), Value::Scalar(v));
+                            }
+                        }
+                    }
+                }
                 // Post-run terminal pass: evaluate terminal expressions once, against terminal
                 // state. `outputs` now holds each stock's end-of-run level S(T) (published after
                 // the final integration), so a `ref` to a stock resolves to S(T) — not the
@@ -3300,6 +3290,46 @@ fn is_grid_only_rule(elem: &Element) -> bool {
 /// never in the per-step loop.
 fn is_terminal_expr(elem: &Element) -> bool {
     matches!(&elem.primitive, Primitive::Node(n) if matches!(&n.rule, NodeRule::TerminalExpression(_)))
+}
+
+/// Fold one observation `x` into a filter's per-realization state and return the running statistic.
+/// Shared by the per-step topo pass and the terminal fold (`include_terminal`), so both advance the
+/// filter identically. `window == 0` is an expanding (cumulative) window.
+fn fold_filter(
+    id: &str,
+    statistic: &FilterStat,
+    window: usize,
+    x: f64,
+    filter_buf: &mut HashMap<String, VecDeque<f64>>,
+    filter_ema: &mut HashMap<String, f64>,
+) -> f64 {
+    match statistic {
+        FilterStat::Ema => {
+            let alpha = 2.0 / (window as f64 + 1.0);
+            let ema = match filter_ema.get(id) {
+                Some(&p) => alpha * x + (1.0 - alpha) * p,
+                None => x,
+            };
+            filter_ema.insert(id.to_string(), ema);
+            ema
+        }
+        _ => {
+            let buf = filter_buf.entry(id.to_string()).or_default();
+            buf.push_back(x);
+            if window > 0 {
+                while buf.len() > window {
+                    buf.pop_front();
+                }
+            }
+            match statistic {
+                FilterStat::Mean => buf.iter().sum::<f64>() / buf.len() as f64,
+                FilterStat::Min => buf.iter().cloned().fold(f64::INFINITY, f64::min),
+                FilterStat::Max => buf.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                FilterStat::Sum => buf.iter().sum(),
+                FilterStat::Ema => unreachable!(),
+            }
+        }
+    }
 }
 
 fn rule_name(rule: &NodeRule) -> &'static str {

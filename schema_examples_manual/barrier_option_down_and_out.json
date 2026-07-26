@@ -2,7 +2,7 @@
   "wasim_version": "0.1.0",
   "source": {
     "generator": null,
-    "notes": "Discretely monitored down-and-out call priced by path Monte Carlo (Glasserman Sec 3.2.2), maturing at the TRUE T. gap #1: the GBM process drift/vol reference r/sigma. gap #2: the running minimum is an expanding-window filter (min). gap #3: terminal_expression reads S(T) directly, so the vanilla control matures at the true T (mean = Black-Scholes at T, not T_eff) and the terminal fixing is folded into the barrier monitor via min(run_min, S(T)). The plain call is a control variate whose mean is Black-Scholes; barrier_cv is a terminal_expression reading a run_stat2 coefficient. The Reiner-Rubinstein image formula gives the CONTINUOUS-monitoring price; the discrete MC sits above it (Sec 3.2.2 bias), and the BGK continuity correction yields a corrected reference the discrete MC matches. See BARRIER_OPTION_EXAMPLE.md."
+    "notes": "Discretely monitored down-and-out call priced by path Monte Carlo (Glasserman Sec 3.2.2), maturing at the TRUE T. gap #1: the GBM process drift/vol reference r/sigma. gap #2: the knock-out monitor is an expanding-window filter (min). gap #3: terminal_expression reads S(T) directly, so the vanilla control matures at the true T (mean = Black-Scholes at T, not T_eff), and the filter's include_terminal folds the terminal fixing S(T) into the running minimum natively (no hand-built min(run_min,S(T))). The plain call is a control variate whose mean is Black-Scholes; barrier_cv is a terminal_expression reading a run_stat2 coefficient. The Reiner-Rubinstein image formula gives the CONTINUOUS-monitoring price; the discrete MC sits above it (Sec 3.2.2 bias), and the BGK continuity correction yields a corrected reference the discrete MC matches. See BARRIER_OPTION_EXAMPLE.md."
   },
   "simulation_settings": {
     "duration": {
@@ -224,12 +224,13 @@
     },
     {
       "id": "run_min",
-      "name": "Running Minimum (interior)",
+      "name": "Running Minimum",
       "type": "filter",
       "container": "path",
-      "description": "Cumulative minimum of S over the interior monitoring dates t_0..t_{m-1} (filter min, no window). It misses the terminal fixing S(T) by one step; run_min_T folds that in.",
+      "description": "Cumulative minimum of S over ALL monitoring dates t_0..t_m (filter min, no window, include_terminal). include_terminal folds the terminal fixing S(T) into the running minimum, so the knock-out monitor natively covers the terminal date \u2014 no hand-built min(run_min, S(T)).",
       "input": "S",
       "statistic": "min",
+      "include_terminal": true,
       "save_results": {
         "final_value": true
       }
@@ -249,38 +250,6 @@
           "element_id": "S"
         },
         "display": "S(T)"
-      },
-      "save_results": {
-        "final_value": true,
-        "time_history": false
-      }
-    },
-    {
-      "id": "run_min_T",
-      "name": "Path Minimum (incl. terminal)",
-      "type": "terminal_expression",
-      "container": "terminal",
-      "description": "The full path minimum over all monitoring dates t_0..t_m: the interior filter minimum folded together with the terminal fixing S(T). The terminal_expression patches the filter's one-step monitoring gap.",
-      "inputs": [
-        "S_T",
-        "run_min"
-      ],
-      "expression": {
-        "ast": {
-          "op": "call",
-          "fn": "min",
-          "args": [
-            {
-              "op": "ref",
-              "element_id": "run_min"
-            },
-            {
-              "op": "ref",
-              "element_id": "S_T"
-            }
-          ]
-        },
-        "display": "min(run_min, S(T))"
       },
       "save_results": {
         "final_value": true,
@@ -435,10 +404,10 @@
       "name": "Survival Indicator",
       "type": "terminal_expression",
       "container": "payoffs",
-      "description": "1 if the path never touched the barrier over all monitoring dates incl. the terminal (down-and-out survives), else 0.",
+      "description": "1 if the path never touched the barrier over all monitoring dates incl. the terminal (down-and-out survives), else 0. run_min is terminal-inclusive (include_terminal).",
       "inputs": [
         "B",
-        "run_min_T"
+        "run_min"
       ],
       "expression": {
         "ast": {
@@ -447,7 +416,7 @@
             "op": "gt",
             "left": {
               "op": "ref",
-              "element_id": "run_min_T"
+              "element_id": "run_min"
             },
             "right": {
               "op": "ref",
@@ -463,7 +432,7 @@
             "value": 0.0
           }
         },
-        "display": "run_min_T > B ? 1 : 0"
+        "display": "run_min > B ? 1 : 0"
       }
     },
     {

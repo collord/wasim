@@ -2,10 +2,10 @@
 // (normalize_v1 -> run_v2). A discretely monitored down-and-out call priced by path Monte Carlo
 // (Glasserman Sec 3.2.2), exercising FOUR engine features together and maturing at the TRUE T:
 //   gap #1: the GBM process drift/vol reference r/sigma directly (expression-valued process params);
-//   gap #2: the running minimum is an expanding-window `filter` (native running statistic);
+//   gap #2: the running minimum is an expanding-window `filter` (native running statistic), with
+//           `include_terminal` folding the terminal fixing S(T) into the monitor natively;
 //   gap #3: `terminal_expression` reads the true terminal S(T) — so the vanilla control matures at
-//           the true T (no T_eff = T - dt workaround), and the terminal fixing is folded into the
-//           barrier monitor via min(run_min, S(T));
+//           the true T (no T_eff = T - dt workaround);
 //   plus the vanilla call as a control variate whose known mean is a live Black-Scholes price
 //           (run_stat2 beta) — with barrier_cv itself a terminal_expression reading that run_stat2.
 //

@@ -145,6 +145,8 @@ struct RawElement {
     #[serde(default)]
     statistic: Option<String>,
     #[serde(default)]
+    include_terminal: bool,
+    #[serde(default)]
     root: Option<RawGate>,
     #[serde(default)]
     semantics: Option<String>,
@@ -706,6 +708,7 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             // mean/sum/min/max over every step so far (the time-average case).
             window: e.window.unwrap_or(0),
             statistic: lower_filter_stat(e.statistic.as_deref(), &e.id)?,
+            include_terminal: e.include_terminal,
         },
         "gate_logic" => v2::NodeRule::GateLogic {
             root: lower_gate(e.root.as_ref().ok_or_else(|| missing("root"))?),

@@ -46,11 +46,10 @@ features (see `ASIAN_OPTION_EXAMPLE.md` §4, `RUNNING_STATISTIC_SCOPE.md`, `TERM
 |---|---|
 | Per-step GBM shock, drift `r`, vol `σ` | `P` — `stochastic_process` (gbm); **drift/vol reference `r`/`σ` live** (gap #1) |
 | Exact GBM price path | `S` — `accumulator`, `rate = S*P` ⇒ `S_{k+1} = S_k·exp(logret)` |
-| **Running path minimum** (interior dates) | `run_min` — `filter`, `statistic = min`, **no window** ⇒ expanding (gap #2) |
+| **Running path minimum** (all dates, incl. terminal) | `run_min` — `filter`, `statistic = min`, **no window**, **`include_terminal`** ⇒ folds S(T) (gap #2 + #3) |
 | **True terminal price** `S(T)` | `S_T` — `terminal_expression` `ref(S)` ⇒ end-of-run level (gap #3) |
-| **Full monitor** (interior + terminal) | `run_min_T` — `terminal_expression` `min(run_min, S_T)` |
 | Vanilla call payoff (the control) | `vanilla = disc·(S_T − K)⁺` — a `terminal_expression`, matures at true `T` |
-| Survival indicator | `survives = run_min_T > B ? 1 : 0` |
+| Survival indicator | `survives = run_min > B ? 1 : 0` |
 | **Down-and-out payoff** (the estimator) | `barrier = vanilla · survives` |
 | Vanilla closed form (control mean) | `bs_price` — Black–Scholes at the true `T`, live via `erf` |
 | Continuous down-out reference | `cdo_cont` — Reiner–Rubinstein image formula |
@@ -70,11 +69,12 @@ integration semantic the Asian example documents), so it can only reach `S(T −
 where a `ref` to a stock resolves to its true end-of-run level `S(T)`. So the option matures at the
 **true `T`**: `S_T = terminal_expression ref(S)` reads `S(T)` exactly (a per-realization identity with
 the stock's own saved final), and every closed form (`bs_price`, `cdo_cont`, `cdo_bgk`) is evaluated
-at `T` — no `T_eff = T − Δt` fudge. The `filter`-based `run_min` only sees the interior dates
-`t₀…t_{m−1}` (a filter reads one step stale too), so `run_min_T = terminal_expression min(run_min,
-S_T)` folds the terminal fixing back in — the accessor patches the monitor's one-step gap as well as
-the payoff's. (This is the Option-A prototype from `TERMINAL_VALUE_SCOPE.md`; a `filter` that natively
-included the terminal point would be the Option-B follow-on.)
+at `T` — no `T_eff = T − Δt` fudge. A `filter` reads its input one step stale too, so the running
+minimum would otherwise stop at `t_{m−1}` and miss the terminal date; `run_min` sets
+**`include_terminal`**, which folds `S(T)` into the running statistic after the run so the knock-out
+monitor natively covers `t₀…t_m` — no hand-built `min(run_min, S_T)`. (Terminal *payoff* reads are the
+Option-A prototype in `TERMINAL_VALUE_SCOPE.md`; `include_terminal` on running *monitors* is the
+Option-B follow-on, done per-filter.)
 
 ---
 
@@ -156,25 +156,24 @@ about what each buys and the one seam that remains:
    forms share one source of truth. Change `σ` and the path, the BGK shift, and the references all move
    together.
 
-2. **Native running statistic — ✅ used.** The knock-out monitor's interior dates are a single
-   expanding-window `filter(min)` (gap #2). Running `max` would give up-barriers / lookbacks with no
-   model change.
+2. **Native running statistic — ✅ used, terminal-inclusive.** The knock-out monitor is a single
+   expanding-window `filter(min)` (gap #2). It sets **`include_terminal`**, which folds the terminal
+   fixing `S(T)` into the running statistic after the run (gap #3, Option B) — so `run_min` natively
+   covers `t₀…t_m` and `survives` reads it directly, with no hand-built `min(run_min, S_T)`. Running
+   `max` with `include_terminal` gives up-barriers / lookbacks the same way, no model change.
 
 3. **Terminal-value accessor — ✅ used (retires the `T_eff` workaround).** The earlier version of this
    example matured at `T_eff = T − Δt` because an ordinary expression cannot read a stock's terminal
    value (the stock read-lag, `ASIAN_OPTION_EXAMPLE.md` §4 item 3). A `terminal_expression` (gap #3,
    `TERMINAL_VALUE_SCOPE.md`) reads `S(T)` directly — a per-realization identity with the stock's own
    final — so the option now matures at the true `T`, `bs_price` is Black–Scholes at `T`, and
-   `barrier_cv` (a terminal expression) even reads the `run_stat2` control coefficient. The accessor
-   also patches the *monitor*: `run_min_T = min(run_min, S_T)` folds the terminal fixing back into the
-   knock-out check.
+   `barrier_cv` (a terminal expression) even reads the `run_stat2` control coefficient. Both sides —
+   the terminal payoff *and* the terminal monitor fold — are now native.
 
-4. **The one residual seam: `filter` still stops one step short.** `run_min` (the `filter`) sees only
-   `t₀…t_{m−1}`; the terminal point is stitched in by hand with `min(run_min, S_T)`. That works, but a
-   `filter` that natively included the terminal observation — the **Option-B closing-tick** in
-   `TERMINAL_VALUE_SCOPE.md` — would remove the manual fold and cover lookbacks/up-barriers the same
-   way. Relatedly, barrier monitoring is locked to the integration grid; decoupling the monitoring
-   calendar from the timestep is the natural next axis for exotic-barrier work.
+4. **The one remaining axis: monitoring frequency is the timestep.** Barrier monitoring is locked to
+   the integration grid, so the monitoring calendar and the timestep are the same knob. Decoupling
+   them (monitor on a coarser calendar than you integrate) would need a resampling filter or a
+   monitoring-date list — not needed here, but the natural next axis for exotic-barrier work.
 
 ---
 
