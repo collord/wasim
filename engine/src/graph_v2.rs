@@ -238,6 +238,10 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
         // Array-comprehension nodes (§15). Refs live in the sub-expressions; the
         // `over` dimension is an ordinal set, not an element, so it is not a dep.
         AstNode::VectorMap { body, .. } => collect_ast_refs(body, out),
+        AstNode::Subscript { array, .. } => collect_ast_refs(array, out),
+        // RunStat is a cross-realization/pre-computed value; it does NOT create a
+        // topo dependency on its target element. Only its `arg` is a live dep.
+        AstNode::RunStat { arg, .. } => { if let Some(a) = arg { collect_ast_refs(a, out); } }
         AstNode::Index { array, indices } => {
             collect_ast_refs(array, out);
             for i in indices {

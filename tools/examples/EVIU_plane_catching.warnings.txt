@@ -1,0 +1,10 @@
+
+8 conversion warning(s):
+  - [Probability] across-realization/dynamic statistic has no mid-graph v0.1.0 equivalent (see gap analysis §2); preserved as inert stub — reconstruct in the results layer or as an accumulator.
+  - [Prob_of_missing_plan] unconvertible sub-expression preserved as inert stub: Probability((Time_i_leave_home < Time_from_home_to_g1))
+  - [Eviu] could not parse Definition (trailing tokens at ('[', '[')); emitted inert stub. Raw: Cost[Time_i_leave_home = Best_time_to_min_exp] - Cost[Time_i_leave_home = Best_time_ignoring_u]
+  - [Best_time_ignoring_u] unconvertible sub-expression preserved as inert stub: ArgMin(Mid(Cost), Time_i_leave_home)
+  - [Mean] Mean/Average of a single value maps to `mean_array`, but Analytica's Mean over the Run sample is a results-layer (A3) statistic in WASiM, not a mid-graph array mean — verify axis.
+  - [Best_time_to_min_exp] unconvertible sub-expression preserved as inert stub: ArgMin(Mean(Cost), Time_i_leave_home)
+  - [Eviu_vs_ev] unconvertible sub-expression preserved as inert stub: Mid(Cost)
+  - [Eviu_vs_ev] unconvertible sub-expression preserved as inert stub: INF

@@ -1,0 +1,55 @@
+{ SYNTHETIC coverage probe for tools/ana_to_wasim.py — exercises the mapping
+  table and the graceful-degradation paths. Not a real Analytica model. }
+Softwareversion 6.4
+
+Model Coverage_probe
+Title: Converter coverage probe (synthetic)
+
+Index Scenarios
+Title: Scenario axis
+Definition: Sequence(1, 5, 1)
+
+Chance U
+Title: Uniform draw
+Definition: Uniform(0, 10)
+
+Chance N
+Title: Normal draw
+Units: kg
+Definition: Normal(mean: 100, stddev: 15)
+
+Chance T
+Title: Triangular draw
+Definition: Triangular(1, 2, 4)
+
+Chance B
+Title: Beta draw
+Definition: Beta(2, 5)
+
+Chance E
+Title: Exponential draw (rate form)
+Definition: Exponential(0.25)
+
+Variable Prices
+Title: Price table
+Definition: Table(Scenarios)(10, 12, 15, 9, 11)
+
+Variable Arith
+Title: Mixed arithmetic
+Definition: Max(U, 3) + Min(N/2, 40) - Abs(T) ^ 2
+
+Variable Funcform_if
+Title: Functional If
+Definition: If(U > 5, N, B)
+
+Variable Risky
+Title: Across-realization probability (gap)
+Definition: Probability(Arith > 50)
+
+Variable Weird
+Title: Unknown builtin
+Definition: SomeExoticFn(U, N, 3)
+
+Function My_helper
+Title: A user function (unsupported)
+Definition: 2 * x + 1

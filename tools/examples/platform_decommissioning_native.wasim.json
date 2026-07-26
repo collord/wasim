@@ -1,0 +1,1181 @@
+{
+  "wasim_version": "0.9.7",
+  "source": {
+    "generator": "hand-authored",
+    "notes": "WASiM-native distillation of the PLATFORM decommissioning decision tool (Platform_2017.ana): multi-attribute value ranking of decommissioning options under cost uncertainty, with expected scores, preference probabilities and cost-overrun risk composed from submodel_stat reducers. See tools/README.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 1,
+      "unit": "1"
+    },
+    "n_realizations": 4000,
+    "seed": 20250725
+  },
+  "dimensions": [
+    {
+      "id": "Option",
+      "name": "Decommissioning option",
+      "size": 3,
+      "labels": [
+        "Full removal",
+        "Reef (partial)",
+        "Leave in place"
+      ]
+    }
+  ],
+  "containers": [
+    {
+      "id": "Model",
+      "name": "Platform decommissioning (MADA, native)",
+      "children": [
+        "Model/Decision_MC"
+      ],
+      "elements": [
+        "Model/exp_score_full",
+        "Model/exp_score_reef",
+        "Model/exp_score_leave",
+        "Model/exp_scores",
+        "Model/recommended_idx",
+        "Model/pref_full",
+        "Model/pref_reef",
+        "Model/pref_leave",
+        "Model/exp_chosen_cost",
+        "Model/prob_cost_over_budget"
+      ]
+    },
+    {
+      "id": "Model/Decision_MC",
+      "name": "Decision_MC",
+      "parent": "Model",
+      "kind": "submodel",
+      "simulation_settings": {
+        "duration": {
+          "value": 1,
+          "unit": "1"
+        },
+        "timestep": {
+          "value": 1,
+          "unit": "1"
+        },
+        "n_realizations": 4000,
+        "seed": 20250725
+      },
+      "interface": {
+        "inputs": [],
+        "outputs": [
+          "Model/Decision_MC/score_full",
+          "Model/Decision_MC/score_reef",
+          "Model/Decision_MC/score_leave",
+          "Model/Decision_MC/best_idx",
+          "Model/Decision_MC/chosen_cost"
+        ]
+      },
+      "elements": [
+        "Model/Decision_MC/cost_mult_1",
+        "Model/Decision_MC/cost_mult_2",
+        "Model/Decision_MC/cost_mult_3",
+        "Model/Decision_MC/reef_mult_1",
+        "Model/Decision_MC/reef_mult_2",
+        "Model/Decision_MC/reef_mult_3",
+        "Model/Decision_MC/access",
+        "Model/Decision_MC/air",
+        "Model/Decision_MC/cost",
+        "Model/Decision_MC/reef",
+        "Model/Decision_MC/multi_score",
+        "Model/Decision_MC/score_full",
+        "Model/Decision_MC/score_reef",
+        "Model/Decision_MC/score_leave",
+        "Model/Decision_MC/best_idx",
+        "Model/Decision_MC/chosen_cost"
+      ]
+    }
+  ],
+  "elements": [
+    {
+      "id": "Model/Decision_MC/cost_mult_1",
+      "name": "Cost multiplier \u2014 Full removal",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.26236426446749106,
+            "unit": "1"
+          }
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/cost_mult_2",
+      "name": "Cost multiplier \u2014 Reef (partial)",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.26236426446749106,
+            "unit": "1"
+          }
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/cost_mult_3",
+      "name": "Cost multiplier \u2014 Leave in place",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.26236426446749106,
+            "unit": "1"
+          }
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/reef_mult_1",
+      "name": "Reef-benefit multiplier \u2014 Full removal",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.3364722366212129,
+            "unit": "1"
+          }
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/reef_mult_2",
+      "name": "Reef-benefit multiplier \u2014 Reef (partial)",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.3364722366212129,
+            "unit": "1"
+          }
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/reef_mult_3",
+      "name": "Reef-benefit multiplier \u2014 Leave in place",
+      "primitive": "node",
+      "value_rule": "sample",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "distribution": {
+        "family": "lognormal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 0.3364722366212129,
+            "unit": "1"
+          }
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/access",
+      "name": "Access / navigation benefit",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "values": [
+        90.0,
+        55.0,
+        20.0
+      ],
+      "unit": "1",
+      "outputs": [
+        {
+          "name": "access",
+          "unit": "1",
+          "dimensions": [
+            "Option"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Model/Decision_MC/air",
+      "name": "Air-quality score",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "values": [
+        30.0,
+        65.0,
+        95.0
+      ],
+      "unit": "1",
+      "outputs": [
+        {
+          "name": "air",
+          "unit": "1",
+          "dimensions": [
+            "Option"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Model/Decision_MC/cost",
+      "name": "Cost by option (uncertain)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "inputs": [
+        "Model/Decision_MC/cost_mult_1",
+        "Model/Decision_MC/cost_mult_2",
+        "Model/Decision_MC/cost_mult_3"
+      ],
+      "expression": {
+        "ast": {
+          "op": "array",
+          "elements": [
+            {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 180.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/Decision_MC/cost_mult_1"
+              }
+            },
+            {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 130.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/Decision_MC/cost_mult_2"
+              }
+            },
+            {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 90.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/Decision_MC/cost_mult_3"
+              }
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "cost",
+          "unit": "1",
+          "dimensions": [
+            "Option"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/Decision_MC/reef",
+      "name": "Reef benefit by option (uncertain)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "inputs": [
+        "Model/Decision_MC/reef_mult_1",
+        "Model/Decision_MC/reef_mult_2",
+        "Model/Decision_MC/reef_mult_3"
+      ],
+      "expression": {
+        "ast": {
+          "op": "array",
+          "elements": [
+            {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 25.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/Decision_MC/reef_mult_1"
+              }
+            },
+            {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 90.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/Decision_MC/reef_mult_2"
+              }
+            },
+            {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 65.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Model/Decision_MC/reef_mult_3"
+              }
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "reef",
+          "unit": "1",
+          "dimensions": [
+            "Option"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/Decision_MC/multi_score",
+      "name": "Multi-attribute score by option",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "inputs": [
+        "Model/Decision_MC/cost",
+        "Model/Decision_MC/reef",
+        "Model/Decision_MC/access",
+        "Model/Decision_MC/air"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Option",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.3
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 100.0
+                  },
+                  "right": {
+                    "op": "divide",
+                    "left": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "call",
+                        "fn": "max_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/cost"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "index",
+                        "array": {
+                          "op": "ref",
+                          "element_id": "Model/Decision_MC/cost"
+                        },
+                        "indices": [
+                          {
+                            "op": "index_ref",
+                            "axis": "row"
+                          }
+                        ]
+                      }
+                    },
+                    "right": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "call",
+                        "fn": "max_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/cost"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/cost"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.25
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 100.0
+                  },
+                  "right": {
+                    "op": "divide",
+                    "left": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "index",
+                        "array": {
+                          "op": "ref",
+                          "element_id": "Model/Decision_MC/reef"
+                        },
+                        "indices": [
+                          {
+                            "op": "index_ref",
+                            "axis": "row"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/reef"
+                          }
+                        ]
+                      }
+                    },
+                    "right": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "call",
+                        "fn": "max_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/reef"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/reef"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "right": {
+              "op": "add",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.2
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 100.0
+                  },
+                  "right": {
+                    "op": "divide",
+                    "left": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "index",
+                        "array": {
+                          "op": "ref",
+                          "element_id": "Model/Decision_MC/access"
+                        },
+                        "indices": [
+                          {
+                            "op": "index_ref",
+                            "axis": "row"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/access"
+                          }
+                        ]
+                      }
+                    },
+                    "right": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "call",
+                        "fn": "max_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/access"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/access"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.25
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 100.0
+                  },
+                  "right": {
+                    "op": "divide",
+                    "left": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "index",
+                        "array": {
+                          "op": "ref",
+                          "element_id": "Model/Decision_MC/air"
+                        },
+                        "indices": [
+                          {
+                            "op": "index_ref",
+                            "axis": "row"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/air"
+                          }
+                        ]
+                      }
+                    },
+                    "right": {
+                      "op": "subtract",
+                      "left": {
+                        "op": "call",
+                        "fn": "max_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/air"
+                          }
+                        ]
+                      },
+                      "right": {
+                        "op": "call",
+                        "fn": "min_array",
+                        "args": [
+                          {
+                            "op": "ref",
+                            "element_id": "Model/Decision_MC/air"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "multi_score",
+          "unit": "1",
+          "dimensions": [
+            "Option"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/Decision_MC/score_full",
+      "name": "Score \u2014 Full removal",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "inputs": [
+        "Model/Decision_MC/multi_score"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/Decision_MC/multi_score"
+            },
+            {
+              "op": "literal",
+              "value": 1.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/score_reef",
+      "name": "Score \u2014 Reef (partial)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "inputs": [
+        "Model/Decision_MC/multi_score"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/Decision_MC/multi_score"
+            },
+            {
+              "op": "literal",
+              "value": 2.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/score_leave",
+      "name": "Score \u2014 Leave in place",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "inputs": [
+        "Model/Decision_MC/multi_score"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/Decision_MC/multi_score"
+            },
+            {
+              "op": "literal",
+              "value": 3.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/best_idx",
+      "name": "Preferred option index (this realization)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "inputs": [
+        "Model/Decision_MC/multi_score"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmax_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/Decision_MC/multi_score"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Model/Decision_MC/chosen_cost",
+      "name": "Cost of the preferred option",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model/Decision_MC",
+      "save_results": {
+        "final_value": true
+      },
+      "inputs": [
+        "Model/Decision_MC/cost",
+        "Model/Decision_MC/best_idx"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "get_element",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/Decision_MC/cost"
+            },
+            {
+              "op": "ref",
+              "element_id": "Model/Decision_MC/best_idx"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Model/exp_score_full",
+      "name": "Expected score \u2014 Full removal",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/score_full",
+          "statistic": "mean"
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_score_full",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/exp_score_reef",
+      "name": "Expected score \u2014 Reef (partial)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/score_reef",
+          "statistic": "mean"
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_score_reef",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/exp_score_leave",
+      "name": "Expected score \u2014 Leave in place",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/score_leave",
+          "statistic": "mean"
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_score_leave",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/exp_scores",
+      "name": "Expected score by option",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/exp_score_full",
+        "Model/exp_score_reef",
+        "Model/exp_score_leave"
+      ],
+      "expression": {
+        "ast": {
+          "op": "array",
+          "elements": [
+            {
+              "op": "ref",
+              "element_id": "Model/exp_score_full"
+            },
+            {
+              "op": "ref",
+              "element_id": "Model/exp_score_reef"
+            },
+            {
+              "op": "ref",
+              "element_id": "Model/exp_score_leave"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_scores",
+          "unit": "1",
+          "dimensions": [
+            "Option"
+          ]
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/recommended_idx",
+      "name": "Recommended option (max expected score)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/exp_scores"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmax_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Model/exp_scores"
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "name": "recommended_idx",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/pref_full",
+      "name": "P(Full removal preferred)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/best_idx",
+          "statistic": "cumulative_prob",
+          "arg": {
+            "op": "literal",
+            "value": 1.5
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "pref_full",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/pref_reef",
+      "name": "P(Reef preferred)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "submodel_stat",
+            "submodel_id": "Model/Decision_MC",
+            "output": "Model/Decision_MC/best_idx",
+            "statistic": "cumulative_prob",
+            "arg": {
+              "op": "literal",
+              "value": 2.5
+            }
+          },
+          "right": {
+            "op": "submodel_stat",
+            "submodel_id": "Model/Decision_MC",
+            "output": "Model/Decision_MC/best_idx",
+            "statistic": "cumulative_prob",
+            "arg": {
+              "op": "literal",
+              "value": 1.5
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "pref_reef",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/pref_leave",
+      "name": "P(Leave preferred)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/best_idx",
+          "statistic": "exceedance",
+          "arg": {
+            "op": "literal",
+            "value": 2.5
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "pref_leave",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/exp_chosen_cost",
+      "name": "Expected cost of preferred option ($M)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/chosen_cost",
+          "statistic": "mean"
+        }
+      },
+      "outputs": [
+        {
+          "name": "exp_chosen_cost",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "Model/prob_cost_over_budget",
+      "name": "P(preferred-option cost > $200M)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "container": "Model",
+      "inputs": [
+        "Model/Decision_MC"
+      ],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "Model/Decision_MC",
+          "output": "Model/Decision_MC/chosen_cost",
+          "statistic": "exceedance",
+          "arg": {
+            "op": "literal",
+            "value": 200.0
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "prob_cost_over_budget",
+          "unit": "1"
+        }
+      ],
+      "save_results": {
+        "final_value": true
+      }
+    }
+  ]
+}

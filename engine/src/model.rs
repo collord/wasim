@@ -624,6 +624,28 @@ pub enum AstNode {
         array: Box<AstNode>,
         indices: Vec<AstNode>,
     },
+    // Label subscript: select the slice of `array` where dimension `dim` equals
+    // `label` (Analytica `x[Dim = 'label']`). Resolves `label` to a position via
+    // the dimension's declared labels, then fixes that axis. See
+    // WASIM_NAMEDARRAY_DESIGN.md §4 (Phase 3).
+    Subscript {
+        array: Box<AstNode>,
+        dim: String,
+        label: String,
+    },
+    // Across-realization reduction of a same-model element, evaluated over the
+    // Monte-Carlo `Run` axis (Analytica `Mean(x)`, `Probability(x>t)` feeding a
+    // downstream node — the §2 gap). Unlike `submodel_stat` it needs no submodel
+    // boundary: the engine runs a first pass to collect `element_id`'s
+    // per-realization values, reduces them, and injects the scalar in a second
+    // pass. See WASIM_NAMEDARRAY_DESIGN.md §4 (Phase 4). `arg` (a literal
+    // threshold/percentile) is required by percentile/cumulative_prob/exceedance/cte.
+    RunStat {
+        element_id: String,
+        statistic: SubmodelStatKind,
+        #[serde(default)]
+        arg: Option<Box<AstNode>>,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {

@@ -1,3 +1,4 @@
+pub mod array_lane;
 pub mod engine;
 pub mod engine_v2;
 pub mod error;

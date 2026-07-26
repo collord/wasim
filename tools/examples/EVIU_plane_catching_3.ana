@@ -1,0 +1,42 @@
+{ From user Max Henrion, Model Plane_catching_with_ at Thu 09-Oct-08 7:12 AM~~
+}Softwareversion 4.1.1{ System Variables with non-default values: }Samplesize := 2000Typechecking := 1Checking := 1Showundef := 0Saveoptions := 2Savevalues := 0{!40000|Graph_gridcolor := 52992,52992,52992}{!40000|Graph_framecolor := 20224,20224,20224}{!40000|Att_contlinestyle Graph_cdf_valdim: 1}{!40000|Att_areafill Graph_cdf_valdim: 1}Model Plane_catching_with_Title: Plane catching with EVIUDescription: A simple model to assess what time I should leave my home~~
+ to catch a plane, with uncertain driving time, walking from parking ~~
+to gate (including security), and how long I need to be at the gate a~~
+head of scheduled departure time. It uses a loss model based on minut~~
+es, assuming I value each extra minute snoozing in bed and set the lo~~
+ss if I miss the plane to 400 of those minutes.~
+~
+It illustrates the EVIU (expected value of including uncertainty) i.e~~
+. the difference in expected value if I make a decision to minimize e~~
+xpected loss instead of decision to minimize time ignoring uncertaint~~
+y (assuming each distribution is fixed at its mid value). For more de~~
+tails see "The  Value of Knowing How Little You Know", Max Henrion, P~~
+hD Dissertation, Carnegie Mellon University, 1982.Author: Max HenrionDate: Sun, Jun 24, 2007 7:29 PMSaveauthor: Max HenrionSavedate: Thu 09-Oct-08 7:12 AMDefaultsize: 48,24Diagstate: 1,5,9,399,496,17Windstate: 2,657,520,486,308Fontstyle: Arial, 15Fileinfo: 0,Model Plane_catching_with_,2,2,0,0,C:\Documents and Settin~~
+gs\Max Henrion\My Documents\Ana intro\Ana demos\EVIU\EVIU plane catch~~
+ing 3.ANAModule Eviu_detailsTitle: EVIU detailsAuthor: Max HenrionDate: Tue, Jun 26, 2007 12:26 AMDefaultsize: 48,24Nodelocation: 80,432,1Nodesize: 48,24Nodeinfo: 1,0,1,1,1,1,0,,0,Diagstate: 1,413,11,315,299,17Variable Prob_of_missing_planTitle: Prob of missing planeDescription: The probability that I will miss the plane.Definition: Probability(Time_i_leave_home < Time_from_home_to_g1)~
+Nodelocation: 216,40,1Nodesize: 52,28Windstate: 2,632,421,476,224Valuestate: 2,413,329,688,493,1,MIDMAliases: Formnode Prob_of_missing_pla1Variable EviuTitle: EVIUUnits: minsDescription: The expected value of including uncertainty, i.e. the inc~~
+rease in expected value from selecting the decision that maximizes ex~~
+pected value (including uncertainty) instead of making the "optimal" ~~
+decision that maximizes value ignoring uncertainty.Definition: Cost[Time_i_leave_home = Best_time_to_min_exp] - Cost[Time~~
+_i_leave_home = Best_time_ignoring_u]Nodelocation: 216,104,1Nodesize: 48,24Windstate: 2,102,90,515,414Valuestate: 2,883,302,463,459,0,MIDMAliases: Formnode Eviu1Reformval: [Time_i_leave_home,Undefined,Undefined,Undefined,1]Decision Best_time_ignoring_uTitle: Best time ignoring uncertaintyUnits: minsDescription: The best time to leave if we ignore uncertainty -- minimi~~
+zing deterministic cost.Definition: ArgMin(Mid(Cost), Time_i_leave_home)Nodelocation: 64,104,1Nodesize: 48,31Valuestate: 2,104,114,416,303,1,MIDMDecision Best_time_to_min_expTitle: Best time to min expected lossUnits: minsDescription: The best time to leave to minimizing expected lossDefinition: ArgMin(Mean(Cost), Time_i_leave_home)Nodelocation: 64,192,1Nodesize: 48,40Index View1Title: ViewDefinition: ['Cost ignoring uncertainty','Decision ignoring uncertaint~~
+y','Expected cost','Decision minimizing expected cost']Nodelocation: 216,248,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Cost ignoring uncertainty','Decision ig~~
+noring uncertainty','Expected cost','Decision minimizing expected cos~~
+t']}Variable Eviu_vs_evTitle: EVIU vs EVDefinition: Table(View1)(Mid(Cost), IF Best_time_ignoring_u > Time_i_l~~
+eave_home THEN INF ELSE 0, Mean(Cost), IF Best_time_to_min_exp > Time~~
+_i_leave_home THEN INF ELSE 0)Nodelocation: 216,192,1Nodesize: 48,24Valuestate: 2,413,327,688,492,1,MIDMAliases: Formnode Eviu_vs_ev1Reformval: [Time_i_leave_home,View1]Close Eviu_detailsVariable Loss_if_miss_the_plaTitle: Loss if miss the planeUnits: minsDescription: The loss (in minutes equivalent) of missing this plane an~~
+d having to take the next one, or just cancelling the trip.Definition: 400Nodelocation: 324,224,1Nodesize: 52,24Objective CostTitle: CostUnits: minutesDescription: The total cost (in minutes) including loss of time snoozi~~
+ng before leaving home and loss if I miss the plane.Definition: Time_from_home_to_g1 - Time_i_leave_home~
++ IF Time_i_leave_home > Time_from_home_to_g1 ~
+  THEN Loss_if_miss_the_pla ELSE 0Nodelocation: 324,144,1Nodesize: 48,32Windstate: 2,532,72,476,224Valuestate: 2,369,17,688,496,1,MIDMAliases: Formnode Cost1Graphsetup: {!40000|Att_graphindexrange Time_to_leave_before:1,,0,,,,,~~
+40}~
+{!40000|Att_contlinestyle Graph_primary_valdim:1}Variable Time_from_home_to_g1Title: Time from home to gateUnits: minsDescription: Total time it takes from leaving home to plane departing.~~
+Definition: Time_to_drive_to_air + Time_from_parking_to + Gate_time_be~~
+fore_depNodelocation: 196,144,1Nodesize: 52,32Windstate: 2,660,47,476,224Valuestate: 2,412,10,688,283,1,PDFPAliases: Formnode Time_from_home_to_gaGraphsetup: Distresol:100~
+{!40000|Att_areafill Graph_pdf_valdim:1}~
+Diststeps:1~
+{!40000|Att_contlinestyle Graph_pdf_valdim:6}~
+{!40000|Graph_filltransparen:0}Decision Time_i_leave_homeTitle: Time I leave home before plane departureUnits: minutesDescription: The time at which I decide to leave home in minutes befor~~
+e scheduled plane departure.Definition: [30,35,40,55,60,65,70,75,80,85,90,95,100,100.01,105,110,11~~
+5,120,125,130,135,140,145,150,155,160]Nodelocation: 196,65,1Nodesize: 52,40Windstate: 2,375,69,539,426{!40000|Att_previndexvalue: [30,35,40,55,60,65,70,75,80,85,90,95,100,100.01~~
+,105,110,115,120,125,130,135,140,145,150,155,160]}Chance Time_to_drive_to_airTitle: Time to drive to airportDefinition: Lognormal( 40, 1.3 )Nodelocation: 68,64,1Nodesize: 52,32Windstate: 2,640,192,476,224Chance Time_from_parking_toTitle: Time from parking to gateDefinition: Lognormal( 30, 1.3 )Nodelocation: 68,144,1Nodesize: 52,32Windstate: 2,275,52,476,224Chance Gate_time_before_depTitle: Gate time before departureUnits: minDefinition: Triangular( 20, 30, 40 )Nodelocation: 68,224,1Nodesize: 52,32Formnode Cost1Title: CostDefinition: 1Nodelocation: 248,368,1Nodesize: 108,13Nodeinfo: 0,0,0,0,0,0,0,72Original: CostFormnode Time_from_home_to_gaTitle: Time from home to gateDefinition: 1Nodelocation: 196,304,1Nodesize: 160,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Time_from_home_to_g1Formnode Prob_of_missing_pla1Title: Prob of missing planeDefinition: 1Nodelocation: 220,336,1Nodesize: 136,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Prob_of_missing_planFormnode Eviu1Title: EVIUDefinition: 1Nodelocation: 260,448,1Nodesize: 96,13Nodeinfo: 0,0,0,0,0,0,0,72Original: EviuFormnode Eviu_vs_ev1Title: EVIU vs EVDefinition: 1Nodelocation: 256,416,1Nodesize: 100,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Eviu_vs_evText Te1Description: ResultsNodelocation: 196,372,-1Nodesize: 180,100Nodeinfo: 1,0,0,1,1,1,1,,0,Nodecolor: 65535,65535,65535Nodefont: Arial Black, 13Close Plane_catching_with_

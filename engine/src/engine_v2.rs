@@ -62,9 +62,162 @@ pub fn run(
     graph: &ModelGraphV2,
     config: &RunConfig,
 ) -> Result<SimulationResults, EngineError> {
-    let mut st = RunState::new(model, graph, config)?;
-    st.advance(u32::MAX)?;
-    st.assemble()
+    // Opt-in array lane (ARRAY_LANE_DESIGN.md Phase A): columnar over the Run axis
+    // for the flat-Monte-Carlo subset. Falls back to the scalar lane below when the
+    // flag is off or the model is ineligible, so the default path is untouched.
+    if config.array_lane && crate::array_lane::eligible(model).is_ok() {
+        return crate::array_lane::run_array_lane(model, graph, config);
+    }
+
+    let targets = collect_run_stats(model)?;
+    if targets.is_empty() {
+        // No across-realization RunStat: the original single pass, bit-identical.
+        let mut st = RunState::new(model, graph, config)?;
+        st.advance(u32::MAX)?;
+        return st.assemble();
+    }
+
+    // Phase 4 two-pass. Pass 1: run the MC loop, force-saving each RunStat target so
+    // its per-realization finals are captured. RunStat nodes read 0 here; anything
+    // *downstream* of a RunStat is therefore wrong in pass 1 — but we only read the
+    // targets, which must not themselves depend on a RunStat (nested RunStat is
+    // unsupported; documented). Determinism (per-realization content seeds) makes
+    // pass 1 and pass 2 draw identical samples.
+    let mut st1 = RunState::new(model, graph, config)?;
+    let target_ids: Vec<String> = targets.iter().map(|t| t.element_id.clone()).collect();
+    st1.force_save_targets(&target_ids);
+    st1.advance(u32::MAX)?;
+    let res1 = st1.assemble()?;
+
+    // Reduce each target's sample vector to its scalar, keyed by (element, stat, arg).
+    let mut reduced: HashMap<String, f64> = HashMap::new();
+    for t in &targets {
+        let samples: &[f64] = res1
+            .elements
+            .get(&t.element_id)
+            .map(|e| e.final_values.as_slice())
+            .unwrap_or(&[]);
+        reduced.insert(t.key.clone(), reduce_run_stat(samples, &t.stat, t.arg));
+    }
+
+    // Pass 2: same run with the reduced scalars injected, so downstream nodes see them.
+    let mut st2 = RunState::new(model, graph, config)?;
+    st2.run_stats = reduced;
+    st2.advance(u32::MAX)?;
+    st2.assemble()
+}
+
+/// A `run_stat` reduction to pre-compute: its injection key, target element, the
+/// statistic, and the (literal) argument.
+struct RunStatTarget {
+    key: String,
+    element_id: String,
+    stat: crate::model::SubmodelStatKind,
+    arg: f64,
+}
+
+/// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
+/// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument in
+/// this first cut — a non-literal is a hard model error rather than silent 0.
+fn collect_run_stats(model: &Model) -> Result<Vec<RunStatTarget>, EngineError> {
+    use crate::model::SubmodelStatKind as K;
+    let mut nodes: Vec<(&str, &K, &Option<Box<AstNode>>)> = Vec::new();
+    for e in &model.elements {
+        if let Primitive::Node(n) = &e.primitive {
+            if let NodeRule::Expression(ef) = &n.rule {
+                collect_run_stat_nodes(&ef.ast, &mut nodes);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (element_id, stat, arg) in nodes {
+        let needs_arg = matches!(k_needs_arg(stat), true);
+        let arg_val = match arg.as_deref() {
+            Some(AstNode::Literal { value, .. }) => *value,
+            None => 0.0,
+            Some(_) if needs_arg => {
+                return Err(EngineError::InvalidModel(format!(
+                    "run_stat on '{element_id}' with a {stat:?} statistic requires a literal argument"
+                )));
+            }
+            Some(_) => 0.0,
+        };
+        let key = crate::eval::run_stat_key(element_id, stat, arg_val);
+        if seen.insert(key.clone()) {
+            out.push(RunStatTarget { key, element_id: element_id.to_string(), stat: stat.clone(), arg: arg_val });
+        }
+    }
+    Ok(out)
+}
+
+fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
+    use crate::model::SubmodelStatKind as K;
+    matches!(stat, K::Percentile | K::CumulativeProb | K::Exceedance | K::Cte)
+}
+
+fn collect_run_stat_nodes<'a>(
+    node: &'a AstNode,
+    out: &mut Vec<(&'a str, &'a crate::model::SubmodelStatKind, &'a Option<Box<AstNode>>)>,
+) {
+    match node {
+        AstNode::RunStat { element_id, statistic, arg } => {
+            out.push((element_id.as_str(), statistic, arg));
+            if let Some(a) = arg {
+                collect_run_stat_nodes(a, out);
+            }
+        }
+        AstNode::Add { left, right } | AstNode::Subtract { left, right }
+        | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
+        | AstNode::Power { left, right } | AstNode::Lt { left, right }
+        | AstNode::Gt { left, right } | AstNode::Lte { left, right }
+        | AstNode::Gte { left, right } | AstNode::Eq { left, right }
+        | AstNode::Neq { left, right } | AstNode::And { left, right }
+        | AstNode::Or { left, right } => {
+            collect_run_stat_nodes(left, out);
+            collect_run_stat_nodes(right, out);
+        }
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out),
+        AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
+            args.iter().for_each(|a| collect_run_stat_nodes(a, out));
+        }
+        AstNode::If { cond, then, else_ } => {
+            collect_run_stat_nodes(cond, out);
+            collect_run_stat_nodes(then, out);
+            collect_run_stat_nodes(else_, out);
+        }
+        AstNode::LookupCall { input, input2, .. } => {
+            collect_run_stat_nodes(input, out);
+            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out); }
+        }
+        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out),
+        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out),
+        AstNode::Index { array, indices } => {
+            collect_run_stat_nodes(array, out);
+            indices.iter().for_each(|i| collect_run_stat_nodes(i, out));
+        }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out)),
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out); } }
+        AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
+        | AstNode::IndexRef { .. } => {}
+    }
+}
+
+/// Reduce a `run_stat` target's per-realization samples — the same reducers as
+/// `submodel_stat`, so the two paths agree.
+fn reduce_run_stat(samples: &[f64], stat: &crate::model::SubmodelStatKind, arg: f64) -> f64 {
+    use crate::model::SubmodelStatKind as K;
+    match stat {
+        K::Mean => crate::engine::mean(samples),
+        K::Percentile => crate::engine::percentile(samples, arg),
+        K::Sd => crate::engine::std(samples),
+        K::CumulativeProb => crate::engine::cumulative_prob(samples, arg),
+        K::Exceedance => crate::engine::exceedance(samples, arg),
+        K::Cte => crate::engine::cte(samples, arg),
+        K::Sum => crate::engine::sum_of(samples),
+        K::Min => crate::engine::min_of(samples),
+        K::Max => crate::engine::max_of(samples),
+    }
 }
 
 /// The resumable state of a partially-advanced run: everything that carries across
@@ -110,6 +263,11 @@ pub struct RunState<'a> {
     elem_idx: HashMap<&'a str, usize>,
     /// Dimension sizes keyed by owned id — feeds `ArrayEnv.dims`.
     dim_sizes_by_id: HashMap<String, usize>,
+    /// Dimension member labels keyed by owned id — feeds `ArrayEnv.dim_labels`
+    /// (label subscript, Phase 3).
+    dim_labels_by_id: HashMap<String, Vec<String>>,
+    /// Pre-reduced across-realization RunStat scalars, injected in the 2nd pass (Phase 4).
+    run_stats: HashMap<String, f64>,
     index_stack: RefCell<Vec<usize>>,
     fired_events: RefCell<HashSet<String>>,
     submodel_outputs: HashMap<(String, String), Vec<f64>>,
@@ -141,6 +299,23 @@ pub struct RunState<'a> {
 }
 
 impl<'a> RunState<'a> {
+    /// Force these element ids to be saved (per-realization finals), so a first
+    /// pass can capture RunStat targets even if the model didn't mark them saved.
+    /// Saving is computation-neutral (records values; does not alter draws or eval),
+    /// so pass 1 stays draw-identical to a normal run.
+    fn force_save_targets(&mut self, ids: &[String]) {
+        for id in ids {
+            if let Some(sid) = self.model.elements.iter().find(|e| e.id() == id.as_str()).map(|e| e.id()) {
+                if !self.save_final.contains(&sid) {
+                    self.save_final.push(sid);
+                }
+                self.final_store
+                    .entry(id.clone())
+                    .or_insert_with(|| Vec::with_capacity(self.n_real as usize));
+            }
+        }
+    }
+
     /// Prepare a run: everything `run()` did before its realization loop (verbatim).
     pub fn new(
         model: &'a Model,
@@ -210,6 +385,11 @@ impl<'a> RunState<'a> {
     // index stack, threaded into every EvalCtx via ArrayEnv.
     let dim_sizes_by_id: HashMap<String, usize> =
         model.dimensions.iter().map(|d| (d.id.clone(), d.size)).collect();
+    let dim_labels_by_id: HashMap<String, Vec<String>> =
+        model.dimensions.iter().map(|d| (d.id.clone(), d.labels.clone())).collect();
+    // Empty by default; the two-pass `run` (Phase 4) sets `self.run_stats` before
+    // the second `advance` when the model contains `run_stat` nodes.
+    let run_stats: HashMap<String, f64> = HashMap::new();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
     // repopulated each step by the event pass; shared through ArrayEnv via interior mutability.
@@ -219,6 +399,8 @@ impl<'a> RunState<'a> {
     let submodel_outputs = crate::submodel_v2::run_submodels(model, config)?;
     let arr = ArrayEnv {
         dims: &dim_sizes_by_id,
+        dim_labels: &dim_labels_by_id,
+        run_stats: &run_stats,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
         fired_events: &fired_events,
@@ -516,7 +698,7 @@ impl<'a> RunState<'a> {
         model, graph, config,
         n_real, seed, dt, dt_unit, n_steps, use_event_accurate, run_globals,
         user_weights, importance_weights, any_importance,
-        elem_idx, dim_sizes_by_id, index_stack, fired_events,
+        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, index_stack, fired_events,
         submodel_outputs, lookups, save_final, save_hist,
         stock_ids, process_ids, per_step_sample_ids, resample_ids,
         species_info, decay_order, cell_media, cell_volume, medium_porosity,
@@ -619,6 +801,8 @@ impl<'a> RunState<'a> {
         let any_importance = &mut self.any_importance;
         let arr = ArrayEnv {
             dims: &self.dim_sizes_by_id,
+            dim_labels: &self.dim_labels_by_id,
+            run_stats: &self.run_stats,
             index_stack,
             submodel_outputs,
             fired_events,
@@ -2521,6 +2705,8 @@ fn eval_element(
 /// per-realization samples (§12). Bundled so the many `ctx_at` call sites take one arg.
 pub(crate) struct ArrayEnv<'a> {
     pub dims: &'a HashMap<String, usize>,
+    pub dim_labels: &'a HashMap<String, Vec<String>>,
+    pub run_stats: &'a HashMap<String, f64>,
     pub index_stack: &'a RefCell<Vec<usize>>,
     pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
     /// Ids of events that fired during the current step (§2, for the `occurs` builtin). The
@@ -2543,7 +2729,7 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
@@ -2558,7 +2744,7 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
