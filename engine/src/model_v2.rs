@@ -112,6 +112,10 @@ pub enum NodeRule {
     },
     /// [expression] Evaluate an AST against the current-step context.
     Expression(ExpressionField),
+    /// [terminal_expression] Evaluate an AST **once, after the run**, against each realization's
+    /// terminal state — a `ref` to a stock resolves to its end-of-run level `S(T)`. A sink: not
+    /// evaluated during the per-step loop, and nothing may read it back mid-run.
+    TerminalExpression(ExpressionField),
     /// [sample] Draw from a distribution (once per realization, or per `resampling`).
     Sample {
         distribution: Distribution,

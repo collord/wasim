@@ -625,6 +625,7 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             v2::NodeRule::Fixed { value, editable: e.editable, bounds: e.bounds.clone() }
         }
         "expression" => v2::NodeRule::Expression(e.expression.clone().ok_or_else(|| missing("expression"))?),
+        "terminal_expression" => v2::NodeRule::TerminalExpression(e.expression.clone().ok_or_else(|| missing("expression"))?),
         "sample" => v2::NodeRule::Sample {
             distribution: e.distribution.clone().ok_or_else(|| missing("distribution"))?,
             resampling: e.resampling.as_ref().map(lower_trigger),

@@ -580,6 +580,10 @@ pub fn run(
                     // filter models through run_v2 (normalize_v1). Evaluates to 0.0 here.
                     ElementKind::Filter { .. } => Value::Scalar(0.0),
 
+                    // Terminal expressions are a post-run construct (evaluated against terminal
+                    // state in run_v2). The v1 reference engine has no post-run pass; 0.0 here.
+                    ElementKind::TerminalExpression { .. } => Value::Scalar(0.0),
+
                     ElementKind::Accumulator { .. } => {
                         acc_state[elem_id].clone()
                     }

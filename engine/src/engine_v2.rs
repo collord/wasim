@@ -1423,6 +1423,12 @@ impl<'a> RunState<'a> {
 
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
+                // Terminal expressions are evaluated exactly once, after the run, against terminal
+                // stock levels (see the post-run pass below). They take no per-step value, so nothing
+                // may read them mid-run; skip them here so `outputs` never carries a stale value.
+                if is_terminal_expr(elem) {
+                    continue;
+                }
                 // Grid-only node rules (hysteresis/filter/status/milestone/pid/markov/convolution)
                 // advance per-step state and may consume randomness (markov) — evaluate them ONCE
                 // per grid step, on the final sub-interval. On non-final sub-intervals they hold
@@ -2575,6 +2581,26 @@ impl<'a> RunState<'a> {
                 }
             }
             if step_idx == n_steps - 1 {
+                // Post-run terminal pass: evaluate terminal expressions once, against terminal
+                // state. `outputs` now holds each stock's end-of-run level S(T) (published after
+                // the final integration), so a `ref` to a stock resolves to S(T) — not the
+                // one-step-stale start-of-step value an ordinary expression reads. Walk topo order
+                // (deps first), inserting each result into `outputs` so a terminal expression can
+                // read an earlier one; the save_final harvest below then picks them up normally.
+                let terminal_elapsed = n_steps as f64 * dt;
+                for tid in &graph.topo_order {
+                    let telem = &model.elements[elem_idx[tid.as_str()]];
+                    if let Primitive::Node(node) = &telem.primitive {
+                        if let NodeRule::TerminalExpression(ef) = &node.rule {
+                            let v = {
+                                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, terminal_elapsed,
+                                    dt, &dt_unit, step_idx, &arr);
+                                eval_ast(&ef.ast, &ctx)?
+                            };
+                            outputs.insert(tid.clone(), v);
+                        }
+                    }
+                }
                 for &id in save_final {
                     if let Some(v) = outputs.get(id) {
                         final_store.get_mut(id).unwrap().push(v.as_scalar());
@@ -3270,10 +3296,17 @@ fn is_grid_only_rule(elem: &Element) -> bool {
     )
 }
 
+/// A `terminal_expression` node: evaluated once after the run (against terminal stock levels),
+/// never in the per-step loop.
+fn is_terminal_expr(elem: &Element) -> bool {
+    matches!(&elem.primitive, Primitive::Node(n) if matches!(&n.rule, NodeRule::TerminalExpression(_)))
+}
+
 fn rule_name(rule: &NodeRule) -> &'static str {
     match rule {
         NodeRule::Fixed { .. } => "fixed",
         NodeRule::Expression(_) => "expression",
+        NodeRule::TerminalExpression(_) => "terminal_expression",
         NodeRule::Sample { .. } => "sample",
         NodeRule::Process { .. } => "process",
         NodeRule::Lookup(_) => "lookup",

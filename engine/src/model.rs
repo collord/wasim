@@ -346,6 +346,17 @@ pub enum ElementKind {
         #[serde(default)]
         inputs: Vec<String>,
     },
+    /// Like `expression`, but evaluated exactly **once, after the run**, against each
+    /// realization's *terminal* state: a `ref` to a stock resolves to its end-of-run level
+    /// `S(T)` (not the one-step-stale start-of-step value an ordinary expression sees). This
+    /// lets a terminal payoff read the true `S(T)` instead of `S(T-dt)`, removing the
+    /// effective-maturity (`T_eff = T - dt`) workaround. A terminal expression is a sink: it
+    /// may read other elements' final values, but nothing may read it back during the run.
+    TerminalExpression {
+        expression: ExpressionField,
+        #[serde(default)]
+        inputs: Vec<String>,
+    },
     Accumulator {
         initial_value: Quantity,
         initial_expression: Option<ExpressionField>,

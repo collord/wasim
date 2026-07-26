@@ -90,6 +90,12 @@ fn normalize_element(elem: &v1::Element, dt: f64) -> Vec<v2::Element> {
             })
         }
 
+        ElementKind::TerminalExpression { expression, .. } => {
+            v2::Primitive::Node(v2::Node {
+                rule: v2::NodeRule::TerminalExpression(expression.clone()),
+            })
+        }
+
         ElementKind::Accumulator {
             initial_value, initial_expression, rate, min_value, capacity, ..
         } => v2::Primitive::Stock(v2::Stock {
@@ -277,6 +283,7 @@ fn quantity(value: f64, unit: &str) -> v1::Quantity {
 fn kind_inputs(kind: &ElementKind) -> Vec<String> {
     match kind {
         ElementKind::Expression { inputs, .. }
+        | ElementKind::TerminalExpression { inputs, .. }
         | ElementKind::Accumulator { inputs, .. }
         | ElementKind::Script { inputs, .. }
         | ElementKind::Array { inputs, .. } => inputs.clone(),
@@ -303,6 +310,7 @@ fn kind_label(kind: &ElementKind) -> &'static str {
         ElementKind::Constant { .. } => "constant",
         ElementKind::RandomVariable { .. } => "random_variable",
         ElementKind::Expression { .. } => "expression",
+        ElementKind::TerminalExpression { .. } => "terminal_expression",
         ElementKind::Accumulator { .. } => "accumulator",
         ElementKind::Timeseries { .. } => "timeseries",
         ElementKind::Lookup { .. } => "lookup",
