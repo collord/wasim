@@ -49,6 +49,16 @@ pub struct SimulationSettings {
     /// calendar (behavior unchanged).
     #[serde(default)]
     pub calendar_start: Option<f64>,
+    /// Global closing tick (gap #3, Option B). When true, after the final integration the engine
+    /// performs one read-only evaluation at `t = T`: expressions re-evaluate against terminal stock
+    /// levels `S(T)`, and every `filter` folds one more (terminal) observation — while RNG-consuming
+    /// / integrating rules hold (no extra draws or integration). This lets a `filter` over an
+    /// *expression* of a stock (e.g. `filter(min, f(S))`) monitor `f(S(T))`, which per-filter
+    /// `include_terminal` cannot (it folds the input's one-step-stale value). It shifts every stepped
+    /// model's `final_value` forward one readable tick, so it is **opt-in**; default (`false`) is
+    /// byte-for-byte unchanged.
+    #[serde(default)]
+    pub close_at_terminal: bool,
 }
 
 fn default_n_realizations() -> u32 {

@@ -211,6 +211,8 @@ fn parse_js_config(config_json: &str) -> RunConfig {
             _ => crate::engine::UnitsMode::Warn,
         },
         realization_weights: js.realization_weights,
+        array_lane: false,
+        close_at_terminal: None,
     }
 }
 

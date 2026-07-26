@@ -58,6 +58,9 @@ struct RawSimSettings {
     /// Calendar anchor (B6): model-clock start as seconds since the Unix epoch.
     #[serde(default)]
     calendar_start: Option<f64>,
+    /// Global closing tick (gap #3, Option B). Opt-in; default off is unchanged.
+    #[serde(default)]
+    close_at_terminal: bool,
 }
 
 fn default_one() -> u32 {
@@ -478,6 +481,7 @@ fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
             sampling_method: raw.simulation_settings.sampling_method,
             seed: raw.simulation_settings.seed,
             calendar_start: raw.simulation_settings.calendar_start,
+            close_at_terminal: raw.simulation_settings.close_at_terminal,
         },
         reporting_periods: raw.simulation_settings.reporting_periods,
         dimensions: raw.dimensions,

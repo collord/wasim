@@ -15,7 +15,7 @@ fn load(json: &str) -> WasimModel {
 }
 
 fn cfg() -> RunConfig {
-    RunConfig { n_realizations: Some(4), seed: Some(12345), duration_override: None, timestep_override: None, results_spec: None, timebase: Default::default(), units: Default::default(), realization_weights: vec![], array_lane: false }
+    RunConfig { n_realizations: Some(4), seed: Some(12345), duration_override: None, timestep_override: None, results_spec: None, timebase: Default::default(), units: Default::default(), realization_weights: vec![], array_lane: false, close_at_terminal: None }
 }
 
 /// Run a model through both engines with identical config.

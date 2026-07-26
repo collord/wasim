@@ -1,9 +1,11 @@
 # Terminal-Value Accessor (engine gap #3)
 
-**Status:** **both parts landed.** Option A — a `terminal_expression` element evaluated once, after the
-run, against terminal stock levels — reads a stock's true `S(T)` in a *payoff*. Option B — folding the
-terminal observation into running *monitors* — landed as a per-filter **`include_terminal`** flag
-(cleaner than the global closing tick originally scoped, since Option A already fixes payoffs; see §3).
+**Status:** **fully landed** (all three pieces). Option A — a `terminal_expression` element evaluated
+once, after the run, against terminal stock levels — reads a stock's true `S(T)` in a *payoff*.
+Option B — folding the terminal observation into running *monitors* — landed as a per-filter
+**`include_terminal`** flag (the surgical common case). And the **global closing tick**
+(`simulation_settings.close_at_terminal`) closes the last gap: a filter over an *expression* of a
+stock. See §3.
 **Motivation:** every path-dependent example so far ([`ASIAN_OPTION_EXAMPLE.md`](ASIAN_OPTION_EXAMPLE.md) §4 item 3,
 [`BARRIER_OPTION_EXAMPLE.md`](BARRIER_OPTION_EXAMPLE.md)) has had to carry an **effective-maturity
 workaround** — the option matures at `T_eff = T − Δt` instead of `T` — because an expression cannot read a
@@ -115,12 +117,33 @@ chain of terminal reads); an ordinary-expression input folds its one-step-stale 
   identity** (`rmin_t == min(interior, S(T))`, `rmax_t == max(interior, S(T))`), and the fold strictly
   changes the monitor on the fraction of paths where the terminal is a new extreme.
 
-**Still open (a genuine global closing tick).** `include_terminal` folds a filter's *own* input. A filter
-whose input is an ordinary *expression* of a stock (e.g. `filter(min, f(S))`) still folds the stale
-`f(S_{m−1})`, because expressions aren't re-evaluated at `T`. Closing that fully is the original global
-closing tick (re-evaluate expressions at `T`, then fold monitors), gated behind
-`simulation_settings.close_at_terminal` — deferred, since terminal-read-of-a-stock (the common case) is
-now covered by Option A + `include_terminal`.
+### The global closing tick (`close_at_terminal`) — landed
+
+`include_terminal` folds a filter's *own* input. A filter whose input is an ordinary *expression* of a
+stock (e.g. `filter(min, f(S))`) still folds the stale `f(S_{m−1})`, because expressions aren't
+re-evaluated at `T`. **`simulation_settings.close_at_terminal`** (also a `RunConfig` override) closes
+that: after the final integration the engine runs **one read-only pass at `t = T`**, in topo order —
+
+- **expressions** (and terminal expressions) **re-evaluate** against terminal state, so a `ref(S)` — or
+  an expression `f(S)` — resolves to `S(T)`;
+- **every `filter`** folds one more (terminal) observation; because the pass is in topo order, an
+  expression input `f(S)` is re-evaluated to `f(S(T))` *before* the filter over it folds — so
+  `filter(min, f(S))` now monitors `f(S(T))`;
+- **all other rules hold** their last value — no RNG draws, no integration — so process / sample /
+  markov / pid / lag invariants are untouched (the one real subtlety of a closing tick, sidestepped by
+  simply not re-running those rules).
+
+It **shifts every stepped model's `final_value` forward one readable tick** (expressions now read `S(T)`,
+filters gain the terminal observation), so it is **opt-in**; default (`false`) is byte-for-byte
+unchanged, and it subsumes the per-filter `include_terminal` fold (which then runs only when the closing
+tick is off). **Verified** (`close_at_terminal_v2.rs`): with the tick on, an ordinary expression `3*S`
+finals at exactly `3*S(T)`, every filter is terminal-inclusive, and a `filter(min, 2*S)` equals
+`2*min(interior, S(T))` — i.e. it monitored the expression *at the terminal* — all exact per-realization
+identities, changing the expression-filter on the paths where the terminal is a new extreme.
+
+**When to use which.** Terminal *payoff* on a stock → `terminal_expression` (no global shift). Barrier /
+lookback *monitor* on a stock level → `filter … include_terminal`. A monitor over a *derived* signal, or
+a model you want to close uniformly at `T` → `close_at_terminal`.
 
 ---
 
@@ -135,8 +158,13 @@ now covered by Option A + `include_terminal`.
   loop and the terminal fold advance identically), and a terminal-fold loop in `engine_v2.rs`'s post-run
   block (before the terminal-expression pass, so a monitor is terminal-inclusive when a terminal
   expression reads it).
+- **Closing tick (`close_at_terminal`):** a `close_at_terminal: bool` on `SimulationSettings`
+  (`model.rs`, `v2_parse.rs`) plus a `RunConfig` override (`engine.rs`, `params.rs`), and a branch in
+  `engine_v2.rs`'s post-run block: when set, one topo-order pass re-evaluates every expression at `T` and
+  folds every filter (holding all other rules), replacing the `include_terminal`/terminal-expression
+  path.
 
-Both are additive: a model with neither feature runs byte-for-byte as before.
+All three are additive: a model with none of them runs byte-for-byte as before.
 
 ## 5. Verified
 
@@ -145,7 +173,10 @@ Both are additive: a model with neither feature runs byte-for-byte as before.
 - **Option B** (`running_monitor_terminal_v2.rs`): `include_terminal` filter final ==
   `min`/`max`(interior filter, `S(T)`) per realization (exact), and strictly changes the monitor on paths
   where the terminal is a new extreme.
-- **Integration** (`barrier_option_smoke.rs`): the down-and-out example uses both — matures at true `T`,
+- **Closing tick** (`close_at_terminal_v2.rs`): with the tick on, `3*S` finals at exactly `3*S(T)`, every
+  filter is terminal-inclusive, and `filter(min, 2*S)` == `2*min(interior, S(T))` — the expression-filter
+  monitored `f(S(T))` — all exact per-realization identities.
+- **Integration** (`barrier_option_smoke.rs`): the down-and-out example uses A + B — matures at true `T`,
   `run_min` is terminal-inclusive, `barrier_cv` is a terminal expression reading a `run_stat2` — and still
   matches the BGK-corrected reference within Monte Carlo error.
 

@@ -46,6 +46,9 @@ pub struct RunConfig {
     /// the scalar realization loop. Falls back to the scalar lane when ineligible, so
     /// the default (false) path is completely untouched.
     pub array_lane: bool,
+    /// Override the model's `close_at_terminal` setting (gap #3, Option B). `None` = use the model
+    /// setting. `Some(b)` forces the global closing tick on/off for this run.
+    pub close_at_terminal: Option<bool>,
 }
 
 /// Dimensional-analysis strictness for a run (B5). See `RunConfig.units`.
@@ -76,6 +79,7 @@ impl Default for RunConfig {
             units: UnitsMode::Warn,
             realization_weights: Vec::new(),
             array_lane: false,
+            close_at_terminal: None,
         }
     }
 }

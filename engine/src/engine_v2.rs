@@ -895,6 +895,7 @@ impl<'a> RunState<'a> {
         // stores by mutable ref (disjoint fields, so the borrows coexist).
         let model = self.model;
         let graph = self.graph;
+        let config = self.config;
         let seed = self.seed;
         let dt = self.dt;
         let dt_unit = &self.dt_unit;
@@ -2553,41 +2554,72 @@ impl<'a> RunState<'a> {
                 }
             }
             if step_idx == n_steps - 1 {
-                // Terminal fold for `include_terminal` filters: a filter reads its input one step
-                // stale, so a running monitor otherwise stops at t_{m-1} and misses the terminal
-                // observation S(T). Now that `outputs` holds each stock's published S(T), fold that
-                // terminal value into the filter once more (topo order, so a filter over another
-                // filter/expression sees an already-updated input). This makes running min/max/mean
-                // natively cover the terminal date — e.g. a barrier/lookback monitor.
-                for fid in &graph.topo_order {
-                    let felem = &model.elements[elem_idx[fid.as_str()]];
-                    if let Primitive::Node(node) = &felem.primitive {
-                        if let NodeRule::Filter { input, window, statistic, include_terminal } = &node.rule {
-                            if *include_terminal {
-                                let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
-                                let v = fold_filter(fid, statistic, *window, x, &mut filter_buf, &mut filter_ema);
-                                outputs.insert(fid.clone(), Value::Scalar(v));
+                // `outputs` now holds each stock's end-of-run level S(T) (published after the final
+                // integration). `terminal_elapsed = T` so time-dependent reads see the true maturity.
+                let terminal_elapsed = n_steps as f64 * dt;
+                let close_at_terminal = config.close_at_terminal
+                    .unwrap_or(model.simulation_settings.close_at_terminal);
+
+                // Global closing tick (gap #3, Option B — the `close_at_terminal` mode). One
+                // read-only evaluation at t=T, in topo order: expressions re-evaluate against S(T)
+                // (so an expression payoff, or a `filter`'s expression input, sees the true
+                // terminal), and EVERY filter folds one more (terminal) observation. All other
+                // rules hold their last value — no RNG draws, no integration — so process/sample/
+                // markov/pid/lag invariants are untouched. This subsumes the per-filter
+                // `include_terminal` fold, so that runs only in the non-close path below.
+                if close_at_terminal {
+                    for cid in &graph.topo_order {
+                        let celem = &model.elements[elem_idx[cid.as_str()]];
+                        if let Primitive::Node(node) = &celem.primitive {
+                            match &node.rule {
+                                NodeRule::Expression(ef) | NodeRule::TerminalExpression(ef) => {
+                                    let v = {
+                                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs,
+                                            terminal_elapsed, dt, &dt_unit, step_idx, &arr);
+                                        eval_ast(&ef.ast, &ctx)?
+                                    };
+                                    outputs.insert(cid.clone(), v);
+                                }
+                                NodeRule::Filter { input, window, statistic, .. } => {
+                                    let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                    let v = fold_filter(cid, statistic, *window, x, &mut filter_buf, &mut filter_ema);
+                                    outputs.insert(cid.clone(), Value::Scalar(v));
+                                }
+                                _ => {} // hold: no extra draw / integration
                             }
                         }
                     }
-                }
-                // Post-run terminal pass: evaluate terminal expressions once, against terminal
-                // state. `outputs` now holds each stock's end-of-run level S(T) (published after
-                // the final integration), so a `ref` to a stock resolves to S(T) — not the
-                // one-step-stale start-of-step value an ordinary expression reads. Walk topo order
-                // (deps first), inserting each result into `outputs` so a terminal expression can
-                // read an earlier one; the save_final harvest below then picks them up normally.
-                let terminal_elapsed = n_steps as f64 * dt;
-                for tid in &graph.topo_order {
-                    let telem = &model.elements[elem_idx[tid.as_str()]];
-                    if let Primitive::Node(node) = &telem.primitive {
-                        if let NodeRule::TerminalExpression(ef) = &node.rule {
-                            let v = {
-                                let ctx = ctx_at(&lookups, &outputs, &prev_outputs, terminal_elapsed,
-                                    dt, &dt_unit, step_idx, &arr);
-                                eval_ast(&ef.ast, &ctx)?
-                            };
-                            outputs.insert(tid.clone(), v);
+                } else {
+                    // Terminal fold for `include_terminal` filters only: a filter reads its input one
+                    // step stale, so a running monitor otherwise stops at t_{m-1} and misses the
+                    // terminal observation S(T). Fold that terminal value into just those filters
+                    // (topo order, so a filter over another already-folded filter sees it).
+                    for fid in &graph.topo_order {
+                        let felem = &model.elements[elem_idx[fid.as_str()]];
+                        if let Primitive::Node(node) = &felem.primitive {
+                            if let NodeRule::Filter { input, window, statistic, include_terminal } = &node.rule {
+                                if *include_terminal {
+                                    let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                    let v = fold_filter(fid, statistic, *window, x, &mut filter_buf, &mut filter_ema);
+                                    outputs.insert(fid.clone(), Value::Scalar(v));
+                                }
+                            }
+                        }
+                    }
+                    // Post-run terminal pass: evaluate terminal expressions once, against terminal
+                    // state, so a `ref` to a stock resolves to S(T). Topo order (deps first) so a
+                    // terminal expression can read an earlier one; save_final below harvests them.
+                    for tid in &graph.topo_order {
+                        let telem = &model.elements[elem_idx[tid.as_str()]];
+                        if let Primitive::Node(node) = &telem.primitive {
+                            if let NodeRule::TerminalExpression(ef) = &node.rule {
+                                let v = {
+                                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, terminal_elapsed,
+                                        dt, &dt_unit, step_idx, &arr);
+                                    eval_ast(&ef.ast, &ctx)?
+                                };
+                                outputs.insert(tid.clone(), v);
+                            }
                         }
                     }
                 }
