@@ -1,8 +1,12 @@
-# Scope: A Native Running-Statistic / Time-Average Node (engine gap #2)
+# Running-Statistic / Time-Average Support (engine gap #2)
 
-**Status:** proposal / scoping
+**Status:** **implemented** — but by *enhancing the existing `filter` node*, not by adding the new
+`running_stat` node this doc originally proposed. Mid-implementation it turned out WASiM already had
+a rolling-window statistic node (`filter`, with `mean`/`min`/`max`/`sum`/`ema`); it was just missing
+a cumulative/expanding window and wasn't reachable from the v1 schema. Those two gaps are now closed.
+See the **Implementation** section at the end; the original proposal below is kept for context.
 **Motivation:** [`ASIAN_OPTION_EXAMPLE.md`](ASIAN_OPTION_EXAMPLE.md) §4 (gap #2) — averaging a signal over
-the run has no first-class support, and the accumulator idiom used to fake it is a footgun.
+the run had no first-class support, and the accumulator idiom used to fake it is a footgun.
 
 ---
 
@@ -125,3 +129,43 @@ bonus.
 construction. It turns the five-element, lag-sensitive averaging idiom into a single node, unlocks
 running extremes for barrier/lookback options, and leaves stock semantics and every existing model
 untouched.
+
+---
+
+## Implementation (what actually landed)
+
+**Discovery.** WASiM already had a `filter` node — `NodeRule::Filter { input, window, statistic }`
+with `FilterStat = Mean | Min | Max | Sum | Ema` — a rolling-window statistic that reads `input`'s
+current-step value, pushes it into a buffer, trims to `window`, and reduces. It is **lag-consistent
+by construction** (it keeps its own count = buffer length, so `mean = sum/count` over exactly the
+points it saw — the `sumX/cnt` self-consistency, native). Adding a second `running_stat` node would
+have duplicated it. Two real gaps remained:
+
+1. **No expanding/cumulative window** — a time average *since t0* required guessing a `window` ≥ the
+   step count, and `window = 0` divided by zero.
+2. **v1-unreachable** — `filter` existed only in the v2-native schema; the v1 authoring schema (where
+   the examples live) had no `filter` element, so v1 models could not use it.
+
+**Changes.**
+
+- **Expanding window** (`engine_v2.rs`): `window == 0` now means *keep every value seen so far* (no
+  trim) — a running mean/sum/min/max over the whole run. `v2_parse.rs`: `window` is now optional
+  (omit ⇒ 0 ⇒ expanding).
+- **v1 support** (`model.rs`, `v1_import.rs`, and the v1 `engine.rs`/`graph.rs` exhaustiveness/dep
+  arms): a v1 `{"type":"filter","input":…,"statistic":"mean"[,"window":N]}` element normalizes to the
+  v2 `Filter` rule. `input` is a topo dependency; the v1 reference engine (which predates the grid
+  node rules) evaluates it to 0.0 and defers to `run_v2`, as v1 filter models already must.
+
+**Result.** A time average is now one node — `{"type":"filter","input":"S","statistic":"mean"}` (no
+`window` ⇒ cumulative) — instead of `sumX + cnt + divide` and the lag trick. Running `min`/`max`
+give barrier/lookback extremes for free.
+
+**Verified** (`engine/tests/running_filter_v2.rs`, a v1 model): the expanding-mean filter satisfies
+`mean == sum/count` over exactly the observed points, its count equals `duration/timestep`, running
+extremes bracket the mean, and a bounded `window = 1` returns the current value. Backward compatible:
+existing `filter` models specify a window and are unchanged; models without `filter` are untouched.
+
+**Not done (deliberate):** the stock read-lag is unchanged (§2 — intentional), and the Asian example
+was left on its validated `sumS/cnt` construction rather than re-pinning its Kemna–Vorst window to
+the filter's (slightly different) observed window; new averaging models should just use `filter`.
+`Variance` (Welford) and a trailing-time `window` (vs a step count) remain the Phase-2 items.

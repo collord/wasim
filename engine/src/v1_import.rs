@@ -185,6 +185,16 @@ fn normalize_element(elem: &v1::Element, dt: f64) -> Vec<v2::Element> {
             }
         }
 
+        ElementKind::Filter { input, window, statistic } => {
+            v2::Primitive::Node(v2::Node {
+                rule: v2::NodeRule::Filter {
+                    input: input.clone(),
+                    window: window.unwrap_or(0),
+                    statistic: filter_stat(statistic),
+                },
+            })
+        }
+
         // Delay handled above.
         ElementKind::Delay { .. } => unreachable!("delay handled before match"),
     };
@@ -271,7 +281,20 @@ fn kind_inputs(kind: &ElementKind) -> Vec<String> {
         | ElementKind::Script { inputs, .. }
         | ElementKind::Array { inputs, .. } => inputs.clone(),
         ElementKind::Delay { input, .. } => vec![input.clone()],
+        ElementKind::Filter { input, .. } => vec![input.clone()],
         _ => Vec::new(),
+    }
+}
+
+/// Map a v1 filter statistic name to the v2 `FilterStat`. Unknown → mean (a safe default,
+/// matching the tolerant-load policy elsewhere in the importer).
+fn filter_stat(name: &str) -> v2::FilterStat {
+    match name.to_ascii_lowercase().as_str() {
+        "min" => v2::FilterStat::Min,
+        "max" => v2::FilterStat::Max,
+        "sum" => v2::FilterStat::Sum,
+        "ema" => v2::FilterStat::Ema,
+        _ => v2::FilterStat::Mean,
     }
 }
 
@@ -287,5 +310,6 @@ fn kind_label(kind: &ElementKind) -> &'static str {
         ElementKind::Delay { .. } => "delay",
         ElementKind::Script { .. } => "script",
         ElementKind::Array { .. } => "array",
+        ElementKind::Filter { .. } => "filter",
     }
 }

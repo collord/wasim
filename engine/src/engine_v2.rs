@@ -1466,8 +1466,12 @@ impl<'a> RunState<'a> {
                                 _ => {
                                     let buf = filter_buf.entry(elem_id.clone()).or_default();
                                     buf.push_back(x);
-                                    while buf.len() > *window {
-                                        buf.pop_front();
+                                    // window == 0 => expanding (cumulative) window: keep every
+                                    // value seen so far, i.e. a running mean/sum/min/max since t0.
+                                    if *window > 0 {
+                                        while buf.len() > *window {
+                                            buf.pop_front();
+                                        }
                                     }
                                     match statistic {
                                         FilterStat::Mean => buf.iter().sum::<f64>() / buf.len() as f64,

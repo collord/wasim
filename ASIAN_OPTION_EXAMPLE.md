@@ -101,12 +101,16 @@ path-dependent / averaging models substantially cleaner. Roughly in priority ord
    (Widening the remaining scalar-only *distribution* families the same way — the
    `DISTRIBUTION_PARAM_FORMULA.md` proposal — is the natural follow-on.)
 
-2. **A first-class time-average / running-statistic node.** Averaging a signal over the run today
-   needs a hand-built `sumS` accumulator *plus* a `cnt` accumulator *plus* a division, and the
-   author must know the one-step-lag trick to get the count right. A native "running mean / time
-   average of X" element (GoldSim has this) would collapse `sumS + cnt + avg_arith` into one node and
-   remove the footgun. The `results_spec` reporting-period `average` reduction is close in spirit but
-   is **post-run analysis**, not an in-model value a payoff can consume.
+2. **A first-class time-average / running-statistic node — ✅ implemented.** Averaging a signal
+   used to need a hand-built `sumS` + `cnt` accumulator pair + a division, with the one-step-lag
+   trick to get the count right. WASiM already had a `filter` node (rolling mean/min/max/sum/ema); it
+   just lacked a cumulative window and wasn't reachable from the v1 schema. Both are now fixed
+   (`RUNNING_STATISTIC_SCOPE.md`): a **`filter` with no `window`** is a running time-average over the
+   whole run — `{"type":"filter","input":"S","statistic":"mean"}` replaces `sumS + cnt + avg_arith`,
+   and it keeps its own exact count so there is no lag footgun. Running `min`/`max` give
+   barrier/lookback extremes for free. Verified by `engine/tests/running_filter_v2.rs`. (This model
+   keeps its validated `sumS/cnt` construction rather than re-pinning its closed-form window to the
+   filter's; new averaging models should just use `filter`.)
 
 3. **Lag-free / end-of-step stock reads (or a terminal-value accessor).** An expression reads an
    accumulator's *start-of-step* value, so (a) the average is one step stale — worked around with

@@ -391,6 +391,15 @@ pub enum ElementKind {
         lag: Quantity,
         initial: Option<Quantity>,
     },
+    /// Rolling- or expanding-window statistic over `input` (running mean/sum/min/max/ema).
+    /// `window` omitted (or 0) = expanding window: a cumulative statistic over every step so
+    /// far — e.g. a time average, or a running extreme for barrier/lookback payoffs.
+    Filter {
+        input: String,
+        #[serde(default)]
+        window: Option<usize>,
+        statistic: String,
+    },
     Script {
         language: String,
         source: String,

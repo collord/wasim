@@ -701,7 +701,9 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
         // so the filter runs over a 0.0 signal instead of rejecting the model at load.
         "filter" => v2::NodeRule::Filter {
             input: e.input.clone().unwrap_or_default(),
-            window: e.window.ok_or_else(|| missing("window"))?,
+            // Optional: omit (or 0) for an expanding/cumulative window — a running
+            // mean/sum/min/max over every step so far (the time-average case).
+            window: e.window.unwrap_or(0),
             statistic: lower_filter_stat(e.statistic.as_deref(), &e.id)?,
         },
         "gate_logic" => v2::NodeRule::GateLogic {

@@ -485,6 +485,11 @@ pub fn run(
                 ElementKind::StochasticProcess { .. } => {
                     init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(sp_state.get(&elem.id).copied().unwrap_or(0.0)));
                 }
+                // `filter` is a v2 grid node; the v1 reference engine doesn't compute it
+                // (v1 filter models run via normalize_v1 -> run_v2). Seed 0.0 for completeness.
+                ElementKind::Filter { .. } => {
+                    init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(0.0));
+                }
                 ElementKind::Accumulator { initial_value, .. } => {
                     init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(initial_value.value));
                 }
@@ -570,6 +575,10 @@ pub fn run(
                     ElementKind::RandomVariable { .. } => Value::Scalar(rv_samples[elem_id]),
 
                     ElementKind::StochasticProcess { .. } => Value::Scalar(sp_state[elem_id]),
+
+                    // v1 reference engine doesn't implement the v2 `filter` grid node; run
+                    // filter models through run_v2 (normalize_v1). Evaluates to 0.0 here.
+                    ElementKind::Filter { .. } => Value::Scalar(0.0),
 
                     ElementKind::Accumulator { .. } => {
                         acc_state[elem_id].clone()

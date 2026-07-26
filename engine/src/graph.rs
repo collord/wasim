@@ -137,5 +137,7 @@ fn element_deps(kind: &ElementKind) -> Vec<&str> {
         // its input's step-t value. Like accumulators, it carries forward state and takes
         // no incoming topo edge — this lets feedback loops through a delay resolve.
         ElementKind::Delay { .. } => vec![],
+        // A filter reads its input's current-step value; edge input -> filter.
+        ElementKind::Filter { input, .. } => vec![input.as_str()],
     }
 }
