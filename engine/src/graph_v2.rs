@@ -235,6 +235,7 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
                 collect_ast_refs(a, out);
             }
         }
+        AstNode::SubmodelStat2 { submodel_id, .. } => out.push(submodel_id.as_str()),
         // Array-comprehension nodes (§15). Refs live in the sub-expressions; the
         // `over` dimension is an ordinal set, not an element, so it is not a dep.
         AstNode::VectorMap { body, .. } => collect_ast_refs(body, out),

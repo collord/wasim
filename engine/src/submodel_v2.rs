@@ -36,6 +36,11 @@ fn collect_ast(node: &AstNode, out: &mut HashSet<(String, String)>) {
                 collect_ast(a, out);
             }
         }
+        // Both outputs must be collected by the submodel pre-pass for the bivariate reduction.
+        AstNode::SubmodelStat2 { submodel_id, output_x, output_y, .. } => {
+            out.insert((submodel_id.clone(), output_x.clone()));
+            out.insert((submodel_id.clone(), output_y.clone()));
+        }
         AstNode::Add { left, right }
         | AstNode::Subtract { left, right }
         | AstNode::Multiply { left, right }
@@ -136,6 +141,7 @@ fn ast_refs(node: &AstNode, out: &mut HashSet<String>) {
         }
         AstNode::Array { elements } => elements.iter().for_each(|e| ast_refs(e, out)),
         AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
+        AstNode::SubmodelStat2 { .. } => {}
         AstNode::Literal { .. } | AstNode::TimeRef { .. } | AstNode::IndexRef { .. } => {}
     }
 }

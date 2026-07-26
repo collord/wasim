@@ -302,6 +302,7 @@ fn collect_run_stat_nodes<'a>(
         }
         AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr, split)),
         AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split); } }
+        AstNode::SubmodelStat2 { .. } => {}
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
     }

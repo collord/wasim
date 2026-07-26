@@ -1,9 +1,10 @@
 # Scope: Cross-Realization Bivariate Reducers (Control-Variate Support)
 
-**Status:** Phases 1–3 **implemented**. Phase 3 delivered multiple-control regression (`run_regress`)
-*and* split-sample `b` (`run_split_beta`) — the latter on a new **per-realization injection** channel
-(`EvalCtx.run_vecs`) that the earlier draft had flagged as the missing mechanism. Phase 4 remains
-proposed. Per-phase "what landed" summaries at the end of this doc.
+**Status:** Phases 1–4 **all implemented**. Phase 3 delivered multiple-control regression
+(`run_regress`) *and* split-sample `b` (`run_split_beta`) — the latter on a new **per-realization
+injection** channel (`EvalCtx.run_vecs`) that the earlier draft had flagged as the missing mechanism.
+Phase 4 added `submodel_stat2` (bivariate reduction inside a submodel). Per-phase "what landed"
+summaries at the end of this doc.
 **Motivation:** [`OPTIONS_PRICING_EFFICIENCY.md`](OPTIONS_PRICING_EFFICIENCY.md) §5 — control variates
 could not be expressed because the optimal coefficient needs a **covariance between two
 elements across realizations**, and `run_stat` reduces a **single** element.
@@ -190,7 +191,7 @@ with a Chan-style parallel merge, exactly paralleling the existing `m2`).
 | **1 (MVP)** ✅ | `Cov`/`Corr`/`Beta` node; scalar `engine_v2` two-pass; array-lane made ineligible → scalar fallback; reducers; graph ordering; tests. **Single control variate fully expressible.** | model.rs, eval.rs, engine.rs, engine_v2.rs, array_lane.rs, graph_v2.rs, summary.rs, submodel_v2.rs |
 | **2** ✅ | `Corr` (landed in P1); `run_stat2` made eligible on the fused array lane, reducing over the two materialized columns (bit-identical to the scalar lane) | array_lane.rs |
 | **3** ✅ | Multi-control regression (`run_regress`, indexed OLS via a linear solve) **and** split-sample `b` (`run_split_beta`, K-fold jackknife) on a new per-realization injection channel (`EvalCtx.run_vecs`) | model.rs, eval.rs, engine.rs, engine_v2.rs, graph_v2.rs, summary.rs, submodel_v2.rs, array_lane.rs |
-| **4** | `submodel_stat` symmetry — bivariate reduction across a submodel's realizations | submodel_v2.rs |
+| **4** ✅ | `submodel_stat2` — bivariate reduction (cov/corr/beta) of two submodel outputs across the submodel's realizations, evaluated on-demand (no two-pass) | model.rs, eval.rs, submodel_v2.rs, graph_v2.rs, summary.rs, array_lane.rs |
 
 Phase 1 alone closes the documented gap.
 
@@ -339,3 +340,24 @@ split-sample beta) can inject an `[N]` vector the same way.
 **Back-compat:** all additive. Models without any run-stat still hit the single-pass early return
 (now gated on all four target lists being empty); `run_vecs` is `None`/empty everywhere except pass 2
 of a model that uses `run_split_beta`, so every other path is unchanged.
+
+## Phase 4 — submodel_stat2 implemented
+
+The bivariate analog of `submodel_stat`, for the control-variate math *inside* a nested submodel
+simulation. The simplest addition of the arc: `submodel_stat` (and thus `submodel_stat2`) is
+evaluated **on-demand in the evaluator** from the pre-computed submodel output vectors — no two-pass
+driver, no injection channel, no `EvalCtx` change.
+
+- **Node** (`model.rs`): `SubmodelStat2 { submodel_id, output_x, output_y, statistic }` →
+  `{ "op": "submodel_stat2", "submodel_id": …, "output_x": …, "output_y": …, "statistic": "beta" }`.
+  Both outputs come from the one submodel run, so they are index-aligned by realization.
+- **Eval** (`eval.rs`): read both output vectors from `ctx.submodel_outputs`, reduce with the reused
+  `covariance`/`correlation`/`beta`. Missing output → 0.0 (matching `submodel_stat`).
+- **Collection** (`submodel_v2.rs`): the one functional wire — `collect_ast` registers **both**
+  `(submodel_id, output_x)` and `(submodel_id, output_y)` so the submodel pre-pass materializes them.
+- **Lanes / labels**: `graph_v2` adds the submodel dep, `summary` renders it, `array_lane` marks it
+  ineligible (like `submodel_stat`).
+- **Verified** (`engine/tests/submodel_stat2_v2.rs`): submodel draws X~N(0,1), W~N(0,1), exposes X and
+  Y=2X+W; the parent reduces via `submodel_stat2` → beta≈2, cov≈2, corr≈2/√5.
+
+**Back-compat:** additive node evaluated only when present; no change to any existing execution path.

@@ -113,6 +113,7 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         },
         AstNode::LookupCall { .. } => Err("lookup_call"),
         AstNode::SubmodelStat { .. } => Err("submodel_stat"),
+        AstNode::SubmodelStat2 { .. } => Err("submodel_stat2"),
         AstNode::VectorMap { .. } => Err("vector_map"),
         AstNode::Index { .. } => Err("index"),
         AstNode::IndexRef { .. } => Err("index_ref"),
@@ -185,6 +186,7 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         RunSplitBeta { .. } => Err("run_split_beta"),
         // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
         SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
+        SubmodelStat2 { .. } => Err("submodel_stat2"),
         // Any builtin except the ctx-stateful event predicates; array reducers included.
         Call { func, args } => match func {
             BuiltinFn::Occurs | BuiltinFn::Changed => Err("event_predicate"),

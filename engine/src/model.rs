@@ -604,6 +604,18 @@ pub enum AstNode {
         #[serde(default)]
         arg: Option<Box<AstNode>>,
     },
+    // Bivariate reduction of two outputs of the same submodel, across that submodel's
+    // realizations — the `submodel_stat` analog of `run_stat2` (cov/corr/beta). Both
+    // outputs come from the one submodel run, so they are index-aligned by realization.
+    // Evaluated on-demand from the pre-computed submodel output vectors (no two-pass /
+    // injection). Enables a control variate inside a nested submodel simulation.
+    // See CONTROL_VARIATE_SCOPE.md Phase 4.
+    SubmodelStat2 {
+        submodel_id: String,
+        output_x: String,
+        output_y: String,
+        statistic: RunPairStat,
+    },
     // Array construction: evaluates each element and produces a vector
     Array {
         elements: Vec<AstNode>,

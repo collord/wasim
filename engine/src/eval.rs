@@ -714,6 +714,24 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
             Ok(Value::Scalar(reduced))
         }
 
+        // Bivariate reduction of two submodel outputs (control-variate math inside a
+        // submodel). Both come from the same submodel run → index-aligned by realization.
+        AstNode::SubmodelStat2 { submodel_id, output_x, output_y, statistic } => {
+            let xs = ctx.submodel_outputs.get(&(submodel_id.clone(), output_x.clone()));
+            let ys = ctx.submodel_outputs.get(&(submodel_id.clone(), output_y.clone()));
+            let (xs, ys) = match (xs, ys) {
+                (Some(x), Some(y)) => (x, y),
+                _ => return Ok(Value::Scalar(0.0)),
+            };
+            use crate::model::RunPairStat as P;
+            let reduced = match statistic {
+                P::Cov => crate::engine::covariance(xs, ys),
+                P::Corr => crate::engine::correlation(xs, ys),
+                P::Beta => crate::engine::beta(xs, ys),
+            };
+            Ok(Value::Scalar(reduced))
+        }
+
         // Array-comprehension nodes (§15). Indices are 1-based (matching `get_element` and
         // GoldSim arrays): `vector_map` pushes the current 1-based member index onto the
         // shared stack, `index_ref` reads it, `index` subtracts 1 to select.
