@@ -58,6 +58,9 @@ struct RawSimSettings {
     /// Calendar anchor (B6): model-clock start as seconds since the Unix epoch.
     #[serde(default)]
     calendar_start: Option<f64>,
+    /// Global closing tick (gap #3, Option B). Opt-in; default off is unchanged.
+    #[serde(default)]
+    close_at_terminal: bool,
 }
 
 fn default_one() -> u32 {
@@ -144,6 +147,8 @@ struct RawElement {
     window: Option<usize>,
     #[serde(default)]
     statistic: Option<String>,
+    #[serde(default)]
+    include_terminal: bool,
     #[serde(default)]
     root: Option<RawGate>,
     #[serde(default)]
@@ -476,6 +481,7 @@ fn lower_model(raw: RawModel) -> Result<v2::Model, EngineError> {
             sampling_method: raw.simulation_settings.sampling_method,
             seed: raw.simulation_settings.seed,
             calendar_start: raw.simulation_settings.calendar_start,
+            close_at_terminal: raw.simulation_settings.close_at_terminal,
         },
         reporting_periods: raw.simulation_settings.reporting_periods,
         dimensions: raw.dimensions,
@@ -625,6 +631,7 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
             v2::NodeRule::Fixed { value, editable: e.editable, bounds: e.bounds.clone() }
         }
         "expression" => v2::NodeRule::Expression(e.expression.clone().ok_or_else(|| missing("expression"))?),
+        "terminal_expression" => v2::NodeRule::TerminalExpression(e.expression.clone().ok_or_else(|| missing("expression"))?),
         "sample" => v2::NodeRule::Sample {
             distribution: e.distribution.clone().ok_or_else(|| missing("distribution"))?,
             resampling: e.resampling.as_ref().map(lower_trigger),
@@ -701,8 +708,11 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
         // so the filter runs over a 0.0 signal instead of rejecting the model at load.
         "filter" => v2::NodeRule::Filter {
             input: e.input.clone().unwrap_or_default(),
-            window: e.window.ok_or_else(|| missing("window"))?,
+            // Optional: omit (or 0) for an expanding/cumulative window — a running
+            // mean/sum/min/max over every step so far (the time-average case).
+            window: e.window.unwrap_or(0),
             statistic: lower_filter_stat(e.statistic.as_deref(), &e.id)?,
+            include_terminal: e.include_terminal,
         },
         "gate_logic" => v2::NodeRule::GateLogic {
             root: lower_gate(e.root.as_ref().ok_or_else(|| missing("root"))?),

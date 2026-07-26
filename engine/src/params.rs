@@ -66,6 +66,8 @@ impl ModelParams {
             realization_weights: base.realization_weights,
             // array lane is a runtime execution mode, not a params override; carry base.
             array_lane: base.array_lane,
+            // close_at_terminal is a runtime execution mode, not a params override; carry base.
+            close_at_terminal: base.close_at_terminal,
         }
     }
 }

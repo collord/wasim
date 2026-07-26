@@ -895,6 +895,7 @@ impl<'a> RunState<'a> {
         // stores by mutable ref (disjoint fields, so the borrows coexist).
         let model = self.model;
         let graph = self.graph;
+        let config = self.config;
         let seed = self.seed;
         let dt = self.dt;
         let dt_unit = &self.dt_unit;
@@ -1021,17 +1022,21 @@ impl<'a> RunState<'a> {
         for &id in process_ids {
             if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                 if let NodeRule::Process { process, lower_bound } = &n.rule {
-                    if sampling::is_reverting(process) {
+                    // Resolve expression-valued drift/vol against the realization context
+                    // (constants + this realization's samples). Initial draw: elapsed 0.
+                    let pctx = dist_ctx_eval(&lookups, &dist_ctx, &dist_ctx, dt, &dt_unit, &arr);
+                    let process = crate::eval::resolve_process(process, &pctx)?;
+                    if sampling::is_reverting(&process) {
                         // Seed the level at initial_value (else reference/drift level); the node's
                         // step-0 value is that level, not a GBM draw.
                         let x0 = process.initial_value.as_ref().map(|q| q.value()).unwrap_or_else(|| {
                             process.reference_value.as_ref().map(|q| q.value())
-                                .unwrap_or(process.mean.value)
+                                .unwrap_or(process.mean.value())
                         });
                         sp_level.insert(id.to_string(), x0);
                         sp_state.insert(id.to_string(), x0);
                     } else {
-                        let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
+                        let v = sampling::sample_gbm(&process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
                         sp_state.insert(id.to_string(), v);
                     }
                 }
@@ -1266,20 +1271,27 @@ impl<'a> RunState<'a> {
             for &id in process_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Process { process, lower_bound } = &n.rule {
-                        if sampling::is_reverting(process) {
+                        // Resolve expression-valued drift/vol against the per-realization context
+                        // (constants + this realization's samples) — the same context the initial
+                        // draw uses, so a formula referencing a constant resolves identically at
+                        // every step (prev_outputs lacks the constants at step 0). Per-step
+                        // state-dependent parameters are a later extension.
+                        let pctx = dist_ctx_eval(&lookups, &dist_ctx, &dist_ctx, dt, &dt_unit, &arr);
+                        let process = crate::eval::resolve_process(process, &pctx)?;
+                        if sampling::is_reverting(&process) {
                             // Mean-reverting (OU): carry the level across steps, seeded at step 0
                             // from initial_value (else the reference/drift level). §16.
                             let prev = sp_level.get(id).copied().unwrap_or_else(|| {
                                 process.initial_value.as_ref().map(|q| q.value()).unwrap_or_else(|| {
                                     process.reference_value.as_ref().map(|q| q.value())
-                                        .unwrap_or(process.mean.value)
+                                        .unwrap_or(process.mean.value())
                                 })
                             });
-                            let v = sampling::sample_ou_step(process, prev, dt, &dt_unit, &mut rng)?;
+                            let v = sampling::sample_ou_step(&process, prev, dt, &dt_unit, &mut rng)?;
                             sp_level.insert(id.to_string(), v);
                             sp_state.insert(id.to_string(), v);
                         } else {
-                            let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
+                            let v = sampling::sample_gbm(&process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
                             sp_state.insert(id.to_string(), v);
                         }
                     }
@@ -1412,6 +1424,12 @@ impl<'a> RunState<'a> {
 
             for elem_id in &graph.topo_order {
                 let elem = &model.elements[elem_idx[elem_id.as_str()]];
+                // Terminal expressions are evaluated exactly once, after the run, against terminal
+                // stock levels (see the post-run pass below). They take no per-step value, so nothing
+                // may read them mid-run; skip them here so `outputs` never carries a stale value.
+                if is_terminal_expr(elem) {
+                    continue;
+                }
                 // Grid-only node rules (hysteresis/filter/status/milestone/pid/markov/convolution)
                 // advance per-step state and may consume randomness (markov) — evaluate them ONCE
                 // per grid step, on the final sub-interval. On non-final sub-intervals they hold
@@ -1440,34 +1458,10 @@ impl<'a> RunState<'a> {
                             hyst_state.insert(elem_id.clone(), active);
                             Value::Scalar(if active { output_above.value } else { output_below.value })
                         }
-                        NodeRule::Filter { input, window, statistic } => {
+                        NodeRule::Filter { input, window, statistic, .. } => {
                             let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
-                            let val = match statistic {
-                                FilterStat::Ema => {
-                                    let alpha = 2.0 / (*window as f64 + 1.0);
-                                    let ema = match filter_ema.get(elem_id.as_str()) {
-                                        Some(&p) => alpha * x + (1.0 - alpha) * p,
-                                        None => x,
-                                    };
-                                    filter_ema.insert(elem_id.clone(), ema);
-                                    ema
-                                }
-                                _ => {
-                                    let buf = filter_buf.entry(elem_id.clone()).or_default();
-                                    buf.push_back(x);
-                                    while buf.len() > *window {
-                                        buf.pop_front();
-                                    }
-                                    match statistic {
-                                        FilterStat::Mean => buf.iter().sum::<f64>() / buf.len() as f64,
-                                        FilterStat::Min => buf.iter().cloned().fold(f64::INFINITY, f64::min),
-                                        FilterStat::Max => buf.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-                                        FilterStat::Sum => buf.iter().sum(),
-                                        FilterStat::Ema => unreachable!(),
-                                    }
-                                }
-                            };
-                            Value::Scalar(val)
+                            Value::Scalar(fold_filter(elem_id, statistic, *window, x,
+                                &mut filter_buf, &mut filter_ema))
                         }
                         NodeRule::Status { set, reset } => {
                             // Latch: set fires → 1, reset fires → 0; set wins a simultaneous
@@ -2560,6 +2554,75 @@ impl<'a> RunState<'a> {
                 }
             }
             if step_idx == n_steps - 1 {
+                // `outputs` now holds each stock's end-of-run level S(T) (published after the final
+                // integration). `terminal_elapsed = T` so time-dependent reads see the true maturity.
+                let terminal_elapsed = n_steps as f64 * dt;
+                let close_at_terminal = config.close_at_terminal
+                    .unwrap_or(model.simulation_settings.close_at_terminal);
+
+                // Global closing tick (gap #3, Option B — the `close_at_terminal` mode). One
+                // read-only evaluation at t=T, in topo order: expressions re-evaluate against S(T)
+                // (so an expression payoff, or a `filter`'s expression input, sees the true
+                // terminal), and EVERY filter folds one more (terminal) observation. All other
+                // rules hold their last value — no RNG draws, no integration — so process/sample/
+                // markov/pid/lag invariants are untouched. This subsumes the per-filter
+                // `include_terminal` fold, so that runs only in the non-close path below.
+                if close_at_terminal {
+                    for cid in &graph.topo_order {
+                        let celem = &model.elements[elem_idx[cid.as_str()]];
+                        if let Primitive::Node(node) = &celem.primitive {
+                            match &node.rule {
+                                NodeRule::Expression(ef) | NodeRule::TerminalExpression(ef) => {
+                                    let v = {
+                                        let ctx = ctx_at(&lookups, &outputs, &prev_outputs,
+                                            terminal_elapsed, dt, &dt_unit, step_idx, &arr);
+                                        eval_ast(&ef.ast, &ctx)?
+                                    };
+                                    outputs.insert(cid.clone(), v);
+                                }
+                                NodeRule::Filter { input, window, statistic, .. } => {
+                                    let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                    let v = fold_filter(cid, statistic, *window, x, &mut filter_buf, &mut filter_ema);
+                                    outputs.insert(cid.clone(), Value::Scalar(v));
+                                }
+                                _ => {} // hold: no extra draw / integration
+                            }
+                        }
+                    }
+                } else {
+                    // Terminal fold for `include_terminal` filters only: a filter reads its input one
+                    // step stale, so a running monitor otherwise stops at t_{m-1} and misses the
+                    // terminal observation S(T). Fold that terminal value into just those filters
+                    // (topo order, so a filter over another already-folded filter sees it).
+                    for fid in &graph.topo_order {
+                        let felem = &model.elements[elem_idx[fid.as_str()]];
+                        if let Primitive::Node(node) = &felem.primitive {
+                            if let NodeRule::Filter { input, window, statistic, include_terminal } = &node.rule {
+                                if *include_terminal {
+                                    let x = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0);
+                                    let v = fold_filter(fid, statistic, *window, x, &mut filter_buf, &mut filter_ema);
+                                    outputs.insert(fid.clone(), Value::Scalar(v));
+                                }
+                            }
+                        }
+                    }
+                    // Post-run terminal pass: evaluate terminal expressions once, against terminal
+                    // state, so a `ref` to a stock resolves to S(T). Topo order (deps first) so a
+                    // terminal expression can read an earlier one; save_final below harvests them.
+                    for tid in &graph.topo_order {
+                        let telem = &model.elements[elem_idx[tid.as_str()]];
+                        if let Primitive::Node(node) = &telem.primitive {
+                            if let NodeRule::TerminalExpression(ef) = &node.rule {
+                                let v = {
+                                    let ctx = ctx_at(&lookups, &outputs, &prev_outputs, terminal_elapsed,
+                                        dt, &dt_unit, step_idx, &arr);
+                                    eval_ast(&ef.ast, &ctx)?
+                                };
+                                outputs.insert(tid.clone(), v);
+                            }
+                        }
+                    }
+                }
                 for &id in save_final {
                     if let Some(v) = outputs.get(id) {
                         final_store.get_mut(id).unwrap().push(v.as_scalar());
@@ -3255,10 +3318,57 @@ fn is_grid_only_rule(elem: &Element) -> bool {
     )
 }
 
+/// A `terminal_expression` node: evaluated once after the run (against terminal stock levels),
+/// never in the per-step loop.
+fn is_terminal_expr(elem: &Element) -> bool {
+    matches!(&elem.primitive, Primitive::Node(n) if matches!(&n.rule, NodeRule::TerminalExpression(_)))
+}
+
+/// Fold one observation `x` into a filter's per-realization state and return the running statistic.
+/// Shared by the per-step topo pass and the terminal fold (`include_terminal`), so both advance the
+/// filter identically. `window == 0` is an expanding (cumulative) window.
+fn fold_filter(
+    id: &str,
+    statistic: &FilterStat,
+    window: usize,
+    x: f64,
+    filter_buf: &mut HashMap<String, VecDeque<f64>>,
+    filter_ema: &mut HashMap<String, f64>,
+) -> f64 {
+    match statistic {
+        FilterStat::Ema => {
+            let alpha = 2.0 / (window as f64 + 1.0);
+            let ema = match filter_ema.get(id) {
+                Some(&p) => alpha * x + (1.0 - alpha) * p,
+                None => x,
+            };
+            filter_ema.insert(id.to_string(), ema);
+            ema
+        }
+        _ => {
+            let buf = filter_buf.entry(id.to_string()).or_default();
+            buf.push_back(x);
+            if window > 0 {
+                while buf.len() > window {
+                    buf.pop_front();
+                }
+            }
+            match statistic {
+                FilterStat::Mean => buf.iter().sum::<f64>() / buf.len() as f64,
+                FilterStat::Min => buf.iter().cloned().fold(f64::INFINITY, f64::min),
+                FilterStat::Max => buf.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                FilterStat::Sum => buf.iter().sum(),
+                FilterStat::Ema => unreachable!(),
+            }
+        }
+    }
+}
+
 fn rule_name(rule: &NodeRule) -> &'static str {
     match rule {
         NodeRule::Fixed { .. } => "fixed",
         NodeRule::Expression(_) => "expression",
+        NodeRule::TerminalExpression(_) => "terminal_expression",
         NodeRule::Sample { .. } => "sample",
         NodeRule::Process { .. } => "process",
         NodeRule::Lookup(_) => "lookup",

@@ -130,6 +130,9 @@ fn element_deps(kind: &ElementKind) -> Vec<&str> {
         // Accumulators provide their stored state — no incoming topo edges.
         ElementKind::Accumulator { .. } => vec![],
         ElementKind::Expression { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
+        // Terminal expressions read their inputs' final values; keep them ordered after those
+        // inputs. The v1 reference engine evaluates them to 0.0 and defers to run_v2.
+        ElementKind::TerminalExpression { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
         ElementKind::Script { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
         ElementKind::Array { inputs, .. } => inputs.iter().map(|s| s.as_str()).collect(),
         ElementKind::StochasticProcess { .. } => vec![],
@@ -137,5 +140,7 @@ fn element_deps(kind: &ElementKind) -> Vec<&str> {
         // its input's step-t value. Like accumulators, it carries forward state and takes
         // no incoming topo edge — this lets feedback loops through a delay resolve.
         ElementKind::Delay { .. } => vec![],
+        // A filter reads its input's current-step value; edge input -> filter.
+        ElementKind::Filter { input, .. } => vec![input.as_str()],
     }
 }

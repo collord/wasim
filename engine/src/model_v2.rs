@@ -112,6 +112,10 @@ pub enum NodeRule {
     },
     /// [expression] Evaluate an AST against the current-step context.
     Expression(ExpressionField),
+    /// [terminal_expression] Evaluate an AST **once, after the run**, against each realization's
+    /// terminal state — a `ref` to a stock resolves to its end-of-run level `S(T)`. A sink: not
+    /// evaluated during the per-step loop, and nothing may read it back mid-run.
+    TerminalExpression(ExpressionField),
     /// [sample] Draw from a distribution (once per realization, or per `resampling`).
     Sample {
         distribution: Distribution,
@@ -163,6 +167,9 @@ pub enum NodeRule {
         input: String,
         window: usize,
         statistic: FilterStat,
+        /// Fold the input's terminal value S(T) into the statistic after the run (a running monitor
+        /// otherwise stops one step short of the terminal date). See the v1 `Filter` doc.
+        include_terminal: bool,
     },
     /// [gate_logic] Boolean logic tree → 1.0/0.0.
     GateLogic {

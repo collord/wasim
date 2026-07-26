@@ -2,6 +2,7 @@
 
 **Model:** [`schema_examples_manual/options_pricing_efficiency.json`](schema_examples_manual/options_pricing_efficiency.json)
 **Regression test:** [`engine/tests/options_efficiency_smoke.rs`](engine/tests/options_efficiency_smoke.rs)
+**Companions:** [`ASIAN_OPTION_EXAMPLE.md`](ASIAN_OPTION_EXAMPLE.md) — path-dependent (Asian call, stepped GBM + running averages); [`CORRELATED_ASSETS_EXAMPLE.md`](CORRELATED_ASSETS_EXAMPLE.md) — cross-asset correlation (spread option, Cholesky + Margrabe control).
 
 This note shows how WASiM represents and solves a *pricing-efficiency* analysis in the
 sense of Glasserman, *Monte Carlo Methods in Financial Engineering* (Springer, 2003),

@@ -49,6 +49,16 @@ pub struct SimulationSettings {
     /// calendar (behavior unchanged).
     #[serde(default)]
     pub calendar_start: Option<f64>,
+    /// Global closing tick (gap #3, Option B). When true, after the final integration the engine
+    /// performs one read-only evaluation at `t = T`: expressions re-evaluate against terminal stock
+    /// levels `S(T)`, and every `filter` folds one more (terminal) observation — while RNG-consuming
+    /// / integrating rules hold (no extra draws or integration). This lets a `filter` over an
+    /// *expression* of a stock (e.g. `filter(min, f(S))`) monitor `f(S(T))`, which per-filter
+    /// `include_terminal` cannot (it folds the input's one-step-stale value). It shifts every stepped
+    /// model's `final_value` forward one readable tick, so it is **opt-in**; default (`false`) is
+    /// byte-for-byte unchanged.
+    #[serde(default)]
+    pub close_at_terminal: bool,
 }
 
 fn default_n_realizations() -> u32 {
@@ -346,6 +356,17 @@ pub enum ElementKind {
         #[serde(default)]
         inputs: Vec<String>,
     },
+    /// Like `expression`, but evaluated exactly **once, after the run**, against each
+    /// realization's *terminal* state: a `ref` to a stock resolves to its end-of-run level
+    /// `S(T)` (not the one-step-stale start-of-step value an ordinary expression sees). This
+    /// lets a terminal payoff read the true `S(T)` instead of `S(T-dt)`, removing the
+    /// effective-maturity (`T_eff = T - dt`) workaround. A terminal expression is a sink: it
+    /// may read other elements' final values, but nothing may read it back during the run.
+    TerminalExpression {
+        expression: ExpressionField,
+        #[serde(default)]
+        inputs: Vec<String>,
+    },
     Accumulator {
         initial_value: Quantity,
         initial_expression: Option<ExpressionField>,
@@ -390,6 +411,22 @@ pub enum ElementKind {
         input: String,
         lag: Quantity,
         initial: Option<Quantity>,
+    },
+    /// Rolling- or expanding-window statistic over `input` (running mean/sum/min/max/ema).
+    /// `window` omitted (or 0) = expanding window: a cumulative statistic over every step so
+    /// far — e.g. a time average, or a running extreme for barrier/lookback payoffs.
+    Filter {
+        input: String,
+        #[serde(default)]
+        window: Option<usize>,
+        statistic: String,
+        /// Fold the input's *terminal* value S(T) into the running statistic after the run. A
+        /// filter reads its input one step stale, so a running monitor otherwise stops at t_{m-1}
+        /// and misses the terminal date; set this for a barrier/lookback monitor that must cover
+        /// S(T). Correct when the input resolves to a terminal level (a stock, or a chain of
+        /// terminal reads); an ordinary-expression input folds its one-step-stale value.
+        #[serde(default)]
+        include_terminal: bool,
     },
     Script {
         language: String,
@@ -854,8 +891,12 @@ pub enum BuiltinFn {
 pub struct ProcessSpec {
     pub family: ProcessFamily,
     pub mean_type: ProcessMeanType,
-    pub mean: Quantity,
-    pub stddev: Quantity,
+    // Drift and volatility. `QuantityOrFormula` (not plain `Quantity`) so they can be
+    // expression-valued — e.g. reference an editable `r`/`sigma` constant or a state-
+    // dependent volatility — resolved against the run context before each draw. A plain
+    // `{value, unit}` still deserializes as the `Quantity` variant (backward compatible).
+    pub mean: QuantityOrFormula,
+    pub stddev: QuantityOrFormula,
     /// Mean-reversion rate (per-time). None/zero = a non-reverting random walk (unchanged GBM).
     /// Non-zero makes the process mean-revert toward `reference_value` (§16). Scalar today; the
     /// schema allows quantity_or_formula but the engine resolves only the scalar form.

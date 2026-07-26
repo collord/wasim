@@ -156,6 +156,7 @@ fn value_rule_str(rule: &NodeRule) -> &'static str {
     match rule {
         NodeRule::Fixed { .. } => "fixed",
         NodeRule::Expression(_) => "expression",
+        NodeRule::TerminalExpression(_) => "terminal_expression",
         NodeRule::Sample { .. } => "sample",
         NodeRule::Process { .. } => "process",
         NodeRule::Lookup(_) => "lookup",

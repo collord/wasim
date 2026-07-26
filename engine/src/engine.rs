@@ -46,6 +46,9 @@ pub struct RunConfig {
     /// the scalar realization loop. Falls back to the scalar lane when ineligible, so
     /// the default (false) path is completely untouched.
     pub array_lane: bool,
+    /// Override the model's `close_at_terminal` setting (gap #3, Option B). `None` = use the model
+    /// setting. `Some(b)` forces the global closing tick on/off for this run.
+    pub close_at_terminal: Option<bool>,
 }
 
 /// Dimensional-analysis strictness for a run (B5). See `RunConfig.units`.
@@ -76,6 +79,7 @@ impl Default for RunConfig {
             units: UnitsMode::Warn,
             realization_weights: Vec::new(),
             array_lane: false,
+            close_at_terminal: None,
         }
     }
 }
@@ -485,6 +489,11 @@ pub fn run(
                 ElementKind::StochasticProcess { .. } => {
                     init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(sp_state.get(&elem.id).copied().unwrap_or(0.0)));
                 }
+                // `filter` is a v2 grid node; the v1 reference engine doesn't compute it
+                // (v1 filter models run via normalize_v1 -> run_v2). Seed 0.0 for completeness.
+                ElementKind::Filter { .. } => {
+                    init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(0.0));
+                }
                 ElementKind::Accumulator { initial_value, .. } => {
                     init_ctx_outputs.insert(elem.id.clone(), Value::Scalar(initial_value.value));
                 }
@@ -570,6 +579,14 @@ pub fn run(
                     ElementKind::RandomVariable { .. } => Value::Scalar(rv_samples[elem_id]),
 
                     ElementKind::StochasticProcess { .. } => Value::Scalar(sp_state[elem_id]),
+
+                    // v1 reference engine doesn't implement the v2 `filter` grid node; run
+                    // filter models through run_v2 (normalize_v1). Evaluates to 0.0 here.
+                    ElementKind::Filter { .. } => Value::Scalar(0.0),
+
+                    // Terminal expressions are a post-run construct (evaluated against terminal
+                    // state in run_v2). The v1 reference engine has no post-run pass; 0.0 here.
+                    ElementKind::TerminalExpression { .. } => Value::Scalar(0.0),
 
                     ElementKind::Accumulator { .. } => {
                         acc_state[elem_id].clone()
