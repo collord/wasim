@@ -1,0 +1,1477 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Discretely monitored down-and-out call priced by path Monte Carlo (Glasserman Sec 3.2.2). The running minimum is tracked with an expanding-window filter (min) \u2014 the gap #2 running-statistic; the GBM process drift/vol reference r/sigma directly (gap #1). The plain call on the same path is a control variate whose mean is Black-Scholes (at the effective maturity T_eff = T - dt, since a stock is read one step stale). The Reiner-Rubinstein image formula gives the CONTINUOUS-monitoring price; the discrete MC sits above it (Sec 3.2.2 bias), and the Broadie-Glasserman-Kou continuity correction (shift the barrier by exp(-0.5826 sigma sqrt(dt))) yields a corrected reference the discrete MC matches. See BARRIER_OPTION_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.02,
+      "unit": "yr"
+    },
+    "n_realizations": 100000,
+    "sampling_method": "monte_carlo",
+    "seed": 90909
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "path",
+      "name": "Path & Barrier Monitor",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Derived",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoffs",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Closed-Form References",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "control_variate",
+      "name": "Control Variate",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current underlying price.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Call strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "B",
+      "name": "Barrier",
+      "type": "constant",
+      "container": "contract",
+      "description": "Down-and-out knock-out level (B < S0, B <= K). If the monitored path ever falls to B or below, the option is void.",
+      "value": {
+        "value": 90.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate (also drives the GBM process drift, referenced live).",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility (drives the process vol, referenced live).",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Nominal maturity; must equal simulation duration.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "P",
+      "name": "GBM Rate",
+      "type": "stochastic_process",
+      "container": "path",
+      "description": "Per-step risk-neutral GBM rate; drift/vol reference r and sigma (expression-valued process params, gap #1).",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S",
+      "name": "Underlying Path",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Exact GBM price path (rate = S*P).",
+      "inputs": [
+        "S",
+        "P"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P"
+          }
+        },
+        "display": "S*P"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    },
+    {
+      "id": "run_min",
+      "name": "Running Minimum",
+      "type": "filter",
+      "container": "path",
+      "description": "Cumulative minimum of S over every monitoring date (filter min, no window). The down-and-out is knocked out iff this ever reaches the barrier B.",
+      "input": "S",
+      "statistic": "min",
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "S_term",
+      "name": "Monitored Terminal",
+      "type": "filter",
+      "container": "path",
+      "description": "The last monitored price (filter mean, window 1). An expression reads a stock one step stale, so this is S at the effective maturity T_eff = T - dt; the closed forms below use T_eff to match.",
+      "input": "S",
+      "window": 1,
+      "statistic": "mean",
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "dt",
+      "name": "Timestep",
+      "type": "expression",
+      "container": "derived",
+      "description": "Simulation timestep dt.",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "time_ref",
+          "property": "timestep"
+        },
+        "display": "timestep"
+      }
+    },
+    {
+      "id": "Teff",
+      "name": "Effective Maturity",
+      "type": "expression",
+      "container": "derived",
+      "description": "Effective maturity: the monitored terminal is one step stale, so the option effectively matures at T - dt.",
+      "inputs": [
+        "T",
+        "dt"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "T"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "dt"
+          }
+        },
+        "display": "T - dt"
+      }
+    },
+    {
+      "id": "sigma2",
+      "name": "sigma^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma"
+          }
+        },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "sqrtTeff",
+      "name": "sqrt(Teff)",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "Teff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Teff"
+            }
+          ]
+        },
+        "display": "sqrt(Teff)"
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "derived",
+      "description": "Discount to the effective maturity.",
+      "inputs": [
+        "Teff",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "Teff"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*Teff)"
+      }
+    },
+    {
+      "id": "vanilla",
+      "name": "Vanilla Call Payoff",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Plain European call on the monitored terminal \u2014 the control. Its mean equals Black-Scholes at T_eff, so vanilla-MC == bs_price validates the whole path simulation.",
+      "inputs": [
+        "K",
+        "S_term",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "S_term"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(S_term-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "survives",
+      "name": "Survival Indicator",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "1 if the path never touched the barrier (down-and-out survives), else 0.",
+      "inputs": [
+        "B",
+        "run_min"
+      ],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gt",
+            "left": {
+              "op": "ref",
+              "element_id": "run_min"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "B"
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 1.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
+        },
+        "display": "run_min > B ? 1 : 0"
+      }
+    },
+    {
+      "id": "barrier",
+      "name": "Down-and-Out Call Payoff",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discounted down-and-out call payoff \u2014 the estimator of interest. No closed form for discrete monitoring.",
+      "inputs": [
+        "survives",
+        "vanilla"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "vanilla"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "survives"
+          }
+        },
+        "display": "vanilla * survives"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "bs_d1",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "Vanilla BS(S0,K) d1",
+      "inputs": [
+        "K",
+        "S0",
+        "Teff",
+        "r",
+        "sigma",
+        "sigma2",
+        "sqrtTeff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "call",
+              "fn": "ln",
+              "args": [
+                {
+                  "op": "divide",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "S0"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 0.5
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "sigma2"
+                  }
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Teff"
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtTeff"
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "bs_d2",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "Vanilla BS(S0,K) d2",
+      "inputs": [
+        "bs_d1",
+        "sigma",
+        "sqrtTeff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "bs_d1"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtTeff"
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "bs_price",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "Vanilla BS(S0,K) call price",
+      "inputs": [
+        "K",
+        "S0",
+        "bs_d1",
+        "bs_d2",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S0"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "bs_d1"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "disc"
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "bs_d2"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "display": ""
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "alpha",
+      "name": "RR Exponent",
+      "type": "expression",
+      "container": "reference",
+      "description": "Reiner-Rubinstein reflection exponent.",
+      "inputs": [
+        "r",
+        "sigma2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "divide",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 2.0
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "r"
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sigma2"
+            }
+          },
+          "right": {
+            "op": "literal",
+            "value": 1.0
+          }
+        },
+        "display": "2r/sigma^2 - 1"
+      }
+    },
+    {
+      "id": "img_c",
+      "name": "Image Spot (cont)",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "B",
+        "S0"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "B"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "B"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "S0"
+          }
+        },
+        "display": "B^2/S0"
+      }
+    },
+    {
+      "id": "bsic_d1",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "BS at image spot (cont) d1",
+      "inputs": [
+        "K",
+        "Teff",
+        "img_c",
+        "r",
+        "sigma",
+        "sigma2",
+        "sqrtTeff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "call",
+              "fn": "ln",
+              "args": [
+                {
+                  "op": "divide",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "img_c"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 0.5
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "sigma2"
+                  }
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Teff"
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtTeff"
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "bsic_d2",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "BS at image spot (cont) d2",
+      "inputs": [
+        "bsic_d1",
+        "sigma",
+        "sqrtTeff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "bsic_d1"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtTeff"
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "bsic_price",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "BS at image spot (cont) call price",
+      "inputs": [
+        "K",
+        "bsic_d1",
+        "bsic_d2",
+        "disc",
+        "img_c"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "img_c"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "bsic_d1"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "disc"
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "bsic_d2"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "cdo_cont",
+      "name": "Down-Out Price (continuous, T_eff)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Reiner-Rubinstein down-and-out price for CONTINUOUS monitoring. Discrete monitoring knocks out less often, so the MC price sits ABOVE this (the Sec 3.2.2 bias).",
+      "inputs": [
+        "B",
+        "S0",
+        "alpha",
+        "bs_price",
+        "bsic_price"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "bs_price"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "call",
+              "fn": "exp",
+              "args": [
+                {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "alpha"
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "ln",
+                    "args": [
+                      {
+                        "op": "divide",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "B"
+                        },
+                        "right": {
+                          "op": "ref",
+                          "element_id": "S0"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "bsic_price"
+            }
+          }
+        },
+        "display": "C(S0,K) - (B/S0)^alpha * C(B^2/S0,K)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "B_adj",
+      "name": "BGK-Adjusted Barrier",
+      "type": "expression",
+      "container": "reference",
+      "description": "Broadie-Glasserman-Kou continuity correction: the discrete barrier at B behaves like a continuous barrier at this shifted level.",
+      "inputs": [
+        "B",
+        "dt",
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "B"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "neg",
+                "operand": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "literal",
+                      "value": 0.5825971
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sigma"
+                    }
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "sqrt",
+                    "args": [
+                      {
+                        "op": "ref",
+                        "element_id": "dt"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "B*exp(-0.5826*sigma*sqrt(dt))"
+      }
+    },
+    {
+      "id": "img_b",
+      "name": "Image Spot (BGK)",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "B_adj",
+        "S0"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "B_adj"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "B_adj"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "S0"
+          }
+        },
+        "display": "B_adj^2/S0"
+      }
+    },
+    {
+      "id": "bsib_d1",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "BS at image spot (BGK) d1",
+      "inputs": [
+        "K",
+        "Teff",
+        "img_b",
+        "r",
+        "sigma",
+        "sigma2",
+        "sqrtTeff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "call",
+              "fn": "ln",
+              "args": [
+                {
+                  "op": "divide",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "img_b"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 0.5
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "sigma2"
+                  }
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "Teff"
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtTeff"
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "bsib_d2",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "BS at image spot (BGK) d2",
+      "inputs": [
+        "bsib_d1",
+        "sigma",
+        "sqrtTeff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "bsib_d1"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtTeff"
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "bsib_price",
+      "name": "",
+      "type": "expression",
+      "container": "reference",
+      "description": "BS at image spot (BGK) call price",
+      "inputs": [
+        "K",
+        "bsib_d1",
+        "bsib_d2",
+        "disc",
+        "img_b"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "img_b"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "bsib_d1"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "disc"
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "bsib_d2"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "display": ""
+      }
+    },
+    {
+      "id": "cdo_bgk",
+      "name": "Down-Out Price (BGK-corrected)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Continuity-corrected reference: continuous formula at the BGK-adjusted barrier. Should match the discrete Monte Carlo price.",
+      "inputs": [
+        "B_adj",
+        "S0",
+        "alpha",
+        "bs_price",
+        "bsib_price"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "bs_price"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "call",
+              "fn": "exp",
+              "args": [
+                {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "alpha"
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "ln",
+                    "args": [
+                      {
+                        "op": "divide",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "B_adj"
+                        },
+                        "right": {
+                          "op": "ref",
+                          "element_id": "S0"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "bsib_price"
+            }
+          }
+        },
+        "display": "C(S0,K) - (B_adj/S0)^alpha * C(B_adj^2/S0,K)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "beta",
+      "name": "CV Coefficient",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "b* = Cov(vanilla,barrier)/Var(vanilla) across realizations.",
+      "inputs": [
+        "barrier",
+        "vanilla"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat2",
+          "x": "vanilla",
+          "y": "barrier",
+          "statistic": "beta"
+        },
+        "display": "beta(vanilla,barrier)"
+      }
+    },
+    {
+      "id": "barrier_cv",
+      "name": "Control-Variate Estimator",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "Down-and-out price with the vanilla call as control (known mean bs_price). Unbiased and lower-variance (barrier and vanilla coincide on surviving paths).",
+      "inputs": [
+        "barrier",
+        "beta",
+        "bs_price",
+        "vanilla"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "barrier"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "beta"
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "vanilla"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "bs_price"
+              }
+            }
+          }
+        },
+        "display": "barrier - beta*(vanilla - bs_price)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
