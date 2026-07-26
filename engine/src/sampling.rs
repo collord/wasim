@@ -859,13 +859,13 @@ pub fn sample_gbm<R: Rng>(
     model_time_unit: &str,
     rng: &mut R,
 ) -> Result<f64, EngineError> {
-    let t_ref = time_unit_to_seconds(&parse_rate_denominator(&process.stddev.unit))
+    let t_ref = time_unit_to_seconds(&parse_rate_denominator(process.stddev.unit()))
         / time_unit_to_seconds(model_time_unit);
 
     let dt_ratio = if t_ref > 0.0 { dt / t_ref } else { dt };
 
-    let sigma = process.stddev.value;
-    let mean  = process.mean.value;
+    let sigma = process.stddev.value();
+    let mean  = process.mean.value();
 
     let log_drift = match process.mean_type {
         ProcessMeanType::Geometric  => (1.0 + mean).ln(),
@@ -907,7 +907,7 @@ pub fn sample_ou_step<R: Rng>(
     model_time_unit: &str,
     rng: &mut R,
 ) -> Result<f64, EngineError> {
-    let t_ref = time_unit_to_seconds(&parse_rate_denominator(&process.stddev.unit))
+    let t_ref = time_unit_to_seconds(&parse_rate_denominator(process.stddev.unit()))
         / time_unit_to_seconds(model_time_unit);
     let dt_ratio = if t_ref > 0.0 { dt / t_ref } else { dt };
 
@@ -917,8 +917,8 @@ pub fn sample_ou_step<R: Rng>(
         .reference_value
         .as_ref()
         .map(|q| q.value())
-        .unwrap_or(process.mean.value);
-    let sigma = process.stddev.value;
+        .unwrap_or(process.mean.value());
+    let sigma = process.stddev.value();
 
     let z: f64 = rng.sample(
         Normal::new(0.0_f64, 1.0_f64).map_err(|e| EngineError::Sampling(e.to_string()))?,

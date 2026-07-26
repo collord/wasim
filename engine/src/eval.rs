@@ -854,6 +854,43 @@ pub fn eval_ast_scalar(node: &AstNode, ctx: &EvalCtx) -> Result<f64, EngineError
     eval_ast(node, ctx).map(|v| v.as_scalar())
 }
 
+/// Return a copy of `process` with any expression-valued parameters (drift/vol, and the
+/// reversion/reference/initial fields) evaluated against `ctx` and replaced by scalar
+/// `Quantity` values, so the sampler reads them via `.value()`. `Quantity`/`Formula`
+/// variants pass through unchanged (backward compatible). A formula-valued `stddev`
+/// resolves to unit `"1"`, so the sampler's time-reference falls back to `dt_ratio = dt`
+/// — i.e. the volatility is interpreted per model time step (the common annualized-in-
+/// years case). Mirrors `resolve_distribution`.
+pub fn resolve_process(
+    process: &crate::model::ProcessSpec,
+    ctx: &EvalCtx,
+) -> Result<crate::model::ProcessSpec, EngineError> {
+    let mut p = process.clone();
+    p.mean = resolve_qof(&p.mean, ctx)?;
+    // Volatility: an Expression resolves to a bare scalar (unit "1"), but the sampler needs a
+    // rate unit to set the √-time scaling. Give it the model's timestep unit (`1/dt_unit`) so a
+    // formula-valued vol scales exactly like a literal `1/<dt_unit>` — i.e. it is interpreted as
+    // per model time step. A `Quantity` stddev keeps its declared unit (unchanged behavior).
+    p.stddev = match &process.stddev {
+        QuantityOrFormula::Expression(_) => QuantityOrFormula::Quantity(Quantity {
+            value: resolve_qof(&process.stddev, ctx)?.value(),
+            unit: format!("1/{}", ctx.dt_unit),
+            display_unit: None,
+        }),
+        other => resolve_qof(other, ctx)?,
+    };
+    if let Some(rr) = &p.reversion_rate {
+        p.reversion_rate = Some(resolve_qof(rr, ctx)?);
+    }
+    if let Some(rv) = &p.reference_value {
+        p.reference_value = Some(resolve_qof(rv, ctx)?);
+    }
+    if let Some(iv) = &p.initial_value {
+        p.initial_value = Some(resolve_qof(iv, ctx)?);
+    }
+    Ok(p)
+}
+
 /// Return a copy of `dist` with any `QuantityOrFormula::Expression` parameters replaced by
 /// the evaluated scalar (wrapped as `QuantityOrFormula::Quantity`). `Quantity` and `Formula`
 /// variants pass through unchanged — `Formula` strings still degrade to 0.0 at `.value()`.

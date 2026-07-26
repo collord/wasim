@@ -854,8 +854,12 @@ pub enum BuiltinFn {
 pub struct ProcessSpec {
     pub family: ProcessFamily,
     pub mean_type: ProcessMeanType,
-    pub mean: Quantity,
-    pub stddev: Quantity,
+    // Drift and volatility. `QuantityOrFormula` (not plain `Quantity`) so they can be
+    // expression-valued — e.g. reference an editable `r`/`sigma` constant or a state-
+    // dependent volatility — resolved against the run context before each draw. A plain
+    // `{value, unit}` still deserializes as the `Quantity` variant (backward compatible).
+    pub mean: QuantityOrFormula,
+    pub stddev: QuantityOrFormula,
     /// Mean-reversion rate (per-time). None/zero = a non-reverting random walk (unchanged GBM).
     /// Non-zero makes the process mean-revert toward `reference_value` (§16). Scalar today; the
     /// schema allows quantity_or_formula but the engine resolves only the scalar form.

@@ -1021,17 +1021,21 @@ impl<'a> RunState<'a> {
         for &id in process_ids {
             if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                 if let NodeRule::Process { process, lower_bound } = &n.rule {
-                    if sampling::is_reverting(process) {
+                    // Resolve expression-valued drift/vol against the realization context
+                    // (constants + this realization's samples). Initial draw: elapsed 0.
+                    let pctx = dist_ctx_eval(&lookups, &dist_ctx, &dist_ctx, dt, &dt_unit, &arr);
+                    let process = crate::eval::resolve_process(process, &pctx)?;
+                    if sampling::is_reverting(&process) {
                         // Seed the level at initial_value (else reference/drift level); the node's
                         // step-0 value is that level, not a GBM draw.
                         let x0 = process.initial_value.as_ref().map(|q| q.value()).unwrap_or_else(|| {
                             process.reference_value.as_ref().map(|q| q.value())
-                                .unwrap_or(process.mean.value)
+                                .unwrap_or(process.mean.value())
                         });
                         sp_level.insert(id.to_string(), x0);
                         sp_state.insert(id.to_string(), x0);
                     } else {
-                        let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
+                        let v = sampling::sample_gbm(&process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
                         sp_state.insert(id.to_string(), v);
                     }
                 }
@@ -1266,20 +1270,27 @@ impl<'a> RunState<'a> {
             for &id in process_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
                     if let NodeRule::Process { process, lower_bound } = &n.rule {
-                        if sampling::is_reverting(process) {
+                        // Resolve expression-valued drift/vol against the per-realization context
+                        // (constants + this realization's samples) — the same context the initial
+                        // draw uses, so a formula referencing a constant resolves identically at
+                        // every step (prev_outputs lacks the constants at step 0). Per-step
+                        // state-dependent parameters are a later extension.
+                        let pctx = dist_ctx_eval(&lookups, &dist_ctx, &dist_ctx, dt, &dt_unit, &arr);
+                        let process = crate::eval::resolve_process(process, &pctx)?;
+                        if sampling::is_reverting(&process) {
                             // Mean-reverting (OU): carry the level across steps, seeded at step 0
                             // from initial_value (else the reference/drift level). §16.
                             let prev = sp_level.get(id).copied().unwrap_or_else(|| {
                                 process.initial_value.as_ref().map(|q| q.value()).unwrap_or_else(|| {
                                     process.reference_value.as_ref().map(|q| q.value())
-                                        .unwrap_or(process.mean.value)
+                                        .unwrap_or(process.mean.value())
                                 })
                             });
-                            let v = sampling::sample_ou_step(process, prev, dt, &dt_unit, &mut rng)?;
+                            let v = sampling::sample_ou_step(&process, prev, dt, &dt_unit, &mut rng)?;
                             sp_level.insert(id.to_string(), v);
                             sp_state.insert(id.to_string(), v);
                         } else {
-                            let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
+                            let v = sampling::sample_gbm(&process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
                             sp_state.insert(id.to_string(), v);
                         }
                     }

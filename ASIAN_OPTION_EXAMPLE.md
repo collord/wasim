@@ -91,12 +91,15 @@ Three things fall out:
 Building this surfaced real friction. None of it blocked the example, but each would make
 path-dependent / averaging models substantially cleaner. Roughly in priority order:
 
-1. **Expression-valued process (and distribution) parameters.** `ProcessSpec.mean` / `stddev` are
-   static `Quantity` values, so the path's drift and vol **cannot reference** the editable `r` /
-   `sigma` constants — they are hard-coded in `P` and must be kept in sync by hand (see the model's
-   "engine gap #1" notes). `reversion_rate` / `reference_value` / `initial_value` already accept
-   `QuantityOrFormula`; extending `mean`/`stddev` (and the analogous distribution parameters) to the
-   same would let one editable `sigma` drive both the path and the closed form. **Highest-value fix.**
+1. **Expression-valued process parameters — ✅ implemented.** `ProcessSpec.mean` / `stddev` were
+   static `Quantity` values, so the path's drift/vol couldn't reference the editable `r` / `sigma`
+   constants. They are now `QuantityOrFormula`, resolved against the run context before each draw
+   (mirroring `resolve_distribution`), so **this model's `P` node references `r` and `sigma`
+   directly** — one source of truth for the path, the discount, and the closed form. Backward
+   compatible (a literal `{value,unit}` still parses as before, bit-identically); a formula-valued
+   vol is interpreted per model time step. Verified by `engine/tests/process_formula_params_v2.rs`.
+   (Widening the remaining scalar-only *distribution* families the same way — the
+   `DISTRIBUTION_PARAM_FORMULA.md` proposal — is the natural follow-on.)
 
 2. **A first-class time-average / running-statistic node.** Averaging a signal over the run today
    needs a hand-built `sumS` accumulator *plus* a `cnt` accumulator *plus* a division, and the

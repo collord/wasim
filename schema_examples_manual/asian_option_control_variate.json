@@ -93,7 +93,7 @@
       "name": "Risk-Free Rate",
       "type": "constant",
       "container": "contract",
-      "description": "Annual risk-free rate. NOTE: the process node's drift is a static Quantity hard-set to this value \u2014 keep in sync (engine gap #1).",
+      "description": "Annual risk-free rate. Drives BOTH the discount and the GBM process drift (the process node references this constant via an expression-valued parameter).",
       "value": {
         "value": 0.05,
         "unit": "1/yr"
@@ -109,7 +109,7 @@
       "name": "Volatility",
       "type": "constant",
       "container": "contract",
-      "description": "Annualized volatility (same static-parameter caveat as r).",
+      "description": "Annualized volatility. Drives BOTH the process vol and the geometric closed form (referenced live by the process node).",
       "value": {
         "value": 0.2,
         "unit": "1/yr"
@@ -141,17 +141,23 @@
       "name": "GBM Rate",
       "type": "stochastic_process",
       "container": "path",
-      "description": "Per-step risk-neutral GBM rate (drift r, vol sigma). Returns a per-step RATE so the S accumulator reproduces exact GBM: S *= exp((r-sigma^2/2)dt + sigma*sqrt(dt)Z). mean/stddev are STATIC quantities (engine gap #1).",
+      "description": "Per-step risk-neutral GBM rate (drift r, vol sigma). Returns a per-step RATE so the S accumulator reproduces exact GBM: S *= exp((r-sigma^2/2)dt + sigma*sqrt(dt)Z). Drift and vol are EXPRESSION-VALUED \u2014 they reference the editable r and sigma constants directly (one source of truth), resolved against the run context before each draw.",
       "process": {
         "family": "gbm",
         "mean_type": "arithmetic",
         "mean": {
-          "value": 0.05,
-          "unit": "1/yr"
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
         },
         "stddev": {
-          "value": 0.2,
-          "unit": "1/yr"
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
         }
       },
       "save_results": {
