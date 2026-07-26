@@ -604,6 +604,18 @@ pub enum AstNode {
         #[serde(default)]
         arg: Option<Box<AstNode>>,
     },
+    // Bivariate reduction of two outputs of the same submodel, across that submodel's
+    // realizations — the `submodel_stat` analog of `run_stat2` (cov/corr/beta). Both
+    // outputs come from the one submodel run, so they are index-aligned by realization.
+    // Evaluated on-demand from the pre-computed submodel output vectors (no two-pass /
+    // injection). Enables a control variate inside a nested submodel simulation.
+    // See CONTROL_VARIATE_SCOPE.md Phase 4.
+    SubmodelStat2 {
+        submodel_id: String,
+        output_x: String,
+        output_y: String,
+        statistic: RunPairStat,
+    },
     // Array construction: evaluates each element and produces a vector
     Array {
         elements: Vec<AstNode>,
@@ -646,6 +658,40 @@ pub enum AstNode {
         #[serde(default)]
         arg: Option<Box<AstNode>>,
     },
+    // Bivariate across-realization reduction of two same-model elements over the
+    // Monte-Carlo Run axis — the covariance/correlation/regression-slope companion
+    // to `RunStat`. Unlocks control variates: b* = beta(x = control, y = target)
+    // = Cov(x, y)/Var(x). Like `RunStat` it is pre-computed by the engine's two-pass
+    // driver and does NOT create a topo dependency on `x`/`y`. Nested run-stats are
+    // unsupported (documented). See CONTROL_VARIATE_SCOPE.md.
+    RunStat2 {
+        x: String,
+        y: String,
+        statistic: RunPairStat,
+    },
+    // Multiple-control regression (control-variate generalization): the `index`-th OLS
+    // slope coefficient of regressing `y` on `controls` across realizations, i.e. entry
+    // `index` of b* = Σ_C⁻¹ σ_Cy (Σ_C the control covariance matrix, σ_Cy the control–y
+    // covariances). One node per coefficient; the model forms
+    // `y − Σ_k b_k·(c_k − E[c_k])`. Pre-computed by the two-pass driver like `RunStat`;
+    // no topo dependency on `y`/`controls`. See CONTROL_VARIATE_SCOPE.md Phase 3.
+    RunRegress {
+        y: String,
+        controls: Vec<String>,
+        index: usize,
+    },
+    // Split-sample (K-fold jackknife) control-variate coefficient — a *per-realization*
+    // reduction. For realization i, the value is beta(x, y) estimated over every
+    // realization NOT in i's fold (fold = i mod `folds`). Because the coefficient a
+    // realization sees is independent of its own (x, y), the control-variate estimator
+    // `y − run_split_beta·(x − E[x])` removes the O(1/N) in-sample bias of a same-sample
+    // `beta`. Requires the per-realization injection channel; see CONTROL_VARIATE_SCOPE.md
+    // Phase 3 (split-sample). Scalar lane only.
+    RunSplitBeta {
+        x: String,
+        y: String,
+        folds: usize,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {
@@ -683,6 +729,20 @@ pub enum SubmodelStatKind {
     Sum,
     Min,
     Max,
+}
+
+/// Which bivariate statistic a `run_stat2` node reduces a pair of same-model elements
+/// to, over the Monte-Carlo Run axis. `Beta` is the control-variate coefficient
+/// b* = Cov(x, y)/Var(x) (slope of regressing y on x). See CONTROL_VARIATE_SCOPE.md.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunPairStat {
+    /// Sample covariance Cov(x, y) (n−1 denominator).
+    Cov,
+    /// Pearson correlation Corr(x, y) ∈ [−1, 1].
+    Corr,
+    /// Regression slope Cov(x, y)/Var(x) — the optimal single-control coefficient.
+    Beta,
 }
 
 fn default_output_name() -> String {

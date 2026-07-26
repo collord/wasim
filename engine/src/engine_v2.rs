@@ -69,40 +69,64 @@ pub fn run(
         return crate::array_lane::run_array_lane(model, graph, config);
     }
 
-    let targets = collect_run_stats(model)?;
-    if targets.is_empty() {
+    let (targets, pair_targets, regr_targets, split_targets) = collect_run_stats(model)?;
+    if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty() && split_targets.is_empty() {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
         st.advance(u32::MAX)?;
         return st.assemble();
     }
 
-    // Phase 4 two-pass. Pass 1: run the MC loop, force-saving each RunStat target so
-    // its per-realization finals are captured. RunStat nodes read 0 here; anything
-    // *downstream* of a RunStat is therefore wrong in pass 1 — but we only read the
-    // targets, which must not themselves depend on a RunStat (nested RunStat is
-    // unsupported; documented). Determinism (per-realization content seeds) makes
-    // pass 1 and pass 2 draw identical samples.
+    // Phase 4 two-pass. Pass 1: run the MC loop, force-saving each RunStat / RunStat2
+    // target element so its per-realization finals are captured. RunStat(2) nodes read
+    // 0 here; anything *downstream* of one is therefore wrong in pass 1 — but we only
+    // read the targets, which must not themselves depend on a run-stat (nested run-stat
+    // is unsupported; documented). Determinism (per-realization content seeds) makes
+    // pass 1 and pass 2 draw identical samples, so a bivariate reduction pairs values
+    // from the same realization.
     let mut st1 = RunState::new(model, graph, config)?;
-    let target_ids: Vec<String> = targets.iter().map(|t| t.element_id.clone()).collect();
+    let mut target_ids: Vec<String> = targets.iter().map(|t| t.element_id.clone()).collect();
+    for pt in &pair_targets {
+        target_ids.push(pt.x.clone());
+        target_ids.push(pt.y.clone());
+    }
+    for rt in &regr_targets {
+        target_ids.push(rt.y.clone());
+        target_ids.extend(rt.controls.iter().cloned());
+    }
+    for st in &split_targets {
+        target_ids.push(st.x.clone());
+        target_ids.push(st.y.clone());
+    }
     st1.force_save_targets(&target_ids);
     st1.advance(u32::MAX)?;
     let res1 = st1.assemble()?;
 
-    // Reduce each target's sample vector to its scalar, keyed by (element, stat, arg).
+    // Reduce each target's sample vector to its scalar, keyed for the eval-time lookup.
     let mut reduced: HashMap<String, f64> = HashMap::new();
+    let finals = |id: &str| -> Vec<f64> {
+        res1.elements.get(id).map(|e| e.final_values.clone()).unwrap_or_default()
+    };
     for t in &targets {
-        let samples: &[f64] = res1
-            .elements
-            .get(&t.element_id)
-            .map(|e| e.final_values.as_slice())
-            .unwrap_or(&[]);
-        reduced.insert(t.key.clone(), reduce_run_stat(samples, &t.stat, t.arg));
+        reduced.insert(t.key.clone(), reduce_run_stat(&finals(&t.element_id), &t.stat, t.arg));
+    }
+    for pt in &pair_targets {
+        reduced.insert(pt.key.clone(), reduce_run_stat2(&finals(&pt.x), &finals(&pt.y), &pt.stat));
+    }
+    for rt in &regr_targets {
+        let control_cols: Vec<Vec<f64>> = rt.controls.iter().map(|c| finals(c)).collect();
+        reduced.insert(rt.key.clone(), reduce_run_regress(&finals(&rt.y), &control_cols, rt.index));
+    }
+    // Per-realization reductions → [N] vectors injected element-wise in pass 2.
+    let mut reduced_vecs: HashMap<String, Vec<f64>> = HashMap::new();
+    for st in &split_targets {
+        reduced_vecs.insert(st.key.clone(), crate::engine::jackknife_beta(&finals(&st.x), &finals(&st.y), st.folds));
     }
 
-    // Pass 2: same run with the reduced scalars injected, so downstream nodes see them.
+    // Pass 2: same run with the reduced scalars (and per-realization vectors) injected.
     let mut st2 = RunState::new(model, graph, config)?;
     st2.run_stats = reduced;
+    st2.run_vecs = reduced_vecs;
     st2.advance(u32::MAX)?;
     st2.assemble()
 }
@@ -116,23 +140,56 @@ struct RunStatTarget {
     arg: f64,
 }
 
+/// A `run_stat2` bivariate reduction to pre-compute: its injection key, the two
+/// target elements, and the statistic.
+struct RunStat2Target {
+    key: String,
+    x: String,
+    y: String,
+    stat: crate::model::RunPairStat,
+}
+
+/// A `run_regress` multiple-control reduction to pre-compute: its injection key, the
+/// response element, the control elements, and which coefficient to select.
+struct RunRegressTarget {
+    key: String,
+    y: String,
+    controls: Vec<String>,
+    index: usize,
+}
+
+/// A `run_split_beta` per-realization reduction: its injection key, the control (`x`)
+/// and response (`y`) elements, and the number of jackknife folds.
+struct RunSplitBetaTarget {
+    key: String,
+    x: String,
+    y: String,
+    folds: usize,
+}
+
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
 /// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument in
 /// this first cut — a non-literal is a hard model error rather than silent 0.
-fn collect_run_stats(model: &Model) -> Result<Vec<RunStatTarget>, EngineError> {
+type CollectedTargets =
+    (Vec<RunStatTarget>, Vec<RunStat2Target>, Vec<RunRegressTarget>, Vec<RunSplitBetaTarget>);
+
+fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
     use crate::model::SubmodelStatKind as K;
-    let mut nodes: Vec<(&str, &K, &Option<Box<AstNode>>)> = Vec::new();
+    let mut uni: Vec<(&str, &K, &Option<Box<AstNode>>)> = Vec::new();
+    let mut pair: Vec<(&str, &str, &crate::model::RunPairStat)> = Vec::new();
+    let mut regr: Vec<(&str, &[String], usize)> = Vec::new();
+    let mut split: Vec<(&str, &str, usize)> = Vec::new();
     for e in &model.elements {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Expression(ef) = &n.rule {
-                collect_run_stat_nodes(&ef.ast, &mut nodes);
+                collect_run_stat_nodes(&ef.ast, &mut uni, &mut pair, &mut regr, &mut split);
             }
         }
     }
-    let mut out = Vec::new();
+    let mut targets = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    for (element_id, stat, arg) in nodes {
-        let needs_arg = matches!(k_needs_arg(stat), true);
+    for (element_id, stat, arg) in uni {
+        let needs_arg = k_needs_arg(stat);
         let arg_val = match arg.as_deref() {
             Some(AstNode::Literal { value, .. }) => *value,
             None => 0.0,
@@ -145,10 +202,44 @@ fn collect_run_stats(model: &Model) -> Result<Vec<RunStatTarget>, EngineError> {
         };
         let key = crate::eval::run_stat_key(element_id, stat, arg_val);
         if seen.insert(key.clone()) {
-            out.push(RunStatTarget { key, element_id: element_id.to_string(), stat: stat.clone(), arg: arg_val });
+            targets.push(RunStatTarget { key, element_id: element_id.to_string(), stat: stat.clone(), arg: arg_val });
         }
     }
-    Ok(out)
+    let mut pair_targets = Vec::new();
+    let mut seen2: HashSet<String> = HashSet::new();
+    for (x, y, stat) in pair {
+        let key = crate::eval::run_stat2_key(x, y, stat);
+        if seen2.insert(key.clone()) {
+            pair_targets.push(RunStat2Target { key, x: x.to_string(), y: y.to_string(), stat: stat.clone() });
+        }
+    }
+    let mut regr_targets = Vec::new();
+    let mut seen3: HashSet<String> = HashSet::new();
+    for (y, controls, index) in regr {
+        if index >= controls.len() {
+            return Err(EngineError::InvalidModel(format!(
+                "run_regress on '{y}' index {index} out of range for {} control(s)", controls.len()
+            )));
+        }
+        let key = crate::eval::run_regress_key(y, controls, index);
+        if seen3.insert(key.clone()) {
+            regr_targets.push(RunRegressTarget { key, y: y.to_string(), controls: controls.to_vec(), index });
+        }
+    }
+    let mut split_targets = Vec::new();
+    let mut seen4: HashSet<String> = HashSet::new();
+    for (x, y, folds) in split {
+        if folds < 2 {
+            return Err(EngineError::InvalidModel(format!(
+                "run_split_beta on '{x}'/'{y}' needs folds ≥ 2, got {folds}"
+            )));
+        }
+        let key = crate::eval::run_splitbeta_key(x, y, folds);
+        if seen4.insert(key.clone()) {
+            split_targets.push(RunSplitBetaTarget { key, x: x.to_string(), y: y.to_string(), folds });
+        }
+    }
+    Ok((targets, pair_targets, regr_targets, split_targets))
 }
 
 fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
@@ -156,16 +247,29 @@ fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
     matches!(stat, K::Percentile | K::CumulativeProb | K::Exceedance | K::Cte)
 }
 
+#[allow(clippy::type_complexity)]
 fn collect_run_stat_nodes<'a>(
     node: &'a AstNode,
     out: &mut Vec<(&'a str, &'a crate::model::SubmodelStatKind, &'a Option<Box<AstNode>>)>,
+    pairs: &mut Vec<(&'a str, &'a str, &'a crate::model::RunPairStat)>,
+    regr: &mut Vec<(&'a str, &'a [String], usize)>,
+    split: &mut Vec<(&'a str, &'a str, usize)>,
 ) {
     match node {
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));
             if let Some(a) = arg {
-                collect_run_stat_nodes(a, out);
+                collect_run_stat_nodes(a, out, pairs, regr, split);
             }
+        }
+        AstNode::RunStat2 { x, y, statistic } => {
+            pairs.push((x.as_str(), y.as_str(), statistic));
+        }
+        AstNode::RunRegress { y, controls, index } => {
+            regr.push((y.as_str(), controls.as_slice(), *index));
+        }
+        AstNode::RunSplitBeta { x, y, folds } => {
+            split.push((x.as_str(), y.as_str(), *folds));
         }
         AstNode::Add { left, right } | AstNode::Subtract { left, right }
         | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
@@ -174,30 +278,31 @@ fn collect_run_stat_nodes<'a>(
         | AstNode::Gte { left, right } | AstNode::Eq { left, right }
         | AstNode::Neq { left, right } | AstNode::And { left, right }
         | AstNode::Or { left, right } => {
-            collect_run_stat_nodes(left, out);
-            collect_run_stat_nodes(right, out);
+            collect_run_stat_nodes(left, out, pairs, regr, split);
+            collect_run_stat_nodes(right, out, pairs, regr, split);
         }
-        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out),
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out, pairs, regr, split),
         AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
-            args.iter().for_each(|a| collect_run_stat_nodes(a, out));
+            args.iter().for_each(|a| collect_run_stat_nodes(a, out, pairs, regr, split));
         }
         AstNode::If { cond, then, else_ } => {
-            collect_run_stat_nodes(cond, out);
-            collect_run_stat_nodes(then, out);
-            collect_run_stat_nodes(else_, out);
+            collect_run_stat_nodes(cond, out, pairs, regr, split);
+            collect_run_stat_nodes(then, out, pairs, regr, split);
+            collect_run_stat_nodes(else_, out, pairs, regr, split);
         }
         AstNode::LookupCall { input, input2, .. } => {
-            collect_run_stat_nodes(input, out);
-            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out); }
+            collect_run_stat_nodes(input, out, pairs, regr, split);
+            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out, pairs, regr, split); }
         }
-        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out),
-        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out),
+        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out, pairs, regr, split),
+        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out, pairs, regr, split),
         AstNode::Index { array, indices } => {
-            collect_run_stat_nodes(array, out);
-            indices.iter().for_each(|i| collect_run_stat_nodes(i, out));
+            collect_run_stat_nodes(array, out, pairs, regr, split);
+            indices.iter().for_each(|i| collect_run_stat_nodes(i, out, pairs, regr, split));
         }
-        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out)),
-        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out); } }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr, split)),
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split); } }
+        AstNode::SubmodelStat2 { .. } => {}
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
     }
@@ -218,6 +323,24 @@ fn reduce_run_stat(samples: &[f64], stat: &crate::model::SubmodelStatKind, arg: 
         K::Min => crate::engine::min_of(samples),
         K::Max => crate::engine::max_of(samples),
     }
+}
+
+/// Reduce a `run_stat2` target's two index-aligned per-realization sample vectors
+/// to its bivariate scalar (covariance / correlation / regression slope).
+fn reduce_run_stat2(xs: &[f64], ys: &[f64], stat: &crate::model::RunPairStat) -> f64 {
+    use crate::model::RunPairStat as P;
+    match stat {
+        P::Cov => crate::engine::covariance(xs, ys),
+        P::Corr => crate::engine::correlation(xs, ys),
+        P::Beta => crate::engine::beta(xs, ys),
+    }
+}
+
+/// Solve the multiple-control regression of `ys` on `control_cols` and return the
+/// `index`-th slope coefficient (the pre-computed value a `RunRegress` node reads).
+fn reduce_run_regress(ys: &[f64], control_cols: &[Vec<f64>], index: usize) -> f64 {
+    let refs: Vec<&[f64]> = control_cols.iter().map(|c| c.as_slice()).collect();
+    crate::engine::regression_coefficients(ys, &refs).get(index).copied().unwrap_or(0.0)
 }
 
 /// The resumable state of a partially-advanced run: everything that carries across
@@ -268,6 +391,9 @@ pub struct RunState<'a> {
     dim_labels_by_id: HashMap<String, Vec<String>>,
     /// Pre-reduced across-realization RunStat scalars, injected in the 2nd pass (Phase 4).
     run_stats: HashMap<String, f64>,
+    /// Pre-reduced per-realization vectors (split-sample, Phase 3), injected element-wise
+    /// in the 2nd pass. Empty in the 1st pass and in runs with no per-realization node.
+    run_vecs: HashMap<String, Vec<f64>>,
     index_stack: RefCell<Vec<usize>>,
     fired_events: RefCell<HashSet<String>>,
     submodel_outputs: HashMap<(String, String), Vec<f64>>,
@@ -390,6 +516,7 @@ impl<'a> RunState<'a> {
     // Empty by default; the two-pass `run` (Phase 4) sets `self.run_stats` before
     // the second `advance` when the model contains `run_stat` nodes.
     let run_stats: HashMap<String, f64> = HashMap::new();
+    let run_vecs: HashMap<String, Vec<f64>> = HashMap::new();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
     // repopulated each step by the event pass; shared through ArrayEnv via interior mutability.
@@ -397,10 +524,14 @@ impl<'a> RunState<'a> {
     // SubModel pre-pass (§12): run each referenced submodel once and collect its output
     // samples, so `submodel_stat` nodes reduce real data instead of degrading to 0.0.
     let submodel_outputs = crate::submodel_v2::run_submodels(model, config)?;
+    // Setup-time evaluation happens outside any realization loop; no per-realization channel.
+    let setup_realization = std::cell::Cell::new(0usize);
     let arr = ArrayEnv {
         dims: &dim_sizes_by_id,
         dim_labels: &dim_labels_by_id,
         run_stats: &run_stats,
+        run_vecs: None,
+        cur_realization: &setup_realization,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
         fired_events: &fired_events,
@@ -698,7 +829,7 @@ impl<'a> RunState<'a> {
         model, graph, config,
         n_real, seed, dt, dt_unit, n_steps, use_event_accurate, run_globals,
         user_weights, importance_weights, any_importance,
-        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, index_stack, fired_events,
+        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, run_vecs, index_stack, fired_events,
         submodel_outputs, lookups, save_final, save_hist,
         stock_ids, process_ids, per_step_sample_ids, resample_ids,
         species_info, decay_order, cell_media, cell_volume, medium_porosity,
@@ -799,16 +930,22 @@ impl<'a> RunState<'a> {
         let hist_store = &mut self.hist_store;
         let importance_weights = &mut self.importance_weights;
         let any_importance = &mut self.any_importance;
+        // Set to the active realization each iteration; read by every EvalCtx so
+        // per-realization (`run_vecs`) injections index the right entry.
+        let cur_realization = std::cell::Cell::new(0usize);
         let arr = ArrayEnv {
             dims: &self.dim_sizes_by_id,
             dim_labels: &self.dim_labels_by_id,
             run_stats: &self.run_stats,
+            run_vecs: (!self.run_vecs.is_empty()).then_some(&self.run_vecs),
+            cur_realization: &cur_realization,
             index_stack,
             submodel_outputs,
             fired_events,
             calendar_start: model.simulation_settings.calendar_start,
         };
         for real_idx in from..to {
+        cur_realization.set(real_idx as usize);
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         rng.set_stream(real_idx as u64);
 
@@ -2707,6 +2844,12 @@ pub(crate) struct ArrayEnv<'a> {
     pub dims: &'a HashMap<String, usize>,
     pub dim_labels: &'a HashMap<String, Vec<String>>,
     pub run_stats: &'a HashMap<String, f64>,
+    /// Per-realization injected vectors (split-sample, Phase 3): key → `[N]` vector.
+    /// `None` when the run has no per-realization reductions.
+    pub run_vecs: Option<&'a HashMap<String, Vec<f64>>>,
+    /// The realization currently being evaluated — set by the scalar lane's realization
+    /// loop via interior mutability, read into each `EvalCtx` so `run_vecs` can be indexed.
+    pub cur_realization: &'a std::cell::Cell<usize>,
     pub index_stack: &'a RefCell<Vec<usize>>,
     pub submodel_outputs: &'a HashMap<(String, String), Vec<f64>>,
     /// Ids of events that fired during the current step (§2, for the `occurs` builtin). The
@@ -2729,7 +2872,7 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
@@ -2744,7 +2887,7 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }

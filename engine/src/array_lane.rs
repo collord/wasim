@@ -30,9 +30,9 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine::{ElementResults, RunConfig, SimulationResults};
 use crate::error::EngineError;
-use crate::eval::{eval_ast, resolve_distribution, run_stat_key, EvalCtx, LookupData, Value};
+use crate::eval::{eval_ast, resolve_distribution, run_stat2_key, run_stat_key, EvalCtx, LookupData, Value};
 use crate::graph_v2::ModelGraphV2;
-use crate::model::{AstNode, BuiltinFn, SubmodelStatKind};
+use crate::model::{AstNode, BuiltinFn, RunPairStat, SubmodelStatKind};
 use crate::model_v2::{ContainerKind, Element, FixedValue, Model, NodeRule, Primitive};
 use crate::sampling;
 
@@ -91,6 +91,16 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
             Some(a) => expr_allowed(a),
             None => Ok(()),
         },
+        // run_stat2 (bivariate) is eligible on the flat lane (Phase 2): its two target
+        // columns are materialized here, so the reduction folds in over them like a
+        // univariate run_stat. It carries no sub-expression to check.
+        AstNode::RunStat2 { .. } => Ok(()),
+        // run_regress reduces many columns via a linear solve, not a per-column fold;
+        // it runs on the scalar two-pass driver (Phase 3). Mark ineligible.
+        AstNode::RunRegress { .. } => Err("run_regress"),
+        // run_split_beta injects a per-realization value — only the scalar lane's
+        // realization loop carries the current-realization index. Mark ineligible.
+        AstNode::RunSplitBeta { .. } => Err("run_split_beta"),
         // A call is eligible iff it is a pure elementwise scalar-math builtin and every
         // argument is itself eligible. Non-elementwise builtins (array reducers, event
         // predicates, private-helper specials) keep the model on the scalar lane.
@@ -103,6 +113,7 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         },
         AstNode::LookupCall { .. } => Err("lookup_call"),
         AstNode::SubmodelStat { .. } => Err("submodel_stat"),
+        AstNode::SubmodelStat2 { .. } => Err("submodel_stat2"),
         AstNode::VectorMap { .. } => Err("vector_map"),
         AstNode::Index { .. } => Err("index"),
         AstNode::IndexRef { .. } => Err("index_ref"),
@@ -168,8 +179,14 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         Index { array, indices } => { dim_expr_allowed(array)?; for i in indices { dim_expr_allowed(i)?; } Ok(()) }
         Array { elements } => { for el in elements { dim_expr_allowed(el)?; } Ok(()) }
         RunStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
+        // run_stat2 on the dimensioned lane is deferred: it falls back to the scalar
+        // two-pass, which handles it correctly (flat-lane support landed in Phase 2).
+        RunStat2 { .. } => Err("run_stat2"),
+        RunRegress { .. } => Err("run_regress"),
+        RunSplitBeta { .. } => Err("run_split_beta"),
         // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
         SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
+        SubmodelStat2 { .. } => Err("submodel_stat2"),
         // Any builtin except the ctx-stateful event predicates; array reducers included.
         Call { func, args } => match func {
             BuiltinFn::Occurs | BuiltinFn::Changed => Err("event_predicate"),
@@ -354,6 +371,27 @@ fn emit(
             })?;
             prog.push(Op::RunStat(slot));
         }
+        // Bivariate reduction: reads its pre-reduced scalar from the same `rstats`
+        // slot table as a univariate run_stat, keyed by (x, y, statistic).
+        AstNode::RunStat2 { x, y, statistic } => {
+            let key = run_stat2_key(x, y, statistic);
+            let slot = *rs_of.get(&key).ok_or_else(|| {
+                EngineError::InvalidModel(format!("array lane: run_stat2 key '{key}' not collected"))
+            })?;
+            prog.push(Op::RunStat(slot));
+        }
+        // Unreachable: run_regress is marked ineligible above → scalar two-pass.
+        AstNode::RunRegress { .. } => {
+            return Err(EngineError::InvalidModel(
+                "array lane: run_regress is not supported (handled by the scalar two-pass)".into(),
+            ));
+        }
+        // Unreachable: run_split_beta is marked ineligible above → scalar two-pass.
+        AstNode::RunSplitBeta { .. } => {
+            return Err(EngineError::InvalidModel(
+                "array lane: run_split_beta is not supported (handled by the scalar two-pass)".into(),
+            ));
+        }
         AstNode::Call { func, args } => {
             let bad_arity = |name: &str| EngineError::InvalidModel(
                 format!("array lane: builtin '{name}' called with {} args", args.len()));
@@ -530,7 +568,7 @@ impl LaneEnv {
         EvalCtx {
             lookups: &self.lookups, outputs, prev_outputs: &self.prev, elapsed: 0.0, dt: self.dt,
             dt_unit: &self.dt_unit, step_index: 0, dimensions: &self.dims, dim_labels: &self.labels,
-            run_stats, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
+            run_stats, run_vecs: None, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
             fired_events: &self.fired, calendar_start: self.calendar_start,
         }
     }
@@ -613,8 +651,15 @@ pub fn run_array_lane(
 
     // ── 2. Compile every expression to fused bytecode (once) ──
     let run_stat_targets = collect_run_stats(model)?;
-    let rs_of: HashMap<String, u32> = run_stat_targets.iter().enumerate()
+    let pair_targets = collect_run_stat2s(model);
+    let n_uni = run_stat_targets.len();
+    // Both univariate and bivariate reductions share one `rstats` slot table: univariate
+    // targets take slots 0..n_uni, run_stat2 targets take n_uni.. .
+    let mut rs_of: HashMap<String, u32> = run_stat_targets.iter().enumerate()
         .map(|(i, t)| (t.key.clone(), i as u32)).collect();
+    for (j, pt) in pair_targets.iter().enumerate() {
+        rs_of.insert(pt.key.clone(), (n_uni + j) as u32);
+    }
     // Which run-stat slots reduce which element's column (fill after that column finalizes).
     let mut targets_of: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, t) in run_stat_targets.iter().enumerate() {
@@ -628,7 +673,9 @@ pub fn run_array_lane(
         }
     }
 
-    let mut rstats: Vec<f64> = vec![0.0; run_stat_targets.len()];
+    let mut rstats: Vec<f64> = vec![0.0; n_uni + pair_targets.len()];
+    // run_stat2 targets whose scalar has been computed (both columns finalized).
+    let mut pair_done: Vec<bool> = vec![false; pair_targets.len()];
     let mut stack: Vec<f64> = Vec::with_capacity(32);
 
     // ── 3. Fused evaluation ──
@@ -639,6 +686,18 @@ pub fn run_array_lane(
     // feedback); that case keeps the correctness-preserving two-pass fallback.
     match augmented_order(model, &slot_of) {
         Some(order) => {
+            // Sample and fixed columns are materialized before the loop, so a run_stat2
+            // whose targets are those can reduce immediately; every other column finalizes
+            // as it is emitted below.
+            let mut finalized: HashSet<&str> = HashSet::new();
+            for e in &model.elements {
+                if let Primitive::Node(nd) = &e.primitive {
+                    if matches!(nd.rule, NodeRule::Sample { .. } | NodeRule::Fixed { .. }) {
+                        finalized.insert(e.id());
+                    }
+                }
+            }
+            reduce_ready_pairs(&pair_targets, &finalized, &columns, &slot_of, n, n_uni, &mut rstats, &mut pair_done);
             for id in &order {
                 let slot = slot_of[id.as_str()];
                 if let Some(prog) = progs.get(&slot) {
@@ -655,6 +714,9 @@ pub fn run_array_lane(
                         rstats[i] = reduce_over_column(&columns[slot as usize], &t.stat, t.arg, n);
                     }
                 }
+                // …and any run_stat2 whose other column is already final.
+                finalized.insert(id.as_str());
+                reduce_ready_pairs(&pair_targets, &finalized, &columns, &slot_of, n, n_uni, &mut rstats, &mut pair_done);
             }
         }
         None => {
@@ -666,6 +728,11 @@ pub fn run_array_lane(
             for (i, t) in run_stat_targets.iter().enumerate() {
                 let slot = slot_of[t.element_id.as_str()] as usize;
                 rstats[i] = reduce_over_column(&columns[slot], &t.stat, t.arg, n);
+            }
+            for (j, pt) in pair_targets.iter().enumerate() {
+                let xc = &columns[slot_of[pt.x.as_str()] as usize];
+                let yc = &columns[slot_of[pt.y.as_str()] as usize];
+                rstats[n_uni + j] = reduce_pair_over_columns(xc, yc, &pt.stat, n);
             }
             eval_pass(&exprs, &mut columns, &rstats, n, &mut stack);
         }
@@ -962,6 +1029,11 @@ fn collect_expr_deps(node: &AstNode, out: &mut Vec<String>) {
             out.push(element_id.clone());
             if let Some(a) = arg { collect_expr_deps(a, out); }
         }
+        // Both bivariate targets must be finalized before the reduction folds in.
+        RunStat2 { x, y, .. } => {
+            out.push(x.clone());
+            out.push(y.clone());
+        }
         Add { left, right } | Subtract { left, right } | Multiply { left, right }
         | Divide { left, right } | Power { left, right } | Lt { left, right }
         | Gt { left, right } | Lte { left, right } | Gte { left, right }
@@ -999,6 +1071,47 @@ fn collect_run_stats(model: &Model) -> Result<Vec<RunStatTarget>, EngineError> {
         }
     }
     Ok(out)
+}
+
+/// A bivariate `run_stat2` target on the flat lane: its `rstats` key, the two
+/// column element ids, and the statistic.
+struct RunStat2Target { key: String, x: String, y: String, stat: RunPairStat }
+
+fn collect_run_stat2s(model: &Model) -> Vec<RunStat2Target> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for e in &model.elements {
+        if let Primitive::Node(n) = &e.primitive {
+            if let NodeRule::Expression(ef) = &n.rule {
+                walk_run_stat2s(&ef.ast, &mut out, &mut seen);
+            }
+        }
+    }
+    out
+}
+
+fn walk_run_stat2s(node: &AstNode, out: &mut Vec<RunStat2Target>, seen: &mut HashSet<String>) {
+    use AstNode::*;
+    match node {
+        RunStat2 { x, y, statistic } => {
+            let key = run_stat2_key(x, y, statistic);
+            if seen.insert(key.clone()) {
+                out.push(RunStat2Target { key, x: x.clone(), y: y.clone(), stat: statistic.clone() });
+            }
+        }
+        Add { left, right } | Subtract { left, right } | Multiply { left, right }
+        | Divide { left, right } | Power { left, right } | Lt { left, right }
+        | Gt { left, right } | Lte { left, right } | Gte { left, right }
+        | Eq { left, right } | Neq { left, right } | And { left, right } | Or { left, right } => {
+            walk_run_stat2s(left, out, seen); walk_run_stat2s(right, out, seen);
+        }
+        Neg { operand } | Not { operand } => walk_run_stat2s(operand, out, seen),
+        If { cond, then, else_ } => {
+            walk_run_stat2s(cond, out, seen); walk_run_stat2s(then, out, seen); walk_run_stat2s(else_, out, seen);
+        }
+        Call { args, .. } => { for a in args { walk_run_stat2s(a, out, seen); } }
+        _ => {}
+    }
 }
 
 fn walk_run_stats(node: &AstNode, out: &mut Vec<RunStatTarget>, seen: &mut HashSet<String>) -> Result<(), EngineError> {
@@ -1050,6 +1163,49 @@ fn reduce_run_stat(samples: &[f64], stat: &SubmodelStatKind, arg: f64) -> f64 {
         K::Min => crate::engine::min_of(samples),
         K::Max => crate::engine::max_of(samples),
     }
+}
+
+fn reduce_run_stat2(xs: &[f64], ys: &[f64], stat: &RunPairStat) -> f64 {
+    use RunPairStat as P;
+    match stat {
+        P::Cov => crate::engine::covariance(xs, ys),
+        P::Corr => crate::engine::correlation(xs, ys),
+        P::Beta => crate::engine::beta(xs, ys),
+    }
+}
+
+/// Reduce every run_stat2 target whose two columns are both finalized and not yet
+/// done, writing into its shared `rstats` slot (`base + j`). Idempotent via `done`.
+#[allow(clippy::too_many_arguments)]
+fn reduce_ready_pairs(
+    pairs: &[RunStat2Target],
+    finalized: &HashSet<&str>,
+    columns: &[ColData],
+    slot_of: &HashMap<&str, u32>,
+    n: usize,
+    base: usize,
+    rstats: &mut [f64],
+    done: &mut [bool],
+) {
+    for (j, pt) in pairs.iter().enumerate() {
+        if done[j] || !finalized.contains(pt.x.as_str()) || !finalized.contains(pt.y.as_str()) {
+            continue;
+        }
+        let xc = &columns[slot_of[pt.x.as_str()] as usize];
+        let yc = &columns[slot_of[pt.y.as_str()] as usize];
+        rstats[base + j] = reduce_pair_over_columns(xc, yc, &pt.stat, n);
+        done[j] = true;
+    }
+}
+
+/// Reduce two finalized Run columns to a bivariate scalar, broadcasting a `Scalar`
+/// column to length `n` (matching `reduce_over_column`'s convention).
+fn reduce_pair_over_columns(xc: &ColData, yc: &ColData, stat: &RunPairStat, n: usize) -> f64 {
+    let as_vec = |c: &ColData| match c {
+        ColData::Vec(v) => v.clone(),
+        ColData::Scalar(s) => vec![*s; n],
+    };
+    reduce_run_stat2(&as_vec(xc), &as_vec(yc), stat)
 }
 
 fn primary_unit(elem: &Element) -> &str {

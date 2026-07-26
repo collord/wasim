@@ -145,6 +145,28 @@ pub(crate) fn run_stat_key(
     format!("{element_id}\u{1}{statistic:?}\u{1}{arg}")
 }
 
+/// The `run_stats` injection key for a bivariate `RunStat2` node — a specific
+/// (x, y, statistic) reduction. The `\u{2}` suffix keeps it disjoint from every
+/// `run_stat_key` so the two share the one `run_stats` map without collision.
+/// Computed identically at collection time and eval time (like `run_stat_key`).
+pub(crate) fn run_stat2_key(x: &str, y: &str, statistic: &crate::model::RunPairStat) -> String {
+    format!("{x}\u{1}{y}\u{1}{statistic:?}\u{2}")
+}
+
+/// The `run_stats` injection key for a `RunRegress` node — a specific
+/// (y, controls, index) coefficient. `\u{3}`-terminated to stay disjoint from the
+/// univariate and bivariate keys. Computed identically at collection and eval time.
+pub(crate) fn run_regress_key(y: &str, controls: &[String], index: usize) -> String {
+    format!("{y}\u{1}{}\u{1}{index}\u{3}", controls.join("\u{1}"))
+}
+
+/// The `run_vecs` injection key for a `RunSplitBeta` node — a specific (x, y, folds)
+/// per-realization coefficient vector. `\u{4}`-terminated to stay disjoint from the
+/// scalar run-stat keys. Computed identically at collection and eval time.
+pub(crate) fn run_splitbeta_key(x: &str, y: &str, folds: usize) -> String {
+    format!("{x}\u{1}{y}\u{1}{folds}\u{4}")
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -326,6 +348,11 @@ pub struct EvalCtx<'a> {
     /// the second pass of a `RunStat` run (Phase 4). Empty in the first pass and in
     /// any run without `run_stat` nodes.
     pub run_stats: &'a HashMap<String, f64>,
+    /// Per-realization injected values (Phase 3 split-sample): a map of key →
+    /// `[N]` vector plus the current realization index, so a node can read a value
+    /// specific to the realization being evaluated. `None` outside the scalar lane's
+    /// second pass (and in any run without per-realization reductions).
+    pub run_vecs: Option<(&'a HashMap<String, Vec<f64>>, usize)>,
     /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
     /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
     /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
@@ -687,6 +714,24 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
             Ok(Value::Scalar(reduced))
         }
 
+        // Bivariate reduction of two submodel outputs (control-variate math inside a
+        // submodel). Both come from the same submodel run → index-aligned by realization.
+        AstNode::SubmodelStat2 { submodel_id, output_x, output_y, statistic } => {
+            let xs = ctx.submodel_outputs.get(&(submodel_id.clone(), output_x.clone()));
+            let ys = ctx.submodel_outputs.get(&(submodel_id.clone(), output_y.clone()));
+            let (xs, ys) = match (xs, ys) {
+                (Some(x), Some(y)) => (x, y),
+                _ => return Ok(Value::Scalar(0.0)),
+            };
+            use crate::model::RunPairStat as P;
+            let reduced = match statistic {
+                P::Cov => crate::engine::covariance(xs, ys),
+                P::Corr => crate::engine::correlation(xs, ys),
+                P::Beta => crate::engine::beta(xs, ys),
+            };
+            Ok(Value::Scalar(reduced))
+        }
+
         // Array-comprehension nodes (§15). Indices are 1-based (matching `get_element` and
         // GoldSim arrays): `vector_map` pushes the current 1-based member index onto the
         // shared stack, `index_ref` reads it, `index` subtracts 1 to select.
@@ -765,6 +810,33 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 .unwrap_or(0.0);
             let key = run_stat_key(element_id, statistic, arg_val);
             Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
+        }
+
+        // Bivariate cross-realization reduction (control-variate coefficient etc.).
+        // Pre-computed by the two-pass driver; reads its scalar from `run_stats`
+        // under a (x, y, statistic) key, or 0.0 in the first pass (empty map).
+        AstNode::RunStat2 { x, y, statistic } => {
+            let key = run_stat2_key(x, y, statistic);
+            Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
+        }
+
+        // Multiple-control regression coefficient — pre-computed by the two-pass driver,
+        // read from `run_stats` under a (y, controls, index) key; 0.0 in the first pass.
+        AstNode::RunRegress { y, controls, index } => {
+            let key = run_regress_key(y, controls, *index);
+            Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
+        }
+
+        // Per-realization split-sample coefficient: read this realization's entry of the
+        // injected [N] vector. 0.0 in the first pass / when no per-realization channel.
+        AstNode::RunSplitBeta { x, y, folds } => {
+            let key = run_splitbeta_key(x, y, *folds);
+            let v = ctx
+                .run_vecs
+                .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                .copied()
+                .unwrap_or(0.0);
+            Ok(Value::Scalar(v))
         }
 
         // Opaque source function — preserved for round-tripping, evaluates to 0.0 (§15).
@@ -1736,7 +1808,7 @@ mod named_array_tests {
         let ctx = EvalCtx {
             lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
             elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
-            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, index_stack: &index_stack,
+            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, run_vecs: None, index_stack: &index_stack,
             submodel_outputs: &empty_sub, lag: None, fired_events: &fired, calendar_start: None,
         };
         let node = AstNode::VectorMap {

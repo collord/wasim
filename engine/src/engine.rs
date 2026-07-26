@@ -412,7 +412,7 @@ pub fn run(
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
@@ -434,7 +434,7 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
                     let v = match sampling::icdf(&resolved.kind, u) {
@@ -494,7 +494,7 @@ pub fn run(
         for elem_id in &graph.topo_order {
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let ElementKind::Expression { expression, .. } = &elem.kind {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                 if let Ok(v) = eval_ast(&expression.ast, &ctx) {
                     init_ctx_outputs.insert(elem_id.clone(), v);
                 }
@@ -508,7 +508,7 @@ pub fn run(
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
                 let init = match initial_expression {
                     Some(expr) => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(initial_value.value),
@@ -592,7 +592,7 @@ pub fn run(
                     }
 
                     ElementKind::Expression { expression, .. } => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                             lookups: &lookups, dt_unit: &dt_unit,
                             outputs: &outputs,
                             prev_outputs: &prev_outputs,
@@ -610,7 +610,7 @@ pub fn run(
                                 if *procedural {
                                     eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
-                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
                             }
                         }
@@ -625,7 +625,7 @@ pub fn run(
                             None => !expressions.is_empty(),
                         };
                         if is_expression {
-                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                                 lookups: &lookups, dt_unit: &dt_unit,
                                 outputs: &outputs,
                                 prev_outputs: &prev_outputs,
@@ -651,7 +651,7 @@ pub fn run(
             for &id in &acc_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Accumulator { rate, min_value, capacity, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                         lookups: &lookups, dt_unit: &dt_unit,
                         outputs: &outputs,
                         prev_outputs: &prev_outputs,
@@ -699,7 +699,7 @@ pub fn run(
 
             // Evaluate time_history_displays against the finalized step outputs.
             for d in &model.time_history_displays {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {
@@ -991,6 +991,135 @@ pub(crate) fn max_of(vs: &[f64]) -> f64 {
     vs.iter().copied().max_by(f64::total_cmp).unwrap_or(0.0)
 }
 
+/// Sample covariance of two index-aligned series (n−1 denominator, matching `std`).
+/// 0.0 for fewer than 2 pairs or a length mismatch (defensive).
+pub(crate) fn covariance(xs: &[f64], ys: &[f64]) -> f64 {
+    let n = xs.len();
+    if n < 2 || ys.len() != n {
+        return 0.0;
+    }
+    let mx = mean(xs);
+    let my = mean(ys);
+    let s: f64 = xs.iter().zip(ys).map(|(x, y)| (x - mx) * (y - my)).sum();
+    s / (n - 1) as f64
+}
+
+/// Pearson correlation Cov(x,y)/(σx·σy) ∈ [−1, 1]. 0.0 when either side has zero variance.
+pub(crate) fn correlation(xs: &[f64], ys: &[f64]) -> f64 {
+    let denom = std(xs) * std(ys);
+    if denom <= 0.0 {
+        return 0.0;
+    }
+    covariance(xs, ys) / denom
+}
+
+/// Regression slope Cov(x,y)/Var(x) — the optimal single-control-variate coefficient
+/// b* when `x` is the control and `y` the target. 0.0 when the control has zero
+/// variance (the control then contributes nothing, keeping the estimator unbiased).
+pub(crate) fn beta(xs: &[f64], ys: &[f64]) -> f64 {
+    let var_x = {
+        let s = std(xs);
+        s * s
+    };
+    if var_x <= 0.0 {
+        return 0.0;
+    }
+    covariance(xs, ys) / var_x
+}
+
+/// OLS slope coefficients of regressing `y` on the `controls` across realizations:
+/// b = Σ_C⁻¹ σ_Cy, where Σ_C[i][j] = Cov(cᵢ, cⱼ) and σ_Cy[i] = Cov(cᵢ, y). Using
+/// centered covariances makes these the multiple-regression slopes with an implicit
+/// intercept. A singular/degenerate control system (collinear or zero-variance
+/// controls) returns all-zero coefficients — the control adjustment then vanishes,
+/// keeping the control-variate estimator unbiased. Empty `controls` → empty vec.
+pub(crate) fn regression_coefficients(y: &[f64], controls: &[&[f64]]) -> Vec<f64> {
+    let m = controls.len();
+    if m == 0 {
+        return Vec::new();
+    }
+    // Covariance matrix of the controls and the control–y covariance vector.
+    let mut a = vec![vec![0.0f64; m]; m];
+    let mut d = vec![0.0f64; m];
+    for i in 0..m {
+        d[i] = covariance(controls[i], y);
+        for j in i..m {
+            let c = covariance(controls[i], controls[j]);
+            a[i][j] = c;
+            a[j][i] = c;
+        }
+    }
+    solve_linear_or_zero(a, d)
+}
+
+/// Split-sample (K-fold jackknife) control-variate slope: returns a **per-realization**
+/// vector where entry `i` is `beta(x, y)` estimated over every realization NOT in `i`'s
+/// fold (`fold = i mod k`). Because the coefficient realization `i` receives excludes its
+/// own `(xᵢ, yᵢ)`, the control-variate estimator built from it is free of the O(1/N)
+/// in-sample bias. `folds` is clamped to `[2, n]`; degenerate inputs → all-zero.
+pub(crate) fn jackknife_beta(xs: &[f64], ys: &[f64], folds: usize) -> Vec<f64> {
+    let n = xs.len();
+    if n < 2 || ys.len() != n {
+        return vec![0.0; n];
+    }
+    let k = folds.clamp(2, n);
+    // beta over the complement of each fold.
+    let mut beta_f = vec![0.0; k];
+    for (f, bf) in beta_f.iter_mut().enumerate() {
+        let mut xsub = Vec::with_capacity(n - n / k);
+        let mut ysub = Vec::with_capacity(n - n / k);
+        for i in 0..n {
+            if i % k != f {
+                xsub.push(xs[i]);
+                ysub.push(ys[i]);
+            }
+        }
+        *bf = beta(&xsub, &ysub);
+    }
+    (0..n).map(|i| beta_f[i % k]).collect()
+}
+
+/// Solve `A x = b` for a small symmetric system by Gaussian elimination with partial
+/// pivoting. Returns an all-zero vector if `A` is singular (near-zero pivot) rather
+/// than producing NaNs/Inf — the caller treats that as "no control adjustment".
+fn solve_linear_or_zero(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
+    let n = b.len();
+    for col in 0..n {
+        // Partial pivot: largest-magnitude entry in this column at or below the diagonal.
+        let mut piv = col;
+        for r in (col + 1)..n {
+            if a[r][col].abs() > a[piv][col].abs() {
+                piv = r;
+            }
+        }
+        if a[piv][col].abs() < 1e-12 {
+            return vec![0.0; n]; // singular / collinear controls → no adjustment
+        }
+        a.swap(col, piv);
+        b.swap(col, piv);
+        // Eliminate below.
+        for r in (col + 1)..n {
+            let f = a[r][col] / a[col][col];
+            if f != 0.0 {
+                for c in col..n {
+                    a[r][c] -= f * a[col][c];
+                }
+                b[r] -= f * b[col];
+            }
+        }
+    }
+    // Back-substitution.
+    let mut x = vec![0.0; n];
+    for i in (0..n).rev() {
+        let mut s = b[i];
+        for j in (i + 1)..n {
+            s -= a[i][j] * x[j];
+        }
+        x[i] = s / a[i][i];
+    }
+    x
+}
+
 #[cfg(test)]
 mod reducer_tests {
     use super::*;
@@ -1008,6 +1137,67 @@ mod reducer_tests {
         assert!((exceedance(&V, 5.0) + cumulative_prob(&V, 5.0) - 1.0).abs() < 1e-12);
         assert_eq!(exceedance(&V, 10.0), 0.0, "nothing exceeds the max");
         assert_eq!(exceedance(&V, 0.0), 1.0, "everything exceeds below-min");
+    }
+
+    #[test]
+    fn bivariate_reducers_hand_checks() {
+        // Perfectly linear: y = 3x + 1 → beta(x→y) = 3, corr = 1.
+        let x = [1., 2., 3., 4., 5.];
+        let y = [4., 7., 10., 13., 16.];
+        assert!((beta(&x, &y) - 3.0).abs() < 1e-9, "beta should be 3, got {}", beta(&x, &y));
+        assert!((correlation(&x, &y) - 1.0).abs() < 1e-9);
+        // Negative slope: y = -2x + 10 → beta = -2, corr = -1.
+        let yn = [8., 6., 4., 2., 0.];
+        assert!((beta(&x, &yn) + 2.0).abs() < 1e-9);
+        assert!((correlation(&x, &yn) + 1.0).abs() < 1e-9);
+        // cov symmetric; cov(x,x) = var(x) = std(x)^2.
+        assert!((covariance(&x, &y) - covariance(&y, &x)).abs() < 1e-9);
+        assert!((covariance(&x, &x) - std(&x).powi(2)).abs() < 1e-9);
+        // Degenerate control (zero variance) → beta 0 (unbiased no-op), corr 0.
+        let c = [5., 5., 5., 5., 5.];
+        assert_eq!(beta(&c, &y), 0.0);
+        assert_eq!(correlation(&c, &y), 0.0);
+    }
+
+    #[test]
+    fn regression_coefficients_hand_checks() {
+        // Deterministic exact-fit: c0=[1,2,3,4], c1=[1,0,1,0], y = 2*c0 - 3*c1.
+        let c0 = [1.0, 2.0, 3.0, 4.0];
+        let c1 = [1.0, 0.0, 1.0, 0.0];
+        let y: Vec<f64> = (0..4).map(|i| 2.0 * c0[i] - 3.0 * c1[i]).collect();
+        let b = regression_coefficients(&y, &[&c0, &c1]);
+        assert!((b[0] - 2.0).abs() < 1e-9, "b0 should be 2, got {}", b[0]);
+        assert!((b[1] + 3.0).abs() < 1e-9, "b1 should be -3, got {}", b[1]);
+
+        // Single control reduces to the simple slope = beta(c0, y).
+        let b1 = regression_coefficients(&y, &[&c0]);
+        assert!((b1[0] - beta(&c0, &y)).abs() < 1e-9);
+
+        // Collinear controls (c1 == c0) → singular system → all-zero (safe no-op).
+        let bz = regression_coefficients(&y, &[&c0, &c0]);
+        assert!(bz.iter().all(|&v| v == 0.0), "collinear controls → zero coefficients");
+
+        // No controls → empty.
+        assert!(regression_coefficients(&y, &[]).is_empty());
+    }
+
+    #[test]
+    fn jackknife_beta_leaves_out_the_right_fold() {
+        // xs=[1,2,3,4], ys=[2,4,6,100], folds=2 → fold0={0,2}, fold1={1,3}.
+        // realization 0,2 see beta over the COMPLEMENT {1,3}: beta([2,4],[4,100]) = 48.
+        // realization 1,3 see beta over {0,2}: beta([1,3],[2,6]) = 2.
+        let v = jackknife_beta(&[1.0, 2.0, 3.0, 4.0], &[2.0, 4.0, 6.0, 100.0], 2);
+        assert_eq!(v.len(), 4);
+        assert!((v[0] - 48.0).abs() < 1e-9 && (v[2] - 48.0).abs() < 1e-9, "fold-0 rows: {v:?}");
+        assert!((v[1] - 2.0).abs() < 1e-9 && (v[3] - 2.0).abs() < 1e-9, "fold-1 rows: {v:?}");
+
+        // Exact linear data → every leave-fold-out beta equals the true slope.
+        let xs: Vec<f64> = (1..=6).map(|i| i as f64).collect();
+        let ys: Vec<f64> = xs.iter().map(|x| 2.0 * x).collect();
+        assert!(jackknife_beta(&xs, &ys, 3).iter().all(|&b| (b - 2.0).abs() < 1e-9));
+
+        // Degenerate: <2 samples → zeros.
+        assert_eq!(jackknife_beta(&[1.0], &[2.0], 2), vec![0.0]);
     }
 
     #[test]

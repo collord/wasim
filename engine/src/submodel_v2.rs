@@ -36,6 +36,11 @@ fn collect_ast(node: &AstNode, out: &mut HashSet<(String, String)>) {
                 collect_ast(a, out);
             }
         }
+        // Both outputs must be collected by the submodel pre-pass for the bivariate reduction.
+        AstNode::SubmodelStat2 { submodel_id, output_x, output_y, .. } => {
+            out.insert((submodel_id.clone(), output_x.clone()));
+            out.insert((submodel_id.clone(), output_y.clone()));
+        }
         AstNode::Add { left, right }
         | AstNode::Subtract { left, right }
         | AstNode::Multiply { left, right }
@@ -70,6 +75,9 @@ fn collect_ast(node: &AstNode, out: &mut HashSet<(String, String)>) {
         AstNode::VectorMap { body, .. } => collect_ast(body, out),
         AstNode::Subscript { array, .. } => collect_ast(array, out),
         AstNode::RunStat { arg, .. } => { if let Some(a) = arg { collect_ast(a, out); } }
+        AstNode::RunStat2 { .. } => {}
+        AstNode::RunRegress { .. } => {}
+        AstNode::RunSplitBeta { .. } => {}
         AstNode::Index { array, indices } => {
             collect_ast(array, out);
             indices.iter().for_each(|i| collect_ast(i, out));
@@ -125,11 +133,15 @@ fn ast_refs(node: &AstNode, out: &mut HashSet<String>) {
         AstNode::VectorMap { body, .. } => ast_refs(body, out),
         AstNode::Subscript { array, .. } => ast_refs(array, out),
         AstNode::RunStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
+        AstNode::RunStat2 { .. } => {}
+        AstNode::RunRegress { .. } => {}
+        AstNode::RunSplitBeta { .. } => {}
         AstNode::Index { array, indices } => {
             ast_refs(array, out); indices.iter().for_each(|i| ast_refs(i, out));
         }
         AstNode::Array { elements } => elements.iter().for_each(|e| ast_refs(e, out)),
         AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
+        AstNode::SubmodelStat2 { .. } => {}
         AstNode::Literal { .. } | AstNode::TimeRef { .. } | AstNode::IndexRef { .. } => {}
     }
 }

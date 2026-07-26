@@ -383,6 +383,12 @@ fn render_ast(n: &AstNode) -> String {
                 None => format!("{f}({sub}.{out})"),
             }
         }
+        AstNode::SubmodelStat2 { submodel_id, output_x, output_y, statistic } => {
+            let sub = submodel_id.rsplit('/').next().unwrap_or(submodel_id);
+            let ox = output_x.rsplit('/').next().unwrap_or(output_x);
+            let oy = output_y.rsplit('/').next().unwrap_or(output_y);
+            format!("submodel_stat2({sub}.{ox}, {sub}.{oy}, {statistic:?})")
+        }
         AstNode::VectorMap { over, body } => format!("vector[{over}]({})", render_ast(body)),
         AstNode::IndexRef { axis } => match axis {
             IndexAxis::Row => "row".to_string(),
@@ -397,6 +403,15 @@ fn render_ast(n: &AstNode) -> String {
         }
         AstNode::RunStat { element_id, statistic, .. } => {
             format!("run_stat({element_id}, {statistic:?})")
+        }
+        AstNode::RunStat2 { x, y, statistic } => {
+            format!("run_stat2({x}, {y}, {statistic:?})")
+        }
+        AstNode::RunRegress { y, controls, index } => {
+            format!("run_regress({y}; [{}]; {index})", controls.join(", "))
+        }
+        AstNode::RunSplitBeta { x, y, folds } => {
+            format!("run_split_beta({x}, {y}; {folds} folds)")
         }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
