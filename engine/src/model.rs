@@ -668,6 +668,18 @@ pub enum AstNode {
         controls: Vec<String>,
         index: usize,
     },
+    // Split-sample (K-fold jackknife) control-variate coefficient — a *per-realization*
+    // reduction. For realization i, the value is beta(x, y) estimated over every
+    // realization NOT in i's fold (fold = i mod `folds`). Because the coefficient a
+    // realization sees is independent of its own (x, y), the control-variate estimator
+    // `y − run_split_beta·(x − E[x])` removes the O(1/N) in-sample bias of a same-sample
+    // `beta`. Requires the per-realization injection channel; see CONTROL_VARIATE_SCOPE.md
+    // Phase 3 (split-sample). Scalar lane only.
+    RunSplitBeta {
+        x: String,
+        y: String,
+        folds: usize,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {

@@ -247,6 +247,8 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
         AstNode::RunStat2 { .. } => {}
         // RunRegress is pre-computed too; its `y`/`controls` create no topo dependency.
         AstNode::RunRegress { .. } => {}
+        // RunSplitBeta is pre-computed per realization; its `x`/`y` create no topo dependency.
+        AstNode::RunSplitBeta { .. } => {}
         AstNode::Index { array, indices } => {
             collect_ast_refs(array, out);
             for i in indices {

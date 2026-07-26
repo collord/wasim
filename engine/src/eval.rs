@@ -160,6 +160,13 @@ pub(crate) fn run_regress_key(y: &str, controls: &[String], index: usize) -> Str
     format!("{y}\u{1}{}\u{1}{index}\u{3}", controls.join("\u{1}"))
 }
 
+/// The `run_vecs` injection key for a `RunSplitBeta` node — a specific (x, y, folds)
+/// per-realization coefficient vector. `\u{4}`-terminated to stay disjoint from the
+/// scalar run-stat keys. Computed identically at collection and eval time.
+pub(crate) fn run_splitbeta_key(x: &str, y: &str, folds: usize) -> String {
+    format!("{x}\u{1}{y}\u{1}{folds}\u{4}")
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -341,6 +348,11 @@ pub struct EvalCtx<'a> {
     /// the second pass of a `RunStat` run (Phase 4). Empty in the first pass and in
     /// any run without `run_stat` nodes.
     pub run_stats: &'a HashMap<String, f64>,
+    /// Per-realization injected values (Phase 3 split-sample): a map of key →
+    /// `[N]` vector plus the current realization index, so a node can read a value
+    /// specific to the realization being evaluated. `None` outside the scalar lane's
+    /// second pass (and in any run without per-realization reductions).
+    pub run_vecs: Option<(&'a HashMap<String, Vec<f64>>, usize)>,
     /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
     /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
     /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
@@ -795,6 +807,18 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         AstNode::RunRegress { y, controls, index } => {
             let key = run_regress_key(y, controls, *index);
             Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
+        }
+
+        // Per-realization split-sample coefficient: read this realization's entry of the
+        // injected [N] vector. 0.0 in the first pass / when no per-realization channel.
+        AstNode::RunSplitBeta { x, y, folds } => {
+            let key = run_splitbeta_key(x, y, *folds);
+            let v = ctx
+                .run_vecs
+                .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                .copied()
+                .unwrap_or(0.0);
+            Ok(Value::Scalar(v))
         }
 
         // Opaque source function — preserved for round-tripping, evaluates to 0.0 (§15).
@@ -1766,7 +1790,7 @@ mod named_array_tests {
         let ctx = EvalCtx {
             lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
             elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
-            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, index_stack: &index_stack,
+            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, run_vecs: None, index_stack: &index_stack,
             submodel_outputs: &empty_sub, lag: None, fired_events: &fired, calendar_start: None,
         };
         let node = AstNode::VectorMap {

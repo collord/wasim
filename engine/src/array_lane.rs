@@ -98,6 +98,9 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         // run_regress reduces many columns via a linear solve, not a per-column fold;
         // it runs on the scalar two-pass driver (Phase 3). Mark ineligible.
         AstNode::RunRegress { .. } => Err("run_regress"),
+        // run_split_beta injects a per-realization value — only the scalar lane's
+        // realization loop carries the current-realization index. Mark ineligible.
+        AstNode::RunSplitBeta { .. } => Err("run_split_beta"),
         // A call is eligible iff it is a pure elementwise scalar-math builtin and every
         // argument is itself eligible. Non-elementwise builtins (array reducers, event
         // predicates, private-helper specials) keep the model on the scalar lane.
@@ -179,6 +182,7 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         // two-pass, which handles it correctly (flat-lane support landed in Phase 2).
         RunStat2 { .. } => Err("run_stat2"),
         RunRegress { .. } => Err("run_regress"),
+        RunSplitBeta { .. } => Err("run_split_beta"),
         // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
         SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
         // Any builtin except the ctx-stateful event predicates; array reducers included.
@@ -380,6 +384,12 @@ fn emit(
                 "array lane: run_regress is not supported (handled by the scalar two-pass)".into(),
             ));
         }
+        // Unreachable: run_split_beta is marked ineligible above → scalar two-pass.
+        AstNode::RunSplitBeta { .. } => {
+            return Err(EngineError::InvalidModel(
+                "array lane: run_split_beta is not supported (handled by the scalar two-pass)".into(),
+            ));
+        }
         AstNode::Call { func, args } => {
             let bad_arity = |name: &str| EngineError::InvalidModel(
                 format!("array lane: builtin '{name}' called with {} args", args.len()));
@@ -556,7 +566,7 @@ impl LaneEnv {
         EvalCtx {
             lookups: &self.lookups, outputs, prev_outputs: &self.prev, elapsed: 0.0, dt: self.dt,
             dt_unit: &self.dt_unit, step_index: 0, dimensions: &self.dims, dim_labels: &self.labels,
-            run_stats, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
+            run_stats, run_vecs: None, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
             fired_events: &self.fired, calendar_start: self.calendar_start,
         }
     }

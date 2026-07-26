@@ -1,10 +1,9 @@
 # Scope: Cross-Realization Bivariate Reducers (Control-Variate Support)
 
-**Status:** Phases 1–2 **implemented** (`run_stat2` with `cov`/`corr`/`beta`, scalar + fused array
-lanes). Phase 3 **partially implemented**: multiple-control regression (`run_regress`) landed;
-split-sample `b` is **blocked** on a missing engine mechanism (per-realization injected values) and
-stays scoped — see the Phase 3 summary. Phase 4 remains proposed. Per-phase "what landed" summaries
-at the end of this doc.
+**Status:** Phases 1–3 **implemented**. Phase 3 delivered multiple-control regression (`run_regress`)
+*and* split-sample `b` (`run_split_beta`) — the latter on a new **per-realization injection** channel
+(`EvalCtx.run_vecs`) that the earlier draft had flagged as the missing mechanism. Phase 4 remains
+proposed. Per-phase "what landed" summaries at the end of this doc.
 **Motivation:** [`OPTIONS_PRICING_EFFICIENCY.md`](OPTIONS_PRICING_EFFICIENCY.md) §5 — control variates
 could not be expressed because the optimal coefficient needs a **covariance between two
 elements across realizations**, and `run_stat` reduces a **single** element.
@@ -190,7 +189,7 @@ with a Chan-style parallel merge, exactly paralleling the existing `m2`).
 |---|---|---|
 | **1 (MVP)** ✅ | `Cov`/`Corr`/`Beta` node; scalar `engine_v2` two-pass; array-lane made ineligible → scalar fallback; reducers; graph ordering; tests. **Single control variate fully expressible.** | model.rs, eval.rs, engine.rs, engine_v2.rs, array_lane.rs, graph_v2.rs, summary.rs, submodel_v2.rs |
 | **2** ✅ | `Corr` (landed in P1); `run_stat2` made eligible on the fused array lane, reducing over the two materialized columns (bit-identical to the scalar lane) | array_lane.rs |
-| **3** ◑ | Multi-control regression (`run_regress`, indexed OLS coefficient via a linear solve) — **landed**. Split-sample `b` — **blocked** (needs per-realization injection; see summary) | model.rs, eval.rs, engine.rs, engine_v2.rs, graph_v2.rs, summary.rs, submodel_v2.rs, array_lane.rs |
+| **3** ✅ | Multi-control regression (`run_regress`, indexed OLS via a linear solve) **and** split-sample `b` (`run_split_beta`, K-fold jackknife) on a new per-realization injection channel (`EvalCtx.run_vecs`) | model.rs, eval.rs, engine.rs, engine_v2.rs, graph_v2.rs, summary.rs, submodel_v2.rs, array_lane.rs |
 | **4** | `submodel_stat` symmetry — bivariate reduction across a submodel's realizations | submodel_v2.rs |
 
 Phase 1 alone closes the documented gap.
@@ -284,7 +283,7 @@ the two finalized columns — genuinely single-pass, since the columns are built
   corr≈2/√5. The **scalar and array lanes agree bit-identically**, and a downstream node consumes
   the reduction. `run_stat2` remains ineligible only on the (rarer) dimensioned lane.
 
-## Phase 3 — multiple-control regression implemented; split-sample blocked
+## Phase 3 — multiple-control regression + split-sample `b` (per-realization injection)
 
 ### Multiple-control regression (`run_regress`) — implemented
 
@@ -310,21 +309,33 @@ reusing the Phase 1/2 scalar `run_stats` injection unchanged.
   solve); a single-control regress equals `beta`; collinear controls → zero; index out of range is a
   model error.
 
-### Split-sample `b` — blocked, stays scoped
+### Split-sample `b` (`run_split_beta`) — implemented via per-realization injection
 
-The in-sample bias fix (§4) needs `b̂` estimated on one set of realizations and applied to a
-**disjoint** set — i.e. the coefficient a realization sees must depend on **which fold it is in**.
-But the whole two-pass mechanism injects **one scalar, constant across all realizations**; there is
-no per-realization injected value, and no realization-index AST node to branch on. So a K-fold /
-leave-one-out `b` cannot be expressed today. Closing it needs one of:
+The earlier draft flagged this as blocked: the in-sample bias fix needs the coefficient a realization
+sees to depend on **which fold it is in**, but the two-pass mechanism injected **one scalar constant
+across all realizations**. Phase 3 added the missing mechanism — a **per-realization injection
+channel** — and built split-sample `b` on it.
 
-1. a **per-realization injected vector** (reduce to an `[N]` array, inject element-wise) — a new
-   injection channel and a `Value::Vector` run-stat, or
-2. a **realization-index reference** (`AstNode::RealizationIndex`) so the model can select `b_foldA`
-   vs `b_foldB` itself.
+- **Per-realization channel** (`eval.rs`, `engine_v2.rs`): `EvalCtx.run_vecs: Option<(&HashMap<String,
+  Vec<f64>>, usize)>` — a key→`[N]` map plus the current realization index. `ArrayEnv` carries the
+  map and a `Cell<usize>` current-realization; the scalar lane's realization loop sets the cell each
+  iteration, and every `EvalCtx` reads `(map, cell)` so a node can index its own realization's value.
+  `RunState` gains a `run_vecs` field the two-pass driver fills in pass 2 (parallel to `run_stats`).
+- **Node** (`model.rs`): `RunSplitBeta { x, y, folds }` → `{ "op": "run_split_beta", "x": …, "y": …,
+  "folds": K }`. For realization i it reads `beta(x, y)` estimated over every realization **not** in
+  fold `i mod K` — so the coefficient excludes its own `(xᵢ, yᵢ)`.
+- **Reducer** (`engine.rs`): `jackknife_beta(x, y, folds)` returns the `[N]` vector of leave-fold-out
+  betas (folds clamped to `[2, n]`; degenerate → zeros).
+- **Lane**: scalar-only (the array lane is columnar and has no single "current realization"); marked
+  ineligible like `run_regress`.
+- **Verified**: `jackknife_beta_leaves_out_the_right_fold` (hand-computed fold exclusion) and
+  `engine/tests/run_splitbeta_v2.rs` — X~N(0,1),W~N(0,1),Y=2X+W: the injected coefficient is **not a
+  constant** (exactly K=4 distinct fold values, cycling with `i mod 4`, each ≈ true beta 2), and a
+  downstream CV estimator consumes the per-realization value and stays unbiased.
 
-Both are their own scoped features. The current same-sample `b̂` bias is `O(1/N)` and negligible at
-Monte-Carlo realization counts, so this is a precision refinement, not a correctness gap.
+This channel is general: any future reduction that needs a per-realization value (not just
+split-sample beta) can inject an `[N]` vector the same way.
 
-**Back-compat:** additive node; models without `run_regress` are unchanged (the third target list is
-empty → the single-pass early return still fires when no run-stat of any kind is present).
+**Back-compat:** all additive. Models without any run-stat still hit the single-pass early return
+(now gated on all four target lists being empty); `run_vecs` is `None`/empty everywhere except pass 2
+of a model that uses `run_split_beta`, so every other path is unchanged.

@@ -404,6 +404,9 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::RunRegress { y, controls, index } => {
             format!("run_regress({y}; [{}]; {index})", controls.join(", "))
         }
+        AstNode::RunSplitBeta { x, y, folds } => {
+            format!("run_split_beta({x}, {y}; {folds} folds)")
+        }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
             format!("{func}({})", a.join(", "))

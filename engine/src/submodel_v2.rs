@@ -72,6 +72,7 @@ fn collect_ast(node: &AstNode, out: &mut HashSet<(String, String)>) {
         AstNode::RunStat { arg, .. } => { if let Some(a) = arg { collect_ast(a, out); } }
         AstNode::RunStat2 { .. } => {}
         AstNode::RunRegress { .. } => {}
+        AstNode::RunSplitBeta { .. } => {}
         AstNode::Index { array, indices } => {
             collect_ast(array, out);
             indices.iter().for_each(|i| collect_ast(i, out));
@@ -129,6 +130,7 @@ fn ast_refs(node: &AstNode, out: &mut HashSet<String>) {
         AstNode::RunStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
         AstNode::RunStat2 { .. } => {}
         AstNode::RunRegress { .. } => {}
+        AstNode::RunSplitBeta { .. } => {}
         AstNode::Index { array, indices } => {
             ast_refs(array, out); indices.iter().for_each(|i| ast_refs(i, out));
         }

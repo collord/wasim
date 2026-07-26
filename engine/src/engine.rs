@@ -412,7 +412,7 @@ pub fn run(
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
@@ -434,7 +434,7 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
                     let v = match sampling::icdf(&resolved.kind, u) {
@@ -494,7 +494,7 @@ pub fn run(
         for elem_id in &graph.topo_order {
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let ElementKind::Expression { expression, .. } = &elem.kind {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                 if let Ok(v) = eval_ast(&expression.ast, &ctx) {
                     init_ctx_outputs.insert(elem_id.clone(), v);
                 }
@@ -508,7 +508,7 @@ pub fn run(
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
                 let init = match initial_expression {
                     Some(expr) => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(initial_value.value),
@@ -592,7 +592,7 @@ pub fn run(
                     }
 
                     ElementKind::Expression { expression, .. } => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                             lookups: &lookups, dt_unit: &dt_unit,
                             outputs: &outputs,
                             prev_outputs: &prev_outputs,
@@ -610,7 +610,7 @@ pub fn run(
                                 if *procedural {
                                     eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
-                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
                             }
                         }
@@ -625,7 +625,7 @@ pub fn run(
                             None => !expressions.is_empty(),
                         };
                         if is_expression {
-                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                                 lookups: &lookups, dt_unit: &dt_unit,
                                 outputs: &outputs,
                                 prev_outputs: &prev_outputs,
@@ -651,7 +651,7 @@ pub fn run(
             for &id in &acc_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Accumulator { rate, min_value, capacity, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                         lookups: &lookups, dt_unit: &dt_unit,
                         outputs: &outputs,
                         prev_outputs: &prev_outputs,
@@ -699,7 +699,7 @@ pub fn run(
 
             // Evaluate time_history_displays against the finalized step outputs.
             for d in &model.time_history_displays {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {
@@ -1052,6 +1052,33 @@ pub(crate) fn regression_coefficients(y: &[f64], controls: &[&[f64]]) -> Vec<f64
     solve_linear_or_zero(a, d)
 }
 
+/// Split-sample (K-fold jackknife) control-variate slope: returns a **per-realization**
+/// vector where entry `i` is `beta(x, y)` estimated over every realization NOT in `i`'s
+/// fold (`fold = i mod k`). Because the coefficient realization `i` receives excludes its
+/// own `(xᵢ, yᵢ)`, the control-variate estimator built from it is free of the O(1/N)
+/// in-sample bias. `folds` is clamped to `[2, n]`; degenerate inputs → all-zero.
+pub(crate) fn jackknife_beta(xs: &[f64], ys: &[f64], folds: usize) -> Vec<f64> {
+    let n = xs.len();
+    if n < 2 || ys.len() != n {
+        return vec![0.0; n];
+    }
+    let k = folds.clamp(2, n);
+    // beta over the complement of each fold.
+    let mut beta_f = vec![0.0; k];
+    for (f, bf) in beta_f.iter_mut().enumerate() {
+        let mut xsub = Vec::with_capacity(n - n / k);
+        let mut ysub = Vec::with_capacity(n - n / k);
+        for i in 0..n {
+            if i % k != f {
+                xsub.push(xs[i]);
+                ysub.push(ys[i]);
+            }
+        }
+        *bf = beta(&xsub, &ysub);
+    }
+    (0..n).map(|i| beta_f[i % k]).collect()
+}
+
 /// Solve `A x = b` for a small symmetric system by Gaussian elimination with partial
 /// pivoting. Returns an all-zero vector if `A` is singular (near-zero pivot) rather
 /// than producing NaNs/Inf — the caller treats that as "no control adjustment".
@@ -1152,6 +1179,25 @@ mod reducer_tests {
 
         // No controls → empty.
         assert!(regression_coefficients(&y, &[]).is_empty());
+    }
+
+    #[test]
+    fn jackknife_beta_leaves_out_the_right_fold() {
+        // xs=[1,2,3,4], ys=[2,4,6,100], folds=2 → fold0={0,2}, fold1={1,3}.
+        // realization 0,2 see beta over the COMPLEMENT {1,3}: beta([2,4],[4,100]) = 48.
+        // realization 1,3 see beta over {0,2}: beta([1,3],[2,6]) = 2.
+        let v = jackknife_beta(&[1.0, 2.0, 3.0, 4.0], &[2.0, 4.0, 6.0, 100.0], 2);
+        assert_eq!(v.len(), 4);
+        assert!((v[0] - 48.0).abs() < 1e-9 && (v[2] - 48.0).abs() < 1e-9, "fold-0 rows: {v:?}");
+        assert!((v[1] - 2.0).abs() < 1e-9 && (v[3] - 2.0).abs() < 1e-9, "fold-1 rows: {v:?}");
+
+        // Exact linear data → every leave-fold-out beta equals the true slope.
+        let xs: Vec<f64> = (1..=6).map(|i| i as f64).collect();
+        let ys: Vec<f64> = xs.iter().map(|x| 2.0 * x).collect();
+        assert!(jackknife_beta(&xs, &ys, 3).iter().all(|&b| (b - 2.0).abs() < 1e-9));
+
+        // Degenerate: <2 samples → zeros.
+        assert_eq!(jackknife_beta(&[1.0], &[2.0], 2), vec![0.0]);
     }
 
     #[test]
