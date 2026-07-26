@@ -1,7 +1,8 @@
 # Scope: Cross-Realization Bivariate Reducers (Control-Variate Support)
 
-**Status:** Phase 1 **implemented** (`run_stat2` with `cov`/`corr`/`beta`). Phases 2–4 remain
-proposed — see §5. Phase 1 summary of what landed at the end of this doc.
+**Status:** Phases 1–2 **implemented** (`run_stat2` with `cov`/`corr`/`beta`, on both the scalar
+and fused array lanes). Phases 3–4 remain proposed — see §5. Per-phase "what landed" summaries at
+the end of this doc.
 **Motivation:** [`OPTIONS_PRICING_EFFICIENCY.md`](OPTIONS_PRICING_EFFICIENCY.md) §5 — control variates
 could not be expressed because the optimal coefficient needs a **covariance between two
 elements across realizations**, and `run_stat` reduces a **single** element.
@@ -186,7 +187,7 @@ with a Chan-style parallel merge, exactly paralleling the existing `m2`).
 | Phase | Deliverable | Touches |
 |---|---|---|
 | **1 (MVP)** ✅ | `Cov`/`Corr`/`Beta` node; scalar `engine_v2` two-pass; array-lane made ineligible → scalar fallback; reducers; graph ordering; tests. **Single control variate fully expressible.** | model.rs, eval.rs, engine.rs, engine_v2.rs, array_lane.rs, graph_v2.rs, summary.rs, submodel_v2.rs |
-| **2** | `Corr`; fused single-pass covariance accumulator in array lane (perf parity with `run_stat`) | array_lane.rs, stream_accum.rs |
+| **2** ✅ | `Corr` (landed in P1); `run_stat2` made eligible on the fused array lane, reducing over the two materialized columns (bit-identical to the scalar lane) | array_lane.rs |
 | **3** | Multi-control regression (vector control → normal equations / `run_regress`); split-sample `b` to kill in-sample bias | new node/reducer |
 | **4** | `submodel_stat` symmetry — bivariate reduction across a submodel's realizations | submodel_v2.rs |
 
@@ -261,3 +262,22 @@ estimator std from 14.76 → 5.61 (variance ↓ ~6.8×) at ~1× the work, unbias
 **Back-compat:** additive node; runs without `run_stat2` are byte-identical (single-pass early return
 unchanged). Full engine test suite green (the one failing test, `seldm_example_project::emit_model_json`,
 writes to a hardcoded absolute path and fails identically on a clean tree — unrelated).
+
+## Phase 2 — implemented
+
+The scope proposed a streaming co-moment accumulator; the actual array lane **materializes** each
+element's Run column, so the simpler and equivalent implementation reduces the bivariate stat over
+the two finalized columns — genuinely single-pass, since the columns are built once.
+
+- **Eligibility** (`array_lane.rs`): `run_stat2` now passes `expr_allowed` (flat lane). The
+  dimensioned lane keeps it ineligible → scalar fallback (a later phase if needed).
+- **Ordering** (`collect_expr_deps`): a `run_stat2` consumer now depends on both `x` and `y`, so
+  `augmented_order` finalizes both columns before folding the reduction in — mirroring how a
+  univariate `run_stat` target is ordered before its consumer.
+- **Reduction**: `collect_run_stat2s` gathers pair targets; both uni- and bivariate reductions share
+  one `rstats` slot table (`Op::RunStat(slot)` reads either); `reduce_ready_pairs` computes each
+  pair's scalar once both its columns finalize (single-pass path) or after the first `eval_pass`
+  (cyclic two-pass fallback). `covariance`/`correlation`/`beta` are reused from `engine.rs`.
+- **Verified** (`engine/tests/run_stat2_v2.rs`): X~N(0,1), W~N(0,1), Y=2X+W ⇒ beta≈2, cov≈2,
+  corr≈2/√5. The **scalar and array lanes agree bit-identically**, and a downstream node consumes
+  the reduction. `run_stat2` remains ineligible only on the (rarer) dimensioned lane.
