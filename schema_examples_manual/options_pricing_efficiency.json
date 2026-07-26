@@ -14,6 +14,7 @@
   "containers": [
     { "id": "contract",   "name": "Contract & Market", "parent": null, "children": [] },
     { "id": "estimators", "name": "Monte Carlo Estimators", "parent": null, "children": [] },
+    { "id": "control_variate", "name": "Control Variate", "parent": null, "children": [] },
     { "id": "reference",  "name": "Closed-Form Reference", "parent": null, "children": [] }
   ],
   "elements": [
@@ -207,6 +208,43 @@
               "left": { "op": "ref", "element_id": "payoff_plus" },
               "right": { "op": "ref", "element_id": "payoff_minus" } } } },
         "display": "discount * 0.5 * (payoff_plus + payoff_minus)"
+      }
+    },
+
+    {
+      "id": "disc_S_T", "name": "Discounted Terminal Price (control)", "type": "expression", "container": "control_variate",
+      "description": "The control variate: discount * S_T(+Z). Under the risk-neutral measure E[exp(-rT)*S_T] = S0 exactly, so this control has a KNOWN mean (S0) and is highly correlated with the call payoff — an ideal control.",
+      "inputs": ["discount", "ST_plus"],
+      "expression": {
+        "ast": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "discount" },
+          "right": { "op": "ref", "element_id": "ST_plus" } },
+        "display": "discount * S_T(+Z)"
+      }
+    },
+    {
+      "id": "b_star", "name": "Optimal CV Coefficient", "type": "expression", "container": "control_variate",
+      "description": "b* = Cov(control, payoff)/Var(control), the variance-minimizing control-variate coefficient, estimated across realizations by the bivariate run_stat2(beta) reducer. Injected by the engine's two-pass driver (see CONTROL_VARIATE_SCOPE.md).",
+      "inputs": ["disc_S_T", "est_plain"],
+      "expression": {
+        "ast": { "op": "run_stat2", "x": "disc_S_T", "y": "est_plain", "statistic": "beta" },
+        "display": "beta(disc_S_T, est_plain)"
+      }
+    },
+    {
+      "id": "cv_est", "name": "Control-Variate Estimator", "type": "expression", "container": "control_variate",
+      "description": "est_plain - b*·(control - E[control]) with E[control] = S0. Unbiased for any b* and lower-variance because the control is correlated with the payoff. final_stats.std here should be well below est_plain's. Combine with antithetic for further reduction.",
+      "inputs": ["est_plain", "b_star", "disc_S_T", "S0"],
+      "save_results": { "final_value": true, "time_history": false },
+      "expression": {
+        "ast": { "op": "subtract",
+          "left": { "op": "ref", "element_id": "est_plain" },
+          "right": { "op": "multiply",
+            "left": { "op": "ref", "element_id": "b_star" },
+            "right": { "op": "subtract",
+              "left": { "op": "ref", "element_id": "disc_S_T" },
+              "right": { "op": "ref", "element_id": "S0" } } } },
+        "display": "est_plain - b*·(disc_S_T - S0)"
       }
     },
 

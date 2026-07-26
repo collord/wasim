@@ -53,6 +53,9 @@ deterministic `expression` of that draw, so each realization is one cheap static
 | Antithetic partner | `ST_minus` = `S0·exp(drift − diffusion·Z)` | reuses `−Z` |
 | Discounted payoff | `payoff_plus`, `discount`, `est_plain` | the plain estimator |
 | Antithetic estimator | `est_antithetic` = `discount·½(payoff₊ + payoff₋)` | variance-reduced |
+| Control | `disc_S_T` = `discount·S_T`, `E[·]=S0` | correlated, known mean |
+| CV coefficient | `b_star` = `run_stat2(beta, disc_S_T, est_plain)` | b* = Cov/Var, cross-realization |
+| Control-variate estimator | `cv_est` = `est_plain − b*·(disc_S_T − S0)` | variance-reduced |
 | Closed-form benchmark | `bs_price` via `d1`,`d2`,`Nd1`,`Nd2` | exact reference |
 
 The Black–Scholes reference is computed **live** from the same inputs, using the engine's
@@ -111,10 +114,16 @@ Parameters `S0 = K = 100`, `r = 0.05`, `σ = 0.20`, `T = 1`, `seed = 12345`,
 | Antithetic MC estimate | 10.4478 |
 | Antithetic per-replication `std` | 7.34 |
 | Antithetic 95% CI half-width | **0.0455** |
-| Variance-reduction factor (σ²ₚ/σ²ₐ) | **≈ 4.0** (std ratio 2.0) |
+| Antithetic variance-reduction (σ²ₚ/σ²ₐ) | **≈ 4.0** (std ratio 2.0) |
+| Control-variate estimate (`cv_est`) | 10.4236 |
+| Control-variate per-replication `std` | 5.61 |
+| Control-variate variance-reduction (σ²ₚ/σ²_cv) | **≈ 6.8** (std ratio 2.6) |
 | `CI(25k) / CI(100k)` | **1.99** (theory: 2.0) |
 
-Three facts fall out, one per efficiency question in §1:
+(Control-variate figures at `N = 20 000` from the smoke test; the `std` ratio to plain is
+scale-free so it is directly comparable.)
+
+Four facts fall out — the three efficiency questions of §1, plus the control variate:
 
 **(1) Standard error and the 1/√N law.** The plain CI half-width is `0.0915` at 100k and
 `0.182` at 25k — the ratio `1.99` confirms error `∝ 1/√N`. To *halve* the error you must
@@ -140,6 +149,15 @@ So antithetic is about **2× more efficient**: to reach the antithetic CI half-w
 4× variance drop overstates the win by exactly the 2× extra work — precisely the accounting
 Glasserman insists on.
 
+**(4) Control variate (Glasserman §4.1).** `cv_est` uses the discounted terminal price as a
+control (known mean `E[e^{−rT}S_T] = S0`) and estimates the optimal coefficient
+`b* = Cov(control, payoff)/Var(control)` *inside the model* via the bivariate
+`run_stat2(beta, …)` reducer. It cuts the standard deviation to `5.61` (variance ↓ ~6.8×) at
+essentially the plain estimator's cost (one extra element evaluation, no second payoff), so its
+work-normalized efficiency gain is close to its raw variance gain — and it beats antithetic
+here while remaining unbiased (`10.4236`, within one CI half-width of `10.4506`). This is the
+gap that [`CONTROL_VARIATE_SCOPE.md`](CONTROL_VARIATE_SCOPE.md) Phase 1 closed.
+
 ---
 
 ## 4. Try it / extend it
@@ -164,18 +182,16 @@ Glasserman insists on.
   `accumulator` integrating `dS = S(r·dt + σ·√dt·Z)` — over `m` steps, then compare the
   estimate against `bs_price` as `m` grows. WASiM's timestep grid is exactly the knob for
   that sweep; it is left out here to keep the efficiency story clean.
-- **Control variates (Glasserman §4.1).** Antithetic needs no tuning, which is why it is the
-  featured technique. A control-variate estimator
-  `payoff − b·(discounted S_T − S0)` needs the variance-minimizing coefficient
-  `b* = Cov(payoff, S_T)/Var(S_T)`, i.e. a **covariance between two elements across
-  realizations**. WASiM's cross-realization reducers (`run_stat`: mean/percentile/CTE/…)
-  operate on a *single* element, so `b*` cannot yet be estimated inside the model — a genuine
-  engine gap. You can still hard-code a `b` as a `constant` to demonstrate the technique.
-  **Scoped fix:** [`CONTROL_VARIATE_SCOPE.md`](CONTROL_VARIATE_SCOPE.md) proposes a bivariate
-  cross-realization reducer (`run_stat2` with `cov`/`beta`/`corr`) that makes `b*` computable
-  in-model, reusing the existing two-pass `run_stat` machinery.
 - **Greeks / sensitivities.** Delta, vega, etc. (Glasserman Ch. 7) would use the engine's
   `sensitivity_v2` layer rather than the payoff estimator here.
+
+> **Note — control variates are now supported.** Earlier drafts listed control variates as a
+> gap: the optimal coefficient `b* = Cov(payoff, control)/Var(control)` needs a covariance
+> between two elements across realizations, which the univariate `run_stat` couldn't express.
+> [`CONTROL_VARIATE_SCOPE.md`](CONTROL_VARIATE_SCOPE.md) Phase 1 added the bivariate
+> `run_stat2` reducer (`cov`/`corr`/`beta`), and this model now uses it (`b_star`, `cv_est`,
+> §2–§3). Split-sample `b` (to remove the O(1/N) in-sample bias) and multi-control regression
+> remain future phases.
 
 ---
 

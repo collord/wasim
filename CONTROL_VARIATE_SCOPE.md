@@ -1,9 +1,10 @@
 # Scope: Cross-Realization Bivariate Reducers (Control-Variate Support)
 
-**Status:** proposal / scoping
+**Status:** Phase 1 **implemented** (`run_stat2` with `cov`/`corr`/`beta`). Phases 2–4 remain
+proposed — see §5. Phase 1 summary of what landed at the end of this doc.
 **Motivation:** [`OPTIONS_PRICING_EFFICIENCY.md`](OPTIONS_PRICING_EFFICIENCY.md) §5 — control variates
-cannot yet be expressed because the optimal coefficient needs a **covariance between two
-elements across realizations**, and today's `run_stat` reduces a **single** element.
+could not be expressed because the optimal coefficient needs a **covariance between two
+elements across realizations**, and `run_stat` reduces a **single** element.
 
 ---
 
@@ -184,7 +185,7 @@ with a Chan-style parallel merge, exactly paralleling the existing `m2`).
 
 | Phase | Deliverable | Touches |
 |---|---|---|
-| **1 (MVP)** | `Cov` + `Beta` node; scalar `engine_v2` two-pass; array-lane two-pass fallback; reducers; graph ordering; tests. **Single control variate fully expressible.** | model.rs, eval.rs, engine.rs, engine_v2.rs, array_lane.rs, graph_v2.rs |
+| **1 (MVP)** ✅ | `Cov`/`Corr`/`Beta` node; scalar `engine_v2` two-pass; array-lane made ineligible → scalar fallback; reducers; graph ordering; tests. **Single control variate fully expressible.** | model.rs, eval.rs, engine.rs, engine_v2.rs, array_lane.rs, graph_v2.rs, summary.rs, submodel_v2.rs |
 | **2** | `Corr`; fused single-pass covariance accumulator in array lane (perf parity with `run_stat`) | array_lane.rs, stream_accum.rs |
 | **3** | Multi-control regression (vector control → normal equations / `run_regress`); split-sample `b` to kill in-sample bias | new node/reducer |
 | **4** | `submodel_stat` symmetry — bivariate reduction across a submodel's realizations | submodel_v2.rs |
@@ -231,3 +232,32 @@ Phase 1 alone closes the documented gap.
 reusing the existing two-pass capture-reduce-inject machinery. That single primitive makes the
 optimal control-variate coefficient computable inside a `model.json`, closing the gap and
 generalizing to regression/beta analyses.
+
+---
+
+## Phase 1 — implemented
+
+Landed exactly as designed above; deviations from the plan are noted.
+
+- **AST / schema** (`model.rs`): `AstNode::RunStat2 { x, y, statistic }` + `RunPairStat { Cov, Corr, Beta }`.
+  JSON: `{ "op": "run_stat2", "x": "control", "y": "target", "statistic": "beta" }`.
+- **Reducers** (`engine.rs`): `covariance` (n−1), `correlation`, `beta` = Cov(x,y)/Var(x), with the
+  degenerate `Var(x)=0 ⇒ 0` guard. Unit-tested (`reducer_tests::bivariate_reducers_hand_checks`).
+- **Key + eval** (`eval.rs`): `run_stat2_key` (a `\u{2}`-suffixed key sharing the one `run_stats`
+  map); `RunStat2` eval arm reads it, 0.0 in pass 1.
+- **Two-pass driver** (`engine_v2.rs`): `collect_run_stats` now returns `(uni, pair)` from one AST
+  walk; pass 1 force-saves every `x`/`y`; `reduce_run_stat2` computes the bivariate scalar from the
+  two index-aligned final-value vectors; pass 2 injects it.
+- **Graph** (`graph_v2.rs`): `RunStat2` adds no topo dependency (pre-computed), mirroring `RunStat`.
+- **Array lane** (`array_lane.rs`): **deviation from the scope's "two-pass fallback"** — simpler and
+  equivalent: a model containing `run_stat2` is marked lane-*ineligible*, so `run()` falls through to
+  the scalar two-pass that handles it. The fused single-pass co-moment accumulator remains Phase 2.
+- **Round-trip / labels** (`summary.rs`, `submodel_v2.rs`): render + AST-walk arms added.
+
+**Demonstrated** in `schema_examples_manual/options_pricing_efficiency.json` (`disc_S_T`, `b_star`,
+`cv_est`) and guarded by `engine/tests/options_efficiency_smoke.rs`: the control variate cuts the
+estimator std from 14.76 → 5.61 (variance ↓ ~6.8×) at ~1× the work, unbiased vs Black–Scholes.
+
+**Back-compat:** additive node; runs without `run_stat2` are byte-identical (single-pass early return
+unchanged). Full engine test suite green (the one failing test, `seldm_example_project::emit_model_json`,
+writes to a hardcoded absolute path and fails identically on a clean tree — unrelated).

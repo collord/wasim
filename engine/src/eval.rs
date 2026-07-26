@@ -145,6 +145,14 @@ pub(crate) fn run_stat_key(
     format!("{element_id}\u{1}{statistic:?}\u{1}{arg}")
 }
 
+/// The `run_stats` injection key for a bivariate `RunStat2` node — a specific
+/// (x, y, statistic) reduction. The `\u{2}` suffix keeps it disjoint from every
+/// `run_stat_key` so the two share the one `run_stats` map without collision.
+/// Computed identically at collection time and eval time (like `run_stat_key`).
+pub(crate) fn run_stat2_key(x: &str, y: &str, statistic: &crate::model::RunPairStat) -> String {
+    format!("{x}\u{1}{y}\u{1}{statistic:?}\u{2}")
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -764,6 +772,14 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 .transpose()?
                 .unwrap_or(0.0);
             let key = run_stat_key(element_id, statistic, arg_val);
+            Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
+        }
+
+        // Bivariate cross-realization reduction (control-variate coefficient etc.).
+        // Pre-computed by the two-pass driver; reads its scalar from `run_stats`
+        // under a (x, y, statistic) key, or 0.0 in the first pass (empty map).
+        AstNode::RunStat2 { x, y, statistic } => {
+            let key = run_stat2_key(x, y, statistic);
             Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
         }
 

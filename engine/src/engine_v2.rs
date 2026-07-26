@@ -69,35 +69,41 @@ pub fn run(
         return crate::array_lane::run_array_lane(model, graph, config);
     }
 
-    let targets = collect_run_stats(model)?;
-    if targets.is_empty() {
+    let (targets, pair_targets) = collect_run_stats(model)?;
+    if targets.is_empty() && pair_targets.is_empty() {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
         st.advance(u32::MAX)?;
         return st.assemble();
     }
 
-    // Phase 4 two-pass. Pass 1: run the MC loop, force-saving each RunStat target so
-    // its per-realization finals are captured. RunStat nodes read 0 here; anything
-    // *downstream* of a RunStat is therefore wrong in pass 1 — but we only read the
-    // targets, which must not themselves depend on a RunStat (nested RunStat is
-    // unsupported; documented). Determinism (per-realization content seeds) makes
-    // pass 1 and pass 2 draw identical samples.
+    // Phase 4 two-pass. Pass 1: run the MC loop, force-saving each RunStat / RunStat2
+    // target element so its per-realization finals are captured. RunStat(2) nodes read
+    // 0 here; anything *downstream* of one is therefore wrong in pass 1 — but we only
+    // read the targets, which must not themselves depend on a run-stat (nested run-stat
+    // is unsupported; documented). Determinism (per-realization content seeds) makes
+    // pass 1 and pass 2 draw identical samples, so a bivariate reduction pairs values
+    // from the same realization.
     let mut st1 = RunState::new(model, graph, config)?;
-    let target_ids: Vec<String> = targets.iter().map(|t| t.element_id.clone()).collect();
+    let mut target_ids: Vec<String> = targets.iter().map(|t| t.element_id.clone()).collect();
+    for pt in &pair_targets {
+        target_ids.push(pt.x.clone());
+        target_ids.push(pt.y.clone());
+    }
     st1.force_save_targets(&target_ids);
     st1.advance(u32::MAX)?;
     let res1 = st1.assemble()?;
 
-    // Reduce each target's sample vector to its scalar, keyed by (element, stat, arg).
+    // Reduce each target's sample vector to its scalar, keyed for the eval-time lookup.
     let mut reduced: HashMap<String, f64> = HashMap::new();
+    let finals = |id: &str| -> Vec<f64> {
+        res1.elements.get(id).map(|e| e.final_values.clone()).unwrap_or_default()
+    };
     for t in &targets {
-        let samples: &[f64] = res1
-            .elements
-            .get(&t.element_id)
-            .map(|e| e.final_values.as_slice())
-            .unwrap_or(&[]);
-        reduced.insert(t.key.clone(), reduce_run_stat(samples, &t.stat, t.arg));
+        reduced.insert(t.key.clone(), reduce_run_stat(&finals(&t.element_id), &t.stat, t.arg));
+    }
+    for pt in &pair_targets {
+        reduced.insert(pt.key.clone(), reduce_run_stat2(&finals(&pt.x), &finals(&pt.y), &pt.stat));
     }
 
     // Pass 2: same run with the reduced scalars injected, so downstream nodes see them.
@@ -116,23 +122,33 @@ struct RunStatTarget {
     arg: f64,
 }
 
+/// A `run_stat2` bivariate reduction to pre-compute: its injection key, the two
+/// target elements, and the statistic.
+struct RunStat2Target {
+    key: String,
+    x: String,
+    y: String,
+    stat: crate::model::RunPairStat,
+}
+
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
 /// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument in
 /// this first cut — a non-literal is a hard model error rather than silent 0.
-fn collect_run_stats(model: &Model) -> Result<Vec<RunStatTarget>, EngineError> {
+fn collect_run_stats(model: &Model) -> Result<(Vec<RunStatTarget>, Vec<RunStat2Target>), EngineError> {
     use crate::model::SubmodelStatKind as K;
-    let mut nodes: Vec<(&str, &K, &Option<Box<AstNode>>)> = Vec::new();
+    let mut uni: Vec<(&str, &K, &Option<Box<AstNode>>)> = Vec::new();
+    let mut pair: Vec<(&str, &str, &crate::model::RunPairStat)> = Vec::new();
     for e in &model.elements {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Expression(ef) = &n.rule {
-                collect_run_stat_nodes(&ef.ast, &mut nodes);
+                collect_run_stat_nodes(&ef.ast, &mut uni, &mut pair);
             }
         }
     }
-    let mut out = Vec::new();
+    let mut targets = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    for (element_id, stat, arg) in nodes {
-        let needs_arg = matches!(k_needs_arg(stat), true);
+    for (element_id, stat, arg) in uni {
+        let needs_arg = k_needs_arg(stat);
         let arg_val = match arg.as_deref() {
             Some(AstNode::Literal { value, .. }) => *value,
             None => 0.0,
@@ -145,10 +161,18 @@ fn collect_run_stats(model: &Model) -> Result<Vec<RunStatTarget>, EngineError> {
         };
         let key = crate::eval::run_stat_key(element_id, stat, arg_val);
         if seen.insert(key.clone()) {
-            out.push(RunStatTarget { key, element_id: element_id.to_string(), stat: stat.clone(), arg: arg_val });
+            targets.push(RunStatTarget { key, element_id: element_id.to_string(), stat: stat.clone(), arg: arg_val });
         }
     }
-    Ok(out)
+    let mut pair_targets = Vec::new();
+    let mut seen2: HashSet<String> = HashSet::new();
+    for (x, y, stat) in pair {
+        let key = crate::eval::run_stat2_key(x, y, stat);
+        if seen2.insert(key.clone()) {
+            pair_targets.push(RunStat2Target { key, x: x.to_string(), y: y.to_string(), stat: stat.clone() });
+        }
+    }
+    Ok((targets, pair_targets))
 }
 
 fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
@@ -159,13 +183,17 @@ fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
 fn collect_run_stat_nodes<'a>(
     node: &'a AstNode,
     out: &mut Vec<(&'a str, &'a crate::model::SubmodelStatKind, &'a Option<Box<AstNode>>)>,
+    pairs: &mut Vec<(&'a str, &'a str, &'a crate::model::RunPairStat)>,
 ) {
     match node {
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));
             if let Some(a) = arg {
-                collect_run_stat_nodes(a, out);
+                collect_run_stat_nodes(a, out, pairs);
             }
+        }
+        AstNode::RunStat2 { x, y, statistic } => {
+            pairs.push((x.as_str(), y.as_str(), statistic));
         }
         AstNode::Add { left, right } | AstNode::Subtract { left, right }
         | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
@@ -174,30 +202,30 @@ fn collect_run_stat_nodes<'a>(
         | AstNode::Gte { left, right } | AstNode::Eq { left, right }
         | AstNode::Neq { left, right } | AstNode::And { left, right }
         | AstNode::Or { left, right } => {
-            collect_run_stat_nodes(left, out);
-            collect_run_stat_nodes(right, out);
+            collect_run_stat_nodes(left, out, pairs);
+            collect_run_stat_nodes(right, out, pairs);
         }
-        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out),
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out, pairs),
         AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
-            args.iter().for_each(|a| collect_run_stat_nodes(a, out));
+            args.iter().for_each(|a| collect_run_stat_nodes(a, out, pairs));
         }
         AstNode::If { cond, then, else_ } => {
-            collect_run_stat_nodes(cond, out);
-            collect_run_stat_nodes(then, out);
-            collect_run_stat_nodes(else_, out);
+            collect_run_stat_nodes(cond, out, pairs);
+            collect_run_stat_nodes(then, out, pairs);
+            collect_run_stat_nodes(else_, out, pairs);
         }
         AstNode::LookupCall { input, input2, .. } => {
-            collect_run_stat_nodes(input, out);
-            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out); }
+            collect_run_stat_nodes(input, out, pairs);
+            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out, pairs); }
         }
-        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out),
-        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out),
+        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out, pairs),
+        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out, pairs),
         AstNode::Index { array, indices } => {
-            collect_run_stat_nodes(array, out);
-            indices.iter().for_each(|i| collect_run_stat_nodes(i, out));
+            collect_run_stat_nodes(array, out, pairs);
+            indices.iter().for_each(|i| collect_run_stat_nodes(i, out, pairs));
         }
-        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out)),
-        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out); } }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs)),
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs); } }
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
     }
@@ -217,6 +245,17 @@ fn reduce_run_stat(samples: &[f64], stat: &crate::model::SubmodelStatKind, arg: 
         K::Sum => crate::engine::sum_of(samples),
         K::Min => crate::engine::min_of(samples),
         K::Max => crate::engine::max_of(samples),
+    }
+}
+
+/// Reduce a `run_stat2` target's two index-aligned per-realization sample vectors
+/// to its bivariate scalar (covariance / correlation / regression slope).
+fn reduce_run_stat2(xs: &[f64], ys: &[f64], stat: &crate::model::RunPairStat) -> f64 {
+    use crate::model::RunPairStat as P;
+    match stat {
+        P::Cov => crate::engine::covariance(xs, ys),
+        P::Corr => crate::engine::correlation(xs, ys),
+        P::Beta => crate::engine::beta(xs, ys),
     }
 }
 

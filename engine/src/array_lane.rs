@@ -91,6 +91,10 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
             Some(a) => expr_allowed(a),
             None => Ok(()),
         },
+        // run_stat2 (bivariate) is served by the scalar two-pass driver, not the fused
+        // lane — mark ineligible so the model falls back there (CONTROL_VARIATE_SCOPE.md
+        // Phase 1; a fused co-moment accumulator is Phase 2).
+        AstNode::RunStat2 { .. } => Err("run_stat2"),
         // A call is eligible iff it is a pure elementwise scalar-math builtin and every
         // argument is itself eligible. Non-elementwise builtins (array reducers, event
         // predicates, private-helper specials) keep the model on the scalar lane.
@@ -168,6 +172,8 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         Index { array, indices } => { dim_expr_allowed(array)?; for i in indices { dim_expr_allowed(i)?; } Ok(()) }
         Array { elements } => { for el in elements { dim_expr_allowed(el)?; } Ok(()) }
         RunStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
+        // run_stat2 is served by the scalar two-pass driver, not this lane.
+        RunStat2 { .. } => Err("run_stat2"),
         // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
         SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
         // Any builtin except the ctx-stateful event predicates; array reducers included.
@@ -353,6 +359,13 @@ fn emit(
                 EngineError::InvalidModel(format!("array lane: run_stat key '{key}' not collected"))
             })?;
             prog.push(Op::RunStat(slot));
+        }
+        // Unreachable: models with run_stat2 are marked ineligible above and run on the
+        // scalar lane. Kept for match exhaustiveness.
+        AstNode::RunStat2 { .. } => {
+            return Err(EngineError::InvalidModel(
+                "array lane: run_stat2 is not supported (handled by the scalar two-pass)".into(),
+            ));
         }
         AstNode::Call { func, args } => {
             let bad_arity = |name: &str| EngineError::InvalidModel(

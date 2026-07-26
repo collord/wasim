@@ -991,6 +991,42 @@ pub(crate) fn max_of(vs: &[f64]) -> f64 {
     vs.iter().copied().max_by(f64::total_cmp).unwrap_or(0.0)
 }
 
+/// Sample covariance of two index-aligned series (n−1 denominator, matching `std`).
+/// 0.0 for fewer than 2 pairs or a length mismatch (defensive).
+pub(crate) fn covariance(xs: &[f64], ys: &[f64]) -> f64 {
+    let n = xs.len();
+    if n < 2 || ys.len() != n {
+        return 0.0;
+    }
+    let mx = mean(xs);
+    let my = mean(ys);
+    let s: f64 = xs.iter().zip(ys).map(|(x, y)| (x - mx) * (y - my)).sum();
+    s / (n - 1) as f64
+}
+
+/// Pearson correlation Cov(x,y)/(σx·σy) ∈ [−1, 1]. 0.0 when either side has zero variance.
+pub(crate) fn correlation(xs: &[f64], ys: &[f64]) -> f64 {
+    let denom = std(xs) * std(ys);
+    if denom <= 0.0 {
+        return 0.0;
+    }
+    covariance(xs, ys) / denom
+}
+
+/// Regression slope Cov(x,y)/Var(x) — the optimal single-control-variate coefficient
+/// b* when `x` is the control and `y` the target. 0.0 when the control has zero
+/// variance (the control then contributes nothing, keeping the estimator unbiased).
+pub(crate) fn beta(xs: &[f64], ys: &[f64]) -> f64 {
+    let var_x = {
+        let s = std(xs);
+        s * s
+    };
+    if var_x <= 0.0 {
+        return 0.0;
+    }
+    covariance(xs, ys) / var_x
+}
+
 #[cfg(test)]
 mod reducer_tests {
     use super::*;
@@ -1008,6 +1044,26 @@ mod reducer_tests {
         assert!((exceedance(&V, 5.0) + cumulative_prob(&V, 5.0) - 1.0).abs() < 1e-12);
         assert_eq!(exceedance(&V, 10.0), 0.0, "nothing exceeds the max");
         assert_eq!(exceedance(&V, 0.0), 1.0, "everything exceeds below-min");
+    }
+
+    #[test]
+    fn bivariate_reducers_hand_checks() {
+        // Perfectly linear: y = 3x + 1 → beta(x→y) = 3, corr = 1.
+        let x = [1., 2., 3., 4., 5.];
+        let y = [4., 7., 10., 13., 16.];
+        assert!((beta(&x, &y) - 3.0).abs() < 1e-9, "beta should be 3, got {}", beta(&x, &y));
+        assert!((correlation(&x, &y) - 1.0).abs() < 1e-9);
+        // Negative slope: y = -2x + 10 → beta = -2, corr = -1.
+        let yn = [8., 6., 4., 2., 0.];
+        assert!((beta(&x, &yn) + 2.0).abs() < 1e-9);
+        assert!((correlation(&x, &yn) + 1.0).abs() < 1e-9);
+        // cov symmetric; cov(x,x) = var(x) = std(x)^2.
+        assert!((covariance(&x, &y) - covariance(&y, &x)).abs() < 1e-9);
+        assert!((covariance(&x, &x) - std(&x).powi(2)).abs() < 1e-9);
+        // Degenerate control (zero variance) → beta 0 (unbiased no-op), corr 0.
+        let c = [5., 5., 5., 5., 5.];
+        assert_eq!(beta(&c, &y), 0.0);
+        assert_eq!(correlation(&c, &y), 0.0);
     }
 
     #[test]

@@ -398,6 +398,9 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::RunStat { element_id, statistic, .. } => {
             format!("run_stat({element_id}, {statistic:?})")
         }
+        AstNode::RunStat2 { x, y, statistic } => {
+            format!("run_stat2({x}, {y}, {statistic:?})")
+        }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
             format!("{func}({})", a.join(", "))

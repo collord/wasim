@@ -11,7 +11,8 @@ fn stats(json: &str, n: u32, id: &str) -> (f64, f64, f64) {
     let graph = ModelGraphV2::build(&model).expect("graph");
     let mut spec = ResultsSpec::default();
     spec.final_stats = true;
-    spec.elements = vec!["est_plain".into(), "est_antithetic".into(), "bs_price".into()];
+    spec.elements =
+        vec!["est_plain".into(), "est_antithetic".into(), "cv_est".into(), "bs_price".into()];
     let config = RunConfig {
         n_realizations: Some(n),
         seed: Some(12345),
@@ -49,6 +50,14 @@ fn options_pricing_efficiency_runs_and_matches_black_scholes() {
     // Antithetic reduces variance (per-realization std) for this monotone payoff.
     println!("variance-reduction factor (std_plain/std_anti) = {:.3}", s_plain / s_anti);
     assert!(s_anti < s_plain, "antithetic should have smaller std");
+
+    // Control variate (run_stat2 beta): variance reduction from a correlated control with
+    // known mean. The discounted terminal price is a strong control for a call payoff.
+    let (m_cv, s_cv, ci_cv) = stats(&json, 20_000, "cv_est");
+    println!("control-var : mean={m_cv:.6} std={s_cv:.6} ci_half={ci_cv:.6}");
+    assert!((m_cv - bs).abs() < 4.0 * ci_cv, "CV estimator biased vs BS: {m_cv} vs {bs}");
+    assert!(s_cv < s_plain, "control variate should reduce std ({s_cv} !< {s_plain})");
+    println!("CV variance-reduction factor (std_plain/std_cv) = {:.3}", s_plain / s_cv);
 
     // CI half-width scales ~ 1/sqrt(N): 4x fewer realizations -> ~2x wider.
     let (_, _, ci_5k) = stats(&json, 5_000, "est_plain");

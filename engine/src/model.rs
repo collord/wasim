@@ -646,6 +646,17 @@ pub enum AstNode {
         #[serde(default)]
         arg: Option<Box<AstNode>>,
     },
+    // Bivariate across-realization reduction of two same-model elements over the
+    // Monte-Carlo Run axis — the covariance/correlation/regression-slope companion
+    // to `RunStat`. Unlocks control variates: b* = beta(x = control, y = target)
+    // = Cov(x, y)/Var(x). Like `RunStat` it is pre-computed by the engine's two-pass
+    // driver and does NOT create a topo dependency on `x`/`y`. Nested run-stats are
+    // unsupported (documented). See CONTROL_VARIATE_SCOPE.md.
+    RunStat2 {
+        x: String,
+        y: String,
+        statistic: RunPairStat,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {
@@ -683,6 +694,20 @@ pub enum SubmodelStatKind {
     Sum,
     Min,
     Max,
+}
+
+/// Which bivariate statistic a `run_stat2` node reduces a pair of same-model elements
+/// to, over the Monte-Carlo Run axis. `Beta` is the control-variate coefficient
+/// b* = Cov(x, y)/Var(x) (slope of regressing y on x). See CONTROL_VARIATE_SCOPE.md.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunPairStat {
+    /// Sample covariance Cov(x, y) (n−1 denominator).
+    Cov,
+    /// Pearson correlation Corr(x, y) ∈ [−1, 1].
+    Corr,
+    /// Regression slope Cov(x, y)/Var(x) — the optimal single-control coefficient.
+    Beta,
 }
 
 fn default_output_name() -> String {
