@@ -1,13 +1,17 @@
 // Validates schema_examples_manual/barrier_option_down_and_out.json through the v2 engine
 // (normalize_v1 -> run_v2). A discretely monitored down-and-out call priced by path Monte Carlo
-// (Glasserman Sec 3.2.2), exercising three engine features together: the GBM process drift/vol
-// reference r/sigma directly (gap #1: expression-valued process params); the running minimum is an
-// expanding-window `filter` (gap #2: native running statistic); and the plain call on the same path
-// is a control variate whose known mean is a live Black-Scholes price (run_stat2 beta).
+// (Glasserman Sec 3.2.2), exercising FOUR engine features together and maturing at the TRUE T:
+//   gap #1: the GBM process drift/vol reference r/sigma directly (expression-valued process params);
+//   gap #2: the running minimum is an expanding-window `filter` (native running statistic);
+//   gap #3: `terminal_expression` reads the true terminal S(T) — so the vanilla control matures at
+//           the true T (no T_eff = T - dt workaround), and the terminal fixing is folded into the
+//           barrier monitor via min(run_min, S(T));
+//   plus the vanilla call as a control variate whose known mean is a live Black-Scholes price
+//           (run_stat2 beta) — with barrier_cv itself a terminal_expression reading that run_stat2.
 //
 // Checks:
-//  (1) Path validation: the vanilla call on the monitored terminal matches the live BS price at the
-//      effective maturity T_eff = T - dt (a stock is read one step stale) — validates the whole path.
+//  (1) Path validation: the vanilla call on the TRUE terminal S(T) matches the live Black-Scholes
+//      price at the true maturity T (not T_eff) — validates the whole path and the terminal accessor.
 //  (2) Structural: the down-and-out is worth strictly less than the vanilla (knock-out destroys value).
 //  (3) Sec 3.2.2 discrete-monitoring bias: discrete monitoring knocks out less often than continuous,
 //      so the MC price sits ABOVE the Reiner-Rubinstein continuous-monitoring closed form.
@@ -26,8 +30,8 @@ fn stats(json: &str, n: u32) -> std::collections::HashMap<String, FS> {
     let mut spec = ResultsSpec::default();
     spec.final_stats = true;
     spec.elements = ids().iter().map(|s| s.to_string()).collect();
-    // dt = 0.02 (50 monitoring steps); the live closed forms read the timestep (time_ref) so they
-    // self-adjust to whatever grid the run uses. The BGK correction needs a reasonably fine grid.
+    // dt = 0.02 (50 monitoring steps) matching the constant T = 1.0. The BGK barrier shift reads the
+    // timestep (time_ref) so it tracks the grid; T is a constant, so duration must stay 1.0.
     let cfg = RunConfig { n_realizations: Some(n), seed: Some(90909), results_spec: Some(spec),
         duration_override: Some(1.0), timestep_override: Some(0.02), ..Default::default() };
     let res = run_v2(&model, &graph, &cfg).expect("run");
@@ -47,18 +51,18 @@ fn barrier_down_and_out_prices_and_reduces_variance() {
     let s = stats(&json, 30_000);
     let (van, bar, cv, bs, cont, bgk) =
         (&s["vanilla"], &s["barrier"], &s["barrier_cv"], &s["bs_price"], &s["cdo_cont"], &s["cdo_bgk"]);
-    println!("bs_price  (vanilla, T_eff) = {:.4}", bs.mean);
-    println!("cdo_cont  (continuous ref) = {:.4}", cont.mean);
-    println!("cdo_bgk   (BGK-corrected)  = {:.4}", bgk.mean);
+    println!("bs_price  (vanilla, true T) = {:.4}", bs.mean);
+    println!("cdo_cont  (continuous ref)  = {:.4}", cont.mean);
+    println!("cdo_bgk   (BGK-corrected)   = {:.4}", bgk.mean);
     println!("vanilla MC : mean={:.4} std={:.4} ci={:.4}", van.mean, van.std, van.ci);
     println!("barrier MC : mean={:.4} std={:.4} ci={:.4}", bar.mean, bar.std, bar.ci);
     println!("barrier_cv : mean={:.4} std={:.4} ci={:.4}", cv.mean, cv.std, cv.ci);
 
-    // (1) Path validation: the vanilla call on the monitored terminal matches the live BS price at
-    // the effective maturity — a stringent joint check of the GBM path and the terminal-read timing.
+    // (1) Path validation: the vanilla call on the TRUE terminal S(T) (read via terminal_expression)
+    // matches the live Black-Scholes price at the true maturity T — no effective-maturity fudge.
     assert!((van.mean - bs.mean).abs() < 4.0 * van.ci,
-        "vanilla MC {} should match BS(T_eff) {} (ci {})", van.mean, bs.mean, van.ci);
-    assert!(bs.mean > 9.0 && bs.mean < 11.0, "BS(T_eff) sanity: {}", bs.mean);
+        "vanilla MC {} should match BS(T) {} (ci {})", van.mean, bs.mean, van.ci);
+    assert!(bs.mean > 10.0 && bs.mean < 11.0, "BS(T) sanity: {}", bs.mean);
 
     // (2) Structural: the down-and-out is worth strictly less than the vanilla.
     assert!(bar.mean < van.mean - 0.5, "barrier {} should be well below vanilla {}", bar.mean, van.mean);
@@ -73,7 +77,7 @@ fn barrier_down_and_out_prices_and_reduces_variance() {
         "discrete MC {} should match the BGK-corrected reference {} (ci {})", bar.mean, bgk.mean, bar.ci);
 
     // (5) The vanilla control variate cuts variance while staying unbiased (vanilla and barrier
-    // coincide on every surviving path, so they are strongly correlated).
+    // coincide on every surviving path). barrier_cv is a terminal_expression reading run_stat2 beta.
     println!("variance-reduction factor (std_barrier/std_cv) = {:.2}", bar.std / cv.std);
     assert!(cv.std < bar.std, "CV should reduce std: barrier {} vs cv {}", bar.std, cv.std);
     assert!((cv.mean - bar.mean).abs() < 4.0 * (bar.ci + cv.ci),

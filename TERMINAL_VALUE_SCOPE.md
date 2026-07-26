@@ -72,6 +72,14 @@ a terminal expression are byte-for-byte unaffected.
   Black–Scholes at `T` (**10.45**), not to BS at `T_eff = 0.98` (10.32) — the value the *same* payoff as an
   ordinary expression produces. The `T_eff` workaround is gone.
 
+**Adopted in a real model.** [`BARRIER_OPTION_EXAMPLE.md`](BARRIER_OPTION_EXAMPLE.md) was rebuilt on the
+accessor: the down-and-out call now matures at the true `T` (vanilla-MC = BS at `T`, 10.45), the
+control-variate estimator `barrier_cv` is itself a `terminal_expression` reading a `run_stat2`
+coefficient — proving the accessor composes with the two-pass control-variate machinery — and the
+knock-out monitor stitches the terminal fixing into the `filter` minimum with
+`run_min_T = terminal_expression min(run_min, S_T)`. That hand-fold is exactly the seam Option B would
+remove.
+
 **Prototype limitations (deliberate, documented):**
 
 - **Final value only.** A terminal expression contributes a `final_value`, not a per-step `time_history`

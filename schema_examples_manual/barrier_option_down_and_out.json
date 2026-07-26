@@ -2,7 +2,7 @@
   "wasim_version": "0.1.0",
   "source": {
     "generator": null,
-    "notes": "Discretely monitored down-and-out call priced by path Monte Carlo (Glasserman Sec 3.2.2). The running minimum is tracked with an expanding-window filter (min) \u2014 the gap #2 running-statistic; the GBM process drift/vol reference r/sigma directly (gap #1). The plain call on the same path is a control variate whose mean is Black-Scholes (at the effective maturity T_eff = T - dt, since a stock is read one step stale). The Reiner-Rubinstein image formula gives the CONTINUOUS-monitoring price; the discrete MC sits above it (Sec 3.2.2 bias), and the Broadie-Glasserman-Kou continuity correction (shift the barrier by exp(-0.5826 sigma sqrt(dt))) yields a corrected reference the discrete MC matches. See BARRIER_OPTION_EXAMPLE.md."
+    "notes": "Discretely monitored down-and-out call priced by path Monte Carlo (Glasserman Sec 3.2.2), maturing at the TRUE T. gap #1: the GBM process drift/vol reference r/sigma. gap #2: the running minimum is an expanding-window filter (min). gap #3: terminal_expression reads S(T) directly, so the vanilla control matures at the true T (mean = Black-Scholes at T, not T_eff) and the terminal fixing is folded into the barrier monitor via min(run_min, S(T)). The plain call is a control variate whose mean is Black-Scholes; barrier_cv is a terminal_expression reading a run_stat2 coefficient. The Reiner-Rubinstein image formula gives the CONTINUOUS-monitoring price; the discrete MC sits above it (Sec 3.2.2 bias), and the BGK continuity correction yields a corrected reference the discrete MC matches. See BARRIER_OPTION_EXAMPLE.md."
   },
   "simulation_settings": {
     "duration": {
@@ -27,6 +27,12 @@
     {
       "id": "path",
       "name": "Path & Barrier Monitor",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal Reads (gap #3)",
       "parent": null,
       "children": []
     },
@@ -141,7 +147,7 @@
       "name": "Maturity (yr)",
       "type": "constant",
       "container": "contract",
-      "description": "Nominal maturity; must equal simulation duration.",
+      "description": "Maturity; must equal simulation duration. The option matures at the TRUE T (a terminal_expression reads S(T) directly \u2014 no T_eff workaround).",
       "value": {
         "value": 1.0,
         "unit": "1"
@@ -218,10 +224,10 @@
     },
     {
       "id": "run_min",
-      "name": "Running Minimum",
+      "name": "Running Minimum (interior)",
       "type": "filter",
       "container": "path",
-      "description": "Cumulative minimum of S over every monitoring date (filter min, no window). The down-and-out is knocked out iff this ever reaches the barrier B.",
+      "description": "Cumulative minimum of S over the interior monitoring dates t_0..t_{m-1} (filter min, no window). It misses the terminal fixing S(T) by one step; run_min_T folds that in.",
       "input": "S",
       "statistic": "min",
       "save_results": {
@@ -229,16 +235,56 @@
       }
     },
     {
-      "id": "S_term",
-      "name": "Monitored Terminal",
-      "type": "filter",
-      "container": "path",
-      "description": "The last monitored price (filter mean, window 1). An expression reads a stock one step stale, so this is S at the effective maturity T_eff = T - dt; the closed forms below use T_eff to match.",
-      "input": "S",
-      "window": 1,
-      "statistic": "mean",
+      "id": "S_T",
+      "name": "Terminal Price",
+      "type": "terminal_expression",
+      "container": "terminal",
+      "description": "The true terminal price S(T), read via a terminal_expression (a ref to a stock resolves to its end-of-run level). Replaces the old filter(mean,window=1) that read S(T-dt).",
+      "inputs": [
+        "S"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S"
+        },
+        "display": "S(T)"
+      },
       "save_results": {
-        "final_value": true
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "run_min_T",
+      "name": "Path Minimum (incl. terminal)",
+      "type": "terminal_expression",
+      "container": "terminal",
+      "description": "The full path minimum over all monitoring dates t_0..t_m: the interior filter minimum folded together with the terminal fixing S(T). The terminal_expression patches the filter's one-step monitoring gap.",
+      "inputs": [
+        "S_T",
+        "run_min"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "min",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "run_min"
+            },
+            {
+              "op": "ref",
+              "element_id": "S_T"
+            }
+          ]
+        },
+        "display": "min(run_min, S(T))"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
       }
     },
     {
@@ -246,7 +292,7 @@
       "name": "Timestep",
       "type": "expression",
       "container": "derived",
-      "description": "Simulation timestep dt.",
+      "description": "Simulation timestep dt (only used for the BGK monitoring-frequency correction).",
       "inputs": [],
       "expression": {
         "ast": {
@@ -254,31 +300,6 @@
           "property": "timestep"
         },
         "display": "timestep"
-      }
-    },
-    {
-      "id": "Teff",
-      "name": "Effective Maturity",
-      "type": "expression",
-      "container": "derived",
-      "description": "Effective maturity: the monitored terminal is one step stale, so the option effectively matures at T - dt.",
-      "inputs": [
-        "T",
-        "dt"
-      ],
-      "expression": {
-        "ast": {
-          "op": "subtract",
-          "left": {
-            "op": "ref",
-            "element_id": "T"
-          },
-          "right": {
-            "op": "ref",
-            "element_id": "dt"
-          }
-        },
-        "display": "T - dt"
       }
     },
     {
@@ -306,13 +327,13 @@
       }
     },
     {
-      "id": "sqrtTeff",
-      "name": "sqrt(Teff)",
+      "id": "sqrtT",
+      "name": "sqrt(T)",
       "type": "expression",
       "container": "derived",
       "description": "",
       "inputs": [
-        "Teff"
+        "T"
       ],
       "expression": {
         "ast": {
@@ -321,11 +342,11 @@
           "args": [
             {
               "op": "ref",
-              "element_id": "Teff"
+              "element_id": "T"
             }
           ]
         },
-        "display": "sqrt(Teff)"
+        "display": "sqrt(T)"
       }
     },
     {
@@ -333,9 +354,9 @@
       "name": "Discount",
       "type": "expression",
       "container": "derived",
-      "description": "Discount to the effective maturity.",
+      "description": "Discount to the true maturity T.",
       "inputs": [
-        "Teff",
+        "T",
         "r"
       ],
       "expression": {
@@ -353,24 +374,24 @@
                 },
                 "right": {
                   "op": "ref",
-                  "element_id": "Teff"
+                  "element_id": "T"
                 }
               }
             }
           ]
         },
-        "display": "exp(-r*Teff)"
+        "display": "exp(-r*T)"
       }
     },
     {
       "id": "vanilla",
       "name": "Vanilla Call Payoff",
-      "type": "expression",
+      "type": "terminal_expression",
       "container": "payoffs",
-      "description": "Plain European call on the monitored terminal \u2014 the control. Its mean equals Black-Scholes at T_eff, so vanilla-MC == bs_price validates the whole path simulation.",
+      "description": "Plain European call on the true terminal S(T) \u2014 the control. Its mean equals Black-Scholes at the TRUE T, so vanilla-MC == bs_price validates the whole path with no effective-maturity fudge.",
       "inputs": [
         "K",
-        "S_term",
+        "S_T",
         "disc"
       ],
       "expression": {
@@ -388,7 +409,7 @@
                 "op": "subtract",
                 "left": {
                   "op": "ref",
-                  "element_id": "S_term"
+                  "element_id": "S_T"
                 },
                 "right": {
                   "op": "ref",
@@ -402,7 +423,7 @@
             ]
           }
         },
-        "display": "disc*max(S_term-K,0)"
+        "display": "disc*max(S(T)-K,0)"
       },
       "save_results": {
         "final_value": true,
@@ -412,12 +433,12 @@
     {
       "id": "survives",
       "name": "Survival Indicator",
-      "type": "expression",
+      "type": "terminal_expression",
       "container": "payoffs",
-      "description": "1 if the path never touched the barrier (down-and-out survives), else 0.",
+      "description": "1 if the path never touched the barrier over all monitoring dates incl. the terminal (down-and-out survives), else 0.",
       "inputs": [
         "B",
-        "run_min"
+        "run_min_T"
       ],
       "expression": {
         "ast": {
@@ -426,7 +447,7 @@
             "op": "gt",
             "left": {
               "op": "ref",
-              "element_id": "run_min"
+              "element_id": "run_min_T"
             },
             "right": {
               "op": "ref",
@@ -442,15 +463,15 @@
             "value": 0.0
           }
         },
-        "display": "run_min > B ? 1 : 0"
+        "display": "run_min_T > B ? 1 : 0"
       }
     },
     {
       "id": "barrier",
       "name": "Down-and-Out Call Payoff",
-      "type": "expression",
+      "type": "terminal_expression",
       "container": "payoffs",
-      "description": "Discounted down-and-out call payoff \u2014 the estimator of interest. No closed form for discrete monitoring.",
+      "description": "Discounted down-and-out call payoff at the true maturity T \u2014 the estimator of interest. No closed form for discrete monitoring.",
       "inputs": [
         "survives",
         "vanilla"
@@ -483,11 +504,11 @@
       "inputs": [
         "K",
         "S0",
-        "Teff",
+        "T",
         "r",
         "sigma",
         "sigma2",
-        "sqrtTeff"
+        "sqrtT"
       ],
       "expression": {
         "ast": {
@@ -533,7 +554,7 @@
               },
               "right": {
                 "op": "ref",
-                "element_id": "Teff"
+                "element_id": "T"
               }
             }
           },
@@ -545,7 +566,7 @@
             },
             "right": {
               "op": "ref",
-              "element_id": "sqrtTeff"
+              "element_id": "sqrtT"
             }
           }
         },
@@ -561,7 +582,7 @@
       "inputs": [
         "bs_d1",
         "sigma",
-        "sqrtTeff"
+        "sqrtT"
       ],
       "expression": {
         "ast": {
@@ -578,7 +599,7 @@
             },
             "right": {
               "op": "ref",
-              "element_id": "sqrtTeff"
+              "element_id": "sqrtT"
             }
           }
         },
@@ -771,12 +792,12 @@
       "description": "BS at image spot (cont) d1",
       "inputs": [
         "K",
-        "Teff",
+        "T",
         "img_c",
         "r",
         "sigma",
         "sigma2",
-        "sqrtTeff"
+        "sqrtT"
       ],
       "expression": {
         "ast": {
@@ -822,7 +843,7 @@
               },
               "right": {
                 "op": "ref",
-                "element_id": "Teff"
+                "element_id": "T"
               }
             }
           },
@@ -834,7 +855,7 @@
             },
             "right": {
               "op": "ref",
-              "element_id": "sqrtTeff"
+              "element_id": "sqrtT"
             }
           }
         },
@@ -850,7 +871,7 @@
       "inputs": [
         "bsic_d1",
         "sigma",
-        "sqrtTeff"
+        "sqrtT"
       ],
       "expression": {
         "ast": {
@@ -867,7 +888,7 @@
             },
             "right": {
               "op": "ref",
-              "element_id": "sqrtTeff"
+              "element_id": "sqrtT"
             }
           }
         },
@@ -979,10 +1000,10 @@
     },
     {
       "id": "cdo_cont",
-      "name": "Down-Out Price (continuous, T_eff)",
+      "name": "Down-Out Price (continuous, T)",
       "type": "expression",
       "container": "reference",
-      "description": "Reiner-Rubinstein down-and-out price for CONTINUOUS monitoring. Discrete monitoring knocks out less often, so the MC price sits ABOVE this (the Sec 3.2.2 bias).",
+      "description": "Reiner-Rubinstein down-and-out price for CONTINUOUS monitoring at the true maturity T. Discrete monitoring knocks out less often, so the MC price sits ABOVE this (the Sec 3.2.2 bias).",
       "inputs": [
         "B",
         "S0",
@@ -1137,12 +1158,12 @@
       "description": "BS at image spot (BGK) d1",
       "inputs": [
         "K",
-        "Teff",
+        "T",
         "img_b",
         "r",
         "sigma",
         "sigma2",
-        "sqrtTeff"
+        "sqrtT"
       ],
       "expression": {
         "ast": {
@@ -1188,7 +1209,7 @@
               },
               "right": {
                 "op": "ref",
-                "element_id": "Teff"
+                "element_id": "T"
               }
             }
           },
@@ -1200,7 +1221,7 @@
             },
             "right": {
               "op": "ref",
-              "element_id": "sqrtTeff"
+              "element_id": "sqrtT"
             }
           }
         },
@@ -1216,7 +1237,7 @@
       "inputs": [
         "bsib_d1",
         "sigma",
-        "sqrtTeff"
+        "sqrtT"
       ],
       "expression": {
         "ast": {
@@ -1233,7 +1254,7 @@
             },
             "right": {
               "op": "ref",
-              "element_id": "sqrtTeff"
+              "element_id": "sqrtT"
             }
           }
         },
@@ -1345,10 +1366,10 @@
     },
     {
       "id": "cdo_bgk",
-      "name": "Down-Out Price (BGK-corrected)",
+      "name": "Down-Out Price (BGK-corrected, T)",
       "type": "expression",
       "container": "reference",
-      "description": "Continuity-corrected reference: continuous formula at the BGK-adjusted barrier. Should match the discrete Monte Carlo price.",
+      "description": "Continuity-corrected reference at the true maturity T: continuous formula at the BGK-adjusted barrier. Should match the discrete Monte Carlo price.",
       "inputs": [
         "B_adj",
         "S0",
@@ -1431,9 +1452,9 @@
     {
       "id": "barrier_cv",
       "name": "Control-Variate Estimator",
-      "type": "expression",
+      "type": "terminal_expression",
       "container": "control_variate",
-      "description": "Down-and-out price with the vanilla call as control (known mean bs_price). Unbiased and lower-variance (barrier and vanilla coincide on surviving paths).",
+      "description": "Down-and-out price with the vanilla call as control (known mean bs_price). Unbiased and lower-variance. A terminal_expression reading a run_stat2 result \u2014 the accessor composes with the control-variate machinery.",
       "inputs": [
         "barrier",
         "beta",

@@ -112,13 +112,17 @@ path-dependent / averaging models substantially cleaner. Roughly in priority ord
    keeps its validated `sumS/cnt` construction rather than re-pinning its closed-form window to the
    filter's; new averaging models should just use `filter`.)
 
-3. **Lag-free / end-of-step stock reads (or a terminal-value accessor).** An expression reads an
-   accumulator's *start-of-step* value, so (a) the average is one step stale — worked around with
-   `cnt` — and (b) trying to add the **terminal** `S(T)` to shift the average to the more standard
-   `t_1 … t_n` window failed: referencing the stock's terminal value from an expression returned
-   `0`. The example therefore averages `t_0 … t_{m-1}` (with the initial fixing). A way to read an
-   accumulator's end-of-step / final value from an expression would allow the conventional window and
-   remove the `cnt` workaround.
+3. **Lag-free / end-of-step stock reads (or a terminal-value accessor) — ✅ prototype landed.** An
+   ordinary expression reads an accumulator's *start-of-step* value, so (a) the average is one step
+   stale — worked around with `cnt` — and (b) trying to add the **terminal** `S(T)` to shift the
+   average to the more standard `t_1 … t_n` window failed: referencing the stock's terminal value from
+   an expression returned `0`. This is now addressed by a **`terminal_expression`** node (gap #3,
+   `TERMINAL_VALUE_SCOPE.md`): evaluated once after the run, a `ref` to a stock resolves to its true
+   end-of-run level `S(T)`. The [barrier example](BARRIER_OPTION_EXAMPLE.md) uses it to mature at the
+   true `T` and to fold the terminal fixing into its running minimum. This Asian model keeps its
+   validated `t_0 … t_{m-1}` / `cnt` construction, but a new averaging model could now use a terminal
+   read to close the window at `S(T)` (Option B — a closing tick that also updates running statistics —
+   would let the *running* average itself include the terminal point).
 
 4. **A GBM (and OU) *level* process.** The path needs the `process`-drives-`accumulator` idiom
    (`rate = S*P`) because the GBM process node returns a per-step *rate*. A process family that
