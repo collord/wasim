@@ -190,8 +190,10 @@ gap that [`CONTROL_VARIATE_SCOPE.md`](CONTROL_VARIATE_SCOPE.md) Phase 1 closed.
 > between two elements across realizations, which the univariate `run_stat` couldn't express.
 > [`CONTROL_VARIATE_SCOPE.md`](CONTROL_VARIATE_SCOPE.md) Phase 1 added the bivariate
 > `run_stat2` reducer (`cov`/`corr`/`beta`), and this model now uses it (`b_star`, `cv_est`,
-> §2–§3). Split-sample `b` (to remove the O(1/N) in-sample bias) and multi-control regression
-> remain future phases.
+> §2–§3). Phase 3 added **multiple-control regression** (`run_regress`, an indexed OLS
+> coefficient via a linear solve) for jointly regressing on several correlated controls.
+> Split-sample `b` (to remove the O(1/N) in-sample bias) remains scoped — it needs a
+> per-realization injected value the engine does not yet have (see `CONTROL_VARIATE_SCOPE.md`).
 
 ---
 

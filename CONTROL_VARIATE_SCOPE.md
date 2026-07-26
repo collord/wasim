@@ -1,8 +1,10 @@
 # Scope: Cross-Realization Bivariate Reducers (Control-Variate Support)
 
-**Status:** Phases 1–2 **implemented** (`run_stat2` with `cov`/`corr`/`beta`, on both the scalar
-and fused array lanes). Phases 3–4 remain proposed — see §5. Per-phase "what landed" summaries at
-the end of this doc.
+**Status:** Phases 1–2 **implemented** (`run_stat2` with `cov`/`corr`/`beta`, scalar + fused array
+lanes). Phase 3 **partially implemented**: multiple-control regression (`run_regress`) landed;
+split-sample `b` is **blocked** on a missing engine mechanism (per-realization injected values) and
+stays scoped — see the Phase 3 summary. Phase 4 remains proposed. Per-phase "what landed" summaries
+at the end of this doc.
 **Motivation:** [`OPTIONS_PRICING_EFFICIENCY.md`](OPTIONS_PRICING_EFFICIENCY.md) §5 — control variates
 could not be expressed because the optimal coefficient needs a **covariance between two
 elements across realizations**, and `run_stat` reduces a **single** element.
@@ -188,7 +190,7 @@ with a Chan-style parallel merge, exactly paralleling the existing `m2`).
 |---|---|---|
 | **1 (MVP)** ✅ | `Cov`/`Corr`/`Beta` node; scalar `engine_v2` two-pass; array-lane made ineligible → scalar fallback; reducers; graph ordering; tests. **Single control variate fully expressible.** | model.rs, eval.rs, engine.rs, engine_v2.rs, array_lane.rs, graph_v2.rs, summary.rs, submodel_v2.rs |
 | **2** ✅ | `Corr` (landed in P1); `run_stat2` made eligible on the fused array lane, reducing over the two materialized columns (bit-identical to the scalar lane) | array_lane.rs |
-| **3** | Multi-control regression (vector control → normal equations / `run_regress`); split-sample `b` to kill in-sample bias | new node/reducer |
+| **3** ◑ | Multi-control regression (`run_regress`, indexed OLS coefficient via a linear solve) — **landed**. Split-sample `b` — **blocked** (needs per-realization injection; see summary) | model.rs, eval.rs, engine.rs, engine_v2.rs, graph_v2.rs, summary.rs, submodel_v2.rs, array_lane.rs |
 | **4** | `submodel_stat` symmetry — bivariate reduction across a submodel's realizations | submodel_v2.rs |
 
 Phase 1 alone closes the documented gap.
@@ -281,3 +283,48 @@ the two finalized columns — genuinely single-pass, since the columns are built
 - **Verified** (`engine/tests/run_stat2_v2.rs`): X~N(0,1), W~N(0,1), Y=2X+W ⇒ beta≈2, cov≈2,
   corr≈2/√5. The **scalar and array lanes agree bit-identically**, and a downstream node consumes
   the reduction. `run_stat2` remains ineligible only on the (rarer) dimensioned lane.
+
+## Phase 3 — multiple-control regression implemented; split-sample blocked
+
+### Multiple-control regression (`run_regress`) — implemented
+
+Rather than return a coefficient *vector* (which would need vector-valued injection — a new
+`EvalCtx` channel threaded through every context construction), each coefficient is a **scalar**,
+reusing the Phase 1/2 scalar `run_stats` injection unchanged.
+
+- **AST** (`model.rs`): `RunRegress { y, controls: Vec<String>, index }` →
+  `{ "op": "run_regress", "y": "…", "controls": ["c0","c1",…], "index": k }`, the k-th OLS slope of
+  regressing `y` on the controls. The model forms the CV estimator as
+  `y − Σ_k b_k·(c_k − E[c_k])` with `b_k = run_regress(…, index=k)`.
+- **Solver** (`engine.rs`): `regression_coefficients(y, controls)` builds Σ_C (control covariance
+  matrix) and σ_Cy, then `solve_linear_or_zero` (Gaussian elimination, partial pivoting). A singular
+  system — collinear or zero-variance controls — returns all-zero coefficients, so the control
+  adjustment vanishes and the estimator stays unbiased (never NaN into the model).
+- **Driver** (`engine_v2.rs`): `collect_run_stats` now returns a third target list; pass 1 force-saves
+  `y` and every control; the reduce step solves and selects `index`; pass 2 injects the scalar.
+- **Lanes**: `run_regress` reduces *many* columns via a linear solve (not a per-column fold), so it is
+  array-lane-ineligible → scalar two-pass (like `erf`). Exhaustiveness/label arms added in
+  `graph_v2.rs`, `summary.rs`, `submodel_v2.rs`, `array_lane.rs`.
+- **Verified** (`engine/tests/run_regress_v2.rs` + `regression_coefficients_hand_checks`):
+  correlated controls c0=X, c1=X+U, Y=3X+2U+W ⇒ recovered b0≈1, b1≈2 (exercising the non-diagonal
+  solve); a single-control regress equals `beta`; collinear controls → zero; index out of range is a
+  model error.
+
+### Split-sample `b` — blocked, stays scoped
+
+The in-sample bias fix (§4) needs `b̂` estimated on one set of realizations and applied to a
+**disjoint** set — i.e. the coefficient a realization sees must depend on **which fold it is in**.
+But the whole two-pass mechanism injects **one scalar, constant across all realizations**; there is
+no per-realization injected value, and no realization-index AST node to branch on. So a K-fold /
+leave-one-out `b` cannot be expressed today. Closing it needs one of:
+
+1. a **per-realization injected vector** (reduce to an `[N]` array, inject element-wise) — a new
+   injection channel and a `Value::Vector` run-stat, or
+2. a **realization-index reference** (`AstNode::RealizationIndex`) so the model can select `b_foldA`
+   vs `b_foldB` itself.
+
+Both are their own scoped features. The current same-sample `b̂` bias is `O(1/N)` and negligible at
+Monte-Carlo realization counts, so this is a precision refinement, not a correctness gap.
+
+**Back-compat:** additive node; models without `run_regress` are unchanged (the third target list is
+empty → the single-pass early return still fires when no run-stat of any kind is present).

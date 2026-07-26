@@ -153,6 +153,13 @@ pub(crate) fn run_stat2_key(x: &str, y: &str, statistic: &crate::model::RunPairS
     format!("{x}\u{1}{y}\u{1}{statistic:?}\u{2}")
 }
 
+/// The `run_stats` injection key for a `RunRegress` node — a specific
+/// (y, controls, index) coefficient. `\u{3}`-terminated to stay disjoint from the
+/// univariate and bivariate keys. Computed identically at collection and eval time.
+pub(crate) fn run_regress_key(y: &str, controls: &[String], index: usize) -> String {
+    format!("{y}\u{1}{}\u{1}{index}\u{3}", controls.join("\u{1}"))
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -780,6 +787,13 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         // under a (x, y, statistic) key, or 0.0 in the first pass (empty map).
         AstNode::RunStat2 { x, y, statistic } => {
             let key = run_stat2_key(x, y, statistic);
+            Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
+        }
+
+        // Multiple-control regression coefficient — pre-computed by the two-pass driver,
+        // read from `run_stats` under a (y, controls, index) key; 0.0 in the first pass.
+        AstNode::RunRegress { y, controls, index } => {
+            let key = run_regress_key(y, controls, *index);
             Ok(Value::Scalar(ctx.run_stats.get(&key).copied().unwrap_or(0.0)))
         }
 

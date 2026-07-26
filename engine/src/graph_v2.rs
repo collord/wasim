@@ -245,6 +245,8 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
         // RunStat2 is likewise pre-computed by the two-pass driver; its `x`/`y`
         // targets create no topo dependency (and it carries no live sub-expression).
         AstNode::RunStat2 { .. } => {}
+        // RunRegress is pre-computed too; its `y`/`controls` create no topo dependency.
+        AstNode::RunRegress { .. } => {}
         AstNode::Index { array, indices } => {
             collect_ast_refs(array, out);
             for i in indices {

@@ -657,6 +657,17 @@ pub enum AstNode {
         y: String,
         statistic: RunPairStat,
     },
+    // Multiple-control regression (control-variate generalization): the `index`-th OLS
+    // slope coefficient of regressing `y` on `controls` across realizations, i.e. entry
+    // `index` of b* = Σ_C⁻¹ σ_Cy (Σ_C the control covariance matrix, σ_Cy the control–y
+    // covariances). One node per coefficient; the model forms
+    // `y − Σ_k b_k·(c_k − E[c_k])`. Pre-computed by the two-pass driver like `RunStat`;
+    // no topo dependency on `y`/`controls`. See CONTROL_VARIATE_SCOPE.md Phase 3.
+    RunRegress {
+        y: String,
+        controls: Vec<String>,
+        index: usize,
+    },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
     ExternCall {

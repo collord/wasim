@@ -69,8 +69,8 @@ pub fn run(
         return crate::array_lane::run_array_lane(model, graph, config);
     }
 
-    let (targets, pair_targets) = collect_run_stats(model)?;
-    if targets.is_empty() && pair_targets.is_empty() {
+    let (targets, pair_targets, regr_targets) = collect_run_stats(model)?;
+    if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty() {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
         st.advance(u32::MAX)?;
@@ -90,6 +90,10 @@ pub fn run(
         target_ids.push(pt.x.clone());
         target_ids.push(pt.y.clone());
     }
+    for rt in &regr_targets {
+        target_ids.push(rt.y.clone());
+        target_ids.extend(rt.controls.iter().cloned());
+    }
     st1.force_save_targets(&target_ids);
     st1.advance(u32::MAX)?;
     let res1 = st1.assemble()?;
@@ -104,6 +108,10 @@ pub fn run(
     }
     for pt in &pair_targets {
         reduced.insert(pt.key.clone(), reduce_run_stat2(&finals(&pt.x), &finals(&pt.y), &pt.stat));
+    }
+    for rt in &regr_targets {
+        let control_cols: Vec<Vec<f64>> = rt.controls.iter().map(|c| finals(c)).collect();
+        reduced.insert(rt.key.clone(), reduce_run_regress(&finals(&rt.y), &control_cols, rt.index));
     }
 
     // Pass 2: same run with the reduced scalars injected, so downstream nodes see them.
@@ -131,17 +139,29 @@ struct RunStat2Target {
     stat: crate::model::RunPairStat,
 }
 
+/// A `run_regress` multiple-control reduction to pre-compute: its injection key, the
+/// response element, the control elements, and which coefficient to select.
+struct RunRegressTarget {
+    key: String,
+    y: String,
+    controls: Vec<String>,
+    index: usize,
+}
+
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
 /// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument in
 /// this first cut — a non-literal is a hard model error rather than silent 0.
-fn collect_run_stats(model: &Model) -> Result<(Vec<RunStatTarget>, Vec<RunStat2Target>), EngineError> {
+type CollectedTargets = (Vec<RunStatTarget>, Vec<RunStat2Target>, Vec<RunRegressTarget>);
+
+fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
     use crate::model::SubmodelStatKind as K;
     let mut uni: Vec<(&str, &K, &Option<Box<AstNode>>)> = Vec::new();
     let mut pair: Vec<(&str, &str, &crate::model::RunPairStat)> = Vec::new();
+    let mut regr: Vec<(&str, &[String], usize)> = Vec::new();
     for e in &model.elements {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Expression(ef) = &n.rule {
-                collect_run_stat_nodes(&ef.ast, &mut uni, &mut pair);
+                collect_run_stat_nodes(&ef.ast, &mut uni, &mut pair, &mut regr);
             }
         }
     }
@@ -172,7 +192,20 @@ fn collect_run_stats(model: &Model) -> Result<(Vec<RunStatTarget>, Vec<RunStat2T
             pair_targets.push(RunStat2Target { key, x: x.to_string(), y: y.to_string(), stat: stat.clone() });
         }
     }
-    Ok((targets, pair_targets))
+    let mut regr_targets = Vec::new();
+    let mut seen3: HashSet<String> = HashSet::new();
+    for (y, controls, index) in regr {
+        if index >= controls.len() {
+            return Err(EngineError::InvalidModel(format!(
+                "run_regress on '{y}' index {index} out of range for {} control(s)", controls.len()
+            )));
+        }
+        let key = crate::eval::run_regress_key(y, controls, index);
+        if seen3.insert(key.clone()) {
+            regr_targets.push(RunRegressTarget { key, y: y.to_string(), controls: controls.to_vec(), index });
+        }
+    }
+    Ok((targets, pair_targets, regr_targets))
 }
 
 fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
@@ -180,20 +213,25 @@ fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
     matches!(stat, K::Percentile | K::CumulativeProb | K::Exceedance | K::Cte)
 }
 
+#[allow(clippy::type_complexity)]
 fn collect_run_stat_nodes<'a>(
     node: &'a AstNode,
     out: &mut Vec<(&'a str, &'a crate::model::SubmodelStatKind, &'a Option<Box<AstNode>>)>,
     pairs: &mut Vec<(&'a str, &'a str, &'a crate::model::RunPairStat)>,
+    regr: &mut Vec<(&'a str, &'a [String], usize)>,
 ) {
     match node {
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));
             if let Some(a) = arg {
-                collect_run_stat_nodes(a, out, pairs);
+                collect_run_stat_nodes(a, out, pairs, regr);
             }
         }
         AstNode::RunStat2 { x, y, statistic } => {
             pairs.push((x.as_str(), y.as_str(), statistic));
+        }
+        AstNode::RunRegress { y, controls, index } => {
+            regr.push((y.as_str(), controls.as_slice(), *index));
         }
         AstNode::Add { left, right } | AstNode::Subtract { left, right }
         | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
@@ -202,30 +240,30 @@ fn collect_run_stat_nodes<'a>(
         | AstNode::Gte { left, right } | AstNode::Eq { left, right }
         | AstNode::Neq { left, right } | AstNode::And { left, right }
         | AstNode::Or { left, right } => {
-            collect_run_stat_nodes(left, out, pairs);
-            collect_run_stat_nodes(right, out, pairs);
+            collect_run_stat_nodes(left, out, pairs, regr);
+            collect_run_stat_nodes(right, out, pairs, regr);
         }
-        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out, pairs),
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out, pairs, regr),
         AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
-            args.iter().for_each(|a| collect_run_stat_nodes(a, out, pairs));
+            args.iter().for_each(|a| collect_run_stat_nodes(a, out, pairs, regr));
         }
         AstNode::If { cond, then, else_ } => {
-            collect_run_stat_nodes(cond, out, pairs);
-            collect_run_stat_nodes(then, out, pairs);
-            collect_run_stat_nodes(else_, out, pairs);
+            collect_run_stat_nodes(cond, out, pairs, regr);
+            collect_run_stat_nodes(then, out, pairs, regr);
+            collect_run_stat_nodes(else_, out, pairs, regr);
         }
         AstNode::LookupCall { input, input2, .. } => {
-            collect_run_stat_nodes(input, out, pairs);
-            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out, pairs); }
+            collect_run_stat_nodes(input, out, pairs, regr);
+            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out, pairs, regr); }
         }
-        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out, pairs),
-        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out, pairs),
+        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out, pairs, regr),
+        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out, pairs, regr),
         AstNode::Index { array, indices } => {
-            collect_run_stat_nodes(array, out, pairs);
-            indices.iter().for_each(|i| collect_run_stat_nodes(i, out, pairs));
+            collect_run_stat_nodes(array, out, pairs, regr);
+            indices.iter().for_each(|i| collect_run_stat_nodes(i, out, pairs, regr));
         }
-        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs)),
-        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs); } }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr)),
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr); } }
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
     }
@@ -257,6 +295,13 @@ fn reduce_run_stat2(xs: &[f64], ys: &[f64], stat: &crate::model::RunPairStat) ->
         P::Corr => crate::engine::correlation(xs, ys),
         P::Beta => crate::engine::beta(xs, ys),
     }
+}
+
+/// Solve the multiple-control regression of `ys` on `control_cols` and return the
+/// `index`-th slope coefficient (the pre-computed value a `RunRegress` node reads).
+fn reduce_run_regress(ys: &[f64], control_cols: &[Vec<f64>], index: usize) -> f64 {
+    let refs: Vec<&[f64]> = control_cols.iter().map(|c| c.as_slice()).collect();
+    crate::engine::regression_coefficients(ys, &refs).get(index).copied().unwrap_or(0.0)
 }
 
 /// The resumable state of a partially-advanced run: everything that carries across

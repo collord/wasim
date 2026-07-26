@@ -401,6 +401,9 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::RunStat2 { x, y, statistic } => {
             format!("run_stat2({x}, {y}, {statistic:?})")
         }
+        AstNode::RunRegress { y, controls, index } => {
+            format!("run_regress({y}; [{}]; {index})", controls.join(", "))
+        }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
             format!("{func}({})", a.join(", "))

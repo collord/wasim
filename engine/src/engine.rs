@@ -1027,6 +1027,72 @@ pub(crate) fn beta(xs: &[f64], ys: &[f64]) -> f64 {
     covariance(xs, ys) / var_x
 }
 
+/// OLS slope coefficients of regressing `y` on the `controls` across realizations:
+/// b = Σ_C⁻¹ σ_Cy, where Σ_C[i][j] = Cov(cᵢ, cⱼ) and σ_Cy[i] = Cov(cᵢ, y). Using
+/// centered covariances makes these the multiple-regression slopes with an implicit
+/// intercept. A singular/degenerate control system (collinear or zero-variance
+/// controls) returns all-zero coefficients — the control adjustment then vanishes,
+/// keeping the control-variate estimator unbiased. Empty `controls` → empty vec.
+pub(crate) fn regression_coefficients(y: &[f64], controls: &[&[f64]]) -> Vec<f64> {
+    let m = controls.len();
+    if m == 0 {
+        return Vec::new();
+    }
+    // Covariance matrix of the controls and the control–y covariance vector.
+    let mut a = vec![vec![0.0f64; m]; m];
+    let mut d = vec![0.0f64; m];
+    for i in 0..m {
+        d[i] = covariance(controls[i], y);
+        for j in i..m {
+            let c = covariance(controls[i], controls[j]);
+            a[i][j] = c;
+            a[j][i] = c;
+        }
+    }
+    solve_linear_or_zero(a, d)
+}
+
+/// Solve `A x = b` for a small symmetric system by Gaussian elimination with partial
+/// pivoting. Returns an all-zero vector if `A` is singular (near-zero pivot) rather
+/// than producing NaNs/Inf — the caller treats that as "no control adjustment".
+fn solve_linear_or_zero(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
+    let n = b.len();
+    for col in 0..n {
+        // Partial pivot: largest-magnitude entry in this column at or below the diagonal.
+        let mut piv = col;
+        for r in (col + 1)..n {
+            if a[r][col].abs() > a[piv][col].abs() {
+                piv = r;
+            }
+        }
+        if a[piv][col].abs() < 1e-12 {
+            return vec![0.0; n]; // singular / collinear controls → no adjustment
+        }
+        a.swap(col, piv);
+        b.swap(col, piv);
+        // Eliminate below.
+        for r in (col + 1)..n {
+            let f = a[r][col] / a[col][col];
+            if f != 0.0 {
+                for c in col..n {
+                    a[r][c] -= f * a[col][c];
+                }
+                b[r] -= f * b[col];
+            }
+        }
+    }
+    // Back-substitution.
+    let mut x = vec![0.0; n];
+    for i in (0..n).rev() {
+        let mut s = b[i];
+        for j in (i + 1)..n {
+            s -= a[i][j] * x[j];
+        }
+        x[i] = s / a[i][i];
+    }
+    x
+}
+
 #[cfg(test)]
 mod reducer_tests {
     use super::*;
@@ -1064,6 +1130,28 @@ mod reducer_tests {
         let c = [5., 5., 5., 5., 5.];
         assert_eq!(beta(&c, &y), 0.0);
         assert_eq!(correlation(&c, &y), 0.0);
+    }
+
+    #[test]
+    fn regression_coefficients_hand_checks() {
+        // Deterministic exact-fit: c0=[1,2,3,4], c1=[1,0,1,0], y = 2*c0 - 3*c1.
+        let c0 = [1.0, 2.0, 3.0, 4.0];
+        let c1 = [1.0, 0.0, 1.0, 0.0];
+        let y: Vec<f64> = (0..4).map(|i| 2.0 * c0[i] - 3.0 * c1[i]).collect();
+        let b = regression_coefficients(&y, &[&c0, &c1]);
+        assert!((b[0] - 2.0).abs() < 1e-9, "b0 should be 2, got {}", b[0]);
+        assert!((b[1] + 3.0).abs() < 1e-9, "b1 should be -3, got {}", b[1]);
+
+        // Single control reduces to the simple slope = beta(c0, y).
+        let b1 = regression_coefficients(&y, &[&c0]);
+        assert!((b1[0] - beta(&c0, &y)).abs() < 1e-9);
+
+        // Collinear controls (c1 == c0) → singular system → all-zero (safe no-op).
+        let bz = regression_coefficients(&y, &[&c0, &c0]);
+        assert!(bz.iter().all(|&v| v == 0.0), "collinear controls → zero coefficients");
+
+        // No controls → empty.
+        assert!(regression_coefficients(&y, &[]).is_empty());
     }
 
     #[test]
