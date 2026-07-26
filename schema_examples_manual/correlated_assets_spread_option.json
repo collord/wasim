@@ -1,0 +1,1082 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Two correlated GBM assets and a spread option priced by Monte Carlo, with the exchange option (Margrabe) as a control variate. Correlated standard normals are built with the 2x2 Cholesky construction of Glasserman Sec 2.3 (Z2 = rho*Z1 + sqrt(1-rho^2)*Zi), keeping rho a live input that also drives the Margrabe closed form. run_stat2 is used twice: corr(Z1,Z2) as a live self-check that the correlation is reproduced, and beta(exchange,spread) as the control-variate coefficient. The exchange-option Margrabe price (live via erf) is both the validation reference and the control's known mean. See CORRELATED_ASSETS_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "n_realizations": 50000,
+    "sampling_method": "monte_carlo",
+    "seed": 20240707
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "drivers",
+      "name": "Correlated Drivers",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Terminal Prices",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoffs",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Margrabe Closed Form",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "checks",
+      "name": "Correlation Check",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "control_variate",
+      "name": "Control Variate",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S1_0",
+      "name": "Spot Asset 1",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current price of asset 1.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "S2_0",
+      "name": "Spot Asset 2",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current price of asset 2.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "sigma1",
+      "name": "Vol Asset 1",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility of asset 1.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "sigma2",
+      "name": "Vol Asset 2",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility of asset 2.",
+      "value": {
+        "value": 0.25,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "rho",
+      "name": "Correlation",
+      "type": "constant",
+      "container": "contract",
+      "description": "Instantaneous correlation of the two assets' Brownian drivers. Flows LIVE into both the Cholesky construction (Z2) and the Margrabe closed form \u2014 no static-parameter duplication.",
+      "value": {
+        "value": 0.5,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.999,
+        "max": 0.999
+      }
+    },
+    {
+      "id": "r",
+      "name": "Risk-Free Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Continuously compounded annual risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Time to maturity in years (carried unitless so exponent stays dimensionless).",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "K",
+      "name": "Spread Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Strike of the spread option payoff max(S1-S2-K,0). K=0 is the exchange option (Margrabe).",
+      "value": {
+        "value": 5.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      }
+    },
+    {
+      "id": "Z1",
+      "name": "Shock 1",
+      "type": "random_variable",
+      "container": "drivers",
+      "description": "Standard normal driving asset 1.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "Zi",
+      "name": "Independent Shock",
+      "type": "random_variable",
+      "container": "drivers",
+      "description": "Independent standard normal; combined with Z1 to build the correlated Z2.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "Z2",
+      "name": "Shock 2 (correlated)",
+      "type": "expression",
+      "container": "drivers",
+      "description": "Correlated standard normal via the 2x2 Cholesky construction (Glasserman Sec 2.3): Z2 = rho*Z1 + sqrt(1-rho^2)*Zi has unit variance and Corr(Z1,Z2)=rho, with rho a LIVE input. WASiM also has a native `correlations` field (Gaussian copula) as an alternative; the explicit Cholesky here keeps rho editable and mirrors the text.",
+      "inputs": [
+        "rho",
+        "Z1",
+        "Zi"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "rho"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Z1"
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "call",
+              "fn": "sqrt",
+              "args": [
+                {
+                  "op": "subtract",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.0
+                  },
+                  "right": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "rho"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "rho"
+                    }
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Zi"
+            }
+          }
+        },
+        "display": "rho*Z1 + sqrt(1-rho^2)*Zi"
+      }
+    },
+    {
+      "id": "sqrtT",
+      "name": "sqrt(T)",
+      "type": "expression",
+      "container": "derived",
+      "description": "Root maturity.",
+      "inputs": [
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "T"
+            }
+          ]
+        },
+        "display": "sqrt(T)"
+      }
+    },
+    {
+      "id": "s1sq",
+      "name": "sigma1^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma1"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma1"
+          }
+        },
+        "display": "sigma1^2"
+      }
+    },
+    {
+      "id": "s2sq",
+      "name": "sigma2^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma2"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma2"
+          }
+        },
+        "display": "sigma2^2"
+      }
+    },
+    {
+      "id": "ST1",
+      "name": "Terminal S1",
+      "type": "expression",
+      "container": "derived",
+      "description": "Exact risk-neutral terminal price of asset 1.",
+      "inputs": [
+        "S1_0",
+        "r",
+        "s1sq",
+        "T",
+        "sigma1",
+        "sqrtT",
+        "Z1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S1_0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "s1sq"
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "T"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma1"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sqrtT"
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Z1"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S1_0*exp((r-s1^2/2)T + s1*sqrt(T)*Z1)"
+      }
+    },
+    {
+      "id": "ST2",
+      "name": "Terminal S2",
+      "type": "expression",
+      "container": "derived",
+      "description": "Exact risk-neutral terminal price of asset 2 (correlated with S1 through Z2).",
+      "inputs": [
+        "S2_0",
+        "r",
+        "s2sq",
+        "T",
+        "sigma2",
+        "sqrtT",
+        "Z2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S2_0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "s2sq"
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "T"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma2"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sqrtT"
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Z2"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S2_0*exp((r-s2^2/2)T + s2*sqrt(T)*Z2)"
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount exp(-rT)",
+      "type": "expression",
+      "container": "derived",
+      "description": "Discount factor.",
+      "inputs": [
+        "r",
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "spread_payoff",
+      "name": "Spread Option Payoff",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discounted spread-option payoff \u2014 the estimator of interest. No closed form for K>0, so Monte Carlo is required.",
+      "inputs": [
+        "disc",
+        "ST1",
+        "ST2",
+        "K"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "subtract",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "ST1"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "ST2"
+                  }
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(S1-S2-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "exchange_payoff",
+      "name": "Exchange Option Payoff",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discounted exchange-option payoff (K=0) \u2014 the control. Its mean is known exactly (Margrabe) and it is ~0.99 correlated with the spread payoff.",
+      "inputs": [
+        "disc",
+        "ST1",
+        "ST2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "ST1"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "ST2"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(S1-S2,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "sx2",
+      "name": "Spread Variance",
+      "type": "expression",
+      "container": "reference",
+      "description": "Variance of ln(S1/S2): the effective vol^2 of the exchange option.",
+      "inputs": [
+        "s1sq",
+        "rho",
+        "sigma1",
+        "sigma2",
+        "s2sq"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "s1sq"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 2.0
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "rho"
+                  }
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "sigma1"
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "sigma2"
+              }
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "s2sq"
+          }
+        },
+        "display": "sigma1^2 - 2*rho*sigma1*sigma2 + sigma2^2"
+      }
+    },
+    {
+      "id": "sx",
+      "name": "Spread Vol",
+      "type": "expression",
+      "container": "reference",
+      "description": "Effective exchange-option volatility.",
+      "inputs": [
+        "sx2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "sx2"
+            }
+          ]
+        },
+        "display": "sqrt(sx2)"
+      }
+    },
+    {
+      "id": "lnr",
+      "name": "ln(S1/S2)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Log price ratio.",
+      "inputs": [
+        "S1_0",
+        "S2_0"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "ln",
+          "args": [
+            {
+              "op": "divide",
+              "left": {
+                "op": "ref",
+                "element_id": "S1_0"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "S2_0"
+              }
+            }
+          ]
+        },
+        "display": "ln(S1_0/S2_0)"
+      }
+    },
+    {
+      "id": "dm1",
+      "name": "Margrabe d1",
+      "type": "expression",
+      "container": "reference",
+      "description": "Margrabe d1.",
+      "inputs": [
+        "lnr",
+        "sx2",
+        "T",
+        "sx",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "ref",
+              "element_id": "lnr"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "sx2"
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "T"
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sx"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          }
+        },
+        "display": "(ln(S1/S2)+sx^2 T/2)/(sx sqrt(T))"
+      }
+    },
+    {
+      "id": "dm2",
+      "name": "Margrabe d2",
+      "type": "expression",
+      "container": "reference",
+      "description": "Margrabe d2.",
+      "inputs": [
+        "dm1",
+        "sx",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "dm1"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sx"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          }
+        },
+        "display": "d1 - sx sqrt(T)"
+      }
+    },
+    {
+      "id": "Nm1",
+      "name": "N(d1)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Normal CDF at d1 (exact via erf).",
+      "inputs": [
+        "dm1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "literal",
+            "value": 0.5
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "right": {
+              "op": "call",
+              "fn": "erf",
+              "args": [
+                {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "dm1"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 0.7071067811865476
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "display": "0.5(1+erf(d1/sqrt2))"
+      }
+    },
+    {
+      "id": "Nm2",
+      "name": "N(d2)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Normal CDF at d2.",
+      "inputs": [
+        "dm2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "literal",
+            "value": 0.5
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "right": {
+              "op": "call",
+              "fn": "erf",
+              "args": [
+                {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "dm2"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 0.7071067811865476
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "display": "0.5(1+erf(d2/sqrt2))"
+      }
+    },
+    {
+      "id": "exchange_price",
+      "name": "Exchange Option Price (Margrabe)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Closed-form price of the exchange option (Margrabe 1978); depends on rho through sx. Deterministic, so this IS the control's known mean E[exchange_payoff]. (No discount term \u2014 the drift and discounting cancel in the exchange formula.)",
+      "inputs": [
+        "S1_0",
+        "Nm1",
+        "S2_0",
+        "Nm2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S1_0"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Nm1"
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S2_0"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Nm2"
+            }
+          }
+        },
+        "display": "S1_0*N(d1) - S2_0*N(d2)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "realized_rho",
+      "name": "Realized Correlation",
+      "type": "expression",
+      "container": "checks",
+      "description": "Sample correlation of the two drivers across realizations (run_stat2 corr) \u2014 should reproduce the input rho, validating the Cholesky construction / the engine's correlated draws.",
+      "inputs": [
+        "Z1",
+        "Z2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat2",
+          "x": "Z1",
+          "y": "Z2",
+          "statistic": "corr"
+        },
+        "display": "corr(Z1,Z2)"
+      }
+    },
+    {
+      "id": "beta",
+      "name": "CV Coefficient",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "b* = Cov(exchange,spread)/Var(exchange) across realizations.",
+      "inputs": [
+        "exchange_payoff",
+        "spread_payoff"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat2",
+          "x": "exchange_payoff",
+          "y": "spread_payoff",
+          "statistic": "beta"
+        },
+        "display": "beta(exchange,spread)"
+      }
+    },
+    {
+      "id": "cv_spread",
+      "name": "Control-Variate Estimator",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "Spread-option price estimator with the exchange option as control. Unbiased (E[exchange_payoff]=exchange_price) and much lower variance \u2014 the two payoffs are ~0.99 correlated.",
+      "inputs": [
+        "spread_payoff",
+        "beta",
+        "exchange_payoff",
+        "exchange_price"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "spread_payoff"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "beta"
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "exchange_payoff"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "exchange_price"
+              }
+            }
+          }
+        },
+        "display": "spread_payoff - beta*(exchange_payoff - exchange_price)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
