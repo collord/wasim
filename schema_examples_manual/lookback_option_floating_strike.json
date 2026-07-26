@@ -1,0 +1,892 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Floating-strike lookback call priced by path Monte Carlo, maturing at the true T. gap #1: GBM drift/vol reference r/sigma. gap #2/#3: the floating strike is a running minimum via filter(min) with include_terminal folding the terminal fixing S(T); the terminal price is a terminal_expression. The Goldman-Sosin-Gatto continuous formula is the reference; the discrete MC sits below it (Sec 3.2.2 bias: discrete min is less extreme). An in-model run_stat identity (price == S0 - disc*E[min S]) cross-checks the payoff, and disc*S(T) (known mean S0) is a ~0.9-correlated control variate. See LOOKBACK_OPTION_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.02,
+      "unit": "yr"
+    },
+    "n_realizations": 100000,
+    "sampling_method": "monte_carlo",
+    "seed": 70707
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "path",
+      "name": "Path & Minimum Monitor",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal Read (gap #3)",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Derived",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoff",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Closed-Form Reference (GSG)",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "identity",
+      "name": "Identity Check",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "control_variate",
+      "name": "Control Variate",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current underlying price (also the initial running minimum).",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate (drives the GBM drift, referenced live).",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility (drives the process vol, referenced live).",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity; must equal simulation duration.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "P",
+      "name": "GBM Rate",
+      "type": "stochastic_process",
+      "container": "path",
+      "description": "Per-step risk-neutral GBM rate; drift/vol reference r and sigma (gap #1).",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S",
+      "name": "Underlying Path",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Exact GBM price path (rate = S*P).",
+      "inputs": [
+        "S",
+        "P"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P"
+          }
+        },
+        "display": "S*P"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    },
+    {
+      "id": "run_min",
+      "name": "Running Minimum",
+      "type": "filter",
+      "container": "path",
+      "description": "Cumulative minimum of S over every monitoring date t_0..t_m (filter min, expanding window, include_terminal folds the terminal fixing S(T)). This IS the lookback's floating strike.",
+      "input": "S",
+      "statistic": "min",
+      "include_terminal": true,
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "S_T",
+      "name": "Terminal Price",
+      "type": "terminal_expression",
+      "container": "terminal",
+      "description": "The true terminal price S(T), read via a terminal_expression.",
+      "inputs": [
+        "S"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S"
+        },
+        "display": "S(T)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "derived",
+      "description": "Discount to maturity.",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "ert",
+      "name": "Growth",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "r"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "T"
+              }
+            }
+          ]
+        },
+        "display": "exp(r*T)"
+      }
+    },
+    {
+      "id": "sqrtT",
+      "name": "sqrt(T)",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "T"
+            }
+          ]
+        },
+        "display": "sqrt(T)"
+      }
+    },
+    {
+      "id": "sig2",
+      "name": "sigma^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma"
+          }
+        },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "lookback",
+      "name": "Lookback Call Payoff",
+      "type": "terminal_expression",
+      "container": "payoffs",
+      "description": "Discounted floating-strike lookback call: buy at the realized minimum, sell at S(T). Always >= 0. No closed form under discrete monitoring.",
+      "inputs": [
+        "S_T",
+        "disc",
+        "run_min"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "S_T"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "run_min"
+            }
+          }
+        },
+        "display": "disc*(S(T) - min S)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "a1",
+      "name": "GSG a1",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "T",
+        "r",
+        "sig2",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "ref",
+                "element_id": "r"
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "sig2"
+                }
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "T"
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          }
+        },
+        "display": "a1"
+      }
+    },
+    {
+      "id": "a2",
+      "name": "GSG a2",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "a1",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "a1"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          }
+        },
+        "display": "a1 - sigma sqrt(T)"
+      }
+    },
+    {
+      "id": "argm",
+      "name": "GSG arg",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "a1",
+        "r",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "divide",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 2.0
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "r"
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "sigma"
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "a1"
+          }
+        },
+        "display": "(2r/sigma)sqrt(T) - a1"
+      }
+    },
+    {
+      "id": "lb_cont",
+      "name": "Lookback Price (continuous, GSG)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Goldman-Sosin-Gatto CONTINUOUS-monitoring floating lookback call. Discrete monitoring misses between-date dips, so the discrete min is higher and the discrete MC price sits BELOW this (the Sec 3.2.2 discretization bias, mirror image of the barrier's).",
+      "inputs": [
+        "S0",
+        "a1",
+        "a2",
+        "argm",
+        "disc",
+        "ert",
+        "r",
+        "sig2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "subtract",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "S0"
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.0
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "erf",
+                    "args": [
+                      {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "a1"
+                        },
+                        "right": {
+                          "op": "literal",
+                          "value": 0.7071067811865476
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "S0"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "disc"
+                }
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.0
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "erf",
+                    "args": [
+                      {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "a2"
+                        },
+                        "right": {
+                          "op": "literal",
+                          "value": 0.7071067811865476
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "S0"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "disc"
+                }
+              },
+              "right": {
+                "op": "divide",
+                "left": {
+                  "op": "ref",
+                  "element_id": "sig2"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 2.0
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "r"
+                  }
+                }
+              }
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.0
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "erf",
+                    "args": [
+                      {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "argm"
+                        },
+                        "right": {
+                          "op": "literal",
+                          "value": 0.7071067811865476
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "ert"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 0.5
+                  },
+                  "right": {
+                    "op": "add",
+                    "left": {
+                      "op": "literal",
+                      "value": 1.0
+                    },
+                    "right": {
+                      "op": "call",
+                      "fn": "erf",
+                      "args": [
+                        {
+                          "op": "multiply",
+                          "left": {
+                            "op": "neg",
+                            "operand": {
+                              "op": "ref",
+                              "element_id": "a1"
+                            }
+                          },
+                          "right": {
+                            "op": "literal",
+                            "value": 0.7071067811865476
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "display": "GSG floating lookback call"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "min_mean",
+      "name": "E[min S]",
+      "type": "expression",
+      "container": "identity",
+      "description": "Cross-realization mean of the path minimum (run_stat).",
+      "inputs": [
+        "run_min"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat",
+          "element_id": "run_min",
+          "statistic": "mean"
+        },
+        "display": "mean(run_min)"
+      }
+    },
+    {
+      "id": "lb_check",
+      "name": "Lookback via S0 - disc E[min]",
+      "type": "expression",
+      "container": "identity",
+      "description": "The identity price: disc*E[S(T)-min] = disc*E[S(T)] - disc*E[min] = S0 - disc*E[min], since disc*E[S(T)]=S0. Must equal the MC lookback mean (a run_stat consistency check).",
+      "inputs": [
+        "S0",
+        "disc",
+        "min_mean"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "S0"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "disc"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "min_mean"
+            }
+          }
+        },
+        "display": "S0 - disc*E[min S]"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "ctrl",
+      "name": "Discounted Terminal (control)",
+      "type": "terminal_expression",
+      "container": "control_variate",
+      "description": "Control variate: discounted terminal, known mean disc*E[S(T)] = S0. ~0.9 correlated with the lookback.",
+      "inputs": [
+        "S_T",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "S_T"
+          }
+        },
+        "display": "disc*S(T)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "beta",
+      "name": "CV Coefficient",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "b* = Cov(ctrl,lookback)/Var(ctrl) across realizations.",
+      "inputs": [
+        "ctrl",
+        "lookback"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat2",
+          "x": "ctrl",
+          "y": "lookback",
+          "statistic": "beta"
+        },
+        "display": "beta(ctrl,lookback)"
+      }
+    },
+    {
+      "id": "lookback_cv",
+      "name": "Control-Variate Estimator",
+      "type": "terminal_expression",
+      "container": "control_variate",
+      "description": "Lookback price with disc*S(T) as control (known mean S0). Unbiased and lower-variance.",
+      "inputs": [
+        "S0",
+        "beta",
+        "ctrl",
+        "lookback"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "lookback"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "beta"
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "ctrl"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "S0"
+              }
+            }
+          }
+        },
+        "display": "lookback - beta*(ctrl - S0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
