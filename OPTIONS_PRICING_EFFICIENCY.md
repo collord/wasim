@@ -2,6 +2,7 @@
 
 **Model:** [`schema_examples_manual/options_pricing_efficiency.json`](schema_examples_manual/options_pricing_efficiency.json)
 **Regression test:** [`engine/tests/options_efficiency_smoke.rs`](engine/tests/options_efficiency_smoke.rs)
+**Companion (path-dependent):** [`ASIAN_OPTION_EXAMPLE.md`](ASIAN_OPTION_EXAMPLE.md) — an arithmetic Asian call with a geometric control variate (stepped GBM path + running averages).
 
 This note shows how WASiM represents and solves a *pricing-efficiency* analysis in the
 sense of Glasserman, *Monte Carlo Methods in Financial Engineering* (Springer, 2003),

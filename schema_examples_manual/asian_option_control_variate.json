@@ -1,0 +1,1005 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Arithmetic-average Asian call priced by path Monte Carlo, with the geometric-average Asian as a control variate (Glasserman, Sec 1.1.2 / Eq 3.28 Asian payoff; geometric control is the textbook reducer, Sec 4.1). GBM path via a process node driving an accumulator (exact GBM per step). The average is taken over the monitoring points captured by running sums, with the count from a step-counter accumulator so the average is self-consistent under the engine's one-step stock-read lag. The geometric Asian has a closed form (Kemna-Vorst, live via erf) that is BOTH the validation reference and the control's known mean. Run results_spec.final_stats on payoff_arith / cv_arith / geo_price. See ASIAN_OPTION_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.08333333333333333,
+      "unit": "yr"
+    },
+    "n_realizations": 50000,
+    "sampling_method": "monte_carlo",
+    "seed": 424242
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "path",
+      "name": "Path Simulation",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Averages",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoffs",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Geometric Closed Form",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "control_variate",
+      "name": "Control Variate",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot Price",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current underlying price S0.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Strike K (at-the-money default).",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Risk-Free Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate. NOTE: the process node's drift is a static Quantity hard-set to this value \u2014 keep in sync (engine gap #1).",
+      "value": {
+        "value": 0.05,
+        "unit": "1/yr"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility (same static-parameter caveat as r).",
+      "value": {
+        "value": 0.2,
+        "unit": "1/yr"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Payment date; used only for discounting exp(-rT). Must equal simulation_settings.duration.",
+      "value": {
+        "value": 1.0,
+        "unit": "yr"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "P",
+      "name": "GBM Rate",
+      "type": "stochastic_process",
+      "container": "path",
+      "description": "Per-step risk-neutral GBM rate (drift r, vol sigma). Returns a per-step RATE so the S accumulator reproduces exact GBM: S *= exp((r-sigma^2/2)dt + sigma*sqrt(dt)Z). mean/stddev are STATIC quantities (engine gap #1).",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "value": 0.05,
+          "unit": "1/yr"
+        },
+        "stddev": {
+          "value": 0.2,
+          "unit": "1/yr"
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S",
+      "name": "Underlying Path",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Exact GBM price path: rate = S*P with P the per-step GBM rate makes each Euler step S_{k+1}=S_k*exp(log_ret).",
+      "inputs": [
+        "S",
+        "P"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P"
+          }
+        },
+        "display": "S*P"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    },
+    {
+      "id": "sumS",
+      "name": "Sum of S",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Running sum of the path. rate = S/timestep so each Euler step adds one S value. Summed over the monitoring points the average uses.",
+      "inputs": [
+        "S"
+      ],
+      "initial_value": {
+        "value": 0.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "ref",
+            "element_id": "S"
+          },
+          "right": {
+            "op": "time_ref",
+            "property": "timestep"
+          }
+        },
+        "display": "S/dt"
+      },
+      "min_value": null,
+      "capacity": null
+    },
+    {
+      "id": "sumLnS",
+      "name": "Sum of ln S",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Running sum of ln S, for the geometric average.",
+      "inputs": [
+        "S"
+      ],
+      "initial_value": {
+        "value": 0.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "call",
+            "fn": "ln",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "S"
+              }
+            ]
+          },
+          "right": {
+            "op": "time_ref",
+            "property": "timestep"
+          }
+        },
+        "display": "ln(S)/dt"
+      },
+      "min_value": null,
+      "capacity": null
+    },
+    {
+      "id": "cnt",
+      "name": "Step Count",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Counts monitoring points (rate = 1/timestep adds 1 per step). Read from an expression it lags one step exactly like sumS/sumLnS, so avg = sumS/cnt is over precisely the points summed \u2014 the lag cancels (engine gap #2 workaround).",
+      "inputs": [],
+      "initial_value": {
+        "value": 0.0,
+        "unit": "1"
+      },
+      "rate": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "literal",
+            "value": 1.0
+          },
+          "right": {
+            "op": "time_ref",
+            "property": "timestep"
+          }
+        },
+        "display": "1/dt"
+      },
+      "min_value": null,
+      "capacity": null
+    },
+    {
+      "id": "dt",
+      "name": "Timestep dt",
+      "type": "expression",
+      "container": "derived",
+      "description": "The simulation timestep, surfaced for the closed-form monitoring spacing.",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "time_ref",
+          "property": "timestep"
+        },
+        "display": "timestep"
+      }
+    },
+    {
+      "id": "avg_arith",
+      "name": "Arithmetic Average",
+      "type": "expression",
+      "container": "derived",
+      "description": "Arithmetic average of S over the m monitoring points t_j = j*dt, j=0..m-1 (m=cnt). Dividing by the step-counter cnt (not a fixed n) makes the average self-consistent under the one-step stock-read lag.",
+      "inputs": [
+        "sumS",
+        "cnt"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "ref",
+            "element_id": "sumS"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "cnt"
+          }
+        },
+        "display": "sumS/cnt"
+      }
+    },
+    {
+      "id": "avg_geo",
+      "name": "Geometric Average",
+      "type": "expression",
+      "container": "derived",
+      "description": "Geometric average exp(mean ln S) over the same m points.",
+      "inputs": [
+        "sumLnS",
+        "cnt"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "divide",
+              "left": {
+                "op": "ref",
+                "element_id": "sumLnS"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "cnt"
+              }
+            }
+          ]
+        },
+        "display": "exp(sumLnS/cnt)"
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount exp(-rT)",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discount factor to the payment date T.",
+      "inputs": [
+        "r",
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "payoff_arith",
+      "name": "Arithmetic Asian Payoff",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discounted arithmetic-average Asian call payoff \u2014 the estimator of interest (no closed form).",
+      "inputs": [
+        "disc",
+        "avg_arith",
+        "K"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "avg_arith"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(avg_arith-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "payoff_geo",
+      "name": "Geometric Asian Payoff",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discounted geometric-average Asian call payoff \u2014 the control (known closed-form mean).",
+      "inputs": [
+        "disc",
+        "avg_geo",
+        "K"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "avg_geo"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(avg_geo-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "sigma2",
+      "name": "sigma^2",
+      "type": "expression",
+      "container": "reference",
+      "description": "Variance rate.",
+      "inputs": [
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma"
+          }
+        },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "lnS0",
+      "name": "ln(S0)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Log spot.",
+      "inputs": [
+        "S0"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "ln",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "S0"
+            }
+          ]
+        },
+        "display": "ln(S0)"
+      }
+    },
+    {
+      "id": "muG",
+      "name": "Geo Log-Mean",
+      "type": "expression",
+      "container": "reference",
+      "description": "E[ln G] for the m equally-spaced dates t_j=j*dt (uses m=cnt, dt).",
+      "inputs": [
+        "lnS0",
+        "r",
+        "sigma2",
+        "dt",
+        "cnt"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "lnS0"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "subtract",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "r"
+                  },
+                  "right": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "literal",
+                      "value": 0.5
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sigma2"
+                    }
+                  }
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "dt"
+                }
+              },
+              "right": {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "cnt"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 1.0
+                }
+              }
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.5
+            }
+          }
+        },
+        "display": "lnS0 + (r-sigma^2/2)*dt*(m-1)/2"
+      }
+    },
+    {
+      "id": "varG",
+      "name": "Geo Log-Var",
+      "type": "expression",
+      "container": "reference",
+      "description": "Var[ln G] = (sigma^2/m^2) * sum_ij min(t_i,t_j); -> sigma^2*(m*dt)/3 as m grows.",
+      "inputs": [
+        "sigma2",
+        "dt",
+        "cnt"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "sigma2"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "dt"
+                }
+              },
+              "right": {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "cnt"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 1.0
+                }
+              }
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 2.0
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "cnt"
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "literal",
+              "value": 6.0
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "cnt"
+            }
+          }
+        },
+        "display": "sigma^2*dt*(m-1)(2m-1)/(6m)"
+      }
+    },
+    {
+      "id": "sdG",
+      "name": "Geo Log-Sd",
+      "type": "expression",
+      "container": "reference",
+      "description": "Std of ln G.",
+      "inputs": [
+        "varG"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "varG"
+            }
+          ]
+        },
+        "display": "sqrt(varG)"
+      }
+    },
+    {
+      "id": "dG1",
+      "name": "d1",
+      "type": "expression",
+      "container": "reference",
+      "description": "Kemna-Vorst d1.",
+      "inputs": [
+        "muG",
+        "K",
+        "varG",
+        "sdG"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "muG"
+              },
+              "right": {
+                "op": "call",
+                "fn": "ln",
+                "args": [
+                  {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                ]
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "varG"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sdG"
+          }
+        },
+        "display": "(muG-lnK+varG)/sdG"
+      }
+    },
+    {
+      "id": "dG2",
+      "name": "d2",
+      "type": "expression",
+      "container": "reference",
+      "description": "Kemna-Vorst d2.",
+      "inputs": [
+        "dG1",
+        "sdG"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "dG1"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sdG"
+          }
+        },
+        "display": "d1-sdG"
+      }
+    },
+    {
+      "id": "NG1",
+      "name": "N(d1)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Normal CDF at d1 (exact via erf).",
+      "inputs": [
+        "dG1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "literal",
+            "value": 0.5
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "right": {
+              "op": "call",
+              "fn": "erf",
+              "args": [
+                {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "dG1"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 0.7071067811865476
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "display": "0.5(1+erf(d1/sqrt2))"
+      }
+    },
+    {
+      "id": "NG2",
+      "name": "N(d2)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Normal CDF at d2.",
+      "inputs": [
+        "dG2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "literal",
+            "value": 0.5
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "right": {
+              "op": "call",
+              "fn": "erf",
+              "args": [
+                {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "dG2"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 0.7071067811865476
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "display": "0.5(1+erf(d2/sqrt2))"
+      }
+    },
+    {
+      "id": "geo_price",
+      "name": "Geometric Asian Price (exact)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Closed-form price of the geometric-average Asian call. Deterministic across realizations, so its value is the control's known mean E[payoff_geo].",
+      "inputs": [
+        "disc",
+        "muG",
+        "varG",
+        "NG1",
+        "K",
+        "NG2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "subtract",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "call",
+                "fn": "exp",
+                "args": [
+                  {
+                    "op": "add",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "muG"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "varG"
+                      }
+                    }
+                  }
+                ]
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "NG1"
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "NG2"
+              }
+            }
+          }
+        },
+        "display": "disc*(exp(muG+varG/2)*N(d1) - K*N(d2))"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "beta",
+      "name": "CV Coefficient",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "b* = Cov(geo,arith)/Var(geo), estimated across realizations (Phase-1 run_stat2).",
+      "inputs": [
+        "payoff_geo",
+        "payoff_arith"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat2",
+          "x": "payoff_geo",
+          "y": "payoff_arith",
+          "statistic": "beta"
+        },
+        "display": "beta(payoff_geo,payoff_arith)"
+      }
+    },
+    {
+      "id": "cv_arith",
+      "name": "Control-Variate Estimator",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "Arithmetic Asian price with the geometric Asian as control. Unbiased (E[payoff_geo]=geo_price) and much lower variance \u2014 the arithmetic and geometric averages are ~0.99 correlated.",
+      "inputs": [
+        "payoff_arith",
+        "beta",
+        "payoff_geo",
+        "geo_price"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "payoff_arith"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "beta"
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "payoff_geo"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "geo_price"
+              }
+            }
+          }
+        },
+        "display": "payoff_arith - beta*(payoff_geo - geo_price)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
