@@ -167,6 +167,19 @@ pub(crate) fn run_splitbeta_key(x: &str, y: &str, folds: usize) -> String {
     format!("{x}\u{1}{y}\u{1}{folds}\u{4}")
 }
 
+/// The `run_vecs` injection key for an `Lsm` node — a specific (state, payoff, basis, rate)
+/// Longstaff-Schwartz per-realization cashflow vector. `\u{5}`-terminated to stay disjoint from the
+/// other injection keys. Computed identically at collection and eval time.
+pub(crate) fn lsm_key(state: &str, payoff: &str, basis: usize, rate: f64, folds: usize) -> String {
+    format!("{state}\u{1}{payoff}\u{1}{basis}\u{1}{rate}\u{1}{folds}\u{5}")
+}
+
+/// The `run_vecs` injection key for an `LsmDual` node — the dual (upper-bound) per-realization vector.
+/// `\u{6}`-terminated to stay disjoint from the `lsm` (primal) key.
+pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64) -> String {
+    format!("{state}\u{1}{payoff}\u{1}{rate}\u{6}")
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -831,6 +844,30 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         // injected [N] vector. 0.0 in the first pass / when no per-realization channel.
         AstNode::RunSplitBeta { x, y, folds } => {
             let key = run_splitbeta_key(x, y, *folds);
+            let v = ctx
+                .run_vecs
+                .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                .copied()
+                .unwrap_or(0.0);
+            Ok(Value::Scalar(v))
+        }
+
+        // Longstaff-Schwartz price: read this realization's discounted cashflow from the injected
+        // [N] vector (computed by the two-pass backward induction). 0.0 in the first pass.
+        AstNode::Lsm { state, payoff, basis, rate, folds } => {
+            let key = lsm_key(state, payoff, *basis, *rate, *folds);
+            let v = ctx
+                .run_vecs
+                .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                .copied()
+                .unwrap_or(0.0);
+            Ok(Value::Scalar(v))
+        }
+
+        // Longstaff-Schwartz dual (upper bound): this realization's max-deviation from the injected
+        // [N] vector (computed by the two-pass hedged-martingale dual). 0.0 in the first pass.
+        AstNode::LsmDual { state, payoff, rate } => {
+            let key = lsm_dual_key(state, payoff, *rate);
             let v = ctx
                 .run_vecs
                 .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))

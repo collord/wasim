@@ -15,6 +15,20 @@ pub struct WasimModel {
     /// and surfaced in `SimulationResults.elements` so user-visible outputs aren't lost.
     #[serde(default)]
     pub time_history_displays: Vec<TimeHistoryDisplay>,
+    /// Correlation matrices over named `random_variable` drivers (a convenience over declaring
+    /// pairwise `correlations` on each element). Each is expanded into the equivalent pairwise
+    /// entries during normalization, so it lowers to the existing Cholesky machinery. Symmetric;
+    /// unit diagonal assumed.
+    #[serde(default)]
+    pub correlation_matrices: Vec<CorrelationMatrix>,
+}
+
+/// A correlation matrix over a named set of `random_variable` drivers. `matrix[i][j]` is the
+/// correlation between `variables[i]` and `variables[j]`; the diagonal is ignored (taken as 1).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CorrelationMatrix {
+    pub variables: Vec<String>,
+    pub matrix: Vec<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -469,6 +483,14 @@ pub enum ElementKind {
     },
 }
 
+fn default_lsm_basis() -> usize {
+    3
+}
+
+fn default_lsm_folds() -> usize {
+    1
+}
+
 fn default_min_zero() -> Option<f64> {
     Some(0.0)
 }
@@ -728,6 +750,41 @@ pub enum AstNode {
         x: String,
         y: String,
         folds: usize,
+    },
+    // Longstaff-Schwartz least-squares Monte Carlo for an early-exercise (American / Bermudan)
+    // option. A post-run BACKWARD induction over the stored path panel: at each exercise date,
+    // regress the discounted future value on a polynomial basis of `state` over in-the-money paths,
+    // and exercise where the immediate `payoff` beats the fitted continuation. Evaluates to this
+    // realization's discounted-to-t0 cashflow, so the element's mean is the option price. Requires
+    // the per-realization injection channel and the `time_history` of `state`/`payoff` (the engine
+    // force-saves them). Scalar lane only. See AMERICAN_OPTION_SCOPE.md.
+    Lsm {
+        /// Element whose per-step history is the regression state (usually the underlying price).
+        state: String,
+        /// Element whose per-step history is the immediate-exercise payoff (e.g. max(K - S, 0)).
+        payoff: String,
+        /// Polynomial basis degree in the (scaled) state; default 3.
+        #[serde(default = "default_lsm_basis")]
+        basis: usize,
+        /// Annual risk-free rate for per-step discounting (exp(-rate·dt) per grid step).
+        rate: f64,
+        /// Cross-fit folds. `1` (default) = in-sample (slightly low-biased). `≥ 2` = out-of-sample
+        /// k-fold cross-fit: the policy is fit on the other folds and each fold priced under it, so
+        /// every path is priced out-of-sample — removing the in-sample bias (a lower bound).
+        #[serde(default = "default_lsm_folds")]
+        folds: usize,
+    },
+    // Dual (upper-bound) companion to `lsm`: the Rogers/Andersen-Broadie dual with the underlying as
+    // the hedging martingale M_t = θ·(discᵗ·S_t − S_0). discᵗ·S_t is a true martingale, so
+    // E[maxₜ(Zₜ − Mₜ)] ≥ price for every θ; minimizing over θ gives a valid (if loose) UPPER bound.
+    // Evaluates to this realization's maxₜ(Zₜ − Mₜ), so the mean is the dual price. Scalar lane only.
+    LsmDual {
+        /// Element whose per-step history is the underlying (the hedging martingale discᵗ·S_t).
+        state: String,
+        /// Element whose per-step history is the immediate-exercise payoff.
+        payoff: String,
+        /// Annual risk-free rate for per-step discounting.
+        rate: f64,
     },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).

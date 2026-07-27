@@ -414,6 +414,12 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::RunSplitBeta { x, y, folds } => {
             format!("run_split_beta({x}, {y}; {folds} folds)")
         }
+        AstNode::Lsm { state, payoff, basis, rate, folds } => {
+            format!("lsm(state={state}, payoff={payoff}; basis={basis}, rate={rate}, folds={folds})")
+        }
+        AstNode::LsmDual { state, payoff, rate } => {
+            format!("lsm_dual(state={state}, payoff={payoff}; rate={rate})")
+        }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();
             format!("{func}({})", a.join(", "))

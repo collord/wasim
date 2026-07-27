@@ -250,6 +250,9 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
         AstNode::RunRegress { .. } => {}
         // RunSplitBeta is pre-computed per realization; its `x`/`y` create no topo dependency.
         AstNode::RunSplitBeta { .. } => {}
+        // Lsm / LsmDual are pre-computed post-run (over history); no topo dependency.
+        AstNode::Lsm { .. } => {}
+        AstNode::LsmDual { .. } => {}
         AstNode::Index { array, indices } => {
             collect_ast_refs(array, out);
             for i in indices {
