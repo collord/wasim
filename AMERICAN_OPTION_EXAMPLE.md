@@ -68,35 +68,52 @@ one-step convention the barrier/lookback examples use.
 | quantity | value |
 |---|---|
 | **American put — binomial tree at `T_eff = 0.98`** | **6.0449** |
-| American put — LSM (`american_put`) | **6.024 ± 0.069** — matches the tree (small in-sample low bias) |
-| European put — MC (`euro_put`) | 5.534 ± 0.084 |
-| European put — Black–Scholes (`bs_euro`) | 5.5735 |
-| **Early-exercise premium** | **≈ 0.49** |
+| American put — LSM **out-of-sample** (`american_put`, 2-fold) | **6.015 ± 0.069** — nearly unbiased lower bound |
+| American put — LSM in-sample (`american_put_is`) | 6.024 ± 0.069 |
+| American put — **dual upper bound** (`american_dual`) | **9.704 ± 0.046** (valid, loose) |
+| European put — MC / Black–Scholes | 5.534 / 5.5735 |
+| **Early-exercise premium** | **≈ 0.48** |
 
-Three things fall out:
+Four things fall out:
 
-1. **LSM prices early exercise.** The American put lands just below the binomial value (6.024 vs 6.0449
-   at the effective maturity) — the expected **in-sample low bias** of LSM: the fitted policy is slightly
-   sub-optimal, and pricing on the same paths that fit it biases downward. That's a feature to be aware
-   of, not a bug; the fix (an out-of-sample pass and the Andersen–Broadie **dual upper bound** for a true
-   confidence interval) is the Phase-2/3 work in the scope. (An earlier build mis-aligned the state and
-   payoff panels by one step and over-priced at 7.55 — see §2; aligning them gives the correct 6.02.)
-2. **The early-exercise premium is real.** American (6.04) clearly exceeds European (5.57) — the right to
-   exercise early is worth ≈ 0.5 for an at-the-money put under positive rates.
-3. **The path is validated.** The European put on the same simulated path matches Black–Scholes,
-   confirming the GBM path feeding the LSM regression is correct.
+1. **LSM prices early exercise, and the estimate is bracketed.** The out-of-sample price (6.015) sits
+   just below the binomial value (6.0449), and the **dual is a valid upper bound** (9.704 ≥ 6.045), so
+   the true price is provably in **[6.015, 9.704]** — a primal–dual sandwich. The lower bound is tight
+   (within ~0.4% of the tree); the upper bound is *loose* because a single hedging instrument can't
+   replicate an American option (see §4). (An earlier build mis-aligned the state and payoff panels by
+   one step and over-priced at 7.55 — see §2; aligning them gives the correct 6.02.)
+2. **Out-of-sample removes the in-sample bias.** In-sample LSM fits the policy and prices on the *same*
+   paths, so the policy overfits the noise. The 2-fold cross-fit (`folds = 2`) fits the policy on one
+   fold and prices the other under it, so every path is priced out-of-sample — a nearly unbiased lower
+   bound. Here the in-sample (6.024) and OOS (6.015) agree within Monte Carlo error (the in-sample bias
+   is small at `N = 40 000`); the machinery is what matters, and it scales with the bias.
+3. **The early-exercise premium is real.** American (6.02) clearly exceeds European (5.57) — the right
+   to exercise early is worth ≈ 0.48 for an at-the-money put under positive rates.
+4. **The path is validated.** The European put on the same simulated path matches Black–Scholes.
 
 ## 4. Engine status
 
-**Landed (Phase 1).** The `lsm` node: backward induction over the stored panel, ITM-filtered covariance
-regression, per-realization cashflow injection. Additive — a new AST node handled like the run-stat
-family; models without it are unchanged. Reuses `hist_store` and `regression_coefficients`.
+**Landed.**
 
-**Still open** (from `AMERICAN_OPTION_SCOPE.md`), and honestly flagged:
+- **Phase 1 — `lsm` node.** Backward induction over the stored panel, ITM-filtered covariance
+  regression, per-realization cashflow injection. Reuses `hist_store` and `regression_coefficients`.
+- **Phase 2 — out-of-sample cross-fit** (`folds` on the `lsm` node). `folds ≥ 2` fits the policy on the
+  complementary folds and prices each fold under it, so every path is priced out-of-sample — a nearly
+  unbiased **lower** bound. `folds = 1` (default) is the in-sample estimate.
+- **Phase 3 — dual upper bound** (`lsm_dual` node). The Rogers/Andersen–Broadie dual with the
+  **underlying as the hedging martingale**, `M_t = θ·(discᵗ·S_t − S_0)`. Since `discᵗ·S_t` is a true
+  martingale under the risk-neutral measure, `E[maxₜ(Zₜ − Mₜ)] ≥ price` for every `θ`, so minimizing
+  over `θ` gives a **valid** upper bound. Together with the OOS lower bound it brackets the true price.
 
-- **In-sample bias / a true interval.** This is a low-biased point estimate. Out-of-sample pricing
-  (fit on one path set, price on another) removes the bias; the **Andersen–Broadie dual** adds a
-  matching *upper* bound, bracketing the true price. Phase 2/3.
+All additive — new AST nodes handled like the run-stat family; models without them are unchanged.
+
+**Still open**, and honestly flagged:
+
+- **A *tight* upper bound needs nested simulation.** The hedged-martingale dual is rigorous but loose
+  (9.7 vs a true 6.0) — one instrument can't replicate the option. The tight Andersen–Broadie dual
+  builds the Doob martingale of the *value* process via inner sub-simulations at each date; that needs
+  a nested-simulation capability the engine doesn't have (a non-nested regression martingale was tried
+  and **collapses** — it reproduces the primal instead of bounding it, so it was not shipped).
 - **Basis / conditioning.** A cubic monomial basis in `S/S₀`, ITM-only, is the classic choice; richer
   or orthogonalized bases (Laguerre/Chebyshev) and multi-factor state (for max/min-of-assets Americans,
   reusing the correlation work) are natural extensions.

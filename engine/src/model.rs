@@ -487,6 +487,10 @@ fn default_lsm_basis() -> usize {
     3
 }
 
+fn default_lsm_folds() -> usize {
+    1
+}
+
 fn default_min_zero() -> Option<f64> {
     Some(0.0)
 }
@@ -763,6 +767,23 @@ pub enum AstNode {
         #[serde(default = "default_lsm_basis")]
         basis: usize,
         /// Annual risk-free rate for per-step discounting (exp(-rate·dt) per grid step).
+        rate: f64,
+        /// Cross-fit folds. `1` (default) = in-sample (slightly low-biased). `≥ 2` = out-of-sample
+        /// k-fold cross-fit: the policy is fit on the other folds and each fold priced under it, so
+        /// every path is priced out-of-sample — removing the in-sample bias (a lower bound).
+        #[serde(default = "default_lsm_folds")]
+        folds: usize,
+    },
+    // Dual (upper-bound) companion to `lsm`: the Rogers/Andersen-Broadie dual with the underlying as
+    // the hedging martingale M_t = θ·(discᵗ·S_t − S_0). discᵗ·S_t is a true martingale, so
+    // E[maxₜ(Zₜ − Mₜ)] ≥ price for every θ; minimizing over θ gives a valid (if loose) UPPER bound.
+    // Evaluates to this realization's maxₜ(Zₜ − Mₜ), so the mean is the dual price. Scalar lane only.
+    LsmDual {
+        /// Element whose per-step history is the underlying (the hedging martingale discᵗ·S_t).
+        state: String,
+        /// Element whose per-step history is the immediate-exercise payoff.
+        payoff: String,
+        /// Annual risk-free rate for per-step discounting.
         rate: f64,
     },
     // A source function the engine does not implement — preserved for round-tripping

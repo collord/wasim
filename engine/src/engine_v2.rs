@@ -69,9 +69,10 @@ pub fn run(
         return crate::array_lane::run_array_lane(model, graph, config);
     }
 
-    let (targets, pair_targets, regr_targets, split_targets, lsm_targets) = collect_run_stats(model)?;
+    let (targets, pair_targets, regr_targets, split_targets, lsm_targets, lsm_dual_targets) =
+        collect_run_stats(model)?;
     if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty()
-        && split_targets.is_empty() && lsm_targets.is_empty()
+        && split_targets.is_empty() && lsm_targets.is_empty() && lsm_dual_targets.is_empty()
     {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
@@ -101,9 +102,13 @@ pub fn run(
         target_ids.push(st.y.clone());
     }
     st1.force_save_targets(&target_ids);
-    // LSM needs the full time_history panel of its state and payoff elements.
+    // LSM (primal + dual) needs the full time_history panel of its state and payoff elements.
     let mut hist_ids: Vec<String> = Vec::new();
     for lt in &lsm_targets {
+        hist_ids.push(lt.state.clone());
+        hist_ids.push(lt.payoff.clone());
+    }
+    for lt in &lsm_dual_targets {
         hist_ids.push(lt.state.clone());
         hist_ids.push(lt.payoff.clone());
     }
@@ -121,7 +126,17 @@ pub fn run(
             (st1.hist_store.get(&lt.state), st1.hist_store.get(&lt.payoff))
         {
             let disc = (-lt.rate * dt1).exp();
-            reduced_vecs.insert(lt.key.clone(), crate::engine::lsm_backward(state, payoff, lt.basis, disc));
+            reduced_vecs.insert(lt.key.clone(),
+                crate::engine::lsm_backward(state, payoff, lt.basis, disc, lt.folds));
+        }
+    }
+    // LSM dual (hedged-martingale upper bound): per-path max-deviation; mean = the dual price.
+    for lt in &lsm_dual_targets {
+        if let (Some(state), Some(payoff)) =
+            (st1.hist_store.get(&lt.state), st1.hist_store.get(&lt.payoff))
+        {
+            let disc = (-lt.rate * dt1).exp();
+            reduced_vecs.insert(lt.key.clone(), crate::engine::lsm_dual(state, payoff, disc));
         }
     }
 
@@ -192,13 +207,28 @@ struct RunSplitBetaTarget {
 }
 
 /// An `lsm` (Longstaff-Schwartz) target: its injection key, the state and payoff elements whose
-/// `time_history` panels drive the backward induction, the polynomial basis degree, and the rate.
+/// `time_history` panels drive the backward induction, the polynomial basis degree, rate, and folds.
 struct LsmTarget {
     key: String,
     state: String,
     payoff: String,
     basis: usize,
     rate: f64,
+    folds: usize,
+}
+
+/// An `lsm_dual` target: the dual (upper-bound) companion — same state/payoff panels, rate only.
+struct LsmDualTarget {
+    key: String,
+    state: String,
+    payoff: String,
+    rate: f64,
+}
+
+/// A collected LSM AST node — primal (`lsm`) or dual (`lsm_dual`) — from the expression walk.
+enum LsmRef<'a> {
+    Primal { state: &'a str, payoff: &'a str, basis: usize, rate: f64, folds: usize },
+    Dual { state: &'a str, payoff: &'a str, rate: f64 },
 }
 
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
@@ -210,6 +240,7 @@ type CollectedTargets = (
     Vec<RunRegressTarget>,
     Vec<RunSplitBetaTarget>,
     Vec<LsmTarget>,
+    Vec<LsmDualTarget>,
 );
 
 fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
@@ -218,7 +249,7 @@ fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
     let mut pair: Vec<(&str, &str, &crate::model::RunPairStat)> = Vec::new();
     let mut regr: Vec<(&str, &[String], usize)> = Vec::new();
     let mut split: Vec<(&str, &str, usize)> = Vec::new();
-    let mut lsm: Vec<(&str, &str, usize, f64)> = Vec::new();
+    let mut lsm: Vec<LsmRef> = Vec::new();
     for e in &model.elements {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Expression(ef) = &n.rule {
@@ -280,16 +311,29 @@ fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
         }
     }
     let mut lsm_targets = Vec::new();
+    let mut lsm_dual_targets = Vec::new();
     let mut seen5: HashSet<String> = HashSet::new();
-    for (state, payoff, basis, rate) in lsm {
-        let key = crate::eval::lsm_key(state, payoff, basis, rate);
-        if seen5.insert(key.clone()) {
-            lsm_targets.push(LsmTarget {
-                key, state: state.to_string(), payoff: payoff.to_string(), basis, rate,
-            });
+    for r in lsm {
+        match r {
+            LsmRef::Primal { state, payoff, basis, rate, folds } => {
+                let key = crate::eval::lsm_key(state, payoff, basis, rate, folds);
+                if seen5.insert(key.clone()) {
+                    lsm_targets.push(LsmTarget {
+                        key, state: state.to_string(), payoff: payoff.to_string(), basis, rate, folds,
+                    });
+                }
+            }
+            LsmRef::Dual { state, payoff, rate } => {
+                let key = crate::eval::lsm_dual_key(state, payoff, rate);
+                if seen5.insert(key.clone()) {
+                    lsm_dual_targets.push(LsmDualTarget {
+                        key, state: state.to_string(), payoff: payoff.to_string(), rate,
+                    });
+                }
+            }
         }
     }
-    Ok((targets, pair_targets, regr_targets, split_targets, lsm_targets))
+    Ok((targets, pair_targets, regr_targets, split_targets, lsm_targets, lsm_dual_targets))
 }
 
 fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
@@ -304,11 +348,16 @@ fn collect_run_stat_nodes<'a>(
     pairs: &mut Vec<(&'a str, &'a str, &'a crate::model::RunPairStat)>,
     regr: &mut Vec<(&'a str, &'a [String], usize)>,
     split: &mut Vec<(&'a str, &'a str, usize)>,
-    lsm: &mut Vec<(&'a str, &'a str, usize, f64)>,
+    lsm: &mut Vec<LsmRef<'a>>,
 ) {
     match node {
-        AstNode::Lsm { state, payoff, basis, rate } => {
-            lsm.push((state.as_str(), payoff.as_str(), *basis, *rate));
+        AstNode::Lsm { state, payoff, basis, rate, folds } => {
+            lsm.push(LsmRef::Primal {
+                state: state.as_str(), payoff: payoff.as_str(), basis: *basis, rate: *rate, folds: *folds,
+            });
+        }
+        AstNode::LsmDual { state, payoff, rate } => {
+            lsm.push(LsmRef::Dual { state: state.as_str(), payoff: payoff.as_str(), rate: *rate });
         }
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));

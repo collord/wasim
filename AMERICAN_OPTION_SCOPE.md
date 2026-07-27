@@ -1,12 +1,18 @@
 # American / Bermudan Options — Least-Squares Monte Carlo (Longstaff–Schwartz)
 
-**Status:** **Phase 1 built** — the `lsm` construct
-([`AMERICAN_OPTION_EXAMPLE.md`](AMERICAN_OPTION_EXAMPLE.md)): a post-run backward induction over the
-stored `time_history` panel, ITM-filtered covariance regression, per-realization cashflow injection.
-An American put matches a binomial tree (6.024 vs 6.045 at the effective maturity, the expected
-in-sample low bias) and shows the early-exercise premium over European. Phases 2–3 (out-of-sample
-pricing to remove the in-sample bias; the Andersen–Broadie **dual upper bound** for a true confidence
-interval; richer bases / multi-factor state) remain **proposed** below.
+**Status:** **Phases 1–3 built** ([`AMERICAN_OPTION_EXAMPLE.md`](AMERICAN_OPTION_EXAMPLE.md)).
+- **Phase 1 — `lsm` node:** post-run backward induction over the stored `time_history` panel,
+  ITM-filtered covariance regression, per-realization cashflow injection.
+- **Phase 2 — out-of-sample cross-fit** (`folds` on `lsm`): fit the policy on the complementary folds
+  and price each fold under it → a nearly unbiased **lower** bound (removes the in-sample bias).
+- **Phase 3 — `lsm_dual` node:** the dual **upper** bound with the underlying as the hedging martingale
+  (`M_t = θ·(discᵗ·S_t − S_0)`; `discᵗ·S_t` is a true martingale, so valid for any `θ`). Together they
+  **bracket** the true price: OOS 6.015 ≤ binomial 6.045 ≤ dual 9.704.
+
+The dual is rigorous but **loose** (one hedge can't replicate the option); a *tight* upper bound needs
+the nested-simulation Andersen–Broadie martingale — the one remaining piece (a non-nested regression
+martingale was tried and collapses to the primal; not shipped). Richer/orthogonal bases and
+multi-factor state also remain, below.
 **Motivation:** completes the Glasserman arc — the only major class left is **optimal stopping**
 (§8), the hardest and most valuable Monte Carlo capability. This was the one candidate needing a
 genuinely new engine capability (a **backward, time-recursive, cross-path regression**); the enablers

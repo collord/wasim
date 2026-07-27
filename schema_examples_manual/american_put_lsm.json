@@ -250,10 +250,10 @@
     },
     {
       "id": "american_put",
-      "name": "American Put (LSM)",
+      "name": "American Put (LSM, out-of-sample)",
       "type": "expression",
       "container": "pricing",
-      "description": "American put by Longstaff-Schwartz: a post-run backward induction over the stored path panel. At each date, the discounted future value is regressed on a cubic basis of S over in-the-money paths, and the option is exercised where the intrinsic value beats the fitted continuation. Each realization's value is its discounted-to-t0 cashflow, so the mean is the price. In-sample estimator (slightly low-biased; the dual upper bound is future work).",
+      "description": "American put by Longstaff-Schwartz, priced OUT-OF-SAMPLE (2-fold cross-fit): the exercise policy is fit on one fold and applied to price the other, so no path is priced under a policy tuned to its own noise. A nearly unbiased lower bound on the true price.",
       "inputs": [
         "S_lag",
         "h"
@@ -264,9 +264,60 @@
           "state": "S_lag",
           "payoff": "h",
           "basis": 3,
+          "rate": 0.05,
+          "folds": 2
+        },
+        "display": "lsm(S_lag, h; basis 3, 2-fold OOS)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "american_put_is",
+      "name": "American Put (LSM, in-sample)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "In-sample LSM (policy fit and priced on the same paths) \u2014 low-biased; kept to show the OOS correction.",
+      "inputs": [
+        "S_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm",
+          "state": "S_lag",
+          "payoff": "h",
+          "basis": 3,
+          "rate": 0.05,
+          "folds": 1
+        },
+        "display": "lsm(S_lag, h; in-sample)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "american_dual",
+      "name": "American Put (LSM dual, upper bound)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "Rogers/Andersen-Broadie dual upper bound with the underlying as the hedging martingale M_t = theta*(disc^t S_t - S0). disc^t S_t is a true martingale, so this is a valid (if loose) upper bound; the true price lies in [american_put, american_dual].",
+      "inputs": [
+        "S_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm_dual",
+          "state": "S_lag",
+          "payoff": "h",
           "rate": 0.05
         },
-        "display": "lsm(S_lag, h; basis 3)"
+        "display": "lsm_dual(S_lag, h)"
       },
       "save_results": {
         "final_value": true,

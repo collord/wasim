@@ -1111,58 +1111,158 @@ pub(crate) fn jackknife_beta(xs: &[f64], ys: &[f64], folds: usize) -> Vec<f64> {
 /// therefore intentionally omitted (it would be singular under covariance regression). Regression is
 /// run only over in-the-money paths (Longstaff-Schwartz), and skipped at a date with too few of them
 /// (then all paths simply continue).
+/// A fitted continuation function at one exercise date: `Ĉ(x) = ȳ + Σ_p β_p·(xᵖ − x̄ᵖ)` on the
+/// scaled state `x = S/scale`, in discounted-to-t0 units. (Covariance regression fits centered
+/// slopes, so the intercept is implicit via the means — a constant column would be singular.)
+struct DateFit {
+    beta: Vec<f64>,
+    ybar: f64,
+    colbar: Vec<f64>,
+}
+
+fn cont_at(fit: &DateFit, x_scaled: f64, deg: usize) -> f64 {
+    fit.ybar + (1..=deg).map(|p| fit.beta[p - 1] * (x_scaled.powi(p as i32) - fit.colbar[p - 1])).sum::<f64>()
+}
+
+/// Backward induction over the given path indices: fits per-date continuation functions and returns
+/// them with the in-sample discounted-to-t0 cashflow for those paths (index-aligned with `idx`).
+/// Regression is over in-the-money paths only; a date with too few gets no fit (everyone continues).
+fn lsm_fit(
+    state: &[Vec<f64>], payoff: &[Vec<f64>], idx: &[usize], deg: usize, disc: f64, scale: f64,
+) -> (Vec<Option<DateFit>>, Vec<f64>) {
+    let m = state.len();
+    let last = m - 1;
+    let n = idx.len();
+    let mut v: Vec<f64> = idx.iter().map(|&i| disc.powi(last as i32) * payoff[last][i]).collect();
+    let mut fits: Vec<Option<DateFit>> = (0..m).map(|_| None).collect();
+    for t in (1..last).rev() {
+        let sel: Vec<usize> = (0..n).filter(|&k| payoff[t][idx[k]] > 0.0).collect();
+        if sel.len() <= deg + 1 {
+            continue;
+        }
+        let xs: Vec<f64> = sel.iter().map(|&k| state[t][idx[k]] / scale).collect();
+        let ys: Vec<f64> = sel.iter().map(|&k| v[k]).collect();
+        let cols: Vec<Vec<f64>> = (1..=deg).map(|p| xs.iter().map(|x| x.powi(p as i32)).collect()).collect();
+        let col_refs: Vec<&[f64]> = cols.iter().map(|c| c.as_slice()).collect();
+        let beta = regression_coefficients(&ys, &col_refs);
+        if beta.len() != deg {
+            continue;
+        }
+        let ybar = ys.iter().sum::<f64>() / ys.len() as f64;
+        let colbar: Vec<f64> = cols.iter().map(|c| c.iter().sum::<f64>() / c.len() as f64).collect();
+        let fit = DateFit { beta, ybar, colbar };
+        for (j, &k) in sel.iter().enumerate() {
+            let exercise = disc.powi(t as i32) * payoff[t][idx[k]];
+            if exercise > cont_at(&fit, xs[j], deg) {
+                v[k] = exercise;
+            }
+        }
+        fits[t] = Some(fit);
+    }
+    (fits, v)
+}
+
+/// Apply a fitted exercise policy to (out-of-sample) test paths: exercise at the first date where the
+/// intrinsic value beats the fitted continuation, else at maturity. Returns each test path's
+/// discounted-to-t0 cashflow (index-aligned with `idx`).
+fn lsm_apply(
+    state: &[Vec<f64>], payoff: &[Vec<f64>], idx: &[usize], fits: &[Option<DateFit>], deg: usize,
+    disc: f64, scale: f64,
+) -> Vec<f64> {
+    let last = state.len() - 1;
+    idx.iter().map(|&i| {
+        for t in 1..last {
+            if payoff[t][i] > 0.0 {
+                if let Some(f) = &fits[t] {
+                    let exercise = disc.powi(t as i32) * payoff[t][i];
+                    if exercise >= cont_at(f, state[t][i] / scale, deg) {
+                        return exercise;
+                    }
+                }
+            }
+        }
+        disc.powi(last as i32) * payoff[last][i]
+    }).collect()
+}
+
+/// Longstaff-Schwartz least-squares Monte Carlo over a stored path panel. `state[t][i]` /
+/// `payoff[t][i]` are the regression state and immediate-exercise payoff at grid step `t` (`0..m`) on
+/// realization `i`. `disc` is the per-step discount `exp(-r·dt)`; `basis` is the polynomial degree.
+///
+/// `folds <= 1`: in-sample — fit the policy on all paths and price them (a slightly LOW-biased point
+/// estimate). `folds >= 2`: **out-of-sample k-fold cross-fit** — for each fold, fit on the other folds
+/// and price this fold under that fixed policy, so every path is priced out-of-sample. That removes
+/// the in-sample bias (a nearly unbiased LOWER bound). Returns each path's discounted-to-t0 cashflow
+/// (the caller injects it per realization; the mean is the price).
 pub(crate) fn lsm_backward(
-    state: &[Vec<f64>],
-    payoff: &[Vec<f64>],
-    basis: usize,
-    disc: f64,
+    state: &[Vec<f64>], payoff: &[Vec<f64>], basis: usize, disc: f64, folds: usize,
 ) -> Vec<f64> {
     let m = state.len();
-    if m == 0 {
-        return Vec::new();
-    }
+    if m == 0 { return Vec::new(); }
     let n = state[0].len();
-    if n == 0 {
-        return Vec::new();
-    }
+    if n == 0 { return Vec::new(); }
     let deg = basis.max(1);
-    // Conditioning scale: mean state at step 0 (the spot). Keeps xᵖ well-scaled.
     let scale = {
         let s0 = state[0].iter().sum::<f64>() / n as f64;
         if s0.abs() > 1e-12 { s0 } else { 1.0 }
     };
-    let last = m - 1;
-    // Cashflow discounted to t0, initialized by exercising at maturity.
-    let mut v: Vec<f64> = (0..n).map(|i| disc.powi(last as i32) * payoff[last][i]).collect();
-
-    // Backward over interior exercise dates. Step 0 is deterministic (no cross-sectional variation),
-    // so it is not a regression date; the price is mean(v) at t0.
-    for t in (1..last).rev() {
-        let itm: Vec<usize> = (0..n).filter(|&i| payoff[t][i] > 0.0).collect();
-        if itm.len() <= deg + 1 {
-            continue; // too few ITM paths to fit — everyone continues (v already disc-to-t0)
-        }
-        let xs: Vec<f64> = itm.iter().map(|&i| state[t][i] / scale).collect();
-        let ys: Vec<f64> = itm.iter().map(|&i| v[i]).collect();
-        // Power columns x^1 .. x^deg (no constant term — see doc).
-        let cols: Vec<Vec<f64>> = (1..=deg).map(|p| xs.iter().map(|x| x.powi(p as i32)).collect()).collect();
-        let col_refs: Vec<&[f64]> = cols.iter().map(|c| c.as_slice()).collect();
-        let betas = regression_coefficients(&ys, &col_refs);
-        if betas.len() != deg {
-            continue; // singular fit → no exercise decision this date
-        }
-        let ybar = ys.iter().sum::<f64>() / ys.len() as f64;
-        let colbar: Vec<f64> = cols.iter().map(|c| c.iter().sum::<f64>() / c.len() as f64).collect();
-        for (k, &i) in itm.iter().enumerate() {
-            let cont: f64 = ybar
-                + (1..=deg).map(|p| betas[p - 1] * (xs[k].powi(p as i32) - colbar[p - 1])).sum::<f64>();
-            let exercise = disc.powi(t as i32) * payoff[t][i];
-            if exercise > cont {
-                v[i] = exercise; // exercise now; otherwise keep the future cashflow (continue)
-            }
+    if folds <= 1 {
+        let all: Vec<usize> = (0..n).collect();
+        return lsm_fit(state, payoff, &all, deg, disc, scale).1;
+    }
+    let k = folds.clamp(2, n);
+    let mut out = vec![0.0; n];
+    for f in 0..k {
+        let train: Vec<usize> = (0..n).filter(|i| i % k != f).collect();
+        let test: Vec<usize> = (0..n).filter(|i| i % k == f).collect();
+        let (fits, _) = lsm_fit(state, payoff, &train, deg, disc, scale);
+        let cf = lsm_apply(state, payoff, &test, &fits, deg, disc, scale);
+        for (j, &i) in test.iter().enumerate() {
+            out[i] = cf[j];
         }
     }
-    v
+    out
+}
+
+/// A rigorous (if loose) DUAL upper bound on the early-exercise price, using the underlying as the
+/// hedging martingale: `M_t = θ·(discᵗ·S_t − S_0)`. Because `discᵗ·S_t` is a true martingale under
+/// the risk-neutral measure, `E[maxₜ(Zₜ − Mₜ)] ≥ price` for **every** `θ` (Zₜ = discᵗ·payoffₜ), so
+/// minimizing over `θ` gives a valid upper bound. Returns each path's `maxₜ(Zₜ − Mₜ)` at the
+/// minimizing `θ` (mean = the dual price). A single hedging instrument makes this loose; a tight
+/// bound needs the nested-simulation Andersen-Broadie martingale (future work).
+pub(crate) fn lsm_dual(state: &[Vec<f64>], payoff: &[Vec<f64>], disc: f64) -> Vec<f64> {
+    let m = state.len();
+    if m == 0 { return Vec::new(); }
+    let n = state[0].len();
+    if n == 0 { return Vec::new(); }
+    let s0 = state[0][0];
+    let dev = |theta: f64, i: usize| -> f64 {
+        let mut best = f64::NEG_INFINITY;
+        for t in 0..m {
+            let z = disc.powi(t as i32) * payoff[t][i];
+            let mart = theta * (disc.powi(t as i32) * state[t][i] - s0);
+            let d = z - mart;
+            if d > best { best = d; }
+        }
+        best
+    };
+    let mean_dev = |theta: f64| -> f64 { (0..n).map(|i| dev(theta, i)).sum::<f64>() / n as f64 };
+    // U(θ) is convex in θ (a mean of maxima of affine functions): coarse grid over [-2, 2] + refine.
+    let mut best_t = 0.0;
+    let mut best_u = f64::INFINITY;
+    let mut th = -2.0;
+    while th <= 2.0 + 1e-9 {
+        let u = mean_dev(th);
+        if u < best_u { best_u = u; best_t = th; }
+        th += 0.1;
+    }
+    let mut th = best_t - 0.1;
+    while th <= best_t + 0.1 + 1e-9 {
+        let u = mean_dev(th);
+        if u < best_u { best_u = u; best_t = th; }
+        th += 0.01;
+    }
+    (0..n).map(|i| dev(best_t, i)).collect()
 }
 
 /// Solve `A x = b` for a small symmetric system by Gaussian elimination with partial
