@@ -767,6 +767,11 @@ pub enum AstNode {
     Lsm {
         /// Element whose per-step history is the regression state (usually the underlying price).
         state: String,
+        /// Additional state elements for a MULTI-ASSET early-exercise option. When present, the
+        /// continuation regression uses a MULTIVARIATE monomial basis over `state` and every element
+        /// listed here (total degree ≤ `basis`). Empty (default) = single-asset, byte-identical to before.
+        #[serde(default)]
+        states: Vec<String>,
         /// Element whose per-step history is the immediate-exercise payoff (e.g. max(K - S, 0)).
         payoff: String,
         /// Polynomial basis degree in the (scaled) state; default 3.

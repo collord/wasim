@@ -1,6 +1,7 @@
 # American / Bermudan Options — Least-Squares Monte Carlo (Longstaff–Schwartz)
 
-**Status:** **Phases 1–3 built** ([`AMERICAN_OPTION_EXAMPLE.md`](AMERICAN_OPTION_EXAMPLE.md)).
+**Status:** **Phases 1–4 built** ([`AMERICAN_OPTION_EXAMPLE.md`](AMERICAN_OPTION_EXAMPLE.md),
+[`AMERICAN_MAX_CALL_EXAMPLE.md`](AMERICAN_MAX_CALL_EXAMPLE.md)).
 - **Phase 1 — `lsm` node:** post-run backward induction over the stored `time_history` panel,
   ITM-filtered covariance regression, per-realization cashflow injection.
 - **Phase 2 — out-of-sample cross-fit** (`folds` on `lsm`): fit the policy on the complementary folds
@@ -8,11 +9,16 @@
 - **Phase 3 — `lsm_dual` node:** the dual **upper** bound with the underlying as the hedging martingale
   (`M_t = θ·(discᵗ·S_t − S_0)`; `discᵗ·S_t` is a true martingale, so valid for any `θ`). Together they
   **bracket** the true price: OOS 6.015 ≤ binomial 6.045 ≤ dual 9.704.
+- **Phase 4 — multi-asset state** (`states` list on `lsm`): the continuation regression uses a
+  **multivariate monomial basis** over several state panels (total degree ≤ `basis`). Prices an
+  **American max-call on two correlated dividend-paying assets** — the first multi-asset early-exercise
+  option — against a Boyle–Evnine–Gibbs 2-asset binomial lattice (OOS 9.35 ≤ lattice 9.56, a valid
+  lower bound). A single-asset model (empty `states`) is byte-identical to before.
 
 The dual is rigorous but **loose** (one hedge can't replicate the option); a *tight* upper bound needs
 the nested-simulation Andersen–Broadie martingale — the one remaining piece (a non-nested regression
-martingale was tried and collapses to the primal; not shipped). Richer/orthogonal bases and
-multi-factor state also remain, below.
+martingale was tried and collapses to the primal; not shipped). See §8 for the full tight-dual
+investigation. Richer/orthogonal bases also remain, below.
 **Motivation:** completes the Glasserman arc — the only major class left is **optimal stopping**
 (§8), the hardest and most valuable Monte Carlo capability. This was the one candidate needing a
 genuinely new engine capability (a **backward, time-recursive, cross-path regression**); the enablers
@@ -108,7 +114,7 @@ loop.
 | **1** | Bermudan put, coarse date set, polynomial basis in `S`, backward pass over `hist_store`; validate against a **binomial tree** (or a published LSM benchmark, e.g. Longstaff–Schwartz Table 1). Low-biased point estimate. |
 | **2** | American limit (all grid dates), scaled/orthogonal basis, ITM filtering; out-of-sample pricing to remove in-sample bias. |
 | **3** | Andersen–Broadie **dual upper bound** → a true confidence interval `[LSM_low, dual_high]` around the price. |
-| **4** | Multi-factor state (e.g. American option on a max/min of assets — reuses the basket correlation work). |
+| **4** ✅ | Multi-factor state — an American **max-call on two correlated assets**; a multivariate monomial basis over both state panels, validated against a Boyle–Evnine–Gibbs 2-asset lattice. Reuses the basket correlated-process work. |
 
 ## 6. Test plan
 
@@ -132,3 +138,39 @@ the American limit and the dual.
 example. The good news is the two hard ingredients — cross-path least squares and the full path panel —
 are already in the codebase; LSM is a backward, recursive re-use of them. Scope it as its own effort
 (Phase 1 first, validated against a tree), separate from the drop-in digital and basket examples.
+
+## 8. The tight dual — why it needs nested simulation (investigation)
+
+Phase 3 ships a **valid but loose** upper bound (`lsm_dual`): the Rogers/Haugh–Kogan/Andersen–Broadie
+duality says `price = inf_M E[maxₜ(Zₜ − Mₜ)]` over all martingales `M`, and *any* martingale gives a
+valid upper bound. `lsm_dual` uses the single hedging martingale `M_t = θ·(discᵗ·S_t − S_0)` (the
+discounted underlying is a true martingale) and minimizes over the one scalar `θ`. One instrument cannot
+replicate the option's payoff, so the max-deviation is large and the bound is loose (dual ≈ 9.70 vs a
+true price ≈ 6.05 for the put).
+
+The *tight* dual is the **Andersen–Broadie** martingale: the Doob martingale of the LSM value process,
+`M_t = Σ (V̂_k − E_{k−1}[V̂_k])`, whose increments are the value's innovations. When `M` is close to the
+option's own value process, `maxₜ(Zₜ − Mₜ)` shrinks to near-zero duality gap. Building `E_{k−1}[V̂_k]`
+(the one-step conditional expectation of the continuation value) is exactly what requires **nested
+simulation** — an inner Monte Carlo of sub-paths launched from each `(date, path)` node — which this
+engine's forward-once / backward-once execution model does not provide.
+
+Non-nested substitutes were tried and **none is both tight and valid**:
+
+- **Regression martingale (innovations from the fitted `V̂`).** Reconstructing the Doob increments from
+  the same LSM regression that produced the primal makes `M` collapse toward the primal value process,
+  and the estimated dual gap collapses with it — *below* the true price, i.e. an **invalid** "upper"
+  bound. It is only unbiased with genuinely independent inner samples for the conditional expectation.
+- **Exact-moment / control-variate martingale.** Using the GBM's known conditional moments to build an
+  analytic `M` for the state gives a valid but even **looser** bound (≈ 12.6) — it hedges the state, not
+  the option value.
+- **Gauss–Hermite quadrature** for the one-step conditional expectation. Valid in principle, but the
+  quadrature is over the *fitted* continuation, so it inherits the regression's bias: loose (≈ 9.6 at 16
+  nodes) or, when the node count and basis degree interact badly, **invalid** (0.18 *below* the price).
+
+The pattern is consistent: without a true, independent inner expectation, the martingale either stays
+far from the value process (loose) or is contaminated by the primal fit (invalid). A robust tight dual is
+therefore **gated on a nested-simulation capability** — an inner sampler the engine would have to grow.
+We deliberately did **not** ship a fragile "tight" dual that violates the upper-bound guarantee; the
+loose-but-rigorous `lsm_dual` is the honest Phase-3 deliverable, and the tight bound is documented here
+as future engine work.
