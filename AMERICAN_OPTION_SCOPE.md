@@ -1,11 +1,17 @@
 # American / Bermudan Options — Least-Squares Monte Carlo (Longstaff–Schwartz)
 
-**Status:** **proposed — the one candidate that needs a genuinely new engine capability.** Unlike the
-digital (expressible today) and the basket (mostly expressible), an early-exercise option requires a
-**backward, time-recursive, cross-path regression** the engine cannot express. This is a real project,
-scoped here honestly.
+**Status:** **Phase 1 built** — the `lsm` construct
+([`AMERICAN_OPTION_EXAMPLE.md`](AMERICAN_OPTION_EXAMPLE.md)): a post-run backward induction over the
+stored `time_history` panel, ITM-filtered covariance regression, per-realization cashflow injection.
+An American put matches a binomial tree (6.024 vs 6.045 at the effective maturity, the expected
+in-sample low bias) and shows the early-exercise premium over European. Phases 2–3 (out-of-sample
+pricing to remove the in-sample bias; the Andersen–Broadie **dual upper bound** for a true confidence
+interval; richer bases / multi-factor state) remain **proposed** below.
 **Motivation:** completes the Glasserman arc — the only major class left is **optimal stopping**
-(§8), the hardest and most valuable Monte Carlo capability.
+(§8), the hardest and most valuable Monte Carlo capability. This was the one candidate needing a
+genuinely new engine capability (a **backward, time-recursive, cross-path regression**); the enablers
+turned out to be already present (`run_regress`'s solver + `hist_store`'s panel), so it landed as a
+post-run backward analogue of the terminal two-pass.
 
 ---
 

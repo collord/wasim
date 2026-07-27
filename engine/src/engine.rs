@@ -1096,6 +1096,75 @@ pub(crate) fn jackknife_beta(xs: &[f64], ys: &[f64], folds: usize) -> Vec<f64> {
     (0..n).map(|i| beta_f[i % k]).collect()
 }
 
+/// Longstaff-Schwartz least-squares Monte Carlo backward induction over a stored path panel.
+///
+/// `state[t][i]` / `payoff[t][i]` are the regression state and immediate-exercise payoff at grid
+/// step `t` (`0..m`) on realization `i` (`0..n`). Every grid step is an exercise date (the American
+/// limit / a fine Bermudan). `disc` is the per-step discount `exp(-r·dt)`; `basis` is the polynomial
+/// degree in the state scaled by its step-0 mean (for conditioning).
+///
+/// Returns each path's cashflow **discounted to t0** under the fitted exercise policy — so the mean
+/// of the returned vector is the option price (the caller injects it per realization).
+///
+/// Uses the shared covariance regression (`regression_coefficients`), which fits centered slopes; the
+/// continuation is reconstructed as `ȳ + Σ_p β_p·(xᵖ − mean(xᵖ))`. A constant basis column is
+/// therefore intentionally omitted (it would be singular under covariance regression). Regression is
+/// run only over in-the-money paths (Longstaff-Schwartz), and skipped at a date with too few of them
+/// (then all paths simply continue).
+pub(crate) fn lsm_backward(
+    state: &[Vec<f64>],
+    payoff: &[Vec<f64>],
+    basis: usize,
+    disc: f64,
+) -> Vec<f64> {
+    let m = state.len();
+    if m == 0 {
+        return Vec::new();
+    }
+    let n = state[0].len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let deg = basis.max(1);
+    // Conditioning scale: mean state at step 0 (the spot). Keeps xᵖ well-scaled.
+    let scale = {
+        let s0 = state[0].iter().sum::<f64>() / n as f64;
+        if s0.abs() > 1e-12 { s0 } else { 1.0 }
+    };
+    let last = m - 1;
+    // Cashflow discounted to t0, initialized by exercising at maturity.
+    let mut v: Vec<f64> = (0..n).map(|i| disc.powi(last as i32) * payoff[last][i]).collect();
+
+    // Backward over interior exercise dates. Step 0 is deterministic (no cross-sectional variation),
+    // so it is not a regression date; the price is mean(v) at t0.
+    for t in (1..last).rev() {
+        let itm: Vec<usize> = (0..n).filter(|&i| payoff[t][i] > 0.0).collect();
+        if itm.len() <= deg + 1 {
+            continue; // too few ITM paths to fit — everyone continues (v already disc-to-t0)
+        }
+        let xs: Vec<f64> = itm.iter().map(|&i| state[t][i] / scale).collect();
+        let ys: Vec<f64> = itm.iter().map(|&i| v[i]).collect();
+        // Power columns x^1 .. x^deg (no constant term — see doc).
+        let cols: Vec<Vec<f64>> = (1..=deg).map(|p| xs.iter().map(|x| x.powi(p as i32)).collect()).collect();
+        let col_refs: Vec<&[f64]> = cols.iter().map(|c| c.as_slice()).collect();
+        let betas = regression_coefficients(&ys, &col_refs);
+        if betas.len() != deg {
+            continue; // singular fit → no exercise decision this date
+        }
+        let ybar = ys.iter().sum::<f64>() / ys.len() as f64;
+        let colbar: Vec<f64> = cols.iter().map(|c| c.iter().sum::<f64>() / c.len() as f64).collect();
+        for (k, &i) in itm.iter().enumerate() {
+            let cont: f64 = ybar
+                + (1..=deg).map(|p| betas[p - 1] * (xs[k].powi(p as i32) - colbar[p - 1])).sum::<f64>();
+            let exercise = disc.powi(t as i32) * payoff[t][i];
+            if exercise > cont {
+                v[i] = exercise; // exercise now; otherwise keep the future cashflow (continue)
+            }
+        }
+    }
+    v
+}
+
 /// Solve `A x = b` for a small symmetric system by Gaussian elimination with partial
 /// pivoting. Returns an all-zero vector if `A` is singular (near-zero pivot) rather
 /// than producing NaNs/Inf — the caller treats that as "no control adjustment".

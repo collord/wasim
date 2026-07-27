@@ -101,6 +101,7 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         // run_split_beta injects a per-realization value — only the scalar lane's
         // realization loop carries the current-realization index. Mark ineligible.
         AstNode::RunSplitBeta { .. } => Err("run_split_beta"),
+        AstNode::Lsm { .. } => Err("lsm"),
         // A call is eligible iff it is a pure elementwise scalar-math builtin and every
         // argument is itself eligible. Non-elementwise builtins (array reducers, event
         // predicates, private-helper specials) keep the model on the scalar lane.
@@ -184,6 +185,7 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         RunStat2 { .. } => Err("run_stat2"),
         RunRegress { .. } => Err("run_regress"),
         RunSplitBeta { .. } => Err("run_split_beta"),
+        Lsm { .. } => Err("lsm"),
         // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
         SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
         SubmodelStat2 { .. } => Err("submodel_stat2"),
@@ -390,6 +392,12 @@ fn emit(
         AstNode::RunSplitBeta { .. } => {
             return Err(EngineError::InvalidModel(
                 "array lane: run_split_beta is not supported (handled by the scalar two-pass)".into(),
+            ));
+        }
+        // Unreachable: lsm is marked ineligible above → scalar two-pass.
+        AstNode::Lsm { .. } => {
+            return Err(EngineError::InvalidModel(
+                "array lane: lsm is not supported (handled by the scalar two-pass)".into(),
             ));
         }
         AstNode::Call { func, args } => {

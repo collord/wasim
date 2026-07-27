@@ -69,8 +69,10 @@ pub fn run(
         return crate::array_lane::run_array_lane(model, graph, config);
     }
 
-    let (targets, pair_targets, regr_targets, split_targets) = collect_run_stats(model)?;
-    if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty() && split_targets.is_empty() {
+    let (targets, pair_targets, regr_targets, split_targets, lsm_targets) = collect_run_stats(model)?;
+    if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty()
+        && split_targets.is_empty() && lsm_targets.is_empty()
+    {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
         st.advance(u32::MAX)?;
@@ -99,7 +101,30 @@ pub fn run(
         target_ids.push(st.y.clone());
     }
     st1.force_save_targets(&target_ids);
+    // LSM needs the full time_history panel of its state and payoff elements.
+    let mut hist_ids: Vec<String> = Vec::new();
+    for lt in &lsm_targets {
+        hist_ids.push(lt.state.clone());
+        hist_ids.push(lt.payoff.clone());
+    }
+    st1.force_save_hist(&hist_ids);
     st1.advance(u32::MAX)?;
+
+    // Per-realization reductions → [N] vectors injected element-wise in pass 2.
+    let mut reduced_vecs: HashMap<String, Vec<f64>> = HashMap::new();
+    // Longstaff-Schwartz: backward induction over the raw [dates × paths] panels in `hist_store`
+    // (read before `assemble`, which only aggregates them to per-step summary stats). Each path's
+    // discounted-to-t0 cashflow is injected so the LSM element's mean is the option price.
+    let dt1 = st1.dt;
+    for lt in &lsm_targets {
+        if let (Some(state), Some(payoff)) =
+            (st1.hist_store.get(&lt.state), st1.hist_store.get(&lt.payoff))
+        {
+            let disc = (-lt.rate * dt1).exp();
+            reduced_vecs.insert(lt.key.clone(), crate::engine::lsm_backward(state, payoff, lt.basis, disc));
+        }
+    }
+
     let res1 = st1.assemble()?;
 
     // Reduce each target's sample vector to its scalar, keyed for the eval-time lookup.
@@ -117,8 +142,7 @@ pub fn run(
         let control_cols: Vec<Vec<f64>> = rt.controls.iter().map(|c| finals(c)).collect();
         reduced.insert(rt.key.clone(), reduce_run_regress(&finals(&rt.y), &control_cols, rt.index));
     }
-    // Per-realization reductions → [N] vectors injected element-wise in pass 2.
-    let mut reduced_vecs: HashMap<String, Vec<f64>> = HashMap::new();
+    // Split-sample jackknife betas → [N] vectors (reduced_vecs already holds any LSM vectors).
     for st in &split_targets {
         reduced_vecs.insert(st.key.clone(), crate::engine::jackknife_beta(&finals(&st.x), &finals(&st.y), st.folds));
     }
@@ -167,11 +191,26 @@ struct RunSplitBetaTarget {
     folds: usize,
 }
 
+/// An `lsm` (Longstaff-Schwartz) target: its injection key, the state and payoff elements whose
+/// `time_history` panels drive the backward induction, the polynomial basis degree, and the rate.
+struct LsmTarget {
+    key: String,
+    state: String,
+    payoff: String,
+    basis: usize,
+    rate: f64,
+}
+
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
 /// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument in
 /// this first cut — a non-literal is a hard model error rather than silent 0.
-type CollectedTargets =
-    (Vec<RunStatTarget>, Vec<RunStat2Target>, Vec<RunRegressTarget>, Vec<RunSplitBetaTarget>);
+type CollectedTargets = (
+    Vec<RunStatTarget>,
+    Vec<RunStat2Target>,
+    Vec<RunRegressTarget>,
+    Vec<RunSplitBetaTarget>,
+    Vec<LsmTarget>,
+);
 
 fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
     use crate::model::SubmodelStatKind as K;
@@ -179,10 +218,11 @@ fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
     let mut pair: Vec<(&str, &str, &crate::model::RunPairStat)> = Vec::new();
     let mut regr: Vec<(&str, &[String], usize)> = Vec::new();
     let mut split: Vec<(&str, &str, usize)> = Vec::new();
+    let mut lsm: Vec<(&str, &str, usize, f64)> = Vec::new();
     for e in &model.elements {
         if let Primitive::Node(n) = &e.primitive {
             if let NodeRule::Expression(ef) = &n.rule {
-                collect_run_stat_nodes(&ef.ast, &mut uni, &mut pair, &mut regr, &mut split);
+                collect_run_stat_nodes(&ef.ast, &mut uni, &mut pair, &mut regr, &mut split, &mut lsm);
             }
         }
     }
@@ -239,7 +279,17 @@ fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
             split_targets.push(RunSplitBetaTarget { key, x: x.to_string(), y: y.to_string(), folds });
         }
     }
-    Ok((targets, pair_targets, regr_targets, split_targets))
+    let mut lsm_targets = Vec::new();
+    let mut seen5: HashSet<String> = HashSet::new();
+    for (state, payoff, basis, rate) in lsm {
+        let key = crate::eval::lsm_key(state, payoff, basis, rate);
+        if seen5.insert(key.clone()) {
+            lsm_targets.push(LsmTarget {
+                key, state: state.to_string(), payoff: payoff.to_string(), basis, rate,
+            });
+        }
+    }
+    Ok((targets, pair_targets, regr_targets, split_targets, lsm_targets))
 }
 
 fn k_needs_arg(stat: &crate::model::SubmodelStatKind) -> bool {
@@ -254,12 +304,16 @@ fn collect_run_stat_nodes<'a>(
     pairs: &mut Vec<(&'a str, &'a str, &'a crate::model::RunPairStat)>,
     regr: &mut Vec<(&'a str, &'a [String], usize)>,
     split: &mut Vec<(&'a str, &'a str, usize)>,
+    lsm: &mut Vec<(&'a str, &'a str, usize, f64)>,
 ) {
     match node {
+        AstNode::Lsm { state, payoff, basis, rate } => {
+            lsm.push((state.as_str(), payoff.as_str(), *basis, *rate));
+        }
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));
             if let Some(a) = arg {
-                collect_run_stat_nodes(a, out, pairs, regr, split);
+                collect_run_stat_nodes(a, out, pairs, regr, split, lsm);
             }
         }
         AstNode::RunStat2 { x, y, statistic } => {
@@ -278,30 +332,30 @@ fn collect_run_stat_nodes<'a>(
         | AstNode::Gte { left, right } | AstNode::Eq { left, right }
         | AstNode::Neq { left, right } | AstNode::And { left, right }
         | AstNode::Or { left, right } => {
-            collect_run_stat_nodes(left, out, pairs, regr, split);
-            collect_run_stat_nodes(right, out, pairs, regr, split);
+            collect_run_stat_nodes(left, out, pairs, regr, split, lsm);
+            collect_run_stat_nodes(right, out, pairs, regr, split, lsm);
         }
-        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out, pairs, regr, split),
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_run_stat_nodes(operand, out, pairs, regr, split, lsm),
         AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
-            args.iter().for_each(|a| collect_run_stat_nodes(a, out, pairs, regr, split));
+            args.iter().for_each(|a| collect_run_stat_nodes(a, out, pairs, regr, split, lsm));
         }
         AstNode::If { cond, then, else_ } => {
-            collect_run_stat_nodes(cond, out, pairs, regr, split);
-            collect_run_stat_nodes(then, out, pairs, regr, split);
-            collect_run_stat_nodes(else_, out, pairs, regr, split);
+            collect_run_stat_nodes(cond, out, pairs, regr, split, lsm);
+            collect_run_stat_nodes(then, out, pairs, regr, split, lsm);
+            collect_run_stat_nodes(else_, out, pairs, regr, split, lsm);
         }
         AstNode::LookupCall { input, input2, .. } => {
-            collect_run_stat_nodes(input, out, pairs, regr, split);
-            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out, pairs, regr, split); }
+            collect_run_stat_nodes(input, out, pairs, regr, split, lsm);
+            if let Some(i2) = input2 { collect_run_stat_nodes(i2, out, pairs, regr, split, lsm); }
         }
-        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out, pairs, regr, split),
-        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out, pairs, regr, split),
+        AstNode::VectorMap { body, .. } => collect_run_stat_nodes(body, out, pairs, regr, split, lsm),
+        AstNode::Subscript { array, .. } => collect_run_stat_nodes(array, out, pairs, regr, split, lsm),
         AstNode::Index { array, indices } => {
-            collect_run_stat_nodes(array, out, pairs, regr, split);
-            indices.iter().for_each(|i| collect_run_stat_nodes(i, out, pairs, regr, split));
+            collect_run_stat_nodes(array, out, pairs, regr, split, lsm);
+            indices.iter().for_each(|i| collect_run_stat_nodes(i, out, pairs, regr, split, lsm));
         }
-        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr, split)),
-        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split); } }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr, split, lsm)),
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split, lsm); } }
         AstNode::SubmodelStat2 { .. } => {}
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
@@ -438,6 +492,21 @@ impl<'a> RunState<'a> {
                 self.final_store
                     .entry(id.clone())
                     .or_insert_with(|| Vec::with_capacity(self.n_real as usize));
+            }
+        }
+    }
+
+    /// Force `time_history` capture for the given elements (used by the LSM backward pass, which
+    /// needs the full [dates × paths] panel of its state/payoff). Mirrors `force_save_targets`.
+    fn force_save_hist(&mut self, ids: &[String]) {
+        for id in ids {
+            if let Some(sid) = self.model.elements.iter().find(|e| e.id() == id.as_str()).map(|e| e.id()) {
+                if !self.save_hist.contains(&sid) {
+                    self.save_hist.push(sid);
+                }
+                self.hist_store
+                    .entry(id.clone())
+                    .or_insert_with(|| vec![Vec::new(); self.n_steps]);
             }
         }
     }

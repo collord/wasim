@@ -483,6 +483,10 @@ pub enum ElementKind {
     },
 }
 
+fn default_lsm_basis() -> usize {
+    3
+}
+
 fn default_min_zero() -> Option<f64> {
     Some(0.0)
 }
@@ -742,6 +746,24 @@ pub enum AstNode {
         x: String,
         y: String,
         folds: usize,
+    },
+    // Longstaff-Schwartz least-squares Monte Carlo for an early-exercise (American / Bermudan)
+    // option. A post-run BACKWARD induction over the stored path panel: at each exercise date,
+    // regress the discounted future value on a polynomial basis of `state` over in-the-money paths,
+    // and exercise where the immediate `payoff` beats the fitted continuation. Evaluates to this
+    // realization's discounted-to-t0 cashflow, so the element's mean is the option price. Requires
+    // the per-realization injection channel and the `time_history` of `state`/`payoff` (the engine
+    // force-saves them). Scalar lane only. See AMERICAN_OPTION_SCOPE.md.
+    Lsm {
+        /// Element whose per-step history is the regression state (usually the underlying price).
+        state: String,
+        /// Element whose per-step history is the immediate-exercise payoff (e.g. max(K - S, 0)).
+        payoff: String,
+        /// Polynomial basis degree in the (scaled) state; default 3.
+        #[serde(default = "default_lsm_basis")]
+        basis: usize,
+        /// Annual risk-free rate for per-step discounting (exp(-rate·dt) per grid step).
+        rate: f64,
     },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
