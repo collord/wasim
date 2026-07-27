@@ -1,8 +1,10 @@
 # Basket Option (N correlated assets)
 
-**Status:** **proposed.** A **European** basket is expressible **today** (the correlation engine already
-scales to N assets); it is largely an *example* plus two ergonomic/engine follow-ons. A
-**path-dependent** basket (Asian/barrier basket) hits a real gap: correlated *process* shocks.
+**Status:** **Phase 1 built** ([`BASKET_OPTION_EXAMPLE.md`](BASKET_OPTION_EXAMPLE.md) — a European
+`N=3` basket via the native `correlations` field, geometric-basket control, geometric MC matches the
+closed form, ~12.5× variance cut). Phase 2 (correlation-matrix ergonomics) and Phase 3 (correlated
+*process* shocks, for path-dependent baskets) remain **proposed**. As predicted, the European basket
+needed **zero engine work** — the correlation engine already scales to N assets.
 **Motivation:** generalizes the two-asset [spread example](CORRELATED_ASSETS_EXAMPLE.md) to N assets and
 exercises the geometric-basket control variate — the multi-asset analogue of the Asian control.
 

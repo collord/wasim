@@ -1,0 +1,1249 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "European arithmetic-basket call on N=3 equicorrelated assets, priced by exact-terminal Monte Carlo. The shocks are correlated via the native `correlations` field: build_corr_groups assembles the NxN correlation matrix, Cholesky-factors it, and the Gaussian copula on normal marginals reproduces the linear shock correlation exactly. The arithmetic basket (sum of lognormals) has no closed form; the geometric basket (a lognormal) does and is a ~0.997-correlated control variate with a live closed-form mean. Validation: geometric MC == closed form; arithmetic > geometric (AM-GM); the control cuts variance ~12x. Generalizes the two-asset spread example (Cholesky/Margrabe) to N assets. See BASKET_OPTION_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "n_realizations": 100000,
+    "sampling_method": "monte_carlo",
+    "seed": 31313
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "drivers",
+      "name": "Correlated Shocks",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Derived",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoffs",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Closed-Form Reference",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "control_variate",
+      "name": "Control Variate",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S1_0",
+      "name": "Spot 1",
+      "type": "constant",
+      "container": "contract",
+      "description": "Initial price of asset 1.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "S2_0",
+      "name": "Spot 2",
+      "type": "constant",
+      "container": "contract",
+      "description": "Initial price of asset 2.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "S3_0",
+      "name": "Spot 3",
+      "type": "constant",
+      "container": "contract",
+      "description": "Initial price of asset 3.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Basket strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Per-asset volatility (shared).",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "rho",
+      "name": "Correlation",
+      "type": "constant",
+      "container": "contract",
+      "description": "Pairwise correlation between every asset pair (equicorrelation).",
+      "value": {
+        "value": 0.3,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.49,
+        "max": 0.999
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "w",
+      "name": "Weight",
+      "type": "constant",
+      "container": "contract",
+      "description": "Basket weight per asset (equal, 1/N).",
+      "value": {
+        "value": 0.3333333333333333,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "Z1",
+      "name": "Shock 1",
+      "type": "random_variable",
+      "container": "drivers",
+      "description": "Standard normal driving asset 1; correlation rho with every other shock.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "correlations": [
+        {
+          "partner": "Z2",
+          "coefficient": 0.3
+        },
+        {
+          "partner": "Z3",
+          "coefficient": 0.3
+        }
+      ],
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "Z2",
+      "name": "Shock 2",
+      "type": "random_variable",
+      "container": "drivers",
+      "description": "Standard normal driving asset 2; correlation rho with every other shock.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "correlations": [
+        {
+          "partner": "Z1",
+          "coefficient": 0.3
+        },
+        {
+          "partner": "Z3",
+          "coefficient": 0.3
+        }
+      ],
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "Z3",
+      "name": "Shock 3",
+      "type": "random_variable",
+      "container": "drivers",
+      "description": "Standard normal driving asset 3; correlation rho with every other shock.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "correlations": [
+        {
+          "partner": "Z1",
+          "coefficient": 0.3
+        },
+        {
+          "partner": "Z2",
+          "coefficient": 0.3
+        }
+      ],
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "sig2",
+      "name": "sigma^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma"
+          }
+        },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "sqrtT",
+      "name": "sqrt(T)",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "T"
+            }
+          ]
+        },
+        "display": "sqrt(T)"
+      }
+    },
+    {
+      "id": "ST1",
+      "name": "Terminal 1",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "S1_0",
+        "T",
+        "Z1",
+        "r",
+        "sig2",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S1_0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "sig2"
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "T"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sqrtT"
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Z1"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S10 exp(...)"
+      }
+    },
+    {
+      "id": "ST2",
+      "name": "Terminal 2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "S2_0",
+        "T",
+        "Z2",
+        "r",
+        "sig2",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S2_0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "sig2"
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "T"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sqrtT"
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Z2"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S20 exp(...)"
+      }
+    },
+    {
+      "id": "ST3",
+      "name": "Terminal 3",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "S3_0",
+        "T",
+        "Z3",
+        "r",
+        "sig2",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S3_0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "sig2"
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "T"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sqrtT"
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Z3"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S30 exp(...)"
+      }
+    },
+    {
+      "id": "arith",
+      "name": "Arithmetic Basket",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "",
+      "inputs": [
+        "ST1",
+        "ST2",
+        "ST3",
+        "w"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "w"
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "ref",
+                "element_id": "ST1"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "ST2"
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "ST3"
+            }
+          }
+        },
+        "display": "w * sum S_i(T)"
+      }
+    },
+    {
+      "id": "basket_arith",
+      "name": "Arithmetic Basket Call",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Arithmetic-basket call \u2014 the estimator of interest. No closed form.",
+      "inputs": [
+        "K",
+        "arith",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "arith"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(basket-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "geo",
+      "name": "Geometric Basket",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "",
+      "inputs": [
+        "ST1",
+        "ST2",
+        "ST3",
+        "w"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "w"
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "add",
+                  "left": {
+                    "op": "call",
+                    "fn": "ln",
+                    "args": [
+                      {
+                        "op": "ref",
+                        "element_id": "ST1"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "ln",
+                    "args": [
+                      {
+                        "op": "ref",
+                        "element_id": "ST2"
+                      }
+                    ]
+                  }
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "ln",
+                  "args": [
+                    {
+                      "op": "ref",
+                      "element_id": "ST3"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(w * sum ln S_i(T))"
+      }
+    },
+    {
+      "id": "basket_geo",
+      "name": "Geometric Basket Call",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Geometric-basket call \u2014 the control variate (closed form, ~0.997 correlated with the arithmetic).",
+      "inputs": [
+        "K",
+        "disc",
+        "geo"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "geo"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(geobasket-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "sumw2",
+      "name": "sum w_i^2",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "w"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "literal",
+            "value": 3.0
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "w"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "w"
+            }
+          }
+        },
+        "display": "N*w^2"
+      }
+    },
+    {
+      "id": "mu_g",
+      "name": "mu_g",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "S1_0",
+        "T",
+        "r",
+        "sig2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "call",
+            "fn": "ln",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "S1_0"
+              }
+            ]
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "r"
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "sig2"
+                }
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "T"
+            }
+          }
+        },
+        "display": "ln S0 + (r-sig^2/2)T"
+      }
+    },
+    {
+      "id": "var_g",
+      "name": "var_g",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "T",
+        "rho",
+        "sig2",
+        "sumw2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sig2"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "T"
+            }
+          },
+          "right": {
+            "op": "add",
+            "left": {
+              "op": "ref",
+              "element_id": "sumw2"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "rho"
+              },
+              "right": {
+                "op": "subtract",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "sumw2"
+                }
+              }
+            }
+          }
+        },
+        "display": "sig^2 T (sumw2 + rho(1-sumw2))"
+      }
+    },
+    {
+      "id": "s_g",
+      "name": "sigma_g",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "var_g"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "var_g"
+            }
+          ]
+        },
+        "display": "sqrt(var_g)"
+      }
+    },
+    {
+      "id": "dd1",
+      "name": "dd1",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "K",
+        "mu_g",
+        "s_g",
+        "var_g"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "mu_g"
+              },
+              "right": {
+                "op": "call",
+                "fn": "ln",
+                "args": [
+                  {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                ]
+              }
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "var_g"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "s_g"
+          }
+        },
+        "display": "(mu_g - lnK + var_g)/s_g"
+      }
+    },
+    {
+      "id": "dd2",
+      "name": "dd2",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "dd1",
+        "s_g"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "dd1"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "s_g"
+          }
+        },
+        "display": "dd1 - s_g"
+      }
+    },
+    {
+      "id": "geo_price",
+      "name": "Geometric Basket Price (closed form)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Closed-form geometric-basket call (weighted geometric average of correlated lognormals is lognormal). The control variate's known mean.",
+      "inputs": [
+        "K",
+        "dd1",
+        "dd2",
+        "disc",
+        "mu_g",
+        "var_g"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "subtract",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "call",
+                "fn": "exp",
+                "args": [
+                  {
+                    "op": "add",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "mu_g"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "var_g"
+                      }
+                    }
+                  }
+                ]
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.0
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "erf",
+                    "args": [
+                      {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "dd1"
+                        },
+                        "right": {
+                          "op": "literal",
+                          "value": 0.7071067811865476
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": 0.5
+                },
+                "right": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.0
+                  },
+                  "right": {
+                    "op": "call",
+                    "fn": "erf",
+                    "args": [
+                      {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "dd2"
+                        },
+                        "right": {
+                          "op": "literal",
+                          "value": 0.7071067811865476
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "display": "disc[exp(mu_g+var_g/2)N(dd1) - K N(dd2)]"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "beta",
+      "name": "CV Coefficient",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "b* = Cov(geo,arith)/Var(geo) across realizations.",
+      "inputs": [
+        "basket_arith",
+        "basket_geo"
+      ],
+      "expression": {
+        "ast": {
+          "op": "run_stat2",
+          "x": "basket_geo",
+          "y": "basket_arith",
+          "statistic": "beta"
+        },
+        "display": "beta(geo,arith)"
+      }
+    },
+    {
+      "id": "basket_cv",
+      "name": "Control-Variate Estimator",
+      "type": "expression",
+      "container": "control_variate",
+      "description": "Arithmetic-basket price with the geometric basket as control (known mean geo_price). Unbiased, sharply lower variance.",
+      "inputs": [
+        "basket_arith",
+        "basket_geo",
+        "beta",
+        "geo_price"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "basket_arith"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "beta"
+            },
+            "right": {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "basket_geo"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "geo_price"
+              }
+            }
+          }
+        },
+        "display": "arith - beta*(geo - geo_price)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}

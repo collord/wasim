@@ -1,8 +1,10 @@
 # Digital (Binary) Option + Monte Carlo Greeks
 
-**Status:** **proposed.** The digital *payoff* needs **zero engine work** — it is expressible today. The
-substance of this scope is the **Greeks gap** it exposes: WASiM has no sensitivity (Δ, Γ, vega)
-machinery, and the digital is the textbook case where naive Monte Carlo Greeks break.
+**Status:** **Phase 1 built** ([`DIGITAL_OPTION_EXAMPLE.md`](DIGITAL_OPTION_EXAMPLE.md) — the payoff
+example, matching `disc·N(d₂)` / `S₀·N(d₁)` with an exact cash-parity identity). Phases 2–4 (Monte
+Carlo Greeks) remain **proposed**. The digital *payoff* needed **zero engine work**; the substance of
+this scope is the **Greeks gap** it exposes: WASiM has no sensitivity (Δ, Γ, vega) machinery, and the
+digital is the textbook case where naive Monte Carlo Greeks break.
 **Motivation:** rounds out the payoff family (European / Asian / spread / barrier / lookback) with the
 canonical *discontinuous* payoff, and gives a concrete reason to add MC sensitivities.
 
