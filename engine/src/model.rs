@@ -706,6 +706,14 @@ pub enum AstNode {
         /// CONDITIONAL on the outer state.
         #[serde(default)]
         bindings: Vec<NestedBinding>,
+        /// Binding scope. `false` (default): bind to each outer realization's TERMINAL state — one
+        /// inner run per realization; the node's value is a single scalar per realization. `true`:
+        /// bind to the outer state at EVERY timestep — one inner run per `(realization, step)` node,
+        /// so the node evaluates to a per-step value and its `time_history` is a profile over time
+        /// (exposure profiles, PFE, per-date conditional expectations). Cost is `N_outer × steps ×
+        /// N_inner`; the `from` bindings must have `time_history` saved.
+        #[serde(default)]
+        each_step: bool,
     },
     // Array construction: evaluates each element and produces a vector
     Array {

@@ -103,11 +103,12 @@ pub fn run(
         target_ids.push(st.x.clone());
         target_ids.push(st.y.clone());
     }
-    // nested_stat needs each binding's outer `from` element's per-realization finals to condition
-    // the inner runs on.
+    // Terminal-mode nested_stat needs each binding's outer `from` element's per-realization FINALS.
     for nt in &nested_targets {
-        for b in &nt.bindings {
-            target_ids.push(b.from.clone());
+        if !nt.each_step {
+            for b in &nt.bindings {
+                target_ids.push(b.from.clone());
+            }
         }
     }
     st1.force_save_targets(&target_ids);
@@ -121,6 +122,14 @@ pub fn run(
     for lt in &lsm_dual_targets {
         hist_ids.push(lt.state.clone());
         hist_ids.push(lt.payoff.clone());
+    }
+    // each_step nested_stat needs its `from` bindings' full [steps × N] time_history panels.
+    for nt in &nested_targets {
+        if nt.each_step {
+            for b in &nt.bindings {
+                hist_ids.push(b.from.clone());
+            }
+        }
     }
     st1.force_save_hist(&hist_ids);
     st1.advance(u32::MAX)?;
@@ -174,16 +183,24 @@ pub fn run(
     for st in &split_targets {
         reduced_vecs.insert(st.key.clone(), crate::engine::jackknife_beta(&finals(&st.x), &finals(&st.y), st.folds));
     }
-    // Conditional nested-submodel statistics → [N] vectors: one inner submodel run per outer
-    // realization, its input constants bound to that realization's outer finals.
+    // Conditional nested-submodel statistics. Terminal mode → [N] per-realization vector (one inner
+    // run per outer realization, bound to its finals). each_step mode → [steps][N] panel (one inner
+    // run per (realization, step), bound to the outer history).
+    let hist = |id: &str| -> Option<Vec<Vec<f64>>> { st1.hist_store.get(id).cloned() };
+    let mut reduced_step_vecs: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
     for nt in &nested_targets {
-        reduced_vecs.insert(nt.key.clone(), run_nested_stat(model, config, nt, &finals));
+        if nt.each_step {
+            reduced_step_vecs.insert(nt.key.clone(), run_nested_stat_each_step(model, config, nt, &hist));
+        } else {
+            reduced_vecs.insert(nt.key.clone(), run_nested_stat(model, config, nt, &finals));
+        }
     }
 
     // Pass 2: same run with the reduced scalars (and per-realization vectors) injected.
     let mut st2 = RunState::new(model, graph, config)?;
     st2.run_stats = reduced;
     st2.run_vecs = reduced_vecs;
+    st2.run_step_vecs = reduced_step_vecs;
     st2.advance(u32::MAX)?;
     st2.assemble()
 }
@@ -444,6 +461,7 @@ struct NestedStatTarget {
     statistic: crate::model::SubmodelStatKind,
     arg: f64,
     bindings: Vec<crate::model::NestedBinding>,
+    each_step: bool,
 }
 
 /// Walk every element expression AST and collect the `nested_stat` targets. Arg-taking statistics
@@ -460,7 +478,7 @@ fn collect_nested_stats(model: &Model) -> Result<Vec<NestedStatTarget>, EngineEr
     let mut out = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for node in refs {
-        if let AstNode::NestedStat { submodel_id, output, statistic, arg, bindings } = node {
+        if let AstNode::NestedStat { submodel_id, output, statistic, arg, bindings, each_step } = node {
             let needs_arg = k_needs_arg(statistic);
             let arg_val = match arg.as_deref() {
                 Some(AstNode::Literal { value, .. }) => *value,
@@ -472,11 +490,11 @@ fn collect_nested_stats(model: &Model) -> Result<Vec<NestedStatTarget>, EngineEr
                 }
                 Some(_) => 0.0,
             };
-            let key = crate::eval::nested_stat_key(submodel_id, output, statistic, arg_val, bindings);
+            let key = crate::eval::nested_stat_key(submodel_id, output, statistic, arg_val, bindings, *each_step);
             if seen.insert(key.clone()) {
                 out.push(NestedStatTarget {
                     key, submodel_id: submodel_id.clone(), output: output.clone(),
-                    statistic: statistic.clone(), arg: arg_val, bindings: bindings.clone(),
+                    statistic: statistic.clone(), arg: arg_val, bindings: bindings.clone(), each_step: *each_step,
                 });
             }
         }
@@ -545,11 +563,26 @@ fn override_const(model: &mut Model, id: &str, value: f64) {
     }
 }
 
-/// Run one `nested_stat` target: extract the inner submodel once, then run it ONCE PER OUTER
-/// realization with its bound input constants overridden by the outer elements' realized finals,
-/// reducing the inner `output` to the statistic each time. Returns the `[N_outer]` vector. Each
-/// outer realization's inner run gets an independent, reproducible seed derived from
-/// `(root, submodel_id, r)`, so the inner draws are conditionally independent across outer paths.
+/// One inner run of a `nested_stat` submodel with its bound constants overridden by `values`
+/// (aligned with `t.bindings`), reduced to a scalar. The graph is passed in (built once by the
+/// caller and reused — topology is value-independent). `seed_idx` derives an independent,
+/// reproducible inner seed from `(base_seed, seed_idx)` so inner draws are conditionally independent.
+fn nested_inner_reduce(
+    sub: &mut Model, graph: &ModelGraphV2, t: &NestedStatTarget, values: &[f64],
+    base_seed: u64, seed_idx: u64,
+) -> f64 {
+    for (bi, b) in t.bindings.iter().enumerate() {
+        override_const(sub, &b.input, values[bi]);
+    }
+    let cfg = RunConfig { seed: Some(crate::sweep_seed::child_seed(base_seed, seed_idx)), ..RunConfig::default() };
+    match run(sub, graph, &cfg) {
+        Ok(res) => res.elements.get(&t.output).map(|er| reduce_run_stat(&er.final_values, &t.statistic, t.arg)).unwrap_or(0.0),
+        Err(e) => { eprintln!("warn: nested_stat submodel '{}' run failed ({e:?})", t.submodel_id); 0.0 }
+    }
+}
+
+/// Terminal-mode `nested_stat`: run the inner submodel ONCE PER OUTER realization, its bound input
+/// constants overridden by the outer elements' realized FINALS. Returns the `[N_outer]` vector.
 fn run_nested_stat(
     model: &Model, config: &RunConfig, t: &NestedStatTarget, finals: &dyn Fn(&str) -> Vec<f64>,
 ) -> Vec<f64> {
@@ -562,27 +595,63 @@ fn run_nested_stat(
     if n_outer == 0 {
         return Vec::new();
     }
-    let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
-    let base_seed = crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(&t.submodel_id));
+    let graph = match ModelGraphV2::build(&sub) {
+        Ok(g) => g,
+        Err(e) => { eprintln!("warn: nested_stat submodel '{}' graph build failed ({e:?})", t.submodel_id); return Vec::new(); }
+    };
+    let base_seed = nested_base_seed(model, config, &t.submodel_id);
     let mut out = vec![0.0; n_outer];
     for r in 0..n_outer {
-        for (bi, b) in t.bindings.iter().enumerate() {
-            override_const(&mut sub, &b.input, from_vals[bi][r]);
-        }
-        let graph = match ModelGraphV2::build(&sub) {
-            Ok(g) => g,
-            Err(e) => { eprintln!("warn: nested_stat submodel '{}' graph build failed ({e:?})", t.submodel_id); continue; }
-        };
-        let cfg = RunConfig { seed: Some(crate::sweep_seed::child_seed(base_seed, r as u64)), ..RunConfig::default() };
-        let res = match run(&sub, &graph, &cfg) {
-            Ok(res) => res,
-            Err(e) => { eprintln!("warn: nested_stat submodel '{}' run failed ({e:?})", t.submodel_id); continue; }
-        };
-        if let Some(er) = res.elements.get(&t.output) {
-            out[r] = reduce_run_stat(&er.final_values, &t.statistic, t.arg);
-        }
+        let vals: Vec<f64> = from_vals.iter().map(|v| v[r]).collect();
+        out[r] = nested_inner_reduce(&mut sub, &graph, t, &vals, base_seed, r as u64);
     }
     out
+}
+
+/// `each_step`-mode `nested_stat`: run the inner submodel once per `(realization, step)` node, its
+/// bound constants overridden by the outer elements' `time_history` at that step. Returns the
+/// `[steps][N_outer]` panel (aligned with `hist_store` layout), which the eval arm reads by
+/// `(step_index, realization)`, so the node's `time_history` is a profile over time.
+fn run_nested_stat_each_step(
+    model: &Model, config: &RunConfig, t: &NestedStatTarget,
+    hist: &dyn Fn(&str) -> Option<Vec<Vec<f64>>>,
+) -> Vec<Vec<f64>> {
+    let Some(mut sub) = crate::submodel_v2::extract_submodel(model, &t.submodel_id) else {
+        eprintln!("warn: nested_stat (each_step) submodel '{}' has no runnable interior; → 0.0", t.submodel_id);
+        return Vec::new();
+    };
+    // Each binding's outer `from` [steps][N] history panel (all share the run's step/realization grid).
+    let from_hist: Option<Vec<Vec<Vec<f64>>>> = t.bindings.iter().map(|b| hist(&b.from)).collect();
+    let Some(from_hist) = from_hist else {
+        eprintln!("warn: nested_stat (each_step) needs time_history on its `from` bindings; → 0.0");
+        return Vec::new();
+    };
+    let n_steps = from_hist.iter().map(|h| h.len()).min().unwrap_or(0);
+    if n_steps == 0 { return Vec::new(); }
+    let n_outer = from_hist.iter().flat_map(|h| h.iter().map(|row| row.len())).min().unwrap_or(0);
+    if n_outer == 0 { return Vec::new(); }
+    let graph = match ModelGraphV2::build(&sub) {
+        Ok(g) => g,
+        Err(e) => { eprintln!("warn: nested_stat (each_step) submodel '{}' graph build failed ({e:?})", t.submodel_id); return Vec::new(); }
+    };
+    let base_seed = nested_base_seed(model, config, &t.submodel_id);
+    let mut panel = vec![vec![0.0; n_outer]; n_steps];
+    for s in 0..n_steps {
+        for r in 0..n_outer {
+            let vals: Vec<f64> = from_hist.iter().map(|h| h[s][r]).collect();
+            // Seed per (step, realization) so every inner node draws independently and reproducibly.
+            let seed_idx = (s as u64).wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(r as u64);
+            panel[s][r] = nested_inner_reduce(&mut sub, &graph, t, &vals, base_seed, seed_idx);
+        }
+    }
+    panel
+}
+
+/// The per-submodel base seed for nested runs — an independent stream derived from the run root and
+/// the (stable) submodel container id, matching `run_submodels`' convention.
+fn nested_base_seed(model: &Model, config: &RunConfig, submodel_id: &str) -> u64 {
+    let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
+    crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(submodel_id))
 }
 
 /// Reduce a `run_stat` target's per-realization samples — the same reducers as
@@ -671,6 +740,9 @@ pub struct RunState<'a> {
     /// Pre-reduced per-realization vectors (split-sample, Phase 3), injected element-wise
     /// in the 2nd pass. Empty in the 1st pass and in runs with no per-realization node.
     run_vecs: HashMap<String, Vec<f64>>,
+    /// Pre-reduced per-`(step, realization)` panels for `each_step` nested_stat: key → `[steps][N]`,
+    /// injected in the 2nd pass. Empty otherwise.
+    run_step_vecs: HashMap<String, Vec<Vec<f64>>>,
     index_stack: RefCell<Vec<usize>>,
     fired_events: RefCell<HashSet<String>>,
     submodel_outputs: HashMap<(String, String), Vec<f64>>,
@@ -810,6 +882,7 @@ impl<'a> RunState<'a> {
     // the second `advance` when the model contains `run_stat` nodes.
     let run_stats: HashMap<String, f64> = HashMap::new();
     let run_vecs: HashMap<String, Vec<f64>> = HashMap::new();
+    let run_step_vecs: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
     // repopulated each step by the event pass; shared through ArrayEnv via interior mutability.
@@ -824,6 +897,7 @@ impl<'a> RunState<'a> {
         dim_labels: &dim_labels_by_id,
         run_stats: &run_stats,
         run_vecs: None,
+        run_step_vecs: None,
         cur_realization: &setup_realization,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
@@ -1123,7 +1197,7 @@ impl<'a> RunState<'a> {
         model, graph, config,
         n_real, seed, dt, dt_unit, n_steps, use_event_accurate, run_globals,
         user_weights, importance_weights, any_importance,
-        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, run_vecs, index_stack, fired_events,
+        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, run_vecs, run_step_vecs, index_stack, fired_events,
         submodel_outputs, lookups, save_final, save_hist,
         stock_ids, process_ids, per_step_sample_ids, resample_ids,
         species_info, decay_order, cell_media, cell_volume, medium_porosity,
@@ -1234,6 +1308,7 @@ impl<'a> RunState<'a> {
             dim_labels: &self.dim_labels_by_id,
             run_stats: &self.run_stats,
             run_vecs: (!self.run_vecs.is_empty()).then_some(&self.run_vecs),
+            run_step_vecs: (!self.run_step_vecs.is_empty()).then_some(&self.run_step_vecs),
             cur_realization: &cur_realization,
             index_stack,
             submodel_outputs,
@@ -3217,6 +3292,9 @@ pub(crate) struct ArrayEnv<'a> {
     /// Per-realization injected vectors (split-sample, Phase 3): key → `[N]` vector.
     /// `None` when the run has no per-realization reductions.
     pub run_vecs: Option<&'a HashMap<String, Vec<f64>>>,
+    /// Per-`(step, realization)` panels for `each_step` nested_stat (key → `[steps][N]`). `None`
+    /// when the run has no `each_step` nested stats.
+    pub run_step_vecs: Option<&'a HashMap<String, Vec<Vec<f64>>>>,
     /// The realization currently being evaluated — set by the scalar lane's realization
     /// loop via interior mutability, read into each `EvalCtx` so `run_vecs` can be indexed.
     pub cur_realization: &'a std::cell::Cell<usize>,
@@ -3242,7 +3320,7 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), run_step_vecs: arr.run_step_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
@@ -3257,7 +3335,7 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), run_step_vecs: arr.run_step_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }

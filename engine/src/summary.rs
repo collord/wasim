@@ -421,9 +421,10 @@ fn render_ast(n: &AstNode) -> String {
         AstNode::LsmDual { state, payoff, rate } => {
             format!("lsm_dual(state={state}, payoff={payoff}; rate={rate})")
         }
-        AstNode::NestedStat { submodel_id, output, statistic, bindings, .. } => {
+        AstNode::NestedStat { submodel_id, output, statistic, bindings, each_step, .. } => {
             let binds: Vec<String> = bindings.iter().map(|b| format!("{}<-{}", b.input, b.from)).collect();
-            format!("nested_stat({submodel_id}.{output}, {statistic:?}; [{}])", binds.join(", "))
+            let scope = if *each_step { "; each_step" } else { "" };
+            format!("nested_stat({submodel_id}.{output}, {statistic:?}; [{}]{scope})", binds.join(", "))
         }
         AstNode::ExternCall { func, args } => {
             let a: Vec<String> = args.iter().map(render_ast).collect();

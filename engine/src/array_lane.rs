@@ -586,7 +586,7 @@ impl LaneEnv {
         EvalCtx {
             lookups: &self.lookups, outputs, prev_outputs: &self.prev, elapsed: 0.0, dt: self.dt,
             dt_unit: &self.dt_unit, step_index: 0, dimensions: &self.dims, dim_labels: &self.labels,
-            run_stats, run_vecs: None, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
+            run_stats, run_vecs: None, run_step_vecs: None, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
             fired_events: &self.fired, calendar_start: self.calendar_start,
         }
     }

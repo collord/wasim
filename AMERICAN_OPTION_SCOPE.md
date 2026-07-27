@@ -176,9 +176,10 @@ loose-but-rigorous `lsm_dual` is the honest Phase-3 deliverable, and the tight b
 as future engine work.
 
 > **Update:** the conditional inner sampler this section calls for has since landed as a general
-> construct — [`nested_stat`](NESTED_STAT_SCOPE.md), the conditional nested-submodel statistic. Its v1
-> binds the inner run to the outer's **terminal** state (one inner run per outer realization), which
-> covers nested VaR/CVA, double-loop UQ, and Bayesian experimental design. A tight Andersen–Broadie dual
-> additionally needs **per-timestep** binding (an inner run at every `(path, step)` node), the designed-in
-> `each_step` extension — so the tight dual is now "one scope item away" rather than blocked on a missing
-> capability.
+> construct — [`nested_stat`](NESTED_STAT_SCOPE.md), the conditional nested-submodel statistic, in **both**
+> binding scopes: terminal (one inner run per outer realization — nested VaR/CVA, double-loop UQ, EIG) and
+> **per-timestep** (`each_step`: an inner run at every `(path, step)` node, producing conditional
+> expectations along the path — see [`EXPOSURE_PROFILE_EXAMPLE.md`](EXPOSURE_PROFILE_EXAMPLE.md)). The
+> per-timestep conditional expectation `E_{k−1}[V̂_k]` the tight Andersen–Broadie martingale needs is now an
+> engine capability; wiring it into `lsm_dual` (an inner revaluation submodel at each exercise date) is the
+> remaining build, no longer blocked on a missing primitive.

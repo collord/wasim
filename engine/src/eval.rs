@@ -186,10 +186,11 @@ pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64) -> String {
 /// to stay disjoint from every other injection key. Computed identically at collection and eval time.
 pub(crate) fn nested_stat_key(
     submodel_id: &str, output: &str, statistic: &crate::model::SubmodelStatKind, arg: f64,
-    bindings: &[crate::model::NestedBinding],
+    bindings: &[crate::model::NestedBinding], each_step: bool,
 ) -> String {
     let binds: String = bindings.iter().map(|b| format!("{}={}", b.input, b.from)).collect::<Vec<_>>().join(",");
-    format!("{submodel_id}\u{1}{output}\u{1}{statistic:?}\u{1}{arg}\u{1}{binds}\u{7}")
+    let scope = if each_step { "S" } else { "T" };
+    format!("{submodel_id}\u{1}{output}\u{1}{statistic:?}\u{1}{arg}\u{1}{binds}\u{1}{scope}\u{7}")
 }
 
 #[derive(Clone, Debug)]
@@ -378,6 +379,11 @@ pub struct EvalCtx<'a> {
     /// specific to the realization being evaluated. `None` outside the scalar lane's
     /// second pass (and in any run without per-realization reductions).
     pub run_vecs: Option<(&'a HashMap<String, Vec<f64>>, usize)>,
+    /// Per-`(step, realization)` injected panels for `nested_stat` in `each_step` mode: key →
+    /// `[steps][N]`, plus the current realization index. Indexed as `panel[step_index][realization]`,
+    /// so the node evaluates to its per-step conditional value (an exposure profile). `None` outside
+    /// the scalar lane's second pass (and in any run without `each_step` nested stats).
+    pub run_step_vecs: Option<(&'a HashMap<String, Vec<Vec<f64>>>, usize)>,
     /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
     /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
     /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
@@ -760,14 +766,21 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         // Conditional nested-submodel statistic: read this outer realization's pre-computed value
         // from the injected [N_outer] vector (the two-pass reduction ran the inner submodel once per
         // outer realization, conditioned on the bound outer state). 0.0 in the first pass.
-        AstNode::NestedStat { submodel_id, output, statistic, arg, bindings } => {
+        AstNode::NestedStat { submodel_id, output, statistic, arg, bindings, each_step } => {
             let arg_val = arg.as_deref().map(|n| eval_ast_scalar(n, ctx)).transpose()?.unwrap_or(0.0);
-            let key = nested_stat_key(submodel_id, output, statistic, arg_val, bindings);
-            let v = ctx
-                .run_vecs
-                .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
-                .copied()
-                .unwrap_or(0.0);
+            let key = nested_stat_key(submodel_id, output, statistic, arg_val, bindings, *each_step);
+            let v = if *each_step {
+                // Per-step: read this (step, realization) cell of the injected [steps][N] panel.
+                ctx.run_step_vecs
+                    .and_then(|(m, r)| m.get(&key).and_then(|panel| panel.get(ctx.step_index)).and_then(|row| row.get(r)))
+                    .copied()
+                    .unwrap_or(0.0)
+            } else {
+                ctx.run_vecs
+                    .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                    .copied()
+                    .unwrap_or(0.0)
+            };
             Ok(Value::Scalar(v))
         }
 
@@ -1908,7 +1921,7 @@ mod named_array_tests {
         let ctx = EvalCtx {
             lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
             elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
-            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, run_vecs: None, index_stack: &index_stack,
+            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, run_vecs: None, run_step_vecs: None, index_stack: &index_stack,
             submodel_outputs: &empty_sub, lag: None, fired_events: &fired, calendar_start: None,
         };
         let node = AstNode::VectorMap {

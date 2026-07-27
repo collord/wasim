@@ -84,8 +84,9 @@ per-realization injection channel, seeded per outer path for reproducible condit
 Additive and backward-compatible — a model without it is byte-identical, and the marginal `submodel_stat`
 path is untouched.
 
-**Open** (see [`NESTED_STAT_SCOPE.md`](NESTED_STAT_SCOPE.md) §6): per-**timestep** binding (`each_step`,
-for exposure profiles over time / MCTS rollouts), binding to stochastic-process / stock state (not just
+**Also built:** per-**timestep** binding (`each_step`) for exposure profiles over time — see
+[`EXPOSURE_PROFILE_EXAMPLE.md`](EXPOSURE_PROFILE_EXAMPLE.md). **Still open** (see
+[`NESTED_STAT_SCOPE.md`](NESTED_STAT_SCOPE.md) §6): binding to stochastic-process / stock state (not just
 fixed-scalar constants), and — for nonlinear outer functionals — documenting the `O(1/N_inner)`
 nested-MC bias (absent here because the outer use is linear in the inner mean).
 

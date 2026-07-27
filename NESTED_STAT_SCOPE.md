@@ -1,6 +1,8 @@
 # `nested_stat` — Conditional Nested-Submodel Statistics (Nested Conditional Expectation)
 
-**Status:** **Built** ([`NESTED_STAT_EXAMPLE.md`](NESTED_STAT_EXAMPLE.md)). Additive, backward-compatible.
+**Status:** **Built** — terminal binding ([`NESTED_STAT_EXAMPLE.md`](NESTED_STAT_EXAMPLE.md)) **and**
+per-timestep binding (`each_step`, [`EXPOSURE_PROFILE_EXAMPLE.md`](EXPOSURE_PROFILE_EXAMPLE.md)).
+Additive, backward-compatible.
 
 `nested_stat` is the **conditional** twin of the marginal `submodel_stat`: for each outer realization it
 re-runs an inner submodel with its input constants **bound to that realization's outer state**, and
@@ -58,6 +60,12 @@ per-realization value. That binding is what makes the inner run conditional on t
 3. **Pass 2 (outer):** inject that vector through the per-realization channel; the `nested_stat` node
    reads its realization's entry (0.0 in pass 1).
 
+In **`each_step`** mode the same three steps run per **timestep**: pass 1 force-saves the `from`
+bindings' `time_history`; the reduce step produces a `[steps × N]` panel (an inner run at every
+`(realization, step)` node, the graph built once and reused); pass 2 injects it through a per-`(step,
+realization)` channel (`run_step_vecs`) that the eval arm reads by `step_index`, so the node's own
+`time_history` is the profile over time.
+
 - **Additive / backward-compatible:** a model with no `nested_stat` is byte-identical (the collector
   returns empty and the two-pass early-outs exactly as before). The inner submodel's marginal
   `submodel_stat` path is untouched.
@@ -73,7 +81,7 @@ All are instances of the nested conditional expectation `E_outer[ g( E_inner[ h 
 | Domain | Outer | Inner (bound to outer state) | Statistic |
 |---|---|---|---|
 | **Nested VaR / market risk** | risk factors to a horizon | portfolio revaluation at the horizon price | `percentile` (VaR), `cte` (expected shortfall) |
-| **CVA / counterparty exposure** | credit + market factors to each date | derivative repricing conditional on the state | `mean` (expected exposure) |
+| **CVA / counterparty exposure profile** (`each_step`) | market factors along the path | derivative repricing at **every date** conditional on the state | `mean` → EE(t); read `time_history.p95` → PFE(t) |
 | **Double-loop UQ** | epistemic parameters | aleatory variability given the parameters | `mean` / `percentile` |
 | **Bayesian experimental design (EIG)** | design + parameter draw | data likelihood given the draw | `mean` (marginal likelihood), composed in outer expressions |
 | **Pseudo-marginal / simulation-based inference** | parameter θ | likelihood estimator given θ | `mean` |
@@ -103,13 +111,19 @@ nesting; a plain `submodel_` = one marginal sub-run).
   sampling noise biases the outer estimate `O(1/N_inner)` (Rainforth et al.). For a **linear** outer use
   (mean of a conditional mean) there is no such bias — the nested-VaR example is effectively linear in the
   inner mean, which is why it matches the closed form. Document `N_inner` when the outer use is nonlinear.
-- **v1 scope — terminal / per-outer-realization binding.** The inner is conditioned on the outer's
-  **final** state (one inner run per outer realization). This covers double-loop UQ, EIG, nested risk at a
-  single horizon, and pseudo-marginal likelihoods. **Not yet:** per-**timestep** binding (an inner run at
-  every `(path, step)` node) — which would add exposure *profiles over time* and MCTS-style rollouts at
-  `N_outer × steps × N_inner` cost. Designed-in as a future `each_step` mode.
-- **Binding to stochastic-process / stock state** beyond a fixed-scalar constant (v1 overrides constants
-  only) is a natural future extension.
+- **Two binding scopes, both built.**
+  - **Terminal (`each_step: false`, default):** the inner is conditioned on the outer's **final** state —
+    one inner run per outer realization; the node's value is a single scalar per realization. Covers
+    double-loop UQ, EIG, nested risk at a single horizon, and pseudo-marginal likelihoods.
+    ([`NESTED_STAT_EXAMPLE.md`](NESTED_STAT_EXAMPLE.md).)
+  - **Per-timestep (`each_step: true`):** the inner is conditioned on the outer state at **every**
+    timestep — one inner run per `(realization, step)` node, so the node evaluates to a per-step value and
+    its `time_history` is a **profile over time**. This is what exposure profiles (EE(t)/PFE(t)), per-date
+    conditional expectations, and MCTS-style rollouts need. Cost is `N_outer × steps × N_inner`; the
+    `from` bindings must have `time_history` saved (the engine force-saves them).
+    ([`EXPOSURE_PROFILE_EXAMPLE.md`](EXPOSURE_PROFILE_EXAMPLE.md).)
+- **Binding to stochastic-process / stock state** beyond a fixed-scalar constant (both modes override
+  constants only) is a natural future extension.
 
 ## 7. Takeaway
 
