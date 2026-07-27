@@ -420,6 +420,12 @@ pub enum ElementKind {
         process: ProcessSpec,
         #[serde(default)]
         lower_bound: Option<Quantity>,
+        /// Pairwise correlations with other `stochastic_process` elements (GBM only). The per-step
+        /// standard-normal shocks of a connected group are correlated via a Cholesky factor each
+        /// step, so the asset *paths* are correlated (not just terminal single draws). Empty =
+        /// independent (behavior unchanged).
+        #[serde(default)]
+        correlations: Vec<CorrelationPair>,
     },
     Delay {
         input: String,

@@ -517,6 +517,7 @@ pub struct RunState<'a> {
     array_members: Vec<(String, String, usize)>,
     corr_ids: HashSet<String>,
     corr_groups: Vec<CorrGroup>,
+    proc_corr_groups: Vec<CorrGroup>,
     ic_samples: HashMap<String, Vec<f64>>,
     lhs_cols: HashMap<String, Vec<f64>>,
     dyn_opt: Option<DynOpt>,
@@ -857,6 +858,7 @@ impl<'a> RunState<'a> {
     }
 
     let corr_groups = build_corr_groups(model)?;
+    let proc_corr_groups = build_process_corr_groups(model)?;
     let corr_ids: HashSet<String> = corr_groups.iter().flat_map(|g| g.ids.iter().cloned()).collect();
     let use_lhs = model.simulation_settings.sampling_method == crate::model::SamplingMethod::Lhs;
     // Iman-Conover rank correlation: reorder per-realization draws up front (semantics §8).
@@ -952,7 +954,7 @@ impl<'a> RunState<'a> {
         stock_ids, process_ids, per_step_sample_ids, resample_ids,
         species_info, decay_order, cell_media, cell_volume, medium_porosity,
         cell_species_ids, member_count, array_members,
-        corr_ids, corr_groups, ic_samples, lhs_cols, dyn_opt, scheduled_times,
+        corr_ids, corr_groups, proc_corr_groups, ic_samples, lhs_cols, dyn_opt, scheduled_times,
         next_real: 0,
         final_store, hist_store,
     })
@@ -1041,6 +1043,7 @@ impl<'a> RunState<'a> {
         let array_members = &self.array_members;
         let corr_ids = &self.corr_ids;
         let corr_groups = &self.corr_groups;
+        let proc_corr_groups = &self.proc_corr_groups;
         let ic_samples = &self.ic_samples;
         let lhs_cols = &self.lhs_cols;
         let dyn_opt = &self.dyn_opt;
@@ -1137,9 +1140,12 @@ impl<'a> RunState<'a> {
         // mean-reverting (OU) processes across steps; `sp_state` is the per-step node value.
         let mut sp_state: HashMap<String, f64> = HashMap::new();
         let mut sp_level: HashMap<String, f64> = HashMap::new();
+        // Correlated per-step shocks for grouped GBM processes (no-op / empty when uncorrelated, so
+        // the RNG stream — and every existing model — is bit-identical).
+        let proc_z = draw_process_shocks(proc_corr_groups, &mut rng)?;
         for &id in process_ids {
             if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
-                if let NodeRule::Process { process, lower_bound } = &n.rule {
+                if let NodeRule::Process { process, lower_bound, .. } = &n.rule {
                     // Resolve expression-valued drift/vol against the realization context
                     // (constants + this realization's samples). Initial draw: elapsed 0.
                     let pctx = dist_ctx_eval(&lookups, &dist_ctx, &dist_ctx, dt, &dt_unit, &arr);
@@ -1153,6 +1159,9 @@ impl<'a> RunState<'a> {
                         });
                         sp_level.insert(id.to_string(), x0);
                         sp_state.insert(id.to_string(), x0);
+                    } else if let Some(&z) = proc_z.get(id) {
+                        let v = sampling::sample_gbm_with_z(&process, lower_bound.as_ref(), dt, &dt_unit, z);
+                        sp_state.insert(id.to_string(), v);
                     } else {
                         let v = sampling::sample_gbm(&process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
                         sp_state.insert(id.to_string(), v);
@@ -1386,9 +1395,12 @@ impl<'a> RunState<'a> {
                 continue;
             }
 
+            // Correlated per-step GBM shocks for grouped processes (empty when uncorrelated → the
+            // RNG stream is unchanged for existing models).
+            let proc_z = draw_process_shocks(proc_corr_groups, &mut rng)?;
             for &id in process_ids {
                 if let Primitive::Node(n) = &model.elements[elem_idx[id]].primitive {
-                    if let NodeRule::Process { process, lower_bound } = &n.rule {
+                    if let NodeRule::Process { process, lower_bound, .. } = &n.rule {
                         // Resolve expression-valued drift/vol against the per-realization context
                         // (constants + this realization's samples) — the same context the initial
                         // draw uses, so a formula referencing a constant resolves identically at
@@ -1407,6 +1419,9 @@ impl<'a> RunState<'a> {
                             });
                             let v = sampling::sample_ou_step(&process, prev, dt, &dt_unit, &mut rng)?;
                             sp_level.insert(id.to_string(), v);
+                            sp_state.insert(id.to_string(), v);
+                        } else if let Some(&z) = proc_z.get(id) {
+                            let v = sampling::sample_gbm_with_z(&process, lower_bound.as_ref(), dt, &dt_unit, z);
                             sp_state.insert(id.to_string(), v);
                         } else {
                             let v = sampling::sample_gbm(&process, lower_bound.as_ref(), dt, &dt_unit, &mut rng)?;
@@ -3607,6 +3622,116 @@ fn build_corr_groups(model: &Model) -> Result<Vec<CorrGroup>, EngineError> {
         groups.push(CorrGroup { ids, chol_l });
     }
     Ok(groups)
+}
+
+/// Build correlation groups over `process` (GBM) elements — the per-step-shock analogue of
+/// `build_corr_groups` (which correlates `sample` single draws). Same connected-component + Cholesky
+/// construction, reading each process element's `correlations`. Empty when no process declares any.
+fn build_process_corr_groups(model: &Model) -> Result<Vec<CorrGroup>, EngineError> {
+    let elem_pos: HashMap<&str, usize> =
+        model.elements.iter().enumerate().map(|(i, e)| (e.id(), i)).collect();
+
+    let proc_set: HashSet<&str> = model.elements.iter()
+        .filter(|e| matches!(&e.primitive, Primitive::Node(n) if matches!(n.rule, NodeRule::Process { .. })))
+        .map(|e| e.id())
+        .collect();
+
+    let mut edge_map: HashMap<(String, String), f64> = HashMap::new();
+    for elem in &model.elements {
+        if let Primitive::Node(n) = &elem.primitive {
+            if let NodeRule::Process { correlations, .. } = &n.rule {
+                for pair in correlations {
+                    if !proc_set.contains(pair.partner.as_str()) {
+                        return Err(EngineError::ElementNotFound(pair.partner.clone()));
+                    }
+                    let a_pos = elem_pos[elem.id()];
+                    let b_pos = elem_pos[pair.partner.as_str()];
+                    let (lo, hi) = if a_pos < b_pos {
+                        (elem.id().to_string(), pair.partner.clone())
+                    } else {
+                        (pair.partner.clone(), elem.id().to_string())
+                    };
+                    edge_map.entry((lo, hi)).or_insert(pair.coefficient);
+                }
+            }
+        }
+    }
+    if edge_map.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    for ((a, b), _) in &edge_map {
+        adj.entry(a.clone()).or_default().push(b.clone());
+        adj.entry(b.clone()).or_default().push(a.clone());
+    }
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut components: Vec<Vec<String>> = Vec::new();
+    for elem in &model.elements {
+        let id = elem.id().to_string();
+        if !adj.contains_key(&id) || visited.contains(&id) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(id.clone());
+        visited.insert(id);
+        while let Some(cur) = queue.pop_front() {
+            component.push(cur.clone());
+            if let Some(neighbors) = adj.get(&cur) {
+                for nb in neighbors {
+                    if !visited.contains(nb) {
+                        visited.insert(nb.clone());
+                        queue.push_back(nb.clone());
+                    }
+                }
+            }
+        }
+        component.sort_by_key(|cid| elem_pos.get(cid.as_str()).copied().unwrap_or(usize::MAX));
+        components.push(component);
+    }
+
+    let mut groups = Vec::new();
+    for ids in components {
+        let n = ids.len();
+        let id_idx: HashMap<&str, usize> =
+            ids.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+        let mut matrix = vec![vec![0.0f64; n]; n];
+        for i in 0..n {
+            matrix[i][i] = 1.0;
+        }
+        for ((a, b), &rho) in &edge_map {
+            if let (Some(&i), Some(&j)) = (id_idx.get(a.as_str()), id_idx.get(b.as_str())) {
+                matrix[i][j] = rho;
+                matrix[j][i] = rho;
+            }
+        }
+        let chol_l = cholesky(&matrix).map_err(|_| EngineError::InvalidModel(format!(
+            "process correlation matrix for [{}] is not positive semi-definite",
+            ids.join(", ")
+        )))?;
+        groups.push(CorrGroup { ids, chol_l });
+    }
+    Ok(groups)
+}
+
+/// Draw one Cholesky-correlated standard-normal shock per process in each process-correlation group
+/// (in group order → deterministic). Returns `id → z`. Ungrouped processes are absent and draw their
+/// own shock at the sampling site. A no-op when `groups` is empty (uncorrelated models unchanged).
+fn draw_process_shocks<R: rand::Rng>(
+    groups: &[CorrGroup], rng: &mut R,
+) -> Result<HashMap<String, f64>, EngineError> {
+    let mut out = HashMap::new();
+    for g in groups {
+        let normal = rand_distr::Normal::new(0.0_f64, 1.0_f64)
+            .map_err(|e| EngineError::Sampling(e.to_string()))?;
+        let z_iid: Vec<f64> = g.ids.iter().map(|_| rng.sample(normal)).collect();
+        let z_corr = crate::engine::cholesky_matvec(&g.chol_l, &z_iid);
+        for (id, z) in g.ids.iter().zip(z_corr) {
+            out.insert(id.clone(), z);
+        }
+    }
+    Ok(out)
 }
 
 /// Latin Hypercube pre-pass (semantics §8). For each **independent, once-per-realization**

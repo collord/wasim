@@ -166,11 +166,12 @@ fn normalize_element(
             })
         }
 
-        ElementKind::StochasticProcess { process, lower_bound } => {
+        ElementKind::StochasticProcess { process, lower_bound, correlations } => {
             v2::Primitive::Node(v2::Node {
                 rule: v2::NodeRule::Process {
                     process: process.clone(),
                     lower_bound: lower_bound.clone(),
+                    correlations: correlations.clone(),
                 },
             })
         }

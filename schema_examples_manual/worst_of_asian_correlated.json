@@ -1,0 +1,511 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Worst-of Asian call on two correlated assets, priced by path Monte Carlo. Demonstrates CORRELATED PROCESS SHOCKS (basket scope Phase 3): each stochastic_process declares a `correlations` field, so the per-step GBM shocks of the group are Cholesky-correlated every step and the whole PATHS co-move -- required here because the payoff depends on running averages (not single terminal draws). P1/P2 are correlated at rho=0.5; running averages avg1/avg2 are filter means (gap #2); the payoff is disc*max(min(avg1,avg2)-K,0). No closed form; validated structurally (worst-of <= each single-asset Asian) and by the realized path correlation (see engine/tests/correlated_processes_v2.rs). See CORRELATED_PROCESSES_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.02,
+      "unit": "yr"
+    },
+    "n_realizations": 60000,
+    "sampling_method": "monte_carlo",
+    "seed": 808080
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "paths",
+      "name": "Correlated Asset Paths",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "averages",
+      "name": "Running Averages",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Derived",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoffs",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "contract",
+      "description": "Initial price of each asset.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Basket strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Per-asset volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "rho",
+      "name": "Correlation",
+      "type": "constant",
+      "container": "contract",
+      "description": "Pairwise correlation of the two asset PATHS (via correlated per-step process shocks).",
+      "value": {
+        "value": 0.5,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.99,
+        "max": 0.99
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "P1",
+      "name": "GBM Rate 1",
+      "type": "stochastic_process",
+      "container": "paths",
+      "description": "Per-step risk-neutral GBM rate for asset 1; correlated with P2 (per-step shocks).",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "correlations": [
+        {
+          "partner": "P2",
+          "coefficient": 0.5
+        }
+      ],
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "P2",
+      "name": "GBM Rate 2",
+      "type": "stochastic_process",
+      "container": "paths",
+      "description": "Per-step risk-neutral GBM rate for asset 2.",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S1",
+      "name": "Asset 1 Path",
+      "type": "accumulator",
+      "container": "paths",
+      "description": "Exact GBM path for asset 1 (rate = S1*P1).",
+      "inputs": [
+        "S1",
+        "P1"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S1"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P1"
+          }
+        },
+        "display": "S1*P1"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "avg1",
+      "name": "Average 1",
+      "type": "filter",
+      "container": "averages",
+      "description": "Running arithmetic average of asset 1 over the monitored dates (filter mean, expanding).",
+      "input": "S1",
+      "statistic": "mean",
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "S2",
+      "name": "Asset 2 Path",
+      "type": "accumulator",
+      "container": "paths",
+      "description": "Exact GBM path for asset 2 (rate = S2*P2).",
+      "inputs": [
+        "S2",
+        "P2"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S2"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P2"
+          }
+        },
+        "display": "S2*P2"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "avg2",
+      "name": "Average 2",
+      "type": "filter",
+      "container": "averages",
+      "description": "Running arithmetic average of asset 2 over the monitored dates (filter mean, expanding).",
+      "input": "S2",
+      "statistic": "mean",
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "worst",
+      "name": "Worst Average",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "The lower of the two assets' running averages \u2014 the worst-of underlying.",
+      "inputs": [
+        "avg1",
+        "avg2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "min",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "avg1"
+            },
+            {
+              "op": "ref",
+              "element_id": "avg2"
+            }
+          ]
+        },
+        "display": "min(avg1, avg2)"
+      }
+    },
+    {
+      "id": "worstof",
+      "name": "Worst-of Asian Call",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Discounted worst-of Asian call. Path-dependent AND multi-asset: it needs correlated per-step process shocks (a single terminal draw cannot express a path average). No closed form.",
+      "inputs": [
+        "K",
+        "disc",
+        "worst"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "worst"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(min(avg1,avg2)-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "asian1",
+      "name": "Asian Call 1",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Single-asset Asian call on asset 1.",
+      "inputs": [
+        "K",
+        "avg1",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "avg1"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(avg1-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "asian2",
+      "name": "Asian Call 2",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Single-asset Asian call on asset 2.",
+      "inputs": [
+        "K",
+        "avg2",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "avg2"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(avg2-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
