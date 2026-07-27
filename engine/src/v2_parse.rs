@@ -641,6 +641,7 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
         "process" => v2::NodeRule::Process {
             process: e.process.clone().ok_or_else(|| missing("process"))?,
             lower_bound: e.lower_bound.clone(),
+            correlations: e.correlations.clone(),
         },
         "lookup" => {
             let t = e.table.as_ref().ok_or_else(|| missing("table"))?;

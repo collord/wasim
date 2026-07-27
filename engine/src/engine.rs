@@ -460,7 +460,7 @@ pub fn run(
         let mut sp_state: HashMap<String, f64> = HashMap::new();
         for &id in &sp_ids {
             let elem = &model.elements[elem_idx[id]];
-            if let ElementKind::StochasticProcess { process, lower_bound } = &elem.kind {
+            if let ElementKind::StochasticProcess { process, lower_bound, .. } = &elem.kind {
                 let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &model.simulation_settings.timestep.unit, &mut rng)?;
                 sp_state.insert(id.to_string(), v);
             }
@@ -547,7 +547,7 @@ pub fn run(
             // Re-draw stochastic process elements for this timestep.
             for &id in &sp_ids {
                 let elem = &model.elements[elem_idx[id]];
-                if let ElementKind::StochasticProcess { process, lower_bound } = &elem.kind {
+                if let ElementKind::StochasticProcess { process, lower_bound, .. } = &elem.kind {
                     let v = sampling::sample_gbm(process, lower_bound.as_ref(), dt, &model.simulation_settings.timestep.unit, &mut rng)?;
                     sp_state.insert(id.to_string(), v);
                 }

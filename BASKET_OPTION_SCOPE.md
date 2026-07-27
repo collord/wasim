@@ -5,10 +5,15 @@
 geometric-basket control, ~12.5× variance cut. **Phase 2: a `correlation_matrices` model field** — an
 ergonomic block that names the drivers once and gives the matrix, expanded into pairwise correlations
 during normalization so it lowers to the existing Cholesky (proven bit-identical to the pairwise form in
-`engine/tests/correlation_matrix_v2.rs`; v1 schema for now, v2-native lowering is a follow-on). Phase 3
-(correlated *process* shocks, for path-dependent baskets) remains **proposed** — it touches the
-determinism-critical per-step sampling path (GBM draws at both an init and a per-step site under the B1
-sub-interval invariant) and warrants its own careful change.
+`engine/tests/correlation_matrix_v2.rs`; v1 schema for now, v2-native lowering is a follow-on).
+**Phase 3: correlated *process* shocks — built** ([`CORRELATED_PROCESSES_EXAMPLE.md`](CORRELATED_PROCESSES_EXAMPLE.md)):
+a `correlations` field on `stochastic_process`, a `build_process_corr_groups` companion to the
+sample-correlation builder, and per-step Cholesky injection via `sample_gbm_with_z` at both the init and
+per-step GBM draw sites. Opt-in and additive — a process without correlations draws independently, so the
+RNG stream (and every existing model) is bit-identical. Two GBM processes at ρ=0.6 produce paths correlated
+at 0.600 with marginals preserved, and a worst-of Asian on correlated paths prices monotonically in ρ.
+GBM-only for now; native `correlation_matrix` for processes, correlated OU, and ref-valued coefficients
+remain the follow-ons.
 **Motivation:** generalizes the two-asset [spread example](CORRELATED_ASSETS_EXAMPLE.md) to N assets and
 exercises the geometric-basket control variate — the multi-asset analogue of the Asian control.
 

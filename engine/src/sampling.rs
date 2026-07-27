@@ -859,6 +859,21 @@ pub fn sample_gbm<R: Rng>(
     model_time_unit: &str,
     rng: &mut R,
 ) -> Result<f64, EngineError> {
+    let z: f64 = rng.sample(Normal::new(0.0_f64, 1.0_f64)
+        .map_err(|e| EngineError::Sampling(e.to_string()))?);
+    Ok(sample_gbm_with_z(process, lower_bound, dt, model_time_unit, z))
+}
+
+/// The GBM per-step rate for a **supplied** standard-normal shock `z` — the body of `sample_gbm`
+/// minus the draw. Lets correlated process groups inject a Cholesky-correlated shock instead of an
+/// independent one, so the asset paths (not just terminal draws) are correlated.
+pub fn sample_gbm_with_z(
+    process: &ProcessSpec,
+    lower_bound: Option<&Quantity>,
+    dt: f64,
+    model_time_unit: &str,
+    z: f64,
+) -> f64 {
     let t_ref = time_unit_to_seconds(&parse_rate_denominator(process.stddev.unit()))
         / time_unit_to_seconds(model_time_unit);
 
@@ -876,19 +891,16 @@ pub fn sample_gbm<R: Rng>(
     let mu_step    = log_drift * dt_ratio;
     let sigma_step = sigma * dt_ratio.sqrt();
 
-    let z: f64 = rng.sample(Normal::new(0.0_f64, 1.0_f64)
-        .map_err(|e| EngineError::Sampling(e.to_string()))?);
-
     let log_ret = mu_step + sigma_step * z;
     // Convert per-step return to a rate per model time unit.
     let rate = if dt > 0.0 { (log_ret.exp() - 1.0) / dt } else { 0.0 };
 
     // lower_bound is expressed in T_ref units; convert to model-time-unit rate.
     let lb_rate = lower_bound.map(|lb| if t_ref > 0.0 { lb.value / t_ref } else { lb.value });
-    Ok(match lb_rate {
+    match lb_rate {
         Some(lb) => rate.max(lb),
         None => rate,
-    })
+    }
 }
 
 /// One mean-reverting (Ornstein-Uhlenbeck) step, returning the process **level** at t+dt given

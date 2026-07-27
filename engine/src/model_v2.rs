@@ -127,6 +127,9 @@ pub enum NodeRule {
     Process {
         process: ProcessSpec,
         lower_bound: Option<Quantity>,
+        /// Pairwise correlations with other process elements (GBM). The group's per-step normal
+        /// shocks are correlated via a Cholesky factor each step, so the paths are correlated.
+        correlations: Vec<CorrelationPair>,
     },
     /// [lookup] Interpolation table; not self-evaluating — invoked via `lookup_call`.
     Lookup(LookupTable),
