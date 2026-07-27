@@ -1,0 +1,707 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Digital (binary) options priced by exact-terminal Monte Carlo (one N(0,1) draw per realization, no discretization bias). Cash-or-nothing call = disc*1{S(T)>K} (closed form disc*N(d2)), asset-or-nothing call = disc*S(T)*1{S(T)>K} (S0*N(d1)), and a cash-or-nothing put with the exact per-path parity cash_call+cash_put=disc. The payoff is intentionally DISCONTINUOUS: the price is a smooth integral (MC converges fine), but its Greeks are not (pathwise fails, bump is noisy, likelihood-ratio is clean) - see DIGITAL_OPTION_SCOPE.md for the sensitivities gap this motivates. See DIGITAL_OPTION_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "n_realizations": 200000,
+    "sampling_method": "monte_carlo",
+    "seed": 24680
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "driver",
+      "name": "Driver",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Derived",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "payoffs",
+      "name": "Payoffs",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Closed-Form References",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current underlying price.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Digital strike / trigger.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "Z",
+      "name": "Shock",
+      "type": "random_variable",
+      "container": "driver",
+      "description": "Standard normal driving the terminal price.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "sig2",
+      "name": "sigma^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma"
+          }
+        },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "sqrtT",
+      "name": "sqrt(T)",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "T"
+            }
+          ]
+        },
+        "display": "sqrt(T)"
+      }
+    },
+    {
+      "id": "ST",
+      "name": "Terminal Price",
+      "type": "expression",
+      "container": "derived",
+      "description": "Exact terminal price (no discretization bias).",
+      "inputs": [
+        "S0",
+        "T",
+        "Z",
+        "r",
+        "sig2",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "sig2"
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "T"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sqrtT"
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Z"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S0 exp((r-sig^2/2)T + sig sqrt(T) Z)"
+      }
+    },
+    {
+      "id": "ind",
+      "name": "In-the-money",
+      "type": "expression",
+      "container": "derived",
+      "description": "Indicator that the call finishes in the money.",
+      "inputs": [
+        "K",
+        "ST"
+      ],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gt",
+            "left": {
+              "op": "ref",
+              "element_id": "ST"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "K"
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 1.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
+        },
+        "display": "S(T) > K ? 1 : 0"
+      }
+    },
+    {
+      "id": "cash_call",
+      "name": "Cash-or-Nothing Call",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Cash-or-nothing call: pays 1 if S(T) > K. Bounded, discontinuous payoff.",
+      "inputs": [
+        "disc",
+        "ind"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "ind"
+          }
+        },
+        "display": "disc * 1{S(T)>K}"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "asset_call",
+      "name": "Asset-or-Nothing Call",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Asset-or-nothing call: pays S(T) if S(T) > K.",
+      "inputs": [
+        "ST",
+        "disc",
+        "ind"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "disc"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "ST"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "ind"
+          }
+        },
+        "display": "disc * S(T) * 1{S(T)>K}"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "cash_put",
+      "name": "Cash-or-Nothing Put",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Cash-or-nothing put: pays 1 if S(T) <= K. cash_call + cash_put = disc on EVERY path (parity).",
+      "inputs": [
+        "disc",
+        "ind"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "subtract",
+            "left": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "ind"
+            }
+          }
+        },
+        "display": "disc * 1{S(T)<=K}"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "parity",
+      "name": "Cash Parity Check",
+      "type": "expression",
+      "container": "payoffs",
+      "description": "Must equal disc = exp(-rT) on every realization (a digital pays 1 either above or below K).",
+      "inputs": [
+        "cash_call",
+        "cash_put"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cash_call"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "cash_put"
+          }
+        },
+        "display": "cash_call + cash_put"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "d1",
+      "name": "d1",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "K",
+        "S0",
+        "T",
+        "r",
+        "sig2",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "call",
+              "fn": "ln",
+              "args": [
+                {
+                  "op": "divide",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "S0"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 0.5
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "sig2"
+                  }
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "T"
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          }
+        },
+        "display": "d1"
+      }
+    },
+    {
+      "id": "d2",
+      "name": "d2",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "d1",
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "d1"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "sigma"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sqrtT"
+            }
+          }
+        },
+        "display": "d1 - sigma sqrt(T)"
+      }
+    },
+    {
+      "id": "cash_bs",
+      "name": "Cash Call (Black-Scholes)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Closed-form cash-or-nothing call price.",
+      "inputs": [
+        "d2",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "literal",
+              "value": 0.5
+            },
+            "right": {
+              "op": "add",
+              "left": {
+                "op": "literal",
+                "value": 1.0
+              },
+              "right": {
+                "op": "call",
+                "fn": "erf",
+                "args": [
+                  {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "d2"
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 0.7071067811865476
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "display": "disc * N(d2)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "asset_bs",
+      "name": "Asset Call (Black-Scholes)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Closed-form asset-or-nothing call price.",
+      "inputs": [
+        "S0",
+        "d1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S0"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "literal",
+              "value": 0.5
+            },
+            "right": {
+              "op": "add",
+              "left": {
+                "op": "literal",
+                "value": 1.0
+              },
+              "right": {
+                "op": "call",
+                "fn": "erf",
+                "args": [
+                  {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "d1"
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 0.7071067811865476
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "display": "S0 * N(d1)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
