@@ -15,6 +15,20 @@ pub struct WasimModel {
     /// and surfaced in `SimulationResults.elements` so user-visible outputs aren't lost.
     #[serde(default)]
     pub time_history_displays: Vec<TimeHistoryDisplay>,
+    /// Correlation matrices over named `random_variable` drivers (a convenience over declaring
+    /// pairwise `correlations` on each element). Each is expanded into the equivalent pairwise
+    /// entries during normalization, so it lowers to the existing Cholesky machinery. Symmetric;
+    /// unit diagonal assumed.
+    #[serde(default)]
+    pub correlation_matrices: Vec<CorrelationMatrix>,
+}
+
+/// A correlation matrix over a named set of `random_variable` drivers. `matrix[i][j]` is the
+/// correlation between `variables[i]` and `variables[j]`; the diagonal is ignored (taken as 1).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CorrelationMatrix {
+    pub variables: Vec<String>,
+    pub matrix: Vec<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

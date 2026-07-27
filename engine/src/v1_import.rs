@@ -23,9 +23,26 @@ use crate::model_v2 as v2;
 pub fn normalize(model: &WasimModel) -> v2::Model {
     let dt = model.simulation_settings.timestep.value;
 
+    // Expand any `correlation_matrices` into the equivalent pairwise `correlations` (one direction,
+    // i<j; build_corr_groups symmetrizes), merged onto each driver's own declared correlations.
+    let mut extra_corr: std::collections::HashMap<String, Vec<v1::CorrelationPair>> =
+        std::collections::HashMap::new();
+    for cm in &model.correlation_matrices {
+        let n = cm.variables.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if let Some(&coef) = cm.matrix.get(i).and_then(|row| row.get(j)) {
+                    extra_corr.entry(cm.variables[i].clone()).or_default().push(
+                        v1::CorrelationPair { partner: cm.variables[j].clone(), coefficient: coef },
+                    );
+                }
+            }
+        }
+    }
+
     let mut elements: Vec<v2::Element> = Vec::with_capacity(model.elements.len());
     for elem in &model.elements {
-        elements.extend(normalize_element(elem, dt));
+        elements.extend(normalize_element(elem, dt, &extra_corr));
     }
 
     v2::Model {
@@ -44,7 +61,11 @@ pub fn normalize(model: &WasimModel) -> v2::Model {
 }
 
 /// One v1 element → one or more v2 elements (delay chains expand to several).
-fn normalize_element(elem: &v1::Element, dt: f64) -> Vec<v2::Element> {
+fn normalize_element(
+    elem: &v1::Element,
+    dt: f64,
+    extra_corr: &std::collections::HashMap<String, Vec<v1::CorrelationPair>>,
+) -> Vec<v2::Element> {
     let inputs = kind_inputs(&elem.kind);
     let base = |id: String, name: String| v2::ElementBase {
         id,
@@ -74,12 +95,17 @@ fn normalize_element(elem: &v1::Element, dt: f64) -> Vec<v2::Element> {
         }
 
         ElementKind::RandomVariable { distribution, autocorrelation, correlations } => {
+            // Merge any correlation-matrix-derived pairs onto this driver's own correlations.
+            let mut merged = correlations.clone();
+            if let Some(extra) = extra_corr.get(elem.id.as_str()) {
+                merged.extend(extra.iter().cloned());
+            }
             v2::Primitive::Node(v2::Node {
                 rule: v2::NodeRule::Sample {
                     distribution: distribution.clone(),
                     resampling: None,
                     autocorrelation: *autocorrelation,
-                    correlations: correlations.clone(),
+                    correlations: merged,
                 },
             })
         }

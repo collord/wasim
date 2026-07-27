@@ -1,10 +1,14 @@
 # Basket Option (N correlated assets)
 
-**Status:** **Phase 1 built** ([`BASKET_OPTION_EXAMPLE.md`](BASKET_OPTION_EXAMPLE.md) — a European
-`N=3` basket via the native `correlations` field, geometric-basket control, geometric MC matches the
-closed form, ~12.5× variance cut). Phase 2 (correlation-matrix ergonomics) and Phase 3 (correlated
-*process* shocks, for path-dependent baskets) remain **proposed**. As predicted, the European basket
-needed **zero engine work** — the correlation engine already scales to N assets.
+**Status:** **Phases 1–2 built.** Phase 1: a European `N=3` basket
+([`BASKET_OPTION_EXAMPLE.md`](BASKET_OPTION_EXAMPLE.md)) via the native `correlations` field,
+geometric-basket control, ~12.5× variance cut. **Phase 2: a `correlation_matrices` model field** — an
+ergonomic block that names the drivers once and gives the matrix, expanded into pairwise correlations
+during normalization so it lowers to the existing Cholesky (proven bit-identical to the pairwise form in
+`engine/tests/correlation_matrix_v2.rs`; v1 schema for now, v2-native lowering is a follow-on). Phase 3
+(correlated *process* shocks, for path-dependent baskets) remains **proposed** — it touches the
+determinism-critical per-step sampling path (GBM draws at both an init and a per-step site under the B1
+sub-interval invariant) and warrants its own careful change.
 **Motivation:** generalizes the two-asset [spread example](CORRELATED_ASSETS_EXAMPLE.md) to N assets and
 exercises the geometric-basket control variate — the multi-asset analogue of the Asian control.
 
