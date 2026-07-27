@@ -181,6 +181,17 @@ pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64) -> String {
     format!("{state}\u{1}{payoff}\u{1}{rate}\u{6}")
 }
 
+/// The `run_vecs` injection key for a `NestedStat` node — a specific
+/// (submodel, output, statistic, arg, bindings) conditional nested reduction. `\u{7}`-terminated
+/// to stay disjoint from every other injection key. Computed identically at collection and eval time.
+pub(crate) fn nested_stat_key(
+    submodel_id: &str, output: &str, statistic: &crate::model::SubmodelStatKind, arg: f64,
+    bindings: &[crate::model::NestedBinding],
+) -> String {
+    let binds: String = bindings.iter().map(|b| format!("{}={}", b.input, b.from)).collect::<Vec<_>>().join(",");
+    format!("{submodel_id}\u{1}{output}\u{1}{statistic:?}\u{1}{arg}\u{1}{binds}\u{7}")
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Scalar(f64),
@@ -744,6 +755,20 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                 P::Beta => crate::engine::beta(xs, ys),
             };
             Ok(Value::Scalar(reduced))
+        }
+
+        // Conditional nested-submodel statistic: read this outer realization's pre-computed value
+        // from the injected [N_outer] vector (the two-pass reduction ran the inner submodel once per
+        // outer realization, conditioned on the bound outer state). 0.0 in the first pass.
+        AstNode::NestedStat { submodel_id, output, statistic, arg, bindings } => {
+            let arg_val = arg.as_deref().map(|n| eval_ast_scalar(n, ctx)).transpose()?.unwrap_or(0.0);
+            let key = nested_stat_key(submodel_id, output, statistic, arg_val, bindings);
+            let v = ctx
+                .run_vecs
+                .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                .copied()
+                .unwrap_or(0.0);
+            Ok(Value::Scalar(v))
         }
 
         // Array-comprehension nodes (§15). Indices are 1-based (matching `get_element` and

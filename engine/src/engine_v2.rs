@@ -71,8 +71,10 @@ pub fn run(
 
     let (targets, pair_targets, regr_targets, split_targets, lsm_targets, lsm_dual_targets) =
         collect_run_stats(model)?;
+    let nested_targets = collect_nested_stats(model)?;
     if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty()
         && split_targets.is_empty() && lsm_targets.is_empty() && lsm_dual_targets.is_empty()
+        && nested_targets.is_empty()
     {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
@@ -100,6 +102,13 @@ pub fn run(
     for st in &split_targets {
         target_ids.push(st.x.clone());
         target_ids.push(st.y.clone());
+    }
+    // nested_stat needs each binding's outer `from` element's per-realization finals to condition
+    // the inner runs on.
+    for nt in &nested_targets {
+        for b in &nt.bindings {
+            target_ids.push(b.from.clone());
+        }
     }
     st1.force_save_targets(&target_ids);
     // LSM (primal + dual) needs the full time_history panel of its state and payoff elements.
@@ -164,6 +173,11 @@ pub fn run(
     // Split-sample jackknife betas → [N] vectors (reduced_vecs already holds any LSM vectors).
     for st in &split_targets {
         reduced_vecs.insert(st.key.clone(), crate::engine::jackknife_beta(&finals(&st.x), &finals(&st.y), st.folds));
+    }
+    // Conditional nested-submodel statistics → [N] vectors: one inner submodel run per outer
+    // realization, its input constants bound to that realization's outer finals.
+    for nt in &nested_targets {
+        reduced_vecs.insert(nt.key.clone(), run_nested_stat(model, config, nt, &finals));
     }
 
     // Pass 2: same run with the reduced scalars (and per-realization vectors) injected.
@@ -413,9 +427,162 @@ fn collect_run_stat_nodes<'a>(
         AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr, split, lsm)),
         AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split, lsm); } }
         AstNode::SubmodelStat2 { .. } => {}
+        // nested_stat is collected by `collect_nested_stats`; only its `arg` might carry a run-stat.
+        AstNode::NestedStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split, lsm); } }
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
     }
+}
+
+/// A `nested_stat` (conditional nested-submodel) target to pre-compute: its injection key, the
+/// submodel to nest, which interior output to reduce, the reduction + arg, and the outer→inner
+/// bindings. Its value is an `[N_outer]` vector — one inner-submodel run per outer realization.
+struct NestedStatTarget {
+    key: String,
+    submodel_id: String,
+    output: String,
+    statistic: crate::model::SubmodelStatKind,
+    arg: f64,
+    bindings: Vec<crate::model::NestedBinding>,
+}
+
+/// Walk every element expression AST and collect the `nested_stat` targets. Arg-taking statistics
+/// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument, mirroring `run_stat`.
+fn collect_nested_stats(model: &Model) -> Result<Vec<NestedStatTarget>, EngineError> {
+    let mut refs: Vec<&AstNode> = Vec::new();
+    for e in &model.elements {
+        if let Primitive::Node(n) = &e.primitive {
+            if let NodeRule::Expression(ef) = &n.rule {
+                collect_nested_stat_nodes(&ef.ast, &mut refs);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for node in refs {
+        if let AstNode::NestedStat { submodel_id, output, statistic, arg, bindings } = node {
+            let needs_arg = k_needs_arg(statistic);
+            let arg_val = match arg.as_deref() {
+                Some(AstNode::Literal { value, .. }) => *value,
+                None => 0.0,
+                Some(_) if needs_arg => {
+                    return Err(EngineError::InvalidModel(format!(
+                        "nested_stat on submodel '{submodel_id}' with a {statistic:?} statistic requires a literal argument"
+                    )));
+                }
+                Some(_) => 0.0,
+            };
+            let key = crate::eval::nested_stat_key(submodel_id, output, statistic, arg_val, bindings);
+            if seen.insert(key.clone()) {
+                out.push(NestedStatTarget {
+                    key, submodel_id: submodel_id.clone(), output: output.clone(),
+                    statistic: statistic.clone(), arg: arg_val, bindings: bindings.clone(),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Collect every `NestedStat` node anywhere in an expression tree (recursing through all children).
+fn collect_nested_stat_nodes<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
+    match node {
+        AstNode::NestedStat { arg, .. } => {
+            out.push(node);
+            if let Some(a) = arg { collect_nested_stat_nodes(a, out); }
+        }
+        AstNode::Add { left, right } | AstNode::Subtract { left, right }
+        | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
+        | AstNode::Power { left, right } | AstNode::Lt { left, right }
+        | AstNode::Gt { left, right } | AstNode::Lte { left, right }
+        | AstNode::Gte { left, right } | AstNode::Eq { left, right }
+        | AstNode::Neq { left, right } | AstNode::And { left, right }
+        | AstNode::Or { left, right } => {
+            collect_nested_stat_nodes(left, out);
+            collect_nested_stat_nodes(right, out);
+        }
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_nested_stat_nodes(operand, out),
+        AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
+            args.iter().for_each(|a| collect_nested_stat_nodes(a, out));
+        }
+        AstNode::If { cond, then, else_ } => {
+            collect_nested_stat_nodes(cond, out);
+            collect_nested_stat_nodes(then, out);
+            collect_nested_stat_nodes(else_, out);
+        }
+        AstNode::LookupCall { input, input2, .. } => {
+            collect_nested_stat_nodes(input, out);
+            if let Some(i2) = input2 { collect_nested_stat_nodes(i2, out); }
+        }
+        AstNode::VectorMap { body, .. } => collect_nested_stat_nodes(body, out),
+        AstNode::Subscript { array, .. } => collect_nested_stat_nodes(array, out),
+        AstNode::Index { array, indices } => {
+            collect_nested_stat_nodes(array, out);
+            indices.iter().for_each(|i| collect_nested_stat_nodes(i, out));
+        }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_nested_stat_nodes(e, out)),
+        AstNode::RunStat { arg, .. } => { if let Some(a) = arg { collect_nested_stat_nodes(a, out); } }
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_nested_stat_nodes(a, out); } }
+        AstNode::RunStat2 { .. } | AstNode::RunRegress { .. } | AstNode::RunSplitBeta { .. }
+        | AstNode::Lsm { .. } | AstNode::LsmDual { .. } | AstNode::SubmodelStat2 { .. }
+        | AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
+        | AstNode::IndexRef { .. } => {}
+    }
+}
+
+/// Override a submodel constant's fixed scalar value (used to bind an outer per-realization value
+/// into a nested inner run). No-op if `id` is absent or not a fixed-scalar node.
+fn override_const(model: &mut Model, id: &str, value: f64) {
+    for e in &mut model.elements {
+        if e.id() == id {
+            if let Primitive::Node(n) = &mut e.primitive {
+                if let NodeRule::Fixed { value: crate::model_v2::FixedValue::Scalar(q), .. } = &mut n.rule {
+                    q.value = value;
+                }
+            }
+            return;
+        }
+    }
+}
+
+/// Run one `nested_stat` target: extract the inner submodel once, then run it ONCE PER OUTER
+/// realization with its bound input constants overridden by the outer elements' realized finals,
+/// reducing the inner `output` to the statistic each time. Returns the `[N_outer]` vector. Each
+/// outer realization's inner run gets an independent, reproducible seed derived from
+/// `(root, submodel_id, r)`, so the inner draws are conditionally independent across outer paths.
+fn run_nested_stat(
+    model: &Model, config: &RunConfig, t: &NestedStatTarget, finals: &dyn Fn(&str) -> Vec<f64>,
+) -> Vec<f64> {
+    let Some(mut sub) = crate::submodel_v2::extract_submodel(model, &t.submodel_id) else {
+        eprintln!("warn: nested_stat submodel '{}' has no runnable interior; → 0.0", t.submodel_id);
+        return Vec::new();
+    };
+    let from_vals: Vec<Vec<f64>> = t.bindings.iter().map(|b| finals(&b.from)).collect();
+    let n_outer = from_vals.iter().map(|v| v.len()).min().unwrap_or(0);
+    if n_outer == 0 {
+        return Vec::new();
+    }
+    let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
+    let base_seed = crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(&t.submodel_id));
+    let mut out = vec![0.0; n_outer];
+    for r in 0..n_outer {
+        for (bi, b) in t.bindings.iter().enumerate() {
+            override_const(&mut sub, &b.input, from_vals[bi][r]);
+        }
+        let graph = match ModelGraphV2::build(&sub) {
+            Ok(g) => g,
+            Err(e) => { eprintln!("warn: nested_stat submodel '{}' graph build failed ({e:?})", t.submodel_id); continue; }
+        };
+        let cfg = RunConfig { seed: Some(crate::sweep_seed::child_seed(base_seed, r as u64)), ..RunConfig::default() };
+        let res = match run(&sub, &graph, &cfg) {
+            Ok(res) => res,
+            Err(e) => { eprintln!("warn: nested_stat submodel '{}' run failed ({e:?})", t.submodel_id); continue; }
+        };
+        if let Some(er) = res.elements.get(&t.output) {
+            out[r] = reduce_run_stat(&er.final_values, &t.statistic, t.arg);
+        }
+    }
+    out
 }
 
 /// Reduce a `run_stat` target's per-realization samples — the same reducers as

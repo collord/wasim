@@ -174,3 +174,11 @@ therefore **gated on a nested-simulation capability** — an inner sampler the e
 We deliberately did **not** ship a fragile "tight" dual that violates the upper-bound guarantee; the
 loose-but-rigorous `lsm_dual` is the honest Phase-3 deliverable, and the tight bound is documented here
 as future engine work.
+
+> **Update:** the conditional inner sampler this section calls for has since landed as a general
+> construct — [`nested_stat`](NESTED_STAT_SCOPE.md), the conditional nested-submodel statistic. Its v1
+> binds the inner run to the outer's **terminal** state (one inner run per outer realization), which
+> covers nested VaR/CVA, double-loop UQ, and Bayesian experimental design. A tight Andersen–Broadie dual
+> additionally needs **per-timestep** binding (an inner run at every `(path, step)` node), the designed-in
+> `each_step` extension — so the tight dual is now "one scope item away" rather than blocked on a missing
+> capability.

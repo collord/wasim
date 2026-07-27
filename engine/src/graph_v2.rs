@@ -253,6 +253,9 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
         // Lsm / LsmDual are pre-computed post-run (over history); no topo dependency.
         AstNode::Lsm { .. } => {}
         AstNode::LsmDual { .. } => {}
+        // nested_stat is pre-computed by the two-pass driver (its `from` bindings are read from
+        // pass-1 finals, not topo-ordered here); only its `arg` is a live dep.
+        AstNode::NestedStat { arg, .. } => { if let Some(a) = arg { collect_ast_refs(a, out); } }
         AstNode::Index { array, indices } => {
             collect_ast_refs(array, out);
             for i in indices {

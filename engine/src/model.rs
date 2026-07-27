@@ -681,6 +681,32 @@ pub enum AstNode {
         output_y: String,
         statistic: RunPairStat,
     },
+    // CONDITIONAL nested-submodel statistic — the conditional twin of `submodel_stat`. For each
+    // OUTER realization, the referenced submodel is re-run with its declared input constants BOUND to
+    // this outer path's realized values (`bindings`), and `statistic` reduces the inner `output`'s
+    // per-inner-realization finals to a scalar — this realization's value. So it evaluates the nested
+    // conditional expectation `E_outer[ stat( inner output | outer state ) ]`. Whereas `submodel_stat`
+    // runs the submodel ONCE (marginal, independent of the outer state), `nested_stat` runs it once
+    // per outer realization, CONDITIONED on the outer state. Cost is the double-loop
+    // `N_outer × N_inner`; keep both modest. Uses the per-realization injection channel (like `lsm` /
+    // `run_split_beta`) — 0.0 in the first pass. See NESTED_STAT_SCOPE.md.
+    NestedStat {
+        /// The submodel container to nest (same container the marginal `submodel_stat` would name).
+        submodel_id: String,
+        /// Interior element whose per-inner-realization finals are reduced by `statistic`.
+        output: String,
+        /// The reduction (mean / percentile / std / cumulative_prob / exceedance / cte / …).
+        statistic: SubmodelStatKind,
+        /// Literal argument for arg-taking statistics (percentile level, threshold, …).
+        #[serde(default)]
+        arg: Option<Box<AstNode>>,
+        /// Bindings pinning inner input constants to outer elements' per-realization values. Each
+        /// `{input, from}` overrides the inner constant `input` with the outer element `from`'s
+        /// realized final value for the current outer realization — this is what makes the inner run
+        /// CONDITIONAL on the outer state.
+        #[serde(default)]
+        bindings: Vec<NestedBinding>,
+    },
     // Array construction: evaluates each element and produces a vector
     Array {
         elements: Vec<AstNode>,
@@ -813,6 +839,18 @@ pub enum IndexAxis {
     #[default]
     Row,
     Col,
+}
+
+/// One binding of a `nested_stat` node: pin the inner submodel's input constant `input` to the
+/// outer element `from`'s per-realization realized value. This is what makes the nested run
+/// conditional on the outer state. `input` should name a `constant` (fixed) element inside the
+/// submodel — its value is overridden for each outer realization's inner run.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NestedBinding {
+    /// Inner submodel constant element id whose value is overridden per outer realization.
+    pub input: String,
+    /// Outer element id whose per-realization final value is bound into `input`.
+    pub from: String,
 }
 
 /// Which statistic a `submodel_stat` node reduces a submodel output to.
