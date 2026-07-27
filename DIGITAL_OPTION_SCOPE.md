@@ -1,10 +1,13 @@
 # Digital (Binary) Option + Monte Carlo Greeks
 
-**Status:** **Phase 1 built** ([`DIGITAL_OPTION_EXAMPLE.md`](DIGITAL_OPTION_EXAMPLE.md) — the payoff
-example, matching `disc·N(d₂)` / `S₀·N(d₁)` with an exact cash-parity identity). Phases 2–4 (Monte
-Carlo Greeks) remain **proposed**. The digital *payoff* needed **zero engine work**; the substance of
-this scope is the **Greeks gap** it exposes: WASiM has no sensitivity (Δ, Γ, vega) machinery, and the
-digital is the textbook case where naive Monte Carlo Greeks break.
+**Status:** **Phases 1–3 built** — the payoff ([`DIGITAL_OPTION_EXAMPLE.md`](DIGITAL_OPTION_EXAMPLE.md))
+and the **Greeks** ([`DIGITAL_GREEKS_EXAMPLE.md`](DIGITAL_GREEKS_EXAMPLE.md): likelihood-ratio and
+common-random-numbers bump deltas, both matching the analytic `disc·n(d₂)/(S₀σ√T)`, LRM ≈ 3.3× lower
+variance). A key finding: **LRM needed no engine feature** — the driving normal is an explicit
+`random_variable`, so the score is a plain expression and the Greek is a `run_stat` mean, superseding the
+"score node" originally proposed below. The remaining Greeks gap is **path-dependent** sensitivities,
+where the driver lives inside a `stochastic_process` and isn't exposed (Phase 4). The digital *payoff*
+also needed zero engine work; the enduring point of this scope is the sensitivity story it exposed.
 **Motivation:** rounds out the payoff family (European / Asian / spread / barrier / lookback) with the
 canonical *discontinuous* payoff, and gives a concrete reason to add MC sensitivities.
 

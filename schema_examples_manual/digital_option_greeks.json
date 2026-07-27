@@ -1,0 +1,865 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Monte Carlo GREEKS of a cash-or-nothing digital call, comparing the likelihood-ratio method (LRM) with bump-and-revalue. The price is a discontinuous payoff; its delta is where naive MC struggles. LRM (delta = E[payoff * score], score = Z/(S0 sigma sqrt(T))) leaves the payoff untouched so the discontinuity is irrelevant and the variance is low and eps-free; central bump with common random numbers has the same mean but far higher variance (a rare nonzero when K falls between the two bumped terminals). Both match the analytic delta disc*n(d2)/(S0 sigma sqrt(T)). NEEDS NO NEW ENGINE FEATURE: the driving normal Z is an explicit random_variable, so the LRM score is a plain expression. See DIGITAL_OPTION_SCOPE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "n_realizations": 200000,
+    "sampling_method": "monte_carlo",
+    "seed": 13131
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "driver",
+      "name": "Driver",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "derived",
+      "name": "Derived",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "price",
+      "name": "Price",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "greeks",
+      "name": "Delta Estimators",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "Analytic Reference",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current underlying price.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Digital trigger.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "eps",
+      "name": "Bump size",
+      "type": "constant",
+      "container": "greeks",
+      "description": "Finite-difference bump on S0 (for the bump-and-revalue delta).",
+      "value": {
+        "value": 1.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "Z",
+      "name": "Shock",
+      "type": "random_variable",
+      "container": "driver",
+      "description": "Standard normal driving the terminal price; exposed so the LRM score can reference it.",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "sig2",
+      "name": "sigma^2",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigma"
+          }
+        },
+        "display": "sigma^2"
+      }
+    },
+    {
+      "id": "sqrtT",
+      "name": "sqrt(T)",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sqrt",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "T"
+            }
+          ]
+        },
+        "display": "sqrt(T)"
+      }
+    },
+    {
+      "id": "sigrtT",
+      "name": "sigma sqrt(T)",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "sigma",
+        "sqrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sqrtT"
+          }
+        },
+        "display": "sigma sqrt(T)"
+      }
+    },
+    {
+      "id": "mult",
+      "name": "Lognormal multiplier",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "T",
+        "Z",
+        "r",
+        "sig2",
+        "sigrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "add",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "subtract",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "r"
+                  },
+                  "right": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "literal",
+                      "value": 0.5
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "sig2"
+                    }
+                  }
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              },
+              "right": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "sigrtT"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "Z"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp((r-sig^2/2)T + sig sqrt(T) Z)"
+      }
+    },
+    {
+      "id": "ST",
+      "name": "Terminal Price",
+      "type": "expression",
+      "container": "derived",
+      "description": "",
+      "inputs": [
+        "S0",
+        "mult"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S0"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "mult"
+          }
+        },
+        "display": "S0 * mult"
+      }
+    },
+    {
+      "id": "cash_call",
+      "name": "Cash-or-Nothing Call",
+      "type": "expression",
+      "container": "price",
+      "description": "Cash-or-nothing call price (bounded, discontinuous).",
+      "inputs": [
+        "K",
+        "ST",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "if",
+            "cond": {
+              "op": "gt",
+              "left": {
+                "op": "ref",
+                "element_id": "ST"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "K"
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "else": {
+              "op": "literal",
+              "value": 0.0
+            }
+          }
+        },
+        "display": "disc * 1{S(T)>K}"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "score",
+      "name": "LRM score",
+      "type": "expression",
+      "container": "greeks",
+      "description": "Likelihood-ratio score d log density / d S0 for GBM.",
+      "inputs": [
+        "S0",
+        "Z",
+        "sigrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "ref",
+            "element_id": "Z"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S0"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sigrtT"
+            }
+          }
+        },
+        "display": "Z / (S0 sigma sqrt(T))"
+      }
+    },
+    {
+      "id": "delta_lrm",
+      "name": "Delta (likelihood ratio)",
+      "type": "expression",
+      "container": "greeks",
+      "description": "LRM delta estimator: its mean is the digital delta, with low variance regardless of the discontinuity.",
+      "inputs": [
+        "cash_call",
+        "score"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "cash_call"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "score"
+          }
+        },
+        "display": "cash_call * score"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "ST_up",
+      "name": "Bumped up",
+      "type": "expression",
+      "container": "greeks",
+      "description": "",
+      "inputs": [
+        "S0",
+        "eps",
+        "mult"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "ref",
+              "element_id": "S0"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "eps"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "mult"
+          }
+        },
+        "display": "(S0+eps) mult"
+      }
+    },
+    {
+      "id": "ST_dn",
+      "name": "Bumped down",
+      "type": "expression",
+      "container": "greeks",
+      "description": "",
+      "inputs": [
+        "S0",
+        "eps",
+        "mult"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "S0"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "eps"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "mult"
+          }
+        },
+        "display": "(S0-eps) mult"
+      }
+    },
+    {
+      "id": "cash_up",
+      "name": "Cash up",
+      "type": "expression",
+      "container": "greeks",
+      "description": "",
+      "inputs": [
+        "K",
+        "ST_up",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "if",
+            "cond": {
+              "op": "gt",
+              "left": {
+                "op": "ref",
+                "element_id": "ST_up"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "K"
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "else": {
+              "op": "literal",
+              "value": 0.0
+            }
+          }
+        },
+        "display": "disc*1{S+>K}"
+      }
+    },
+    {
+      "id": "cash_dn",
+      "name": "Cash down",
+      "type": "expression",
+      "container": "greeks",
+      "description": "",
+      "inputs": [
+        "K",
+        "ST_dn",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "if",
+            "cond": {
+              "op": "gt",
+              "left": {
+                "op": "ref",
+                "element_id": "ST_dn"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "K"
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1.0
+            },
+            "else": {
+              "op": "literal",
+              "value": 0.0
+            }
+          }
+        },
+        "display": "disc*1{S->K}"
+      }
+    },
+    {
+      "id": "delta_bump",
+      "name": "Delta (bump, CRN)",
+      "type": "expression",
+      "container": "greeks",
+      "description": "Central finite-difference delta with common random numbers. Same mean as LRM, but much higher variance (a rare nonzero when K falls between the two bumped terminals) \u2014 the variance grows as eps shrinks.",
+      "inputs": [
+        "cash_dn",
+        "cash_up",
+        "eps"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "cash_up"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "cash_dn"
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "literal",
+              "value": 2.0
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "eps"
+            }
+          }
+        },
+        "display": "(cash_up - cash_dn)/(2 eps)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "d1",
+      "name": "d1",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "K",
+        "S0",
+        "T",
+        "r",
+        "sig2",
+        "sigrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "call",
+              "fn": "ln",
+              "args": [
+                {
+                  "op": "divide",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "S0"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "K"
+                  }
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 0.5
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "sig2"
+                  }
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "T"
+              }
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigrtT"
+          }
+        },
+        "display": "d1"
+      }
+    },
+    {
+      "id": "d2",
+      "name": "d2",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "d1",
+        "sigrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "ref",
+            "element_id": "d1"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "sigrtT"
+          }
+        },
+        "display": "d1 - sigma sqrt(T)"
+      }
+    },
+    {
+      "id": "nd2",
+      "name": "n(d2)",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "d2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "multiply",
+                "left": {
+                  "op": "literal",
+                  "value": -0.5
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "d2"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "d2"
+                  }
+                }
+              }
+            ]
+          },
+          "right": {
+            "op": "literal",
+            "value": 2.5066282746310002
+          }
+        },
+        "display": "exp(-d2^2/2)/sqrt(2pi)"
+      }
+    },
+    {
+      "id": "delta_analytic",
+      "name": "Delta (analytic)",
+      "type": "expression",
+      "container": "reference",
+      "description": "Closed-form cash-or-nothing call delta.",
+      "inputs": [
+        "S0",
+        "disc",
+        "nd2",
+        "sigrtT"
+      ],
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "disc"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "nd2"
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S0"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "sigrtT"
+            }
+          }
+        },
+        "display": "disc n(d2)/(S0 sigma sqrt(T))"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
