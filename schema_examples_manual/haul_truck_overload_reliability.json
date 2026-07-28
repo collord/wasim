@@ -1,0 +1,227 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Stage-1 RAM demo (single-unit): haul-truck overload decision under load-exponent and price uncertainty. Two trucks — nominal (240 t) and overloaded (300 t, +25%) — share ONE per-realization draw of the load exponent beta ~ Triangular(2.5, 3.0, 4.0), so the comparison is apples-to-apples on the same physics. Component life is consumed at a POWER-LAW rate base_rate * (payload/rated)^beta; cumulative damage integrates in a stock and the truck FAILS via a `condition`-basis failure state machine when damage >= 1.0. base_rate = 0.2/yr calibrates nominal design life to 5 yr. At beta=3 the overload multiplier is 1.25^3 = 1.95x, so overloaded life ~ 2.56 yr — component life roughly HALVES. `uptime_*` accumulators (gated on operating status) read out time-to-first-failure; `net_npv_*` is discounted metal revenue earned before failure minus a one-time replacement cost charged by the FSM effect on failure. The headline insight: a 25% overload roughly halves life AND concentrates life *uncertainty* in the overload policy (nominal TTF is ~deterministic at 5 yr; overload TTF spreads with beta). See HAUL_FLEET_MODEL_SPEC.md sec 4 (Stage 1) and STAGE1_RAM_DEMO.md."
+  },
+  "simulation_settings": {
+    "duration": { "value": 10.0, "unit": "yr" },
+    "timestep": { "value": 0.05, "unit": "yr" },
+    "n_realizations": 3000,
+    "sampling_method": "monte_carlo",
+    "seed": 20260728
+  },
+  "containers": [
+    { "id": "inputs",  "name": "Physics & Economics Inputs", "parent": null, "children": [] },
+    { "id": "uncertain", "name": "Uncertain Inputs (sampled per realization)", "parent": null, "children": [] },
+    { "id": "nominal",  "name": "Truck A — Nominal 240 t", "parent": null, "children": [] },
+    { "id": "overload", "name": "Truck B — Overloaded 300 t", "parent": null, "children": [] }
+  ],
+  "elements": [
+
+    { "id": "rated", "name": "Rated payload", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "OEM-rated payload (tonnes). Damage is normalised to this.",
+      "value": { "value": 240.0, "unit": "t" } },
+
+    { "id": "payload_nom", "name": "Nominal payload", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Truck A loading policy: run at rated payload.",
+      "value": { "value": 240.0, "unit": "t" } },
+
+    { "id": "payload_ovl", "name": "Overload payload", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Truck B loading policy: overload +25% to 300 t for productivity.",
+      "value": { "value": 300.0, "unit": "t" } },
+
+    { "id": "base_rate", "name": "Base damage rate", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Damage consumed per year at rated load. 0.2/yr => nominal life 5 yr (damage reaches 1.0).",
+      "value": { "value": 0.2, "unit": "1/yr" } },
+
+    { "id": "disc_rate", "name": "Discount rate", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Continuous discount rate for NPV.",
+      "value": { "value": 0.08, "unit": "1/yr" } },
+
+    { "id": "beta", "name": "Load exponent (beta)", "primitive": "node", "value_rule": "sample",
+      "container": "uncertain",
+      "description": "Power-law load-to-life exponent. The single largest source of model uncertainty; entered as a distribution, NOT a point value. Triangular(2.5, 3.0, 4.0).",
+      "distribution": { "family": "triangular", "parameters": {
+        "min":  { "value": 2.5, "unit": "1" },
+        "mode": { "value": 3.0, "unit": "1" },
+        "max":  { "value": 4.0, "unit": "1" }
+      } },
+      "save_results": { "final_value": true } },
+
+    { "id": "price", "name": "Metal price ($/t handled)", "primitive": "node", "value_rule": "sample",
+      "container": "uncertain",
+      "description": "Realised net value per tonne handled (price x grade x recovery, normalised). Lognormal, one draw per realization.",
+      "distribution": { "family": "lognormal", "parameters": {
+        "mean":   { "value": 3.0, "unit": "USD" },
+        "stddev": { "value": 0.6, "unit": "USD" }
+      } },
+      "save_results": { "final_value": true } },
+
+    { "id": "damage_rate_nom", "name": "Damage rate (nominal)", "primitive": "node", "value_rule": "expression",
+      "container": "nominal", "inputs": ["base_rate", "payload_nom", "rated", "beta"],
+      "description": "base_rate * (payload_nom/rated)^beta = base_rate (ratio is 1).",
+      "expression": { "display": "base_rate * (payload_nom/rated)^beta", "ast": {
+        "op": "multiply",
+        "left": { "op": "ref", "element_id": "base_rate" },
+        "right": { "op": "power",
+          "left": { "op": "divide", "left": { "op": "ref", "element_id": "payload_nom" }, "right": { "op": "ref", "element_id": "rated" } },
+          "right": { "op": "ref", "element_id": "beta" } } } } },
+
+    { "id": "damage_rate_ovl", "name": "Damage rate (overload)", "primitive": "node", "value_rule": "expression",
+      "container": "overload", "inputs": ["base_rate", "payload_ovl", "rated", "beta"],
+      "description": "base_rate * (payload_ovl/rated)^beta. At beta=3 the (1.25)^3 = 1.95x multiplier roughly halves life.",
+      "expression": { "display": "base_rate * (payload_ovl/rated)^beta", "ast": {
+        "op": "multiply",
+        "left": { "op": "ref", "element_id": "base_rate" },
+        "right": { "op": "power",
+          "left": { "op": "divide", "left": { "op": "ref", "element_id": "payload_ovl" }, "right": { "op": "ref", "element_id": "rated" } },
+          "right": { "op": "ref", "element_id": "beta" } } } } },
+
+    { "id": "damage_nom", "name": "Cumulative damage (nominal)", "primitive": "stock",
+      "container": "nominal",
+      "description": "Miner's-rule cumulative damage; fails at 1.0.",
+      "initial_value": { "value": 0.0, "unit": "1" },
+      "rate": { "ast": { "op": "ref", "element_id": "damage_rate_nom" } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "damage_ovl", "name": "Cumulative damage (overload)", "primitive": "stock",
+      "container": "overload",
+      "description": "Cumulative damage under the overload policy.",
+      "initial_value": { "value": 0.0, "unit": "1" },
+      "rate": { "ast": { "op": "ref", "element_id": "damage_rate_ovl" } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "fsm_nom", "name": "Truck A failure (condition basis)", "primitive": "event",
+      "container": "nominal", "inputs": ["damage_nom"],
+      "description": "Fails when cumulative damage >= 1.0; no repair (run-to-failure). Output: 0 = operating, 1 = failed. Charges a one-time replacement cost on failure.",
+      "trigger": { "mode": "on_condition", "condition": { "ast": {
+        "op": "gte",
+        "left": { "op": "ref", "element_id": "damage_nom" },
+        "right": { "op": "literal", "value": 1.0 } } } },
+      "failure_process": { "basis": "condition", "repair": { "policy": "none" } },
+      "effects": [ { "target": "capcost_nom", "mode": "additive", "change": { "value": 400.0, "unit": "USD" } } ],
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "fsm_ovl", "name": "Truck B failure (condition basis)", "primitive": "event",
+      "container": "overload", "inputs": ["damage_ovl"],
+      "description": "Fails when cumulative damage >= 1.0; no repair. Output: 0 = operating, 1 = failed.",
+      "trigger": { "mode": "on_condition", "condition": { "ast": {
+        "op": "gte",
+        "left": { "op": "ref", "element_id": "damage_ovl" },
+        "right": { "op": "literal", "value": 1.0 } } } },
+      "failure_process": { "basis": "condition", "repair": { "policy": "none" } },
+      "effects": [ { "target": "capcost_ovl", "mode": "additive", "change": { "value": 400.0, "unit": "USD" } } ],
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "op_nom", "name": "Operating (nominal)", "primitive": "node", "value_rule": "expression",
+      "container": "nominal", "inputs": ["fsm_nom"],
+      "description": "1 while operating, 0 once failed.",
+      "expression": { "display": "1 - fsm_nom", "ast": {
+        "op": "subtract", "left": { "op": "literal", "value": 1.0 }, "right": { "op": "ref", "element_id": "fsm_nom" } } } },
+
+    { "id": "op_ovl", "name": "Operating (overload)", "primitive": "node", "value_rule": "expression",
+      "container": "overload", "inputs": ["fsm_ovl"],
+      "description": "1 while operating, 0 once failed.",
+      "expression": { "display": "1 - fsm_ovl", "ast": {
+        "op": "subtract", "left": { "op": "literal", "value": 1.0 }, "right": { "op": "ref", "element_id": "fsm_ovl" } } } },
+
+    { "id": "uptime_nom", "name": "Time to first failure (nominal)", "primitive": "stock",
+      "container": "nominal",
+      "description": "Integrates operating status -> years of uptime; freezes at time-to-first-failure once the truck fails.",
+      "initial_value": { "value": 0.0, "unit": "yr" },
+      "rate": { "ast": { "op": "ref", "element_id": "op_nom" } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "uptime_ovl", "name": "Time to first failure (overload)", "primitive": "stock",
+      "container": "overload",
+      "description": "Time-to-first-failure under the overload policy.",
+      "initial_value": { "value": 0.0, "unit": "yr" },
+      "rate": { "ast": { "op": "ref", "element_id": "op_ovl" } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "discount", "name": "Discount factor", "primitive": "node", "value_rule": "expression",
+      "container": "inputs", "inputs": ["disc_rate"],
+      "description": "exp(-disc_rate * elapsed).",
+      "expression": { "display": "exp(-disc_rate * t)", "ast": {
+        "op": "call", "fn": "exp", "args": [ {
+          "op": "neg", "operand": {
+            "op": "multiply",
+            "left": { "op": "ref", "element_id": "disc_rate" },
+            "right": { "op": "time_ref", "property": "elapsed" } } } ] } } },
+
+    { "id": "rev_rate_nom", "name": "Discounted revenue rate (nominal)", "primitive": "node", "value_rule": "expression",
+      "container": "nominal", "inputs": ["payload_nom", "price", "op_nom", "discount"],
+      "description": "payload_nom * price * operating * discount ($/yr).",
+      "expression": { "display": "payload_nom * price * op_nom * discount", "ast": {
+        "op": "multiply",
+        "left": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "payload_nom" },
+          "right": { "op": "ref", "element_id": "price" } },
+        "right": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "op_nom" },
+          "right": { "op": "ref", "element_id": "discount" } } } } },
+
+    { "id": "rev_rate_ovl", "name": "Discounted revenue rate (overload)", "primitive": "node", "value_rule": "expression",
+      "container": "overload", "inputs": ["payload_ovl", "price", "op_ovl", "discount"],
+      "description": "payload_ovl * price * operating * discount ($/yr).",
+      "expression": { "display": "payload_ovl * price * op_ovl * discount", "ast": {
+        "op": "multiply",
+        "left": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "payload_ovl" },
+          "right": { "op": "ref", "element_id": "price" } },
+        "right": { "op": "multiply",
+          "left": { "op": "ref", "element_id": "op_ovl" },
+          "right": { "op": "ref", "element_id": "discount" } } } } },
+
+    { "id": "npv_rev_nom", "name": "Discounted revenue (nominal)", "primitive": "stock",
+      "container": "nominal",
+      "description": "Cumulative discounted revenue earned before failure.",
+      "initial_value": { "value": 0.0, "unit": "USD" },
+      "rate": { "ast": { "op": "ref", "element_id": "rev_rate_nom" } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "npv_rev_ovl", "name": "Discounted revenue (overload)", "primitive": "stock",
+      "container": "overload",
+      "description": "Cumulative discounted revenue earned before failure.",
+      "initial_value": { "value": 0.0, "unit": "USD" },
+      "rate": { "ast": { "op": "ref", "element_id": "rev_rate_ovl" } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "capcost_nom", "name": "Replacement cost (nominal)", "primitive": "stock",
+      "container": "nominal",
+      "description": "One-time replacement cost, charged by the FSM effect at failure.",
+      "initial_value": { "value": 0.0, "unit": "USD" },
+      "save_results": { "final_value": true } },
+
+    { "id": "capcost_ovl", "name": "Replacement cost (overload)", "primitive": "stock",
+      "container": "overload",
+      "description": "One-time replacement cost, charged by the FSM effect at failure.",
+      "initial_value": { "value": 0.0, "unit": "USD" },
+      "save_results": { "final_value": true } },
+
+    { "id": "net_npv_nom", "name": "Net NPV to first failure (nominal)", "primitive": "node", "value_rule": "expression",
+      "container": "nominal", "inputs": ["npv_rev_nom", "capcost_nom"],
+      "description": "Discounted revenue minus replacement cost.",
+      "expression": { "display": "npv_rev_nom - capcost_nom", "ast": {
+        "op": "subtract",
+        "left": { "op": "ref", "element_id": "npv_rev_nom" },
+        "right": { "op": "ref", "element_id": "capcost_nom" } } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "net_npv_ovl", "name": "Net NPV to first failure (overload)", "primitive": "node", "value_rule": "expression",
+      "container": "overload", "inputs": ["npv_rev_ovl", "capcost_ovl"],
+      "description": "Discounted revenue minus replacement cost.",
+      "expression": { "display": "npv_rev_ovl - capcost_ovl", "ast": {
+        "op": "subtract",
+        "left": { "op": "ref", "element_id": "npv_rev_ovl" },
+        "right": { "op": "ref", "element_id": "capcost_ovl" } } },
+      "save_results": { "time_history": true, "final_value": true } }
+
+  ]
+}
