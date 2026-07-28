@@ -1011,6 +1011,25 @@ pub enum BuiltinFn {
     ArgminArray,
     ArgmaxArray,
     DotProduct,
+    /// Masked / filtered reductions over an array, gated by a second **same-length mask array**:
+    /// a member is *selected* when its mask value is non-zero (and not NaN). Determinism and the
+    /// empty / none-selected → `0.0` policy match the unmasked reducers. These let a
+    /// wear-levelling dispatch read declaratively — "the least-damaged *available* truck" —
+    /// instead of the penalty idiom `argmin_array(damage + BIG*failed)`.
+    ///
+    /// `argmin_where(values, mask)` / `argmax_where(values, mask)`: 1-based index of the min /
+    /// max among selected members; ties → LOWEST index (the bit-identity requirement); none
+    /// selected → 0. Serialized `"argmin_where"` / `"argmax_where"`.
+    ArgminWhere,
+    ArgmaxWhere,
+    /// `masked_sum(values, mask)` / `masked_mean` / `masked_min` / `masked_max`: reduce over the
+    /// selected members only. None selected → `0.0` (mean also guards divide-by-zero).
+    MaskedSum,
+    MaskedMean,
+    MaskedMin,
+    MaskedMax,
+    /// `masked_count(mask)`: the number of selected (non-zero, non-NaN) members. One array arg.
+    MaskedCount,
 }
 
 // ── Stochastic process ────────────────────────────────────────────────────────

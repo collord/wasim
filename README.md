@@ -88,7 +88,9 @@ Expressions are encoded as an AST with these node types:
 
 **Scalar builtins:** `min`, `max`, `abs`, `sqrt`, `exp`, `ln`, `log`, `log2`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `floor`, `ceil`, `round`, `mod`, `sign`, `int`, `step`
 
-**Array builtins:** `sum_array`, `mean_array`, `min_array`, `max_array`, `size_array`, `get_element`, `dot_product`, `interp_array`
+**Array builtins:** `sum_array`, `mean_array`, `min_array`, `max_array`, `argmin_array`, `argmax_array` (1-based index of the min/max; ties → lowest index), `size_array`, `get_element`, `dot_product`, `interp_array`
+
+**Masked array builtins:** `argmin_where(values, mask)`, `argmax_where(values, mask)`, `masked_sum`, `masked_mean`, `masked_min`, `masked_max` (all `(values, mask)`), and `masked_count(mask)`. A member is *selected* when its mask value is non-zero. These reduce/scan over the selected members only — e.g. "the least-damaged **available** truck" is `argmin_where(damage, available)`, replacing the penalty idiom `argmin_array(damage + BIG·failed)`. Ties → lowest index; none-selected → 0.
 
 ## Engine
 

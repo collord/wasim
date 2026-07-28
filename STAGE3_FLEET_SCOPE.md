@@ -33,24 +33,40 @@ under wear-levelling the fleet stays almost perfectly balanced — `damage_sprea
 against `damage_mean ≈ 1.01` (the wear-levelling diagnostic doing exactly its job: no truck
 races ahead of the pack). Bit-identical on repeat.
 
-## The one real engine gap (everything else is present)
+## The one real engine gap — now CLOSED ✅
 
 Wear-levelling needs "the least-damaged truck **among those available**" — a *masked* argmin.
-The engine has `argmin_array`/`argmax_array` with a stable lowest-index tie-break (verified),
-but **no masked/filtered reduction builtin**. Today the model expresses the mask with the
-**penalty idiom**: `argmin_array(damage + BIG·failed)` — add a huge constant to failed trucks
-so they can never win. This is correct and deterministic, but it is a workaround:
+The engine had `argmin_array`/`argmax_array` with a stable lowest-index tie-break, but **no
+masked/filtered reduction builtin**, so the model used the **penalty idiom**
+`argmin_array(damage + BIG·failed)` — a workaround with a magic constant that couldn't express
+richer availability predicates.
 
-- it relies on `BIG` being larger than any real damage spread (a magic constant), and
-- it can't express richer availability predicates (in-shop, tire-constrained, route-locked)
-  without stacking more penalty terms.
+**This gap is now closed.** A masked reducer family was added to the engine
+([`engine/src/eval.rs`](engine/src/eval.rs), [`model.rs`](engine/src/model.rs) `BuiltinFn`):
 
-**Recommended engine addition (small):** a masked reducer family —
-`argmin_where(values, mask)` / `masked_min` / `masked_mean` — with the same lowest-index
-tie-break as `argmin_array`, so dispatch and criticality queries read declaratively instead of
-via penalty arithmetic. This is the *only* item from the original build order (spec §3.5 item
-2 / §3.6 item 3) still outstanding for the fleet vertical; items 1–2 (the array executor,
-per-member `#k` surfacing, vector-preserving `lag`) all landed.
+| Builtin | Meaning |
+|---|---|
+| `argmin_where(values, mask)` / `argmax_where` | 1-based index of the min/max among *selected* members; ties → lowest index; none selected → 0 |
+| `masked_sum` / `masked_mean` / `masked_min` / `masked_max` `(values, mask)` | reduce over selected members only; none selected → 0 |
+| `masked_count(mask)` | number of selected (non-zero) members |
+
+A member is *selected* when its mask value is non-zero — same boolean convention as the rest of
+the engine, same lowest-index tie-break as `argmin_array` (the bit-identity requirement), and
+in-member-order accumulation (matching `reduce_data`) so results stay deterministic. Tests:
+[`engine/tests/masked_reductions_v2.rs`](engine/tests/masked_reductions_v2.rs) — including an
+equivalence test proving `argmin_where(damage, available)` matches the penalty idiom it replaces.
+
+**The fleet model now uses it:** `overload_target = argmin_where(damage_prev, available)` (with
+`available = 1 − failed`), and the old `damage_penalized`/`BIG` element is gone. The refactor is
+behavior-preserving — the fleet smoke test produces bit-identical numbers (`damage_mean 1.0117`,
+`damage_spread 0.0045`, `npv 4.257e10`) before and after — because `argmin_where` equals the
+penalty idiom on every step where any truck is available (and where none is, no truck operates
+anyway). Beyond dispatch, `masked_mean`/`masked_count` now express availability-filtered fleet
+metrics (mean damage among *operating* trucks, live truck count) declaratively.
+
+With this, **every item from the original build order is landed** — the array executor, per-member
+`#k` surfacing, vector-preserving `lag` (spec §3.6 items 1–2), and now the masked dispatch
+reducer (spec §3.5 item 2 / §3.6 item 3).
 
 ## What's still off the table (unchanged non-goals)
 
@@ -64,7 +80,7 @@ per-member `#k` surfacing, vector-preserving `lag`) all landed.
 
 ## Next steps to make it a deliverable
 
-1. **Add the masked-reduction builtin** (above) so wear-levelling drops the penalty idiom.
+1. ~~Add the masked-reduction builtin so wear-levelling drops the penalty idiom.~~ **Done** (above).
 2. **Dispatch-policy comparison** — the model implements wear-levelling; to *prove its value*,
    run it against naive (nearest-truck) and deliberate-cohorting dispatch and compare the
    damage-spread and clustered-downtime distributions (spec §1.3). This is a policy switch on

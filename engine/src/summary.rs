@@ -503,6 +503,13 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::ArgminArray => "argmin_array",
         BuiltinFn::ArgmaxArray => "argmax_array",
         BuiltinFn::DotProduct => "dot_product",
+        BuiltinFn::ArgminWhere => "argmin_where",
+        BuiltinFn::ArgmaxWhere => "argmax_where",
+        BuiltinFn::MaskedSum => "masked_sum",
+        BuiltinFn::MaskedMean => "masked_mean",
+        BuiltinFn::MaskedMin => "masked_min",
+        BuiltinFn::MaskedMax => "masked_max",
+        BuiltinFn::MaskedCount => "masked_count",
         BuiltinFn::Occurs => "occurs",
         BuiltinFn::Changed => "changed",
     }

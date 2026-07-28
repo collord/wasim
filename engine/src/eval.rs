@@ -1322,6 +1322,73 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             require_args("column_count", args.len(), 1, 1)?;
             return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().len() as f64));
         }
+        // Masked / filtered reductions: (values, mask) collapsed over the members whose mask is
+        // "selected" (non-zero, non-NaN). Iteration is in member order (like `reduce_data`), so
+        // ties and float accumulation are deterministic. `none selected → 0.0` mirrors the
+        // dangling/empty policy of `argmin_array` / `get_element`.
+        BuiltinFn::ArgminWhere => {
+            require_args("argmin_where", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut best_val, mut found) = (0usize, f64::INFINITY, false);
+            for i in 0..n {
+                if selected(mask[i]) && v[i] < best_val { best_val = v[i]; best = i; found = true; }
+            }
+            return Ok(Value::Scalar(if found { (best + 1) as f64 } else { 0.0 }));
+        }
+        BuiltinFn::ArgmaxWhere => {
+            require_args("argmax_where", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut best_val, mut found) = (0usize, f64::NEG_INFINITY, false);
+            for i in 0..n {
+                if selected(mask[i]) && v[i] > best_val { best_val = v[i]; best = i; found = true; }
+            }
+            return Ok(Value::Scalar(if found { (best + 1) as f64 } else { 0.0 }));
+        }
+        BuiltinFn::MaskedSum => {
+            require_args("masked_sum", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let mut s = 0.0;
+            for i in 0..n { if selected(mask[i]) { s += v[i]; } }
+            return Ok(Value::Scalar(s));
+        }
+        BuiltinFn::MaskedMean => {
+            require_args("masked_mean", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut s, mut c) = (0.0, 0usize);
+            for i in 0..n { if selected(mask[i]) { s += v[i]; c += 1; } }
+            return Ok(Value::Scalar(if c == 0 { 0.0 } else { s / c as f64 }));
+        }
+        BuiltinFn::MaskedMin => {
+            require_args("masked_min", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut found) = (f64::INFINITY, false);
+            for i in 0..n { if selected(mask[i]) && v[i] < best { best = v[i]; found = true; } }
+            return Ok(Value::Scalar(if found { best } else { 0.0 }));
+        }
+        BuiltinFn::MaskedMax => {
+            require_args("masked_max", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut found) = (f64::NEG_INFINITY, false);
+            for i in 0..n { if selected(mask[i]) && v[i] > best { best = v[i]; found = true; } }
+            return Ok(Value::Scalar(if found { best } else { 0.0 }));
+        }
+        BuiltinFn::MaskedCount => {
+            require_args("masked_count", args.len(), 1, 1)?;
+            let mask = eval_ast(&args[0], ctx)?.into_vec();
+            return Ok(Value::Scalar(mask.iter().filter(|&&m| selected(m)).count() as f64));
+        }
         _ => {}
     }
 
@@ -1377,10 +1444,21 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
         | BuiltinFn::MaxArray | BuiltinFn::ArgminArray | BuiltinFn::ArgmaxArray
         | BuiltinFn::DotProduct
+        // Masked reducers are handled by the array-consuming match above; never reach here.
+        | BuiltinFn::ArgminWhere | BuiltinFn::ArgmaxWhere | BuiltinFn::MaskedSum
+        | BuiltinFn::MaskedMean | BuiltinFn::MaskedMin | BuiltinFn::MaskedMax
+        | BuiltinFn::MaskedCount
         // Event predicates are handled by the early return above; never reach the scalar path.
         | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };
     Ok(Value::Scalar(result))
+}
+
+/// A member is *selected* by a masked reduction when its mask value is non-zero (and not NaN).
+/// Mirrors the engine's boolean convention (comparisons/logic yield 1.0 / 0.0).
+#[inline]
+fn selected(mask_value: f64) -> bool {
+    mask_value != 0.0 && !mask_value.is_nan()
 }
 
 fn require_args(name: &str, got: usize, min: usize, max: usize) -> Result<(), EngineError> {
