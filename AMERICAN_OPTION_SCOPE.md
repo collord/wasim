@@ -6,9 +6,10 @@
   ITM-filtered covariance regression, per-realization cashflow injection.
 - **Phase 2 — out-of-sample cross-fit** (`folds` on `lsm`): fit the policy on the complementary folds
   and price each fold under it → a nearly unbiased **lower** bound (removes the in-sample bias).
-- **Phase 3 — `lsm_dual` node:** the dual **upper** bound with the underlying as the hedging martingale
-  (`M_t = θ·(discᵗ·S_t − S_0)`; `discᵗ·S_t` is a true martingale, so valid for any `θ`). Together they
-  **bracket** the true price: OOS 6.015 ≤ binomial 6.045 ≤ dual 9.704.
+- **Phase 3 — `lsm_dual` node:** the dual **upper** bound. `inner: 0` (default) = the single-hedge
+  martingale (`M_t = θ·(discᵗ·S_t − S_0)`), rigorous but **loose** (9.704). `inner > 0` = the **tight**
+  nested Doob-of-intrinsic dual (§8a), which tightens the bracket to **OOS 6.015 ≤ binomial 6.045 ≤ tight
+  dual 6.358** — a ~5% gap versus ~60% for the single hedge.
 - **Phase 4 — multi-asset state** (`states` list on `lsm`): the continuation regression uses a
   **multivariate monomial basis** over several state panels (total degree ≤ `basis`). Prices an
   **American max-call on two correlated dividend-paying assets** — the first multi-asset early-exercise
@@ -172,8 +173,33 @@ The pattern is consistent: without a true, independent inner expectation, the ma
 far from the value process (loose) or is contaminated by the primal fit (invalid). A robust tight dual is
 therefore **gated on a nested-simulation capability** — an inner sampler the engine would have to grow.
 We deliberately did **not** ship a fragile "tight" dual that violates the upper-bound guarantee; the
-loose-but-rigorous `lsm_dual` is the honest Phase-3 deliverable, and the tight bound is documented here
-as future engine work.
+loose-but-rigorous `lsm_dual` was the honest Phase-3 deliverable.
+
+### §8a — The tight dual, now built (`lsm_dual` `inner > 0`)
+
+The nested-simulation capability §8 called for landed (`nested_stat` `each_step`), and the tight dual
+is now built on it. The winning construction — found by prototyping four candidate martingales — is the
+**Doob martingale of the discounted-intrinsic process**, *not* the fitted-value martingale:
+
+- `H_t = Y_t = discᵗ·payoff_t` (the discounted intrinsic). `M_t = Σ_{k≤t}(Y_k − E_{k−1}[Y_k])`, and
+  `U = E[maxₜ(Y_t − M_t)] ≥ price` for this (genuine) martingale.
+- `E_{k−1}[Y_k | S_{k−1}]` is the **one-step conditional expectation** — exactly the `nested_stat`
+  `each_step` operation. The engine estimates it natively for speed: `inner` next-step states resampled
+  from the **panel's own one-step log-returns** (so no volatility parameter is needed), the payoff
+  re-evaluated there, averaged on a grid over the conditioning state and interpolated per path.
+
+Why this proxy and not the fitted LSM value: prototyping showed the **fitted-value** martingale is
+*loose* (≈ 9.5) — a cubic continuation **extrapolates wildly** at the fresh inner states, inflating the
+conditional expectation. The **intrinsic** process needs no fit, no extrapolation, and no closed form,
+so it is both tight and fully general. Empirically the bracket tightens from `[6.015, 9.704]` to
+**`[6.015, 6.358]`** on the American put (binomial 6.045) — a valid upper bound within ~5% of the price,
+versus ~60% for the single hedge. Selected by `inner > 0` on the existing `lsm_dual` node (`inner: 0`
+keeps the loose single-hedge dual). See [`AMERICAN_TIGHT_DUAL_EXAMPLE.md`](AMERICAN_TIGHT_DUAL_EXAMPLE.md).
+
+**Still open:** the tight dual re-evaluates the *payoff* at inner states, so it needs the payoff to be a
+plain function of the dual's `state` element + constants (multi-asset / exotic payoffs referencing other
+elements fall back to the loose dual); and it prices a single-factor state (the multi-asset dual would
+reuse the multivariate machinery).
 
 > **Update:** the conditional inner sampler this section calls for has since landed as a general
 > construct — [`nested_stat`](NESTED_STAT_SCOPE.md), the conditional nested-submodel statistic, in **both**

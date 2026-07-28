@@ -152,13 +152,19 @@ pub fn run(
                 crate::engine::lsm_backward(&states_ref, payoff, lt.basis, disc, lt.folds));
         }
     }
-    // LSM dual (hedged-martingale upper bound): per-path max-deviation; mean = the dual price.
+    // LSM dual (upper bound): per-path max-deviation; mean = the dual price. `inner == 0` uses the loose
+    // single-hedge martingale; `inner > 0` uses the tight nested Doob-of-intrinsic dual.
     for lt in &lsm_dual_targets {
         if let (Some(state), Some(payoff)) =
             (st1.hist_store.get(&lt.state), st1.hist_store.get(&lt.payoff))
         {
             let disc = (-lt.rate * dt1).exp();
-            reduced_vecs.insert(lt.key.clone(), crate::engine::lsm_dual(state, payoff, disc));
+            let vec = if lt.inner == 0 {
+                crate::engine::lsm_dual(state, payoff, disc)
+            } else {
+                lsm_dual_tight(model, config, lt, state, payoff, disc)
+            };
+            reduced_vecs.insert(lt.key.clone(), vec);
         }
     }
 
@@ -259,12 +265,13 @@ struct LsmDualTarget {
     state: String,
     payoff: String,
     rate: f64,
+    inner: usize,
 }
 
 /// A collected LSM AST node — primal (`lsm`) or dual (`lsm_dual`) — from the expression walk.
 enum LsmRef<'a> {
     Primal { state: &'a str, states: &'a [String], payoff: &'a str, basis: usize, rate: f64, folds: usize },
-    Dual { state: &'a str, payoff: &'a str, rate: f64 },
+    Dual { state: &'a str, payoff: &'a str, rate: f64, inner: usize },
 }
 
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
@@ -360,11 +367,11 @@ fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
                     });
                 }
             }
-            LsmRef::Dual { state, payoff, rate } => {
-                let key = crate::eval::lsm_dual_key(state, payoff, rate);
+            LsmRef::Dual { state, payoff, rate, inner } => {
+                let key = crate::eval::lsm_dual_key(state, payoff, rate, inner);
                 if seen5.insert(key.clone()) {
                     lsm_dual_targets.push(LsmDualTarget {
-                        key, state: state.to_string(), payoff: payoff.to_string(), rate,
+                        key, state: state.to_string(), payoff: payoff.to_string(), rate, inner,
                     });
                 }
             }
@@ -394,8 +401,8 @@ fn collect_run_stat_nodes<'a>(
                 basis: *basis, rate: *rate, folds: *folds,
             });
         }
-        AstNode::LsmDual { state, payoff, rate } => {
-            lsm.push(LsmRef::Dual { state: state.as_str(), payoff: payoff.as_str(), rate: *rate });
+        AstNode::LsmDual { state, payoff, rate, inner } => {
+            lsm.push(LsmRef::Dual { state: state.as_str(), payoff: payoff.as_str(), rate: *rate, inner: *inner });
         }
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));
@@ -652,6 +659,125 @@ fn run_nested_stat_each_step(
 fn nested_base_seed(model: &Model, config: &RunConfig, submodel_id: &str) -> u64 {
     let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
     crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(submodel_id))
+}
+
+/// Evaluate a `payoff` element's AST as a plain scalar function of the single state variable `state_id`
+/// (bound to `s`) and the model's fixed constants. Returns `None` if the AST uses anything outside a
+/// small algebraic subset (so the caller can fall back to the loose dual). Used by the tight LSM dual
+/// to re-evaluate the intrinsic at fresh inner states.
+fn eval_payoff_scalar(node: &AstNode, state_id: &str, s: f64, consts: &HashMap<String, f64>) -> Option<f64> {
+    use crate::model::BuiltinFn as F;
+    let bin = |l: &AstNode, r: &AstNode| -> Option<(f64, f64)> {
+        Some((eval_payoff_scalar(l, state_id, s, consts)?, eval_payoff_scalar(r, state_id, s, consts)?))
+    };
+    Some(match node {
+        AstNode::Literal { value, .. } => *value,
+        AstNode::Ref { element_id, .. } => {
+            if element_id == state_id { s } else { *consts.get(element_id)? }
+        }
+        AstNode::Neg { operand } => -eval_payoff_scalar(operand, state_id, s, consts)?,
+        AstNode::Add { left, right } => { let (a, b) = bin(left, right)?; a + b }
+        AstNode::Subtract { left, right } => { let (a, b) = bin(left, right)?; a - b }
+        AstNode::Multiply { left, right } => { let (a, b) = bin(left, right)?; a * b }
+        AstNode::Divide { left, right } => { let (a, b) = bin(left, right)?; a / b }
+        AstNode::Power { left, right } => { let (a, b) = bin(left, right)?; a.powf(b) }
+        AstNode::Call { func, args } => {
+            let a: Option<Vec<f64>> = args.iter().map(|x| eval_payoff_scalar(x, state_id, s, consts)).collect();
+            let a = a?;
+            match func {
+                F::Max => a.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                F::Min => a.iter().cloned().fold(f64::INFINITY, f64::min),
+                F::Abs => a.first()?.abs(),
+                F::Sqrt => a.first()?.sqrt(),
+                F::Exp => a.first()?.exp(),
+                F::Ln => a.first()?.ln(),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The TIGHT LSM dual: the Doob martingale of the discounted-payoff process `Y_t = discᵗ·payoff_t`,
+/// `M_t = Σ_{k≤t}(Y_k − E_{k−1}[Y_k])`, returning each path's `maxₜ(Y_t − M_t)` (mean = the dual price).
+/// The one-step conditional expectation `E_{k−1}[Y_k | S_{k−1}]` is estimated by nested simulation:
+/// `inner` next-step states resampled from the panel's own one-step log-returns (no σ needed), with the
+/// payoff re-evaluated there — averaged on a grid over the conditioning state and interpolated per path
+/// (the `nested_stat` `each_step` operation, done natively for speed). A genuine martingale ⇒ a VALID
+/// upper bound; the intrinsic process tracks the option far better than one hedge ⇒ TIGHT. Falls back to
+/// the loose single-hedge dual if the payoff isn't a plain function of state + constants.
+fn lsm_dual_tight(
+    model: &Model, config: &RunConfig, lt: &LsmDualTarget, state: &[Vec<f64>], payoff: &[Vec<f64>], disc: f64,
+) -> Vec<f64> {
+    let m = payoff.len();
+    if m == 0 { return Vec::new(); }
+    let n = payoff[0].len();
+    if n == 0 { return Vec::new(); }
+    // Constants for the payoff eval, and the payoff element's AST.
+    let mut consts: HashMap<String, f64> = HashMap::new();
+    for e in &model.elements {
+        if let Primitive::Node(node) = &e.primitive {
+            if let NodeRule::Fixed { value: crate::model_v2::FixedValue::Scalar(q), .. } = &node.rule {
+                consts.insert(e.id().to_string(), q.value);
+            }
+        }
+    }
+    let payoff_ast = model.elements.iter().find(|e| e.id() == lt.payoff).and_then(|e| {
+        if let Primitive::Node(node) = &e.primitive {
+            if let NodeRule::Expression(ef) = &node.rule { return Some(&ef.ast); }
+        }
+        None
+    });
+    let Some(payoff_ast) = payoff_ast else {
+        return crate::engine::lsm_dual(state, payoff, disc);
+    };
+    if eval_payoff_scalar(payoff_ast, &lt.state, state[0][0], &consts).is_none() {
+        eprintln!("warn: lsm_dual tight cannot evaluate payoff '{}' as a plain fn of state+constants (its \
+            state ref must be the dual's `state` element); using the loose dual", lt.payoff);
+        return crate::engine::lsm_dual(state, payoff, disc);
+    }
+    let inner = lt.inner.max(1);
+    let base = nested_base_seed(model, config, &format!("{}\u{1}{}\u{1}dual", lt.state, lt.payoff));
+    const G: usize = 200; // conditioning-state grid points
+    let mut mmart = vec![0.0f64; n];
+    let mut dmax: Vec<f64> = (0..n).map(|i| payoff[0][i]).collect(); // k=0: Y_0 − M_0 = disc⁰·payoff_0
+    for k in 1..m {
+        let dk = disc.powi(k as i32);
+        // Pooled step-k log-returns (the empirical one-step law); resample `inner` of them.
+        let mut rets: Vec<f64> = Vec::with_capacity(n);
+        for j in 0..n {
+            let (a, b) = (state[k - 1][j], state[k][j]);
+            if a > 0.0 && b > 0.0 { rets.push((b / a).ln()); }
+        }
+        if rets.is_empty() {
+            for i in 0..n { let z = dk * payoff[k][i]; let term = z - mmart[i]; if term > dmax[i] { dmax[i] = term; } }
+            continue;
+        }
+        let mut rng = ChaCha8Rng::seed_from_u64(crate::sweep_seed::child_seed(base, k as u64));
+        let rho: Vec<f64> = (0..inner).map(|_| rets[rng.gen_range(0..rets.len())]).collect();
+        // Grid g(s) = disc^k · E[payoff(s·e^ρ)] over s ∈ [min,max] of S_{k−1}; interpolate per path.
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for i in 0..n { let s = state[k - 1][i]; if s < lo { lo = s; } if s > hi { hi = s; } }
+        if !(hi > lo) { hi = lo + 1e-9; }
+        let step = (hi - lo) / (G as f64 - 1.0);
+        let gval: Vec<f64> = (0..G).map(|g| {
+            let sg = lo + step * g as f64;
+            let acc: f64 = rho.iter().map(|&r| eval_payoff_scalar(payoff_ast, &lt.state, sg * r.exp(), &consts).unwrap_or(0.0)).sum();
+            dk * acc / inner as f64
+        }).collect();
+        for i in 0..n {
+            let pos = ((state[k - 1][i] - lo) / step).clamp(0.0, (G - 1) as f64);
+            let g0 = pos.floor() as usize;
+            let g1 = (g0 + 1).min(G - 1);
+            let frac = pos - g0 as f64;
+            let cond = gval[g0] * (1.0 - frac) + gval[g1] * frac;
+            let z = dk * payoff[k][i];
+            mmart[i] += z - cond;
+            let term = z - mmart[i];
+            if term > dmax[i] { dmax[i] = term; }
+        }
+    }
+    dmax
 }
 
 /// Reduce a `run_stat` target's per-realization samples — the same reducers as

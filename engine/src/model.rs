@@ -823,6 +823,16 @@ pub enum AstNode {
     // the hedging martingale M_t = θ·(discᵗ·S_t − S_0). discᵗ·S_t is a true martingale, so
     // E[maxₜ(Zₜ − Mₜ)] ≥ price for every θ; minimizing over θ gives a valid (if loose) UPPER bound.
     // Evaluates to this realization's maxₜ(Zₜ − Mₜ), so the mean is the dual price. Scalar lane only.
+    //
+    // With `inner > 0` it instead computes the TIGHT dual: the Doob martingale of the discounted-payoff
+    // process `Y_t = discᵗ·payoff_t`, `M_t = Σ_{k≤t}(Y_k − E_{k−1}[Y_k])`, where the one-step conditional
+    // expectation `E_{k−1}[Y_k]` is estimated by nested simulation — `inner` fresh draws of the next-step
+    // state resampled from the panel's own one-step log-returns (so no volatility parameter is needed),
+    // with the payoff re-evaluated at those states. This is a genuine martingale, so the bound is valid,
+    // and — because the intrinsic process tracks the option far better than a single hedge — much tighter
+    // (≈ 6.5 vs ≈ 9.7 for the American put). The nested conditional expectation is the `nested_stat`
+    // `each_step` operation done natively for speed (grid-and-interpolate over the state). Requires the
+    // `payoff` element to be a plain function of `state` + constants. See AMERICAN_OPTION_SCOPE.md §8.
     LsmDual {
         /// Element whose per-step history is the underlying (the hedging martingale discᵗ·S_t).
         state: String,
@@ -830,6 +840,10 @@ pub enum AstNode {
         payoff: String,
         /// Annual risk-free rate for per-step discounting.
         rate: f64,
+        /// Inner samples for the tight (nested Doob) dual. `0` (default) = the loose single-hedge dual.
+        /// `> 0` = the tight dual with this many resampled next-step draws per exercise date.
+        #[serde(default)]
+        inner: usize,
     },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).

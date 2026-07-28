@@ -418,8 +418,9 @@ fn render_ast(n: &AstNode) -> String {
             let extra = if states.is_empty() { String::new() } else { format!("+[{}]", states.join(",")) };
             format!("lsm(state={state}{extra}, payoff={payoff}; basis={basis}, rate={rate}, folds={folds})")
         }
-        AstNode::LsmDual { state, payoff, rate } => {
-            format!("lsm_dual(state={state}, payoff={payoff}; rate={rate})")
+        AstNode::LsmDual { state, payoff, rate, inner } => {
+            let kind = if *inner == 0 { "single-hedge".to_string() } else { format!("tight, inner={inner}") };
+            format!("lsm_dual(state={state}, payoff={payoff}; rate={rate}; {kind})")
         }
         AstNode::NestedStat { submodel_id, output, statistic, bindings, each_step, .. } => {
             let binds: Vec<String> = bindings.iter().map(|b| format!("{}<-{}", b.input, b.from)).collect();

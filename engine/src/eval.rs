@@ -177,8 +177,8 @@ pub(crate) fn lsm_key(state: &str, states: &[String], payoff: &str, basis: usize
 
 /// The `run_vecs` injection key for an `LsmDual` node — the dual (upper-bound) per-realization vector.
 /// `\u{6}`-terminated to stay disjoint from the `lsm` (primal) key.
-pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64) -> String {
-    format!("{state}\u{1}{payoff}\u{1}{rate}\u{6}")
+pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64, inner: usize) -> String {
+    format!("{state}\u{1}{payoff}\u{1}{rate}\u{1}{inner}\u{6}")
 }
 
 /// The `run_vecs` injection key for a `NestedStat` node — a specific
@@ -905,8 +905,8 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
 
         // Longstaff-Schwartz dual (upper bound): this realization's max-deviation from the injected
         // [N] vector (computed by the two-pass hedged-martingale dual). 0.0 in the first pass.
-        AstNode::LsmDual { state, payoff, rate } => {
-            let key = lsm_dual_key(state, payoff, *rate);
+        AstNode::LsmDual { state, payoff, rate, inner } => {
+            let key = lsm_dual_key(state, payoff, *rate, *inner);
             let v = ctx
                 .run_vecs
                 .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))

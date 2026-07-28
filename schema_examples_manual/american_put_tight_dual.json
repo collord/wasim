@@ -1,0 +1,322 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "American put with a TIGHT primal-dual bracket. The primal (american_put) is the out-of-sample LSM lower bound. The tight dual (dual_tight) is the Andersen-Broadie-style upper bound built as the Doob martingale of the discounted-intrinsic process Y_t = disc^t*payoff_t, M_t = sum_{k<=t}(Y_k - E_{k-1}[Y_k]); the one-step conditional expectation E_{k-1}[Y_k] is estimated by NESTED SIMULATION (the nested_stat each_step operation, done natively): inner next-step states are resampled from the panel's own one-step log-returns (so no volatility parameter is needed) and the payoff is re-evaluated there. It is a genuine martingale, so the bound is valid, and it tracks the option far better than the single hedge -> the bracket tightens from ~[6.04, 9.70] to ~[6.04, 6.50]. dual_loose is the original single-hedge dual, kept for contrast. See AMERICAN_OPTION_SCOPE.md / AMERICAN_TIGHT_DUAL_EXAMPLE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.02,
+      "unit": "yr"
+    },
+    "n_realizations": 40000,
+    "sampling_method": "monte_carlo",
+    "seed": 20250727
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "path",
+      "name": "Path & Exercise Payoff",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "pricing",
+      "name": "Primal-Dual Bracket",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "contract",
+      "description": "Current underlying price.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Put strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate (GBM drift + LSM/dual discount).",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity; equals the simulation duration.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "P",
+      "name": "GBM Rate",
+      "type": "stochastic_process",
+      "container": "path",
+      "description": "Per-step risk-neutral GBM rate; drift r, vol sigma.",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S",
+      "name": "Underlying Path",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Exact GBM price path (rate = S*P).",
+      "inputs": [
+        "S",
+        "P"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P"
+          }
+        },
+        "display": "S*P"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S_lag",
+      "name": "State (read-aligned)",
+      "type": "expression",
+      "container": "path",
+      "description": "The underlying read at start-of-step; the state panel for the LSM and dual.",
+      "inputs": [
+        "S"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S"
+        },
+        "display": "S"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": true
+      }
+    },
+    {
+      "id": "h",
+      "name": "Exercise Payoff",
+      "type": "expression",
+      "container": "path",
+      "description": "Immediate-exercise (intrinsic) value; references S_lag (the dual's state element) so the tight dual can re-evaluate it at inner states.",
+      "inputs": [
+        "K",
+        "S_lag"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "max",
+          "args": [
+            {
+              "op": "subtract",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "S_lag"
+              }
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
+        },
+        "display": "max(K - S_lag, 0)"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": true
+      }
+    },
+    {
+      "id": "american_put",
+      "name": "American Put (LSM, OOS)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "American put by Longstaff-Schwartz, priced out-of-sample (2-fold) \u2014 a nearly unbiased LOWER bound.",
+      "inputs": [
+        "S_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm",
+          "state": "S_lag",
+          "payoff": "h",
+          "basis": 3,
+          "rate": 0.05,
+          "folds": 2
+        },
+        "display": "lsm(S_lag, h; 2-fold OOS)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "dual_loose",
+      "name": "Dual (single-hedge, loose)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "The loose but rigorous single-hedge dual (underlying as the only hedging martingale): valid, but far above the price.",
+      "inputs": [
+        "S_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm_dual",
+          "state": "S_lag",
+          "payoff": "h",
+          "rate": 0.05,
+          "inner": 0
+        },
+        "display": "lsm_dual(single-hedge)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "dual_tight",
+      "name": "Dual (nested Doob, tight)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "The TIGHT dual: the Doob martingale of the discounted-intrinsic process, with the one-step conditional expectation E[Y_k|S_{k-1}] estimated by nested simulation (128 next-step states resampled from the panel's own one-step returns, payoff re-evaluated there). A genuine martingale (valid upper bound) that tracks the option far better than a single hedge (~6.5 vs ~9.7). The true price lies in [american_put, dual_tight].",
+      "inputs": [
+        "S_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm_dual",
+          "state": "S_lag",
+          "payoff": "h",
+          "rate": 0.05,
+          "inner": 128
+        },
+        "display": "lsm_dual(tight, inner=128)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
