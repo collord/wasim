@@ -41,6 +41,14 @@ fn collect_ast(node: &AstNode, out: &mut HashSet<(String, String)>) {
             out.insert((submodel_id.clone(), output_x.clone()));
             out.insert((submodel_id.clone(), output_y.clone()));
         }
+        // `nested_stat` runs its submodel via the dedicated conditional driver (per outer
+        // realization), NOT the marginal `run_submodels` pre-pass — so it contributes no
+        // (submodel, output) marginal ref here. Its `arg` may still hold refs to walk.
+        AstNode::NestedStat { arg, .. } => {
+            if let Some(a) = arg {
+                collect_ast(a, out);
+            }
+        }
         AstNode::Add { left, right }
         | AstNode::Subtract { left, right }
         | AstNode::Multiply { left, right }
@@ -146,6 +154,7 @@ fn ast_refs(node: &AstNode, out: &mut HashSet<String>) {
         AstNode::Array { elements } => elements.iter().for_each(|e| ast_refs(e, out)),
         AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
         AstNode::SubmodelStat2 { .. } => {}
+        AstNode::NestedStat { arg, .. } => { if let Some(a) = arg { ast_refs(a, out); } }
         AstNode::Literal { .. } | AstNode::TimeRef { .. } | AstNode::IndexRef { .. } => {}
     }
 }
@@ -183,7 +192,7 @@ fn driver_closure(model: &Model, start: &str, interior: &HashSet<String>) -> Vec
 /// Interface-input driving (§12): each `interface.inputs` binding `{input, from}` pins the
 /// interior `input` element to the parent `from` element's value — for optimization, that
 /// parent element is the search variable, so the submodel responds to the candidate.
-fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
+pub(crate) fn extract_submodel(model: &Model, submodel_id: &str) -> Option<Model> {
     let container = model.containers.iter().find(|c| c.id == submodel_id)?;
     if container.kind != ContainerKind::Submodel {
         return None;

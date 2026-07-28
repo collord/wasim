@@ -103,6 +103,8 @@ fn expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         AstNode::RunSplitBeta { .. } => Err("run_split_beta"),
         AstNode::Lsm { .. } => Err("lsm"),
         AstNode::LsmDual { .. } => Err("lsm_dual"),
+        // nested_stat runs an inner submodel per realization on the scalar two-pass driver.
+        AstNode::NestedStat { .. } => Err("nested_stat"),
         // A call is eligible iff it is a pure elementwise scalar-math builtin and every
         // argument is itself eligible. Non-elementwise builtins (array reducers, event
         // predicates, private-helper specials) keep the model on the scalar lane.
@@ -188,6 +190,7 @@ fn dim_expr_allowed(node: &AstNode) -> Result<(), &'static str> {
         RunSplitBeta { .. } => Err("run_split_beta"),
         Lsm { .. } => Err("lsm"),
         LsmDual { .. } => Err("lsm_dual"),
+        NestedStat { .. } => Err("nested_stat"),
         // Reduce a submodel output — served by the `run_submodels` pre-pass boundary.
         SubmodelStat { arg, .. } => match arg { Some(a) => dim_expr_allowed(a), None => Ok(()) },
         SubmodelStat2 { .. } => Err("submodel_stat2"),
@@ -583,7 +586,7 @@ impl LaneEnv {
         EvalCtx {
             lookups: &self.lookups, outputs, prev_outputs: &self.prev, elapsed: 0.0, dt: self.dt,
             dt_unit: &self.dt_unit, step_index: 0, dimensions: &self.dims, dim_labels: &self.labels,
-            run_stats, run_vecs: None, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
+            run_stats, run_vecs: None, run_step_vecs: None, index_stack: &self.index_stack, submodel_outputs: &self.sub, lag: None,
             fired_events: &self.fired, calendar_start: self.calendar_start,
         }
     }

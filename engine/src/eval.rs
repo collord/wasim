@@ -170,14 +170,27 @@ pub(crate) fn run_splitbeta_key(x: &str, y: &str, folds: usize) -> String {
 /// The `run_vecs` injection key for an `Lsm` node — a specific (state, payoff, basis, rate)
 /// Longstaff-Schwartz per-realization cashflow vector. `\u{5}`-terminated to stay disjoint from the
 /// other injection keys. Computed identically at collection and eval time.
-pub(crate) fn lsm_key(state: &str, payoff: &str, basis: usize, rate: f64, folds: usize) -> String {
-    format!("{state}\u{1}{payoff}\u{1}{basis}\u{1}{rate}\u{1}{folds}\u{5}")
+pub(crate) fn lsm_key(state: &str, states: &[String], payoff: &str, basis: usize, rate: f64, folds: usize) -> String {
+    let extra = states.join("\u{2}");
+    format!("{state}\u{2}{extra}\u{1}{payoff}\u{1}{basis}\u{1}{rate}\u{1}{folds}\u{5}")
 }
 
 /// The `run_vecs` injection key for an `LsmDual` node — the dual (upper-bound) per-realization vector.
 /// `\u{6}`-terminated to stay disjoint from the `lsm` (primal) key.
-pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64) -> String {
-    format!("{state}\u{1}{payoff}\u{1}{rate}\u{6}")
+pub(crate) fn lsm_dual_key(state: &str, payoff: &str, rate: f64, inner: usize) -> String {
+    format!("{state}\u{1}{payoff}\u{1}{rate}\u{1}{inner}\u{6}")
+}
+
+/// The `run_vecs` injection key for a `NestedStat` node — a specific
+/// (submodel, output, statistic, arg, bindings) conditional nested reduction. `\u{7}`-terminated
+/// to stay disjoint from every other injection key. Computed identically at collection and eval time.
+pub(crate) fn nested_stat_key(
+    submodel_id: &str, output: &str, statistic: &crate::model::SubmodelStatKind, arg: f64,
+    bindings: &[crate::model::NestedBinding], each_step: bool,
+) -> String {
+    let binds: String = bindings.iter().map(|b| format!("{}={}", b.input, b.from)).collect::<Vec<_>>().join(",");
+    let scope = if each_step { "S" } else { "T" };
+    format!("{submodel_id}\u{1}{output}\u{1}{statistic:?}\u{1}{arg}\u{1}{binds}\u{1}{scope}\u{7}")
 }
 
 #[derive(Clone, Debug)]
@@ -366,6 +379,11 @@ pub struct EvalCtx<'a> {
     /// specific to the realization being evaluated. `None` outside the scalar lane's
     /// second pass (and in any run without per-realization reductions).
     pub run_vecs: Option<(&'a HashMap<String, Vec<f64>>, usize)>,
+    /// Per-`(step, realization)` injected panels for `nested_stat` in `each_step` mode: key →
+    /// `[steps][N]`, plus the current realization index. Indexed as `panel[step_index][realization]`,
+    /// so the node evaluates to its per-step conditional value (an exposure profile). `None` outside
+    /// the scalar lane's second pass (and in any run without `each_step` nested stats).
+    pub run_step_vecs: Option<(&'a HashMap<String, Vec<Vec<f64>>>, usize)>,
     /// Iteration-index stack for nested `vector_map`s. The innermost `vector_map`
     /// pushes its current 0-based index; `index_ref` reads the top (`row`) or the
     /// one below (`col`). Interior mutability so it survives the shared `&EvalCtx`.
@@ -745,6 +763,27 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
             Ok(Value::Scalar(reduced))
         }
 
+        // Conditional nested-submodel statistic: read this outer realization's pre-computed value
+        // from the injected [N_outer] vector (the two-pass reduction ran the inner submodel once per
+        // outer realization, conditioned on the bound outer state). 0.0 in the first pass.
+        AstNode::NestedStat { submodel_id, output, statistic, arg, bindings, each_step } => {
+            let arg_val = arg.as_deref().map(|n| eval_ast_scalar(n, ctx)).transpose()?.unwrap_or(0.0);
+            let key = nested_stat_key(submodel_id, output, statistic, arg_val, bindings, *each_step);
+            let v = if *each_step {
+                // Per-step: read this (step, realization) cell of the injected [steps][N] panel.
+                ctx.run_step_vecs
+                    .and_then(|(m, r)| m.get(&key).and_then(|panel| panel.get(ctx.step_index)).and_then(|row| row.get(r)))
+                    .copied()
+                    .unwrap_or(0.0)
+            } else {
+                ctx.run_vecs
+                    .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
+                    .copied()
+                    .unwrap_or(0.0)
+            };
+            Ok(Value::Scalar(v))
+        }
+
         // Array-comprehension nodes (§15). Indices are 1-based (matching `get_element` and
         // GoldSim arrays): `vector_map` pushes the current 1-based member index onto the
         // shared stack, `index_ref` reads it, `index` subtracts 1 to select.
@@ -854,8 +893,8 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
 
         // Longstaff-Schwartz price: read this realization's discounted cashflow from the injected
         // [N] vector (computed by the two-pass backward induction). 0.0 in the first pass.
-        AstNode::Lsm { state, payoff, basis, rate, folds } => {
-            let key = lsm_key(state, payoff, *basis, *rate, *folds);
+        AstNode::Lsm { state, states, payoff, basis, rate, folds } => {
+            let key = lsm_key(state, states, payoff, *basis, *rate, *folds);
             let v = ctx
                 .run_vecs
                 .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
@@ -866,8 +905,8 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
 
         // Longstaff-Schwartz dual (upper bound): this realization's max-deviation from the injected
         // [N] vector (computed by the two-pass hedged-martingale dual). 0.0 in the first pass.
-        AstNode::LsmDual { state, payoff, rate } => {
-            let key = lsm_dual_key(state, payoff, *rate);
+        AstNode::LsmDual { state, payoff, rate, inner } => {
+            let key = lsm_dual_key(state, payoff, *rate, *inner);
             let v = ctx
                 .run_vecs
                 .and_then(|(m, r)| m.get(&key).and_then(|vec| vec.get(r)))
@@ -1882,7 +1921,7 @@ mod named_array_tests {
         let ctx = EvalCtx {
             lookups: &empty_lk, outputs: &empty_out, prev_outputs: &empty_out,
             elapsed: 0.0, dt: 1.0, dt_unit: "1", step_index: 0,
-            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, run_vecs: None, index_stack: &index_stack,
+            dimensions: &dims, dim_labels: &labels, run_stats: &rstats, run_vecs: None, run_step_vecs: None, index_stack: &index_stack,
             submodel_outputs: &empty_sub, lag: None, fired_events: &fired, calendar_start: None,
         };
         let node = AstNode::VectorMap {

@@ -1,0 +1,820 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Counterparty EXPOSURE PROFILE over time via the each_step mode of the conditional nested-submodel statistic `nested_stat`. The outer model simulates a factor forward; at EACH timestep the inner submodel reprices a rolling position CONDITIONED on that step's factor level. The each_step nested element's time_history mean is the Expected-Exposure profile EE(t) and its p95 is the Potential-Future-Exposure PFE(t) \u2014 read straight from the per-step summary. Validated: EE(t)/PFE(t) reproduce the closed-form Black-Scholes profile at every step, and the terminal exposure tracks BS(S_H) per path. This is the per-(path,step) nested simulation the American tight dual and exposure/CVA analytics need. See NESTED_STAT_SCOPE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.2,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.2,
+      "unit": "yr"
+    },
+    "n_realizations": 400,
+    "sampling_method": "monte_carlo",
+    "seed": 97531
+  },
+  "containers": [
+    {
+      "id": "market",
+      "name": "Market & Factor Path",
+      "parent": null,
+      "children": [],
+      "kind": "container"
+    },
+    {
+      "id": "risk",
+      "name": "Exposure Profile (each_step)",
+      "parent": null,
+      "children": [],
+      "kind": "container"
+    },
+    {
+      "id": "innerRoll",
+      "name": "Inner Revaluation (submodel)",
+      "parent": null,
+      "children": [],
+      "kind": "submodel",
+      "simulation_settings": {
+        "duration": {
+          "value": 1,
+          "unit": "yr"
+        },
+        "timestep": {
+          "value": 1,
+          "unit": "yr"
+        },
+        "n_realizations": 2000,
+        "sampling_method": "monte_carlo",
+        "seed": 11223
+      }
+    }
+  ],
+  "elements": [
+    {
+      "id": "iS0",
+      "name": "Inner start price",
+      "type": "constant",
+      "container": "innerRoll",
+      "description": "Bound to the outer factor S at EACH timestep. Default 100 only for a marginal call.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iK",
+      "name": "Inner strike",
+      "type": "constant",
+      "container": "innerRoll",
+      "description": "Call strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "ir",
+      "name": "Inner rate",
+      "type": "constant",
+      "container": "innerRoll",
+      "description": "Risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "isig",
+      "name": "Inner vol",
+      "type": "constant",
+      "container": "innerRoll",
+      "description": "Volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iTrem",
+      "name": "Inner remaining maturity",
+      "type": "constant",
+      "container": "innerRoll",
+      "description": "Constant remaining maturity (a rolling 6-month position).",
+      "value": {
+        "value": 0.5,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iZ",
+      "name": "Inner shock",
+      "type": "random_variable",
+      "container": "innerRoll",
+      "description": "Std-normal shock for the inner GBM terminal (one per inner realization).",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iST",
+      "name": "Inner terminal price",
+      "type": "expression",
+      "container": "innerRoll",
+      "description": "Inner GBM terminal from the bound start price.",
+      "inputs": [
+        "iS0",
+        "iTrem",
+        "iZ",
+        "ir",
+        "isig"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "iS0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "ir"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "isig"
+                        },
+                        "right": {
+                          "op": "ref",
+                          "element_id": "isig"
+                        }
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "iTrem"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "isig"
+                    },
+                    "right": {
+                      "op": "call",
+                      "fn": "sqrt",
+                      "args": [
+                        {
+                          "op": "ref",
+                          "element_id": "iTrem"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "iZ"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "iS0 exp((r-.5s^2)T + s sqrt(T) Z)"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "ipay",
+      "name": "Inner discounted payoff",
+      "type": "expression",
+      "container": "innerRoll",
+      "description": "Inner discounted call payoff; its MEAN estimates BS at the bound start price.",
+      "inputs": [
+        "iK",
+        "iST",
+        "iTrem",
+        "ir"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "neg",
+                "operand": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "ir"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "iTrem"
+                  }
+                }
+              }
+            ]
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "iST"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "iK"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "exp(-r T) max(iST - iK, 0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "market",
+      "description": "Initial factor level.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "market",
+      "description": "Call strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "market",
+      "description": "Risk-free rate (risk-neutral factor drift).",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "market",
+      "description": "Factor volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "Trem",
+      "name": "Position maturity",
+      "type": "constant",
+      "container": "market",
+      "description": "Remaining maturity of the (rolling) position, matches inner iTrem.",
+      "value": {
+        "value": 0.5,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "P",
+      "name": "GBM Rate",
+      "type": "stochastic_process",
+      "container": "market",
+      "description": "Per-step risk-neutral GBM rate; drift r, vol sigma.",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "ref",
+            "element_id": "r"
+          },
+          "display": "r"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S",
+      "name": "Factor Path",
+      "type": "accumulator",
+      "container": "market",
+      "description": "Exact GBM factor path (rate = S*P).",
+      "inputs": [
+        "S",
+        "P"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P"
+          }
+        },
+        "display": "S*P"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S_t",
+      "name": "Factor (read-aligned)",
+      "type": "expression",
+      "container": "market",
+      "description": "The factor read at start-of-step, saved as the [steps x N] panel the each_step nested run binds to.",
+      "inputs": [
+        "S"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S"
+        },
+        "display": "S"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": true
+      }
+    },
+    {
+      "id": "exposure_t",
+      "name": "Exposure profile (each_step nested MC)",
+      "type": "expression",
+      "container": "risk",
+      "description": "The position's value at EACH timestep, estimated by an inner Monte-Carlo revaluation CONDITIONED on that step's factor level. Its time_history mean is the Expected-Exposure profile EE(t); its p95 is the PFE(t) \u2014 the core object of counterparty-exposure / PFE analysis.",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "nested_stat",
+          "submodel_id": "innerRoll",
+          "output": "ipay",
+          "statistic": "mean",
+          "bindings": [
+            {
+              "input": "iS0",
+              "from": "S_t"
+            }
+          ],
+          "each_step": true
+        },
+        "display": "nested_stat(innerRoll.ipay, mean; iS0<-S_t; each_step)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    },
+    {
+      "id": "bs_t",
+      "name": "Black-Scholes value at S_t",
+      "type": "expression",
+      "container": "risk",
+      "description": "Closed-form call value at the current factor \u2014 the exact conditional value the each_step nested MC estimates, per step.",
+      "inputs": [
+        "K",
+        "S_t",
+        "Trem",
+        "r",
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S_t"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "divide",
+                        "left": {
+                          "op": "add",
+                          "left": {
+                            "op": "call",
+                            "fn": "ln",
+                            "args": [
+                              {
+                                "op": "divide",
+                                "left": {
+                                  "op": "ref",
+                                  "element_id": "S_t"
+                                },
+                                "right": {
+                                  "op": "ref",
+                                  "element_id": "K"
+                                }
+                              }
+                            ]
+                          },
+                          "right": {
+                            "op": "multiply",
+                            "left": {
+                              "op": "add",
+                              "left": {
+                                "op": "ref",
+                                "element_id": "r"
+                              },
+                              "right": {
+                                "op": "multiply",
+                                "left": {
+                                  "op": "literal",
+                                  "value": 0.5
+                                },
+                                "right": {
+                                  "op": "multiply",
+                                  "left": {
+                                    "op": "ref",
+                                    "element_id": "sigma"
+                                  },
+                                  "right": {
+                                    "op": "ref",
+                                    "element_id": "sigma"
+                                  }
+                                }
+                              }
+                            },
+                            "right": {
+                              "op": "ref",
+                              "element_id": "Trem"
+                            }
+                          }
+                        },
+                        "right": {
+                          "op": "multiply",
+                          "left": {
+                            "op": "ref",
+                            "element_id": "sigma"
+                          },
+                          "right": {
+                            "op": "call",
+                            "fn": "sqrt",
+                            "args": [
+                              {
+                                "op": "ref",
+                                "element_id": "Trem"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "call",
+                "fn": "exp",
+                "args": [
+                  {
+                    "op": "neg",
+                    "operand": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "r"
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "Trem"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "subtract",
+                        "left": {
+                          "op": "divide",
+                          "left": {
+                            "op": "add",
+                            "left": {
+                              "op": "call",
+                              "fn": "ln",
+                              "args": [
+                                {
+                                  "op": "divide",
+                                  "left": {
+                                    "op": "ref",
+                                    "element_id": "S_t"
+                                  },
+                                  "right": {
+                                    "op": "ref",
+                                    "element_id": "K"
+                                  }
+                                }
+                              ]
+                            },
+                            "right": {
+                              "op": "multiply",
+                              "left": {
+                                "op": "add",
+                                "left": {
+                                  "op": "ref",
+                                  "element_id": "r"
+                                },
+                                "right": {
+                                  "op": "multiply",
+                                  "left": {
+                                    "op": "literal",
+                                    "value": 0.5
+                                  },
+                                  "right": {
+                                    "op": "multiply",
+                                    "left": {
+                                      "op": "ref",
+                                      "element_id": "sigma"
+                                    },
+                                    "right": {
+                                      "op": "ref",
+                                      "element_id": "sigma"
+                                    }
+                                  }
+                                }
+                              },
+                              "right": {
+                                "op": "ref",
+                                "element_id": "Trem"
+                              }
+                            }
+                          },
+                          "right": {
+                            "op": "multiply",
+                            "left": {
+                              "op": "ref",
+                              "element_id": "sigma"
+                            },
+                            "right": {
+                              "op": "call",
+                              "fn": "sqrt",
+                              "args": [
+                                {
+                                  "op": "ref",
+                                  "element_id": "Trem"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "right": {
+                          "op": "multiply",
+                          "left": {
+                            "op": "ref",
+                            "element_id": "sigma"
+                          },
+                          "right": {
+                            "op": "call",
+                            "fn": "sqrt",
+                            "args": [
+                              {
+                                "op": "ref",
+                                "element_id": "Trem"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "display": "BS(S_t, K, r, sigma, Trem)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    }
+  ]
+}

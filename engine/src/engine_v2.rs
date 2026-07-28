@@ -71,8 +71,10 @@ pub fn run(
 
     let (targets, pair_targets, regr_targets, split_targets, lsm_targets, lsm_dual_targets) =
         collect_run_stats(model)?;
+    let nested_targets = collect_nested_stats(model)?;
     if targets.is_empty() && pair_targets.is_empty() && regr_targets.is_empty()
         && split_targets.is_empty() && lsm_targets.is_empty() && lsm_dual_targets.is_empty()
+        && nested_targets.is_empty()
     {
         // No across-realization RunStat: the original single pass, bit-identical.
         let mut st = RunState::new(model, graph, config)?;
@@ -101,16 +103,33 @@ pub fn run(
         target_ids.push(st.x.clone());
         target_ids.push(st.y.clone());
     }
+    // Terminal-mode nested_stat needs each binding's outer `from` element's per-realization FINALS.
+    for nt in &nested_targets {
+        if !nt.each_step {
+            for b in &nt.bindings {
+                target_ids.push(b.from.clone());
+            }
+        }
+    }
     st1.force_save_targets(&target_ids);
     // LSM (primal + dual) needs the full time_history panel of its state and payoff elements.
     let mut hist_ids: Vec<String> = Vec::new();
     for lt in &lsm_targets {
         hist_ids.push(lt.state.clone());
+        hist_ids.extend(lt.states.iter().cloned());
         hist_ids.push(lt.payoff.clone());
     }
     for lt in &lsm_dual_targets {
         hist_ids.push(lt.state.clone());
         hist_ids.push(lt.payoff.clone());
+    }
+    // each_step nested_stat needs its `from` bindings' full [steps × N] time_history panels.
+    for nt in &nested_targets {
+        if nt.each_step {
+            for b in &nt.bindings {
+                hist_ids.push(b.from.clone());
+            }
+        }
     }
     st1.force_save_hist(&hist_ids);
     st1.advance(u32::MAX)?;
@@ -122,21 +141,30 @@ pub fn run(
     // discounted-to-t0 cashflow is injected so the LSM element's mean is the option price.
     let dt1 = st1.dt;
     for lt in &lsm_targets {
-        if let (Some(state), Some(payoff)) =
-            (st1.hist_store.get(&lt.state), st1.hist_store.get(&lt.payoff))
-        {
+        // Gather the primary state panel plus any additional (multi-asset) state panels, in order.
+        let state_ids: Vec<&String> = std::iter::once(&lt.state).chain(lt.states.iter()).collect();
+        let panels: Option<Vec<&Vec<Vec<f64>>>> =
+            state_ids.iter().map(|id| st1.hist_store.get(*id)).collect();
+        if let (Some(panels), Some(payoff)) = (panels, st1.hist_store.get(&lt.payoff)) {
             let disc = (-lt.rate * dt1).exp();
+            let states_ref: Vec<&[Vec<f64>]> = panels.iter().map(|p| p.as_slice()).collect();
             reduced_vecs.insert(lt.key.clone(),
-                crate::engine::lsm_backward(state, payoff, lt.basis, disc, lt.folds));
+                crate::engine::lsm_backward(&states_ref, payoff, lt.basis, disc, lt.folds));
         }
     }
-    // LSM dual (hedged-martingale upper bound): per-path max-deviation; mean = the dual price.
+    // LSM dual (upper bound): per-path max-deviation; mean = the dual price. `inner == 0` uses the loose
+    // single-hedge martingale; `inner > 0` uses the tight nested Doob-of-intrinsic dual.
     for lt in &lsm_dual_targets {
         if let (Some(state), Some(payoff)) =
             (st1.hist_store.get(&lt.state), st1.hist_store.get(&lt.payoff))
         {
             let disc = (-lt.rate * dt1).exp();
-            reduced_vecs.insert(lt.key.clone(), crate::engine::lsm_dual(state, payoff, disc));
+            let vec = if lt.inner == 0 {
+                crate::engine::lsm_dual(state, payoff, disc)
+            } else {
+                lsm_dual_tight(model, config, lt, state, payoff, disc)
+            };
+            reduced_vecs.insert(lt.key.clone(), vec);
         }
     }
 
@@ -161,11 +189,24 @@ pub fn run(
     for st in &split_targets {
         reduced_vecs.insert(st.key.clone(), crate::engine::jackknife_beta(&finals(&st.x), &finals(&st.y), st.folds));
     }
+    // Conditional nested-submodel statistics. Terminal mode → [N] per-realization vector (one inner
+    // run per outer realization, bound to its finals). each_step mode → [steps][N] panel (one inner
+    // run per (realization, step), bound to the outer history).
+    let hist = |id: &str| -> Option<Vec<Vec<f64>>> { st1.hist_store.get(id).cloned() };
+    let mut reduced_step_vecs: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
+    for nt in &nested_targets {
+        if nt.each_step {
+            reduced_step_vecs.insert(nt.key.clone(), run_nested_stat_each_step(model, config, nt, &hist));
+        } else {
+            reduced_vecs.insert(nt.key.clone(), run_nested_stat(model, config, nt, &finals));
+        }
+    }
 
     // Pass 2: same run with the reduced scalars (and per-realization vectors) injected.
     let mut st2 = RunState::new(model, graph, config)?;
     st2.run_stats = reduced;
     st2.run_vecs = reduced_vecs;
+    st2.run_step_vecs = reduced_step_vecs;
     st2.advance(u32::MAX)?;
     st2.assemble()
 }
@@ -211,6 +252,7 @@ struct RunSplitBetaTarget {
 struct LsmTarget {
     key: String,
     state: String,
+    states: Vec<String>,
     payoff: String,
     basis: usize,
     rate: f64,
@@ -223,12 +265,13 @@ struct LsmDualTarget {
     state: String,
     payoff: String,
     rate: f64,
+    inner: usize,
 }
 
 /// A collected LSM AST node — primal (`lsm`) or dual (`lsm_dual`) — from the expression walk.
 enum LsmRef<'a> {
-    Primal { state: &'a str, payoff: &'a str, basis: usize, rate: f64, folds: usize },
-    Dual { state: &'a str, payoff: &'a str, rate: f64 },
+    Primal { state: &'a str, states: &'a [String], payoff: &'a str, basis: usize, rate: f64, folds: usize },
+    Dual { state: &'a str, payoff: &'a str, rate: f64, inner: usize },
 }
 
 /// Walk every element expression AST for `run_stat` nodes. Arg-taking statistics
@@ -315,19 +358,20 @@ fn collect_run_stats(model: &Model) -> Result<CollectedTargets, EngineError> {
     let mut seen5: HashSet<String> = HashSet::new();
     for r in lsm {
         match r {
-            LsmRef::Primal { state, payoff, basis, rate, folds } => {
-                let key = crate::eval::lsm_key(state, payoff, basis, rate, folds);
+            LsmRef::Primal { state, states, payoff, basis, rate, folds } => {
+                let key = crate::eval::lsm_key(state, states, payoff, basis, rate, folds);
                 if seen5.insert(key.clone()) {
                     lsm_targets.push(LsmTarget {
-                        key, state: state.to_string(), payoff: payoff.to_string(), basis, rate, folds,
+                        key, state: state.to_string(), states: states.to_vec(),
+                        payoff: payoff.to_string(), basis, rate, folds,
                     });
                 }
             }
-            LsmRef::Dual { state, payoff, rate } => {
-                let key = crate::eval::lsm_dual_key(state, payoff, rate);
+            LsmRef::Dual { state, payoff, rate, inner } => {
+                let key = crate::eval::lsm_dual_key(state, payoff, rate, inner);
                 if seen5.insert(key.clone()) {
                     lsm_dual_targets.push(LsmDualTarget {
-                        key, state: state.to_string(), payoff: payoff.to_string(), rate,
+                        key, state: state.to_string(), payoff: payoff.to_string(), rate, inner,
                     });
                 }
             }
@@ -351,13 +395,14 @@ fn collect_run_stat_nodes<'a>(
     lsm: &mut Vec<LsmRef<'a>>,
 ) {
     match node {
-        AstNode::Lsm { state, payoff, basis, rate, folds } => {
+        AstNode::Lsm { state, states, payoff, basis, rate, folds } => {
             lsm.push(LsmRef::Primal {
-                state: state.as_str(), payoff: payoff.as_str(), basis: *basis, rate: *rate, folds: *folds,
+                state: state.as_str(), states: states.as_slice(), payoff: payoff.as_str(),
+                basis: *basis, rate: *rate, folds: *folds,
             });
         }
-        AstNode::LsmDual { state, payoff, rate } => {
-            lsm.push(LsmRef::Dual { state: state.as_str(), payoff: payoff.as_str(), rate: *rate });
+        AstNode::LsmDual { state, payoff, rate, inner } => {
+            lsm.push(LsmRef::Dual { state: state.as_str(), payoff: payoff.as_str(), rate: *rate, inner: *inner });
         }
         AstNode::RunStat { element_id, statistic, arg } => {
             out.push((element_id.as_str(), statistic, arg));
@@ -406,9 +451,333 @@ fn collect_run_stat_nodes<'a>(
         AstNode::Array { elements } => elements.iter().for_each(|e| collect_run_stat_nodes(e, out, pairs, regr, split, lsm)),
         AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split, lsm); } }
         AstNode::SubmodelStat2 { .. } => {}
+        // nested_stat is collected by `collect_nested_stats`; only its `arg` might carry a run-stat.
+        AstNode::NestedStat { arg, .. } => { if let Some(a) = arg { collect_run_stat_nodes(a, out, pairs, regr, split, lsm); } }
         AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
         | AstNode::IndexRef { .. } => {}
     }
+}
+
+/// A `nested_stat` (conditional nested-submodel) target to pre-compute: its injection key, the
+/// submodel to nest, which interior output to reduce, the reduction + arg, and the outer→inner
+/// bindings. Its value is an `[N_outer]` vector — one inner-submodel run per outer realization.
+struct NestedStatTarget {
+    key: String,
+    submodel_id: String,
+    output: String,
+    statistic: crate::model::SubmodelStatKind,
+    arg: f64,
+    bindings: Vec<crate::model::NestedBinding>,
+    each_step: bool,
+}
+
+/// Walk every element expression AST and collect the `nested_stat` targets. Arg-taking statistics
+/// (percentile/cumulative_prob/exceedance/cte) require a **literal** argument, mirroring `run_stat`.
+fn collect_nested_stats(model: &Model) -> Result<Vec<NestedStatTarget>, EngineError> {
+    let mut refs: Vec<&AstNode> = Vec::new();
+    for e in &model.elements {
+        if let Primitive::Node(n) = &e.primitive {
+            if let NodeRule::Expression(ef) = &n.rule {
+                collect_nested_stat_nodes(&ef.ast, &mut refs);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for node in refs {
+        if let AstNode::NestedStat { submodel_id, output, statistic, arg, bindings, each_step } = node {
+            let needs_arg = k_needs_arg(statistic);
+            let arg_val = match arg.as_deref() {
+                Some(AstNode::Literal { value, .. }) => *value,
+                None => 0.0,
+                Some(_) if needs_arg => {
+                    return Err(EngineError::InvalidModel(format!(
+                        "nested_stat on submodel '{submodel_id}' with a {statistic:?} statistic requires a literal argument"
+                    )));
+                }
+                Some(_) => 0.0,
+            };
+            let key = crate::eval::nested_stat_key(submodel_id, output, statistic, arg_val, bindings, *each_step);
+            if seen.insert(key.clone()) {
+                out.push(NestedStatTarget {
+                    key, submodel_id: submodel_id.clone(), output: output.clone(),
+                    statistic: statistic.clone(), arg: arg_val, bindings: bindings.clone(), each_step: *each_step,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Collect every `NestedStat` node anywhere in an expression tree (recursing through all children).
+fn collect_nested_stat_nodes<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
+    match node {
+        AstNode::NestedStat { arg, .. } => {
+            out.push(node);
+            if let Some(a) = arg { collect_nested_stat_nodes(a, out); }
+        }
+        AstNode::Add { left, right } | AstNode::Subtract { left, right }
+        | AstNode::Multiply { left, right } | AstNode::Divide { left, right }
+        | AstNode::Power { left, right } | AstNode::Lt { left, right }
+        | AstNode::Gt { left, right } | AstNode::Lte { left, right }
+        | AstNode::Gte { left, right } | AstNode::Eq { left, right }
+        | AstNode::Neq { left, right } | AstNode::And { left, right }
+        | AstNode::Or { left, right } => {
+            collect_nested_stat_nodes(left, out);
+            collect_nested_stat_nodes(right, out);
+        }
+        AstNode::Neg { operand } | AstNode::Not { operand } => collect_nested_stat_nodes(operand, out),
+        AstNode::Call { args, .. } | AstNode::ExternCall { args, .. } => {
+            args.iter().for_each(|a| collect_nested_stat_nodes(a, out));
+        }
+        AstNode::If { cond, then, else_ } => {
+            collect_nested_stat_nodes(cond, out);
+            collect_nested_stat_nodes(then, out);
+            collect_nested_stat_nodes(else_, out);
+        }
+        AstNode::LookupCall { input, input2, .. } => {
+            collect_nested_stat_nodes(input, out);
+            if let Some(i2) = input2 { collect_nested_stat_nodes(i2, out); }
+        }
+        AstNode::VectorMap { body, .. } => collect_nested_stat_nodes(body, out),
+        AstNode::Subscript { array, .. } => collect_nested_stat_nodes(array, out),
+        AstNode::Index { array, indices } => {
+            collect_nested_stat_nodes(array, out);
+            indices.iter().for_each(|i| collect_nested_stat_nodes(i, out));
+        }
+        AstNode::Array { elements } => elements.iter().for_each(|e| collect_nested_stat_nodes(e, out)),
+        AstNode::RunStat { arg, .. } => { if let Some(a) = arg { collect_nested_stat_nodes(a, out); } }
+        AstNode::SubmodelStat { arg, .. } => { if let Some(a) = arg { collect_nested_stat_nodes(a, out); } }
+        AstNode::RunStat2 { .. } | AstNode::RunRegress { .. } | AstNode::RunSplitBeta { .. }
+        | AstNode::Lsm { .. } | AstNode::LsmDual { .. } | AstNode::SubmodelStat2 { .. }
+        | AstNode::Literal { .. } | AstNode::Ref { .. } | AstNode::TimeRef { .. }
+        | AstNode::IndexRef { .. } => {}
+    }
+}
+
+/// Override a submodel constant's fixed scalar value (used to bind an outer per-realization value
+/// into a nested inner run). No-op if `id` is absent or not a fixed-scalar node.
+fn override_const(model: &mut Model, id: &str, value: f64) {
+    for e in &mut model.elements {
+        if e.id() == id {
+            if let Primitive::Node(n) = &mut e.primitive {
+                if let NodeRule::Fixed { value: crate::model_v2::FixedValue::Scalar(q), .. } = &mut n.rule {
+                    q.value = value;
+                }
+            }
+            return;
+        }
+    }
+}
+
+/// One inner run of a `nested_stat` submodel with its bound constants overridden by `values`
+/// (aligned with `t.bindings`), reduced to a scalar. The graph is passed in (built once by the
+/// caller and reused — topology is value-independent). `seed_idx` derives an independent,
+/// reproducible inner seed from `(base_seed, seed_idx)` so inner draws are conditionally independent.
+fn nested_inner_reduce(
+    sub: &mut Model, graph: &ModelGraphV2, t: &NestedStatTarget, values: &[f64],
+    base_seed: u64, seed_idx: u64,
+) -> f64 {
+    for (bi, b) in t.bindings.iter().enumerate() {
+        override_const(sub, &b.input, values[bi]);
+    }
+    let cfg = RunConfig { seed: Some(crate::sweep_seed::child_seed(base_seed, seed_idx)), ..RunConfig::default() };
+    match run(sub, graph, &cfg) {
+        Ok(res) => res.elements.get(&t.output).map(|er| reduce_run_stat(&er.final_values, &t.statistic, t.arg)).unwrap_or(0.0),
+        Err(e) => { eprintln!("warn: nested_stat submodel '{}' run failed ({e:?})", t.submodel_id); 0.0 }
+    }
+}
+
+/// Terminal-mode `nested_stat`: run the inner submodel ONCE PER OUTER realization, its bound input
+/// constants overridden by the outer elements' realized FINALS. Returns the `[N_outer]` vector.
+fn run_nested_stat(
+    model: &Model, config: &RunConfig, t: &NestedStatTarget, finals: &dyn Fn(&str) -> Vec<f64>,
+) -> Vec<f64> {
+    let Some(mut sub) = crate::submodel_v2::extract_submodel(model, &t.submodel_id) else {
+        eprintln!("warn: nested_stat submodel '{}' has no runnable interior; → 0.0", t.submodel_id);
+        return Vec::new();
+    };
+    let from_vals: Vec<Vec<f64>> = t.bindings.iter().map(|b| finals(&b.from)).collect();
+    let n_outer = from_vals.iter().map(|v| v.len()).min().unwrap_or(0);
+    if n_outer == 0 {
+        return Vec::new();
+    }
+    let graph = match ModelGraphV2::build(&sub) {
+        Ok(g) => g,
+        Err(e) => { eprintln!("warn: nested_stat submodel '{}' graph build failed ({e:?})", t.submodel_id); return Vec::new(); }
+    };
+    let base_seed = nested_base_seed(model, config, &t.submodel_id);
+    let mut out = vec![0.0; n_outer];
+    for r in 0..n_outer {
+        let vals: Vec<f64> = from_vals.iter().map(|v| v[r]).collect();
+        out[r] = nested_inner_reduce(&mut sub, &graph, t, &vals, base_seed, r as u64);
+    }
+    out
+}
+
+/// `each_step`-mode `nested_stat`: run the inner submodel once per `(realization, step)` node, its
+/// bound constants overridden by the outer elements' `time_history` at that step. Returns the
+/// `[steps][N_outer]` panel (aligned with `hist_store` layout), which the eval arm reads by
+/// `(step_index, realization)`, so the node's `time_history` is a profile over time.
+fn run_nested_stat_each_step(
+    model: &Model, config: &RunConfig, t: &NestedStatTarget,
+    hist: &dyn Fn(&str) -> Option<Vec<Vec<f64>>>,
+) -> Vec<Vec<f64>> {
+    let Some(mut sub) = crate::submodel_v2::extract_submodel(model, &t.submodel_id) else {
+        eprintln!("warn: nested_stat (each_step) submodel '{}' has no runnable interior; → 0.0", t.submodel_id);
+        return Vec::new();
+    };
+    // Each binding's outer `from` [steps][N] history panel (all share the run's step/realization grid).
+    let from_hist: Option<Vec<Vec<Vec<f64>>>> = t.bindings.iter().map(|b| hist(&b.from)).collect();
+    let Some(from_hist) = from_hist else {
+        eprintln!("warn: nested_stat (each_step) needs time_history on its `from` bindings; → 0.0");
+        return Vec::new();
+    };
+    let n_steps = from_hist.iter().map(|h| h.len()).min().unwrap_or(0);
+    if n_steps == 0 { return Vec::new(); }
+    let n_outer = from_hist.iter().flat_map(|h| h.iter().map(|row| row.len())).min().unwrap_or(0);
+    if n_outer == 0 { return Vec::new(); }
+    let graph = match ModelGraphV2::build(&sub) {
+        Ok(g) => g,
+        Err(e) => { eprintln!("warn: nested_stat (each_step) submodel '{}' graph build failed ({e:?})", t.submodel_id); return Vec::new(); }
+    };
+    let base_seed = nested_base_seed(model, config, &t.submodel_id);
+    let mut panel = vec![vec![0.0; n_outer]; n_steps];
+    for s in 0..n_steps {
+        for r in 0..n_outer {
+            let vals: Vec<f64> = from_hist.iter().map(|h| h[s][r]).collect();
+            // Seed per (step, realization) so every inner node draws independently and reproducibly.
+            let seed_idx = (s as u64).wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(r as u64);
+            panel[s][r] = nested_inner_reduce(&mut sub, &graph, t, &vals, base_seed, seed_idx);
+        }
+    }
+    panel
+}
+
+/// The per-submodel base seed for nested runs — an independent stream derived from the run root and
+/// the (stable) submodel container id, matching `run_submodels`' convention.
+fn nested_base_seed(model: &Model, config: &RunConfig, submodel_id: &str) -> u64 {
+    let root = config.seed.or(model.simulation_settings.seed).unwrap_or(0);
+    crate::sweep_seed::child_seed(root, crate::sweep_seed::sweep_id_fnv1a(submodel_id))
+}
+
+/// Evaluate a `payoff` element's AST as a plain scalar function of the single state variable `state_id`
+/// (bound to `s`) and the model's fixed constants. Returns `None` if the AST uses anything outside a
+/// small algebraic subset (so the caller can fall back to the loose dual). Used by the tight LSM dual
+/// to re-evaluate the intrinsic at fresh inner states.
+fn eval_payoff_scalar(node: &AstNode, state_id: &str, s: f64, consts: &HashMap<String, f64>) -> Option<f64> {
+    use crate::model::BuiltinFn as F;
+    let bin = |l: &AstNode, r: &AstNode| -> Option<(f64, f64)> {
+        Some((eval_payoff_scalar(l, state_id, s, consts)?, eval_payoff_scalar(r, state_id, s, consts)?))
+    };
+    Some(match node {
+        AstNode::Literal { value, .. } => *value,
+        AstNode::Ref { element_id, .. } => {
+            if element_id == state_id { s } else { *consts.get(element_id)? }
+        }
+        AstNode::Neg { operand } => -eval_payoff_scalar(operand, state_id, s, consts)?,
+        AstNode::Add { left, right } => { let (a, b) = bin(left, right)?; a + b }
+        AstNode::Subtract { left, right } => { let (a, b) = bin(left, right)?; a - b }
+        AstNode::Multiply { left, right } => { let (a, b) = bin(left, right)?; a * b }
+        AstNode::Divide { left, right } => { let (a, b) = bin(left, right)?; a / b }
+        AstNode::Power { left, right } => { let (a, b) = bin(left, right)?; a.powf(b) }
+        AstNode::Call { func, args } => {
+            let a: Option<Vec<f64>> = args.iter().map(|x| eval_payoff_scalar(x, state_id, s, consts)).collect();
+            let a = a?;
+            match func {
+                F::Max => a.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                F::Min => a.iter().cloned().fold(f64::INFINITY, f64::min),
+                F::Abs => a.first()?.abs(),
+                F::Sqrt => a.first()?.sqrt(),
+                F::Exp => a.first()?.exp(),
+                F::Ln => a.first()?.ln(),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The TIGHT LSM dual: the Doob martingale of the discounted-payoff process `Y_t = discᵗ·payoff_t`,
+/// `M_t = Σ_{k≤t}(Y_k − E_{k−1}[Y_k])`, returning each path's `maxₜ(Y_t − M_t)` (mean = the dual price).
+/// The one-step conditional expectation `E_{k−1}[Y_k | S_{k−1}]` is estimated by nested simulation:
+/// `inner` next-step states resampled from the panel's own one-step log-returns (no σ needed), with the
+/// payoff re-evaluated there — averaged on a grid over the conditioning state and interpolated per path
+/// (the `nested_stat` `each_step` operation, done natively for speed). A genuine martingale ⇒ a VALID
+/// upper bound; the intrinsic process tracks the option far better than one hedge ⇒ TIGHT. Falls back to
+/// the loose single-hedge dual if the payoff isn't a plain function of state + constants.
+fn lsm_dual_tight(
+    model: &Model, config: &RunConfig, lt: &LsmDualTarget, state: &[Vec<f64>], payoff: &[Vec<f64>], disc: f64,
+) -> Vec<f64> {
+    let m = payoff.len();
+    if m == 0 { return Vec::new(); }
+    let n = payoff[0].len();
+    if n == 0 { return Vec::new(); }
+    // Constants for the payoff eval, and the payoff element's AST.
+    let mut consts: HashMap<String, f64> = HashMap::new();
+    for e in &model.elements {
+        if let Primitive::Node(node) = &e.primitive {
+            if let NodeRule::Fixed { value: crate::model_v2::FixedValue::Scalar(q), .. } = &node.rule {
+                consts.insert(e.id().to_string(), q.value);
+            }
+        }
+    }
+    let payoff_ast = model.elements.iter().find(|e| e.id() == lt.payoff).and_then(|e| {
+        if let Primitive::Node(node) = &e.primitive {
+            if let NodeRule::Expression(ef) = &node.rule { return Some(&ef.ast); }
+        }
+        None
+    });
+    let Some(payoff_ast) = payoff_ast else {
+        return crate::engine::lsm_dual(state, payoff, disc);
+    };
+    if eval_payoff_scalar(payoff_ast, &lt.state, state[0][0], &consts).is_none() {
+        eprintln!("warn: lsm_dual tight cannot evaluate payoff '{}' as a plain fn of state+constants (its \
+            state ref must be the dual's `state` element); using the loose dual", lt.payoff);
+        return crate::engine::lsm_dual(state, payoff, disc);
+    }
+    let inner = lt.inner.max(1);
+    let base = nested_base_seed(model, config, &format!("{}\u{1}{}\u{1}dual", lt.state, lt.payoff));
+    const G: usize = 200; // conditioning-state grid points
+    let mut mmart = vec![0.0f64; n];
+    let mut dmax: Vec<f64> = (0..n).map(|i| payoff[0][i]).collect(); // k=0: Y_0 − M_0 = disc⁰·payoff_0
+    for k in 1..m {
+        let dk = disc.powi(k as i32);
+        // Pooled step-k log-returns (the empirical one-step law); resample `inner` of them.
+        let mut rets: Vec<f64> = Vec::with_capacity(n);
+        for j in 0..n {
+            let (a, b) = (state[k - 1][j], state[k][j]);
+            if a > 0.0 && b > 0.0 { rets.push((b / a).ln()); }
+        }
+        if rets.is_empty() {
+            for i in 0..n { let z = dk * payoff[k][i]; let term = z - mmart[i]; if term > dmax[i] { dmax[i] = term; } }
+            continue;
+        }
+        let mut rng = ChaCha8Rng::seed_from_u64(crate::sweep_seed::child_seed(base, k as u64));
+        let rho: Vec<f64> = (0..inner).map(|_| rets[rng.gen_range(0..rets.len())]).collect();
+        // Grid g(s) = disc^k · E[payoff(s·e^ρ)] over s ∈ [min,max] of S_{k−1}; interpolate per path.
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for i in 0..n { let s = state[k - 1][i]; if s < lo { lo = s; } if s > hi { hi = s; } }
+        if !(hi > lo) { hi = lo + 1e-9; }
+        let step = (hi - lo) / (G as f64 - 1.0);
+        let gval: Vec<f64> = (0..G).map(|g| {
+            let sg = lo + step * g as f64;
+            let acc: f64 = rho.iter().map(|&r| eval_payoff_scalar(payoff_ast, &lt.state, sg * r.exp(), &consts).unwrap_or(0.0)).sum();
+            dk * acc / inner as f64
+        }).collect();
+        for i in 0..n {
+            let pos = ((state[k - 1][i] - lo) / step).clamp(0.0, (G - 1) as f64);
+            let g0 = pos.floor() as usize;
+            let g1 = (g0 + 1).min(G - 1);
+            let frac = pos - g0 as f64;
+            let cond = gval[g0] * (1.0 - frac) + gval[g1] * frac;
+            let z = dk * payoff[k][i];
+            mmart[i] += z - cond;
+            let term = z - mmart[i];
+            if term > dmax[i] { dmax[i] = term; }
+        }
+    }
+    dmax
 }
 
 /// Reduce a `run_stat` target's per-realization samples — the same reducers as
@@ -497,6 +866,9 @@ pub struct RunState<'a> {
     /// Pre-reduced per-realization vectors (split-sample, Phase 3), injected element-wise
     /// in the 2nd pass. Empty in the 1st pass and in runs with no per-realization node.
     run_vecs: HashMap<String, Vec<f64>>,
+    /// Pre-reduced per-`(step, realization)` panels for `each_step` nested_stat: key → `[steps][N]`,
+    /// injected in the 2nd pass. Empty otherwise.
+    run_step_vecs: HashMap<String, Vec<Vec<f64>>>,
     index_stack: RefCell<Vec<usize>>,
     fired_events: RefCell<HashSet<String>>,
     submodel_outputs: HashMap<(String, String), Vec<f64>>,
@@ -636,6 +1008,7 @@ impl<'a> RunState<'a> {
     // the second `advance` when the model contains `run_stat` nodes.
     let run_stats: HashMap<String, f64> = HashMap::new();
     let run_vecs: HashMap<String, Vec<f64>> = HashMap::new();
+    let run_step_vecs: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
     let index_stack: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     // Ids of events that fired in the current step (§2, `occurs` builtin). Cleared and
     // repopulated each step by the event pass; shared through ArrayEnv via interior mutability.
@@ -650,6 +1023,7 @@ impl<'a> RunState<'a> {
         dim_labels: &dim_labels_by_id,
         run_stats: &run_stats,
         run_vecs: None,
+        run_step_vecs: None,
         cur_realization: &setup_realization,
         index_stack: &index_stack,
         submodel_outputs: &submodel_outputs,
@@ -949,7 +1323,7 @@ impl<'a> RunState<'a> {
         model, graph, config,
         n_real, seed, dt, dt_unit, n_steps, use_event_accurate, run_globals,
         user_weights, importance_weights, any_importance,
-        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, run_vecs, index_stack, fired_events,
+        elem_idx, dim_sizes_by_id, dim_labels_by_id, run_stats, run_vecs, run_step_vecs, index_stack, fired_events,
         submodel_outputs, lookups, save_final, save_hist,
         stock_ids, process_ids, per_step_sample_ids, resample_ids,
         species_info, decay_order, cell_media, cell_volume, medium_porosity,
@@ -1060,6 +1434,7 @@ impl<'a> RunState<'a> {
             dim_labels: &self.dim_labels_by_id,
             run_stats: &self.run_stats,
             run_vecs: (!self.run_vecs.is_empty()).then_some(&self.run_vecs),
+            run_step_vecs: (!self.run_step_vecs.is_empty()).then_some(&self.run_step_vecs),
             cur_realization: &cur_realization,
             index_stack,
             submodel_outputs,
@@ -3043,6 +3418,9 @@ pub(crate) struct ArrayEnv<'a> {
     /// Per-realization injected vectors (split-sample, Phase 3): key → `[N]` vector.
     /// `None` when the run has no per-realization reductions.
     pub run_vecs: Option<&'a HashMap<String, Vec<f64>>>,
+    /// Per-`(step, realization)` panels for `each_step` nested_stat (key → `[steps][N]`). `None`
+    /// when the run has no `each_step` nested stats.
+    pub run_step_vecs: Option<&'a HashMap<String, Vec<Vec<f64>>>>,
     /// The realization currently being evaluated — set by the scalar lane's realization
     /// loop via interior mutability, read into each `EvalCtx` so `run_vecs` can be indexed.
     pub cur_realization: &'a std::cell::Cell<usize>,
@@ -3068,7 +3446,7 @@ fn ctx_at<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed, dt, dt_unit, step_index,
-        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), run_step_vecs: arr.run_step_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }
@@ -3083,7 +3461,7 @@ fn dist_ctx_eval<'a>(
 ) -> EvalCtx<'a> {
     EvalCtx {
         lookups, outputs, prev_outputs, elapsed: 0.0, dt, dt_unit, step_index: 0,
-        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
+        dimensions: arr.dims, dim_labels: arr.dim_labels, run_stats: arr.run_stats, run_vecs: arr.run_vecs.map(|m| (m, arr.cur_realization.get())), run_step_vecs: arr.run_step_vecs.map(|m| (m, arr.cur_realization.get())), index_stack: arr.index_stack, submodel_outputs: arr.submodel_outputs,
         lag: None, fired_events: arr.fired_events, calendar_start: arr.calendar_start,
     }
 }

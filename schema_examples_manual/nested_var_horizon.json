@@ -1,0 +1,890 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Horizon revaluation (nested VaR/CVA structure) via the CONDITIONAL nested-submodel statistic `nested_stat`. The outer model simulates a risk factor to a horizon H; for each outer scenario the inner submodel `innerBS` is re-run with its start price bound to that scenario's horizon price S_H, and the mean inner discounted payoff is the portfolio value in that scenario. The distribution of port_value across outer paths is the horizon P&L distribution from which VaR/expected-shortfall are read. Validated: the nested MC reproduces the closed-form Black-Scholes conditional value bs_ref per path; the marginal submodel_stat (marginal_bs) is a single constant BS(100), showing the conditional-vs-marginal distinction. See NESTED_STAT_EXAMPLE.md / NESTED_STAT_SCOPE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 0.25,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.25,
+      "unit": "yr"
+    },
+    "n_realizations": 2000,
+    "sampling_method": "monte_carlo",
+    "seed": 13579
+  },
+  "containers": [
+    {
+      "id": "market",
+      "name": "Market & Horizon",
+      "parent": null,
+      "children": [],
+      "kind": "container"
+    },
+    {
+      "id": "risk",
+      "name": "Horizon Risk (nested)",
+      "parent": null,
+      "children": [],
+      "kind": "container"
+    },
+    {
+      "id": "innerBS",
+      "name": "Inner Revaluation (submodel)",
+      "parent": null,
+      "children": [],
+      "kind": "submodel",
+      "simulation_settings": {
+        "duration": {
+          "value": 1,
+          "unit": "yr"
+        },
+        "timestep": {
+          "value": 1,
+          "unit": "yr"
+        },
+        "n_realizations": 4000,
+        "sampling_method": "monte_carlo",
+        "seed": 24680
+      }
+    }
+  ],
+  "elements": [
+    {
+      "id": "iS0",
+      "name": "Inner start price",
+      "type": "constant",
+      "container": "innerBS",
+      "description": "Start price of the inner revaluation. Bound to the outer horizon price S_H per outer realization (this is what makes the inner run CONDITIONAL on the outer state). Default 100 is only used by the marginal submodel_stat comparison.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iK",
+      "name": "Inner strike",
+      "type": "constant",
+      "container": "innerBS",
+      "description": "Call strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "ir",
+      "name": "Inner rate",
+      "type": "constant",
+      "container": "innerBS",
+      "description": "Risk-free rate.",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "isig",
+      "name": "Inner vol",
+      "type": "constant",
+      "container": "innerBS",
+      "description": "Volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iTrem",
+      "name": "Inner remaining maturity",
+      "type": "constant",
+      "container": "innerBS",
+      "description": "Remaining maturity T - H from the horizon to option expiry.",
+      "value": {
+        "value": 0.75,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iZ",
+      "name": "Inner shock",
+      "type": "random_variable",
+      "container": "innerBS",
+      "description": "Std-normal shock for the inner GBM terminal (one per inner realization).",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "iST",
+      "name": "Inner terminal price",
+      "type": "expression",
+      "container": "innerBS",
+      "description": "Inner GBM terminal price from the (bound) start price.",
+      "inputs": [
+        "iS0",
+        "iTrem",
+        "iZ",
+        "ir",
+        "isig"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "iS0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "ir"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "isig"
+                        },
+                        "right": {
+                          "op": "ref",
+                          "element_id": "isig"
+                        }
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "iTrem"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "isig"
+                    },
+                    "right": {
+                      "op": "call",
+                      "fn": "sqrt",
+                      "args": [
+                        {
+                          "op": "ref",
+                          "element_id": "iTrem"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "iZ"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "iS0 exp((r-.5s^2)T + s sqrt(T) Z)"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "ipay",
+      "name": "Inner discounted payoff",
+      "type": "expression",
+      "container": "innerBS",
+      "description": "Inner discounted call payoff. Its MEAN over inner realizations is a Monte-Carlo estimate of the Black-Scholes call value at the (bound) start price.",
+      "inputs": [
+        "iK",
+        "iST",
+        "iTrem",
+        "ir"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "neg",
+                "operand": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "ir"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "iTrem"
+                  }
+                }
+              }
+            ]
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "ref",
+                  "element_id": "iST"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "iK"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "exp(-r T) max(iST - iK, 0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S0",
+      "name": "Spot",
+      "type": "constant",
+      "container": "market",
+      "description": "Today's underlying price.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "market",
+      "description": "Call strike.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "market",
+      "description": "Risk-free rate (risk-neutral horizon drift).",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "market",
+      "description": "Volatility.",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "H",
+      "name": "Risk horizon (yr)",
+      "type": "constant",
+      "container": "market",
+      "description": "Revaluation horizon; equals the outer simulation duration.",
+      "value": {
+        "value": 0.25,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "Trem",
+      "name": "Remaining maturity (yr)",
+      "type": "constant",
+      "container": "market",
+      "description": "T - H, the option's remaining life at the horizon.",
+      "value": {
+        "value": 0.75,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": null,
+        "max": null
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "Zc",
+      "name": "Horizon shock",
+      "type": "random_variable",
+      "container": "market",
+      "description": "Std-normal shock driving the outer horizon price (one per outer realization).",
+      "distribution": {
+        "family": "normal",
+        "parameters": {
+          "mean": {
+            "value": 0.0,
+            "unit": "1"
+          },
+          "stddev": {
+            "value": 1.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": false
+      }
+    },
+    {
+      "id": "S_H",
+      "name": "Horizon price",
+      "type": "expression",
+      "container": "market",
+      "description": "The outer risk-factor state at the horizon \u2014 the value the inner revaluation is CONDITIONED on.",
+      "inputs": [
+        "H",
+        "S0",
+        "Zc",
+        "r",
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S0"
+          },
+          "right": {
+            "op": "call",
+            "fn": "exp",
+            "args": [
+              {
+                "op": "add",
+                "left": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "r"
+                    },
+                    "right": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "literal",
+                        "value": 0.5
+                      },
+                      "right": {
+                        "op": "multiply",
+                        "left": {
+                          "op": "ref",
+                          "element_id": "sigma"
+                        },
+                        "right": {
+                          "op": "ref",
+                          "element_id": "sigma"
+                        }
+                      }
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "H"
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "multiply",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "sigma"
+                    },
+                    "right": {
+                      "op": "call",
+                      "fn": "sqrt",
+                      "args": [
+                        {
+                          "op": "ref",
+                          "element_id": "H"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "Zc"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "display": "S0 exp((r-.5s^2)H + s sqrt(H) Zc)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "port_value",
+      "name": "Portfolio value at horizon (nested MC)",
+      "type": "expression",
+      "container": "risk",
+      "description": "The call's value in each horizon scenario, estimated by an inner Monte-Carlo revaluation CONDITIONED on that scenario's S_H. Its distribution across outer paths is the horizon P&L distribution \u2014 exactly the nested-simulation structure of VaR / CVA.",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "nested_stat",
+          "submodel_id": "innerBS",
+          "output": "ipay",
+          "statistic": "mean",
+          "bindings": [
+            {
+              "input": "iS0",
+              "from": "S_H"
+            }
+          ]
+        },
+        "display": "nested_stat(innerBS.ipay, mean; iS0<-S_H)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "bs_ref",
+      "name": "Black-Scholes value at S_H",
+      "type": "expression",
+      "container": "risk",
+      "description": "Closed-form call value at the horizon price \u2014 the exact conditional expectation the nested MC estimates.",
+      "inputs": [
+        "K",
+        "S_H",
+        "Trem",
+        "r",
+        "sigma"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "S_H"
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "divide",
+                        "left": {
+                          "op": "add",
+                          "left": {
+                            "op": "call",
+                            "fn": "ln",
+                            "args": [
+                              {
+                                "op": "divide",
+                                "left": {
+                                  "op": "ref",
+                                  "element_id": "S_H"
+                                },
+                                "right": {
+                                  "op": "ref",
+                                  "element_id": "K"
+                                }
+                              }
+                            ]
+                          },
+                          "right": {
+                            "op": "multiply",
+                            "left": {
+                              "op": "add",
+                              "left": {
+                                "op": "ref",
+                                "element_id": "r"
+                              },
+                              "right": {
+                                "op": "multiply",
+                                "left": {
+                                  "op": "literal",
+                                  "value": 0.5
+                                },
+                                "right": {
+                                  "op": "multiply",
+                                  "left": {
+                                    "op": "ref",
+                                    "element_id": "sigma"
+                                  },
+                                  "right": {
+                                    "op": "ref",
+                                    "element_id": "sigma"
+                                  }
+                                }
+                              }
+                            },
+                            "right": {
+                              "op": "ref",
+                              "element_id": "Trem"
+                            }
+                          }
+                        },
+                        "right": {
+                          "op": "multiply",
+                          "left": {
+                            "op": "ref",
+                            "element_id": "sigma"
+                          },
+                          "right": {
+                            "op": "call",
+                            "fn": "sqrt",
+                            "args": [
+                              {
+                                "op": "ref",
+                                "element_id": "Trem"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "ref",
+                "element_id": "K"
+              },
+              "right": {
+                "op": "call",
+                "fn": "exp",
+                "args": [
+                  {
+                    "op": "neg",
+                    "operand": {
+                      "op": "multiply",
+                      "left": {
+                        "op": "ref",
+                        "element_id": "r"
+                      },
+                      "right": {
+                        "op": "ref",
+                        "element_id": "Trem"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "literal",
+                "value": 0.5
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                "right": {
+                  "op": "call",
+                  "fn": "erf",
+                  "args": [
+                    {
+                      "op": "multiply",
+                      "left": {
+                        "op": "subtract",
+                        "left": {
+                          "op": "divide",
+                          "left": {
+                            "op": "add",
+                            "left": {
+                              "op": "call",
+                              "fn": "ln",
+                              "args": [
+                                {
+                                  "op": "divide",
+                                  "left": {
+                                    "op": "ref",
+                                    "element_id": "S_H"
+                                  },
+                                  "right": {
+                                    "op": "ref",
+                                    "element_id": "K"
+                                  }
+                                }
+                              ]
+                            },
+                            "right": {
+                              "op": "multiply",
+                              "left": {
+                                "op": "add",
+                                "left": {
+                                  "op": "ref",
+                                  "element_id": "r"
+                                },
+                                "right": {
+                                  "op": "multiply",
+                                  "left": {
+                                    "op": "literal",
+                                    "value": 0.5
+                                  },
+                                  "right": {
+                                    "op": "multiply",
+                                    "left": {
+                                      "op": "ref",
+                                      "element_id": "sigma"
+                                    },
+                                    "right": {
+                                      "op": "ref",
+                                      "element_id": "sigma"
+                                    }
+                                  }
+                                }
+                              },
+                              "right": {
+                                "op": "ref",
+                                "element_id": "Trem"
+                              }
+                            }
+                          },
+                          "right": {
+                            "op": "multiply",
+                            "left": {
+                              "op": "ref",
+                              "element_id": "sigma"
+                            },
+                            "right": {
+                              "op": "call",
+                              "fn": "sqrt",
+                              "args": [
+                                {
+                                  "op": "ref",
+                                  "element_id": "Trem"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "right": {
+                          "op": "multiply",
+                          "left": {
+                            "op": "ref",
+                            "element_id": "sigma"
+                          },
+                          "right": {
+                            "op": "call",
+                            "fn": "sqrt",
+                            "args": [
+                              {
+                                "op": "ref",
+                                "element_id": "Trem"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": 0.7071067811865476
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "display": "BS(S_H, K, r, sigma, Trem)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "marginal_bs",
+      "name": "Marginal (unconditioned) BS",
+      "type": "expression",
+      "container": "risk",
+      "description": "The MARGINAL submodel statistic: the inner runs once with its default start price (100), so this is a single constant BS(100) shared by all outer paths \u2014 NOT conditioned on S_H. Included to contrast with nested_stat.",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "submodel_stat",
+          "submodel_id": "innerBS",
+          "output": "ipay",
+          "statistic": "mean"
+        },
+        "display": "submodel_stat(innerBS.ipay, mean)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}

@@ -416,7 +416,7 @@ pub fn run(
         for elem in &model.elements {
             if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
                 if !corr_rv_ids.contains(&elem.id) {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let v = sampling::sample(&resolved.kind, &resolved.truncation, &mut rng)?;
                     rv_samples.insert(elem.id.clone(), v);
@@ -438,7 +438,7 @@ pub fn run(
             for (i, id) in group.ids.iter().enumerate() {
                 let elem = &model.elements[elem_idx[id.as_str()]];
                 if let ElementKind::RandomVariable { distribution, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &dist_ctx, prev_outputs: &empty_prev, elapsed: 0.0, dt, step_index: 0 };
                     let resolved = resolve_distribution(distribution, &ctx)?;
                     let u = sampling::standard_normal_cdf(z_corr[i]);
                     let v = match sampling::icdf(&resolved.kind, u) {
@@ -503,7 +503,7 @@ pub fn run(
         for elem_id in &graph.topo_order {
             let elem = &model.elements[elem_idx[elem_id.as_str()]];
             if let ElementKind::Expression { expression, .. } = &elem.kind {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                 if let Ok(v) = eval_ast(&expression.ast, &ctx) {
                     init_ctx_outputs.insert(elem_id.clone(), v);
                 }
@@ -517,7 +517,7 @@ pub fn run(
             if let ElementKind::Accumulator { initial_value, initial_expression, .. } = &elem.kind {
                 let init = match initial_expression {
                     Some(expr) => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &init_ctx_outputs, prev_outputs: &empty_map, elapsed: 0.0, dt, step_index: 0 };
                         eval_ast(&expr.ast, &ctx)?
                     }
                     None => Value::Scalar(initial_value.value),
@@ -609,7 +609,7 @@ pub fn run(
                     }
 
                     ElementKind::Expression { expression, .. } => {
-                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                        let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                             lookups: &lookups, dt_unit: &dt_unit,
                             outputs: &outputs,
                             prev_outputs: &prev_outputs,
@@ -627,7 +627,7 @@ pub fn run(
                                 if *procedural {
                                     eprintln!("warn: {elem_id} has procedural control flow; only expressions[0] evaluated");
                                 }
-                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                                 eval_ast(&ef.ast, &ctx)?
                             }
                         }
@@ -642,7 +642,7 @@ pub fn run(
                             None => !expressions.is_empty(),
                         };
                         if is_expression {
-                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                            let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                                 lookups: &lookups, dt_unit: &dt_unit,
                                 outputs: &outputs,
                                 prev_outputs: &prev_outputs,
@@ -668,7 +668,7 @@ pub fn run(
             for &id in &acc_ids {
                 let elem = &model.elements[elem_idx[id]];
                 if let ElementKind::Accumulator { rate, min_value, capacity, .. } = &elem.kind {
-                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
+                    let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None,
                         lookups: &lookups, dt_unit: &dt_unit,
                         outputs: &outputs,
                         prev_outputs: &prev_outputs,
@@ -716,7 +716,7 @@ pub fn run(
 
             // Evaluate time_history_displays against the finalized step outputs.
             for d in &model.time_history_displays {
-                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
+                let ctx = EvalCtx { dimensions: &dim_sizes_empty, dim_labels: &dim_labels_empty, run_stats: &run_stats_empty, run_vecs: None, run_step_vecs: None, index_stack: &index_stack_empty, submodel_outputs: &submodel_outputs_empty, lag: None, fired_events: &fired_events_empty, calendar_start: None, lookups: &lookups, dt_unit: &dt_unit, outputs: &outputs, prev_outputs: &prev_outputs, elapsed, dt, step_index: step_idx };
                 let v = eval_ast(&d.expression.ast, &ctx)?.as_scalar();
                 hist_store.get_mut(&d.id).unwrap()[step_idx].push(v);
                 if step_idx == n_steps - 1 {
@@ -1096,56 +1096,77 @@ pub(crate) fn jackknife_beta(xs: &[f64], ys: &[f64], folds: usize) -> Vec<f64> {
     (0..n).map(|i| beta_f[i % k]).collect()
 }
 
-/// Longstaff-Schwartz least-squares Monte Carlo backward induction over a stored path panel.
-///
-/// `state[t][i]` / `payoff[t][i]` are the regression state and immediate-exercise payoff at grid
-/// step `t` (`0..m`) on realization `i` (`0..n`). Every grid step is an exercise date (the American
-/// limit / a fine Bermudan). `disc` is the per-step discount `exp(-r·dt)`; `basis` is the polynomial
-/// degree in the state scaled by its step-0 mean (for conditioning).
-///
-/// Returns each path's cashflow **discounted to t0** under the fitted exercise policy — so the mean
-/// of the returned vector is the option price (the caller injects it per realization).
-///
-/// Uses the shared covariance regression (`regression_coefficients`), which fits centered slopes; the
-/// continuation is reconstructed as `ȳ + Σ_p β_p·(xᵖ − mean(xᵖ))`. A constant basis column is
-/// therefore intentionally omitted (it would be singular under covariance regression). Regression is
-/// run only over in-the-money paths (Longstaff-Schwartz), and skipped at a date with too few of them
-/// (then all paths simply continue).
-/// A fitted continuation function at one exercise date: `Ĉ(x) = ȳ + Σ_p β_p·(xᵖ − x̄ᵖ)` on the
-/// scaled state `x = S/scale`, in discounted-to-t0 units. (Covariance regression fits centered
-/// slopes, so the intercept is implicit via the means — a constant column would be singular.)
+/// A fitted continuation function at one exercise date: `Ĉ(row) = ȳ + Σ_c β_c·(rowᶜ − r̄ᶜ)` on a row
+/// of **monomial** basis values (in discounted-to-t0 units). Covariance regression fits centered
+/// slopes, so the intercept is implicit via the means — a constant column would be singular.
 struct DateFit {
     beta: Vec<f64>,
     ybar: f64,
     colbar: Vec<f64>,
 }
 
-fn cont_at(fit: &DateFit, x_scaled: f64, deg: usize) -> f64 {
-    fit.ybar + (1..=deg).map(|p| fit.beta[p - 1] * (x_scaled.powi(p as i32) - fit.colbar[p - 1])).sum::<f64>()
+fn cont_at(fit: &DateFit, row: &[f64]) -> f64 {
+    fit.ybar + (0..fit.beta.len()).map(|c| fit.beta[c] * (row[c] - fit.colbar[c])).sum::<f64>()
 }
 
-/// Backward induction over the given path indices: fits per-date continuation functions and returns
-/// them with the in-sample discounted-to-t0 cashflow for those paths (index-aligned with `idx`).
-/// Regression is over in-the-money paths only; a date with too few gets no fit (everyone continues).
+/// All monomial exponent tuples over `k` states with total degree `1 ..= deg` (constant excluded).
+/// For `k = 1` this is `[[1], [2], …, [deg]]` — the univariate power basis, so a single-state LSM is
+/// byte-identical to before. For `k = 2, deg = 2`: `S1, S2, S1², S1·S2, S2²`.
+fn monomial_exponents(k: usize, deg: usize) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut cur = vec![0usize; k];
+    fn rec(pos: usize, k: usize, deg: usize, cur: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+        if pos == k {
+            let s: usize = cur.iter().sum();
+            if (1..=deg).contains(&s) {
+                out.push(cur.clone());
+            }
+            return;
+        }
+        let used: usize = cur[..pos].iter().sum();
+        for e in 0..=(deg - used) {
+            cur[pos] = e;
+            rec(pos + 1, k, deg, cur, out);
+        }
+        cur[pos] = 0;
+    }
+    rec(0, k, deg, &mut cur, &mut out);
+    out
+}
+
+/// One basis row: the monomial values for the scaled state vector `xs` (one entry per state dim).
+fn basis_row(xs: &[f64], exps: &[Vec<usize>]) -> Vec<f64> {
+    exps.iter().map(|e| e.iter().enumerate().map(|(d, &p)| xs[d].powi(p as i32)).product()).collect()
+}
+
+/// Backward induction over the given path indices with a (possibly multivariate) monomial basis:
+/// fits per-date continuation functions and returns them with the in-sample discounted-to-t0 cashflow
+/// for those paths (index-aligned with `idx`). Regression is over in-the-money paths only.
+#[allow(clippy::too_many_arguments)]
 fn lsm_fit(
-    state: &[Vec<f64>], payoff: &[Vec<f64>], idx: &[usize], deg: usize, disc: f64, scale: f64,
+    states: &[&[Vec<f64>]], payoff: &[Vec<f64>], idx: &[usize], exps: &[Vec<usize>], disc: f64,
+    scales: &[f64],
 ) -> (Vec<Option<DateFit>>, Vec<f64>) {
-    let m = state.len();
+    let m = payoff.len();
     let last = m - 1;
     let n = idx.len();
+    let ncol = exps.len();
+    let scaled = |t: usize, i: usize| -> Vec<f64> {
+        (0..states.len()).map(|d| states[d][t][i] / scales[d]).collect()
+    };
     let mut v: Vec<f64> = idx.iter().map(|&i| disc.powi(last as i32) * payoff[last][i]).collect();
     let mut fits: Vec<Option<DateFit>> = (0..m).map(|_| None).collect();
     for t in (1..last).rev() {
         let sel: Vec<usize> = (0..n).filter(|&k| payoff[t][idx[k]] > 0.0).collect();
-        if sel.len() <= deg + 1 {
+        if sel.len() <= ncol + 1 {
             continue;
         }
-        let xs: Vec<f64> = sel.iter().map(|&k| state[t][idx[k]] / scale).collect();
+        let rows: Vec<Vec<f64>> = sel.iter().map(|&k| basis_row(&scaled(t, idx[k]), exps)).collect();
         let ys: Vec<f64> = sel.iter().map(|&k| v[k]).collect();
-        let cols: Vec<Vec<f64>> = (1..=deg).map(|p| xs.iter().map(|x| x.powi(p as i32)).collect()).collect();
+        let cols: Vec<Vec<f64>> = (0..ncol).map(|c| rows.iter().map(|r| r[c]).collect()).collect();
         let col_refs: Vec<&[f64]> = cols.iter().map(|c| c.as_slice()).collect();
         let beta = regression_coefficients(&ys, &col_refs);
-        if beta.len() != deg {
+        if beta.len() != ncol {
             continue;
         }
         let ybar = ys.iter().sum::<f64>() / ys.len() as f64;
@@ -1153,7 +1174,7 @@ fn lsm_fit(
         let fit = DateFit { beta, ybar, colbar };
         for (j, &k) in sel.iter().enumerate() {
             let exercise = disc.powi(t as i32) * payoff[t][idx[k]];
-            if exercise > cont_at(&fit, xs[j], deg) {
+            if exercise > cont_at(&fit, &rows[j]) {
                 v[k] = exercise;
             }
         }
@@ -1165,17 +1186,20 @@ fn lsm_fit(
 /// Apply a fitted exercise policy to (out-of-sample) test paths: exercise at the first date where the
 /// intrinsic value beats the fitted continuation, else at maturity. Returns each test path's
 /// discounted-to-t0 cashflow (index-aligned with `idx`).
+#[allow(clippy::too_many_arguments)]
 fn lsm_apply(
-    state: &[Vec<f64>], payoff: &[Vec<f64>], idx: &[usize], fits: &[Option<DateFit>], deg: usize,
-    disc: f64, scale: f64,
+    states: &[&[Vec<f64>]], payoff: &[Vec<f64>], idx: &[usize], fits: &[Option<DateFit>],
+    exps: &[Vec<usize>], disc: f64, scales: &[f64],
 ) -> Vec<f64> {
-    let last = state.len() - 1;
+    let last = payoff.len() - 1;
     idx.iter().map(|&i| {
         for t in 1..last {
             if payoff[t][i] > 0.0 {
                 if let Some(f) = &fits[t] {
                     let exercise = disc.powi(t as i32) * payoff[t][i];
-                    if exercise >= cont_at(f, state[t][i] / scale, deg) {
+                    let row = basis_row(
+                        &(0..states.len()).map(|d| states[d][t][i] / scales[d]).collect::<Vec<_>>(), exps);
+                    if exercise >= cont_at(f, &row) {
                         return exercise;
                     }
                 }
@@ -1185,38 +1209,39 @@ fn lsm_apply(
     }).collect()
 }
 
-/// Longstaff-Schwartz least-squares Monte Carlo over a stored path panel. `state[t][i]` /
-/// `payoff[t][i]` are the regression state and immediate-exercise payoff at grid step `t` (`0..m`) on
-/// realization `i`. `disc` is the per-step discount `exp(-r·dt)`; `basis` is the polynomial degree.
+/// Longstaff-Schwartz least-squares Monte Carlo over one or more stored state panels. `states[d]` is
+/// the `d`-th regression state's `[dates × paths]` panel; `payoff` is the immediate-exercise value.
+/// `basis` is the total polynomial degree of the monomial basis over the states. `disc` is the
+/// per-step discount.
 ///
-/// `folds <= 1`: in-sample — fit the policy on all paths and price them (a slightly LOW-biased point
-/// estimate). `folds >= 2`: **out-of-sample k-fold cross-fit** — for each fold, fit on the other folds
-/// and price this fold under that fixed policy, so every path is priced out-of-sample. That removes
-/// the in-sample bias (a nearly unbiased LOWER bound). Returns each path's discounted-to-t0 cashflow
-/// (the caller injects it per realization; the mean is the price).
+/// `folds <= 1`: in-sample (slightly low-biased). `folds >= 2`: out-of-sample k-fold cross-fit — fit
+/// the policy on the other folds and price each fold under it (a nearly unbiased LOWER bound). Returns
+/// each path's discounted-to-t0 cashflow; the mean is the price.
 pub(crate) fn lsm_backward(
-    state: &[Vec<f64>], payoff: &[Vec<f64>], basis: usize, disc: f64, folds: usize,
+    states: &[&[Vec<f64>]], payoff: &[Vec<f64>], basis: usize, disc: f64, folds: usize,
 ) -> Vec<f64> {
-    let m = state.len();
+    if states.is_empty() { return Vec::new(); }
+    let m = payoff.len();
     if m == 0 { return Vec::new(); }
-    let n = state[0].len();
+    let n = payoff[0].len();
     if n == 0 { return Vec::new(); }
     let deg = basis.max(1);
-    let scale = {
-        let s0 = state[0].iter().sum::<f64>() / n as f64;
+    let exps = monomial_exponents(states.len(), deg);
+    let scales: Vec<f64> = states.iter().map(|s| {
+        let s0 = s[0].iter().sum::<f64>() / n as f64;
         if s0.abs() > 1e-12 { s0 } else { 1.0 }
-    };
+    }).collect();
     if folds <= 1 {
         let all: Vec<usize> = (0..n).collect();
-        return lsm_fit(state, payoff, &all, deg, disc, scale).1;
+        return lsm_fit(states, payoff, &all, &exps, disc, &scales).1;
     }
     let k = folds.clamp(2, n);
     let mut out = vec![0.0; n];
     for f in 0..k {
         let train: Vec<usize> = (0..n).filter(|i| i % k != f).collect();
         let test: Vec<usize> = (0..n).filter(|i| i % k == f).collect();
-        let (fits, _) = lsm_fit(state, payoff, &train, deg, disc, scale);
-        let cf = lsm_apply(state, payoff, &test, &fits, deg, disc, scale);
+        let (fits, _) = lsm_fit(states, payoff, &train, &exps, disc, &scales);
+        let cf = lsm_apply(states, payoff, &test, &fits, &exps, disc, &scales);
         for (j, &i) in test.iter().enumerate() {
             out[i] = cf[j];
         }

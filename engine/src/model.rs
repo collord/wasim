@@ -681,6 +681,40 @@ pub enum AstNode {
         output_y: String,
         statistic: RunPairStat,
     },
+    // CONDITIONAL nested-submodel statistic — the conditional twin of `submodel_stat`. For each
+    // OUTER realization, the referenced submodel is re-run with its declared input constants BOUND to
+    // this outer path's realized values (`bindings`), and `statistic` reduces the inner `output`'s
+    // per-inner-realization finals to a scalar — this realization's value. So it evaluates the nested
+    // conditional expectation `E_outer[ stat( inner output | outer state ) ]`. Whereas `submodel_stat`
+    // runs the submodel ONCE (marginal, independent of the outer state), `nested_stat` runs it once
+    // per outer realization, CONDITIONED on the outer state. Cost is the double-loop
+    // `N_outer × N_inner`; keep both modest. Uses the per-realization injection channel (like `lsm` /
+    // `run_split_beta`) — 0.0 in the first pass. See NESTED_STAT_SCOPE.md.
+    NestedStat {
+        /// The submodel container to nest (same container the marginal `submodel_stat` would name).
+        submodel_id: String,
+        /// Interior element whose per-inner-realization finals are reduced by `statistic`.
+        output: String,
+        /// The reduction (mean / percentile / std / cumulative_prob / exceedance / cte / …).
+        statistic: SubmodelStatKind,
+        /// Literal argument for arg-taking statistics (percentile level, threshold, …).
+        #[serde(default)]
+        arg: Option<Box<AstNode>>,
+        /// Bindings pinning inner input constants to outer elements' per-realization values. Each
+        /// `{input, from}` overrides the inner constant `input` with the outer element `from`'s
+        /// realized final value for the current outer realization — this is what makes the inner run
+        /// CONDITIONAL on the outer state.
+        #[serde(default)]
+        bindings: Vec<NestedBinding>,
+        /// Binding scope. `false` (default): bind to each outer realization's TERMINAL state — one
+        /// inner run per realization; the node's value is a single scalar per realization. `true`:
+        /// bind to the outer state at EVERY timestep — one inner run per `(realization, step)` node,
+        /// so the node evaluates to a per-step value and its `time_history` is a profile over time
+        /// (exposure profiles, PFE, per-date conditional expectations). Cost is `N_outer × steps ×
+        /// N_inner`; the `from` bindings must have `time_history` saved.
+        #[serde(default)]
+        each_step: bool,
+    },
     // Array construction: evaluates each element and produces a vector
     Array {
         elements: Vec<AstNode>,
@@ -767,6 +801,11 @@ pub enum AstNode {
     Lsm {
         /// Element whose per-step history is the regression state (usually the underlying price).
         state: String,
+        /// Additional state elements for a MULTI-ASSET early-exercise option. When present, the
+        /// continuation regression uses a MULTIVARIATE monomial basis over `state` and every element
+        /// listed here (total degree ≤ `basis`). Empty (default) = single-asset, byte-identical to before.
+        #[serde(default)]
+        states: Vec<String>,
         /// Element whose per-step history is the immediate-exercise payoff (e.g. max(K - S, 0)).
         payoff: String,
         /// Polynomial basis degree in the (scaled) state; default 3.
@@ -784,6 +823,16 @@ pub enum AstNode {
     // the hedging martingale M_t = θ·(discᵗ·S_t − S_0). discᵗ·S_t is a true martingale, so
     // E[maxₜ(Zₜ − Mₜ)] ≥ price for every θ; minimizing over θ gives a valid (if loose) UPPER bound.
     // Evaluates to this realization's maxₜ(Zₜ − Mₜ), so the mean is the dual price. Scalar lane only.
+    //
+    // With `inner > 0` it instead computes the TIGHT dual: the Doob martingale of the discounted-payoff
+    // process `Y_t = discᵗ·payoff_t`, `M_t = Σ_{k≤t}(Y_k − E_{k−1}[Y_k])`, where the one-step conditional
+    // expectation `E_{k−1}[Y_k]` is estimated by nested simulation — `inner` fresh draws of the next-step
+    // state resampled from the panel's own one-step log-returns (so no volatility parameter is needed),
+    // with the payoff re-evaluated at those states. This is a genuine martingale, so the bound is valid,
+    // and — because the intrinsic process tracks the option far better than a single hedge — much tighter
+    // (≈ 6.5 vs ≈ 9.7 for the American put). The nested conditional expectation is the `nested_stat`
+    // `each_step` operation done natively for speed (grid-and-interpolate over the state). Requires the
+    // `payoff` element to be a plain function of `state` + constants. See AMERICAN_OPTION_SCOPE.md §8.
     LsmDual {
         /// Element whose per-step history is the underlying (the hedging martingale discᵗ·S_t).
         state: String,
@@ -791,6 +840,10 @@ pub enum AstNode {
         payoff: String,
         /// Annual risk-free rate for per-step discounting.
         rate: f64,
+        /// Inner samples for the tight (nested Doob) dual. `0` (default) = the loose single-hedge dual.
+        /// `> 0` = the tight dual with this many resampled next-step draws per exercise date.
+        #[serde(default)]
+        inner: usize,
     },
     // A source function the engine does not implement — preserved for round-tripping
     // and connectivity; evaluates to 0.0 (opaque).
@@ -808,6 +861,18 @@ pub enum IndexAxis {
     #[default]
     Row,
     Col,
+}
+
+/// One binding of a `nested_stat` node: pin the inner submodel's input constant `input` to the
+/// outer element `from`'s per-realization realized value. This is what makes the nested run
+/// conditional on the outer state. `input` should name a `constant` (fixed) element inside the
+/// submodel — its value is overridden for each outer realization's inner run.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NestedBinding {
+    /// Inner submodel constant element id whose value is overridden per outer realization.
+    pub input: String,
+    /// Outer element id whose per-realization final value is bound into `input`.
+    pub from: String,
 }
 
 /// Which statistic a `submodel_stat` node reduces a submodel output to.

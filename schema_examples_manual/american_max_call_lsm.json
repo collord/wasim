@@ -1,0 +1,571 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "American MAX-CALL on two correlated dividend-paying assets, priced by MULTI-ASSET Longstaff-Schwartz least-squares Monte Carlo. The `lsm` node now takes an extra `states` list; the continuation regression uses a MULTIVARIATE monomial basis of (S1,S2) up to total degree `basis` over in-the-money paths (a single-asset model with empty `states` is byte-identical to before). Two correlated GBM paths (per-step process correlation, rho=0.30) with dividend yield q=0.10 (drift r-q); the dividend is what makes early exercise optimal for a max-call. American price ~9.56 matches a Boyle-Evnine-Gibbs 2-asset binomial lattice at the LSM effective maturity T_eff=T-dt; the European max-call on the same paths is lower by the early-exercise premium. See AMERICAN_OPTION_EXAMPLE.md / AMERICAN_OPTION_SCOPE.md."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 1.0,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 0.02,
+      "unit": "yr"
+    },
+    "n_realizations": 40000,
+    "sampling_method": "monte_carlo",
+    "seed": 20250727
+  },
+  "containers": [
+    {
+      "id": "contract",
+      "name": "Contract & Market",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "path",
+      "name": "Correlated Paths & Payoff",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "pricing",
+      "name": "American Price (multi-asset LSM)",
+      "parent": null,
+      "children": []
+    },
+    {
+      "id": "reference",
+      "name": "European Reference",
+      "parent": null,
+      "children": []
+    }
+  ],
+  "elements": [
+    {
+      "id": "S0",
+      "name": "Spot (both)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Initial price of each underlying.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "K",
+      "name": "Strike",
+      "type": "constant",
+      "container": "contract",
+      "description": "Strike of the max-call.",
+      "value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": null
+      }
+    },
+    {
+      "id": "r",
+      "name": "Rate",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annual risk-free rate (LSM discount).",
+      "value": {
+        "value": 0.05,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": -0.1,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "q",
+      "name": "Dividend yield",
+      "type": "constant",
+      "container": "contract",
+      "description": "Continuous dividend yield on each asset; the GBM risk-neutral drift is r - q. Without a dividend, a max-call is never exercised early (American = European); the dividend is what creates the early-exercise premium.",
+      "value": {
+        "value": 0.1,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    {
+      "id": "sigma",
+      "name": "Volatility",
+      "type": "constant",
+      "container": "contract",
+      "description": "Annualized volatility (both assets).",
+      "value": {
+        "value": 0.2,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.001,
+        "max": 3.0
+      }
+    },
+    {
+      "id": "T",
+      "name": "Maturity (yr)",
+      "type": "constant",
+      "container": "contract",
+      "description": "Maturity; must equal simulation duration.",
+      "value": {
+        "value": 1.0,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0.01,
+        "max": 30.0
+      }
+    },
+    {
+      "id": "P1",
+      "name": "GBM Rate 1",
+      "type": "stochastic_process",
+      "container": "path",
+      "description": "Per-step risk-neutral GBM rate for asset 1; drift = r - q (dividend), vol = sigma. Declares rho=0.30 to P2, so the two PATHS co-move (correlated per-step shocks).",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "r"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "q"
+            }
+          },
+          "display": "r - q"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "correlations": [
+        {
+          "partner": "P2",
+          "coefficient": 0.3
+        }
+      ],
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S1",
+      "name": "Underlying 1",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Exact GBM price path for asset 1 (rate = S1*P1).",
+      "inputs": [
+        "S1",
+        "P1"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S1"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P1"
+          }
+        },
+        "display": "S1*P1"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S1_lag",
+      "name": "State 1 (read-aligned)",
+      "type": "expression",
+      "container": "path",
+      "description": "Asset 1 read at the same (start-of-step) timing as the payoff, so the state and payoff panels align.",
+      "inputs": [
+        "S1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S1"
+        },
+        "display": "S1"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": true
+      }
+    },
+    {
+      "id": "P2",
+      "name": "GBM Rate 2",
+      "type": "stochastic_process",
+      "container": "path",
+      "description": "Per-step risk-neutral GBM rate for asset 2; drift = r - q (dividend), vol = sigma.",
+      "process": {
+        "family": "gbm",
+        "mean_type": "arithmetic",
+        "mean": {
+          "ast": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "r"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "q"
+            }
+          },
+          "display": "r - q"
+        },
+        "stddev": {
+          "ast": {
+            "op": "ref",
+            "element_id": "sigma"
+          },
+          "display": "sigma"
+        }
+      },
+      "correlations": [],
+      "save_results": {
+        "final_value": false,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S2",
+      "name": "Underlying 2",
+      "type": "accumulator",
+      "container": "path",
+      "description": "Exact GBM price path for asset 2 (rate = S2*P2).",
+      "inputs": [
+        "S2",
+        "P2"
+      ],
+      "initial_value": {
+        "value": 100.0,
+        "unit": "USD"
+      },
+      "rate": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "S2"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "P2"
+          }
+        },
+        "display": "S2*P2"
+      },
+      "min_value": null,
+      "capacity": null,
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S2_lag",
+      "name": "State 2 (read-aligned)",
+      "type": "expression",
+      "container": "path",
+      "description": "Asset 2 read at the same (start-of-step) timing as the payoff, so the state and payoff panels align.",
+      "inputs": [
+        "S2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S2"
+        },
+        "display": "S2"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": true
+      }
+    },
+    {
+      "id": "h",
+      "name": "Exercise Payoff",
+      "type": "expression",
+      "container": "path",
+      "description": "Immediate-exercise value of the max-call at each date; history saved as the LSM payoff panel.",
+      "inputs": [
+        "K",
+        "S1",
+        "S2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "max",
+          "args": [
+            {
+              "op": "subtract",
+              "left": {
+                "op": "call",
+                "fn": "max",
+                "args": [
+                  {
+                    "op": "ref",
+                    "element_id": "S1"
+                  },
+                  {
+                    "op": "ref",
+                    "element_id": "S2"
+                  }
+                ]
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "K"
+              }
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
+        },
+        "display": "max(max(S1,S2) - K, 0)"
+      },
+      "save_results": {
+        "final_value": false,
+        "time_history": true
+      }
+    },
+    {
+      "id": "american_maxcall",
+      "name": "American Max-Call (LSM, OOS)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "American max-call by MULTI-ASSET Longstaff-Schwartz: the continuation value is regressed on a MULTIVARIATE monomial basis of (S1,S2) up to total degree 3 over in-the-money paths, priced out-of-sample (2-fold cross-fit). Mean = the American price (~9.56 vs BEG binomial). Multi-asset generalization of the single-asset `lsm` node.",
+      "inputs": [
+        "S1_lag",
+        "S2_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm",
+          "state": "S1_lag",
+          "states": [
+            "S2_lag"
+          ],
+          "payoff": "h",
+          "basis": 3,
+          "rate": 0.05,
+          "folds": 2
+        },
+        "display": "lsm(state=S1_lag+[S2_lag], h; basis 3, 2-fold OOS)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "american_maxcall_is",
+      "name": "American Max-Call (LSM, in-sample)",
+      "type": "expression",
+      "container": "pricing",
+      "description": "In-sample multi-asset LSM (policy fit and priced on the same paths) \u2014 low-biased; kept to show the OOS correction.",
+      "inputs": [
+        "S1_lag",
+        "S2_lag",
+        "h"
+      ],
+      "expression": {
+        "ast": {
+          "op": "lsm",
+          "state": "S1_lag",
+          "states": [
+            "S2_lag"
+          ],
+          "payoff": "h",
+          "basis": 3,
+          "rate": 0.05,
+          "folds": 1
+        },
+        "display": "lsm(state=S1_lag+[S2_lag], h; in-sample)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    },
+    {
+      "id": "S1_T",
+      "name": "Terminal S1",
+      "type": "terminal_expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "S1"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S1"
+        },
+        "display": "S1(T)"
+      }
+    },
+    {
+      "id": "S2_T",
+      "name": "Terminal S2",
+      "type": "terminal_expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "S2"
+      ],
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "S2"
+        },
+        "display": "S2(T)"
+      }
+    },
+    {
+      "id": "disc",
+      "name": "Discount",
+      "type": "expression",
+      "container": "reference",
+      "description": "",
+      "inputs": [
+        "T",
+        "r"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "exp",
+          "args": [
+            {
+              "op": "neg",
+              "operand": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "r"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "T"
+                }
+              }
+            }
+          ]
+        },
+        "display": "exp(-r*T)"
+      }
+    },
+    {
+      "id": "euro_maxcall",
+      "name": "European Max-Call (MC)",
+      "type": "terminal_expression",
+      "container": "reference",
+      "description": "European max-call on the same paths (no early exercise). The American price must exceed this by the early-exercise premium the dividend creates.",
+      "inputs": [
+        "K",
+        "S1_T",
+        "S2_T",
+        "disc"
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "disc"
+          },
+          "right": {
+            "op": "call",
+            "fn": "max",
+            "args": [
+              {
+                "op": "subtract",
+                "left": {
+                  "op": "call",
+                  "fn": "max",
+                  "args": [
+                    {
+                      "op": "ref",
+                      "element_id": "S1_T"
+                    },
+                    {
+                      "op": "ref",
+                      "element_id": "S2_T"
+                    }
+                  ]
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "K"
+                }
+              },
+              {
+                "op": "literal",
+                "value": 0.0
+              }
+            ]
+          }
+        },
+        "display": "disc*max(max(S1,S2)-K,0)"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": false
+      }
+    }
+  ]
+}
