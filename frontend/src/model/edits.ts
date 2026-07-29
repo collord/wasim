@@ -4,7 +4,7 @@
 
 import type { FlatElement, ModelDoc, ModelFormat, NodeView } from './schema'
 import { detectFormat } from './schema'
-import { printAst, refsOf, type Ast } from './ast'
+import { printAst, type Ast } from './ast'
 
 // ── Clone / lookup ──────────────────────────────────────────────────────────────
 
@@ -183,20 +183,28 @@ export function setExpression(doc: ModelDoc, id: string, ast: Ast, field: 'expre
   })
 }
 
-/** Recompute an element's `inputs` from all ASTs it carries (expression + rate). Keeps the
- *  dependency graph honest after an expression edit. */
+/** Deep-collect every AST `ref` element_id inside `obj`, walking all nested objects/arrays
+ *  (not just AST-shaped ones), so it reaches wrapped ASTs like `trigger.condition.ast` and
+ *  `effects[].change.ast`. Only reads `{ op: 'ref', element_id }` nodes — plain id strings
+ *  (effect targets) are not treated as inputs. */
+function collectRefsDeep(obj: unknown, acc: Set<string>): void {
+  if (!obj || typeof obj !== 'object') return
+  if (Array.isArray(obj)) { for (const v of obj) collectRefsDeep(v, acc); return }
+  const rec = obj as Record<string, unknown>
+  if (rec.op === 'ref' && typeof rec.element_id === 'string') acc.add(rec.element_id)
+  for (const v of Object.values(rec)) collectRefsDeep(v, acc)
+}
+
+/** Recompute an element's `inputs` from every AST it carries — expression, stock rate, event
+ *  trigger/condition, status set/reset, and effect `change` values — plus explicit
+ *  flow/lag fields. Keeps the dependency graph + influence arrows honest after any edit. */
 export function recomputeInputs(el: FlatElement): void {
   const refs = new Set<string>()
-  const collect = (ef?: { ast?: Ast } | unknown) => {
-    const ast = (ef as { ast?: Ast })?.ast
-    if (ast) refsOf(ast, refs)
+  for (const field of [el.expression, el.rate, el.trigger, el.set, el.reset, el.effects]) {
+    collectRefsDeep(field, refs)
   }
-  collect(el.expression)
-  if (el.rate && typeof el.rate === 'object' && 'ast' in el.rate) collect(el.rate)
-  // Stocks also list inflows/outflows as inputs.
   const explicit = [...(el.inflows ?? []), ...(el.outflows ?? []), el.input].filter(Boolean) as string[]
-  const merged = new Set<string>([...refs, ...explicit])
-  el.inputs = [...merged]
+  el.inputs = [...new Set<string>([...refs, ...explicit])]
 }
 
 // ── View block (positions / collapse) ────────────────────────────────────────────
@@ -302,6 +310,20 @@ export const PALETTE: PaletteEntry[] = [
     make: (id, name, fmt) => withKind(
       { id, name, initial_value: q(0), inflows: [], outflows: [] },
       fmt, 'accumulator', 'stock'),
+  },
+  {
+    // v2-native failure state machine (spec §5.5). Scaffolds a `condition`-basis FSM — fails
+    // when its condition (e.g. a damage stock ≥ threshold) becomes true; run-to-failure by
+    // default. Output is 0 = operating, 1 = failed. (Events are v2-only.)
+    key: 'event', label: 'Failure / Event', group: 'Reliability', iconType: 'event',
+    make: (id, name) => ({
+      id, name, primitive: 'event',
+      trigger: { mode: 'on_condition', condition: { ast: { op: 'literal', value: 0 }, display: '0' } },
+      failure_process: { basis: 'condition', repair: { policy: 'none' } },
+      effects: [],
+      inputs: [],
+      save_results: { time_history: true, final_value: true },
+    }),
   },
 ]
 
