@@ -103,10 +103,18 @@ container/submodel authoring (§5.8).
   run-to-failure). This is the reliability half of the RAM direction.
 - ✅ **Dimension declaration UI** — the `Fleet` axis is declarable in Settings, the foundation
   the fleet array rides on.
-- ⏭ **Still to do for the fleet model:** a structured `vector_map` / per-member builder
-  (declare an element array over a dimension and author the `index_ref` body without dropping
-  to JSON). This is the one substantial remaining piece; today the per-member expressions are
-  authored via the expression/raw-JSON editors on a dimensioned element.
+- ✅ **`vector_map` / per-member authoring** — an "Array over dimension" control on expression
+  elements wraps the body in a `vector_map` and marks the output dimensioned (drives `#k`
+  results); the expression grammar gained `member` (the current index) and `arr[member]`
+  (per-member subscript), plus the array/masked builtins (`argmin_where`, …) so the whole fleet
+  vocabulary parses, prints readably, and round-trips. The fleet damage recurrence
+  `damage_prev[member] + damage_rate[member]` is now typed, not hand-JSON'd. **Both halves of
+  the RAM direction — reliability and fleet — are now visually authorable.**
+
+Remaining polish (lower priority): per-member `fixed`/`lag` array *payload* editors (values
+vector, dimensioned lag) still route through the raw-JSON editor; label-subscript (`arr#Label`)
+prints but isn't yet a structured picker; and the deeper spec items (visual wiring/ports,
+container/submodel authoring, units feedback, configurable results) are unchanged.
 
 ## Build note
 

@@ -226,36 +226,58 @@ function TruncationEditor({ el, flat }: { el: ElementSummary; flat: FlatElement 
 
 // ── Expression ──────────────────────────────────────────────────────────────────
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 function ExpressionRuleEditor({ el }: { el: ElementSummary }) {
-  const setExpr = useStore((s) => s.mutateEl)
+  const mutate = useStore((s) => s.mutateEl)
   const doc = useStore((s) => s.doc)
   const flat = doc?.elements.find((e) => e.id === el.id)
+  const dims = doc?.dimensions ?? []
   const ast = (flat?.expression as { ast?: Ast } | undefined)?.ast
+  const isArray = (ast as any)?.op === 'vector_map'
+  const over: string = isArray ? (ast as any).over : ''
+  const body: Ast | undefined = isArray ? (ast as any).body : ast
 
-  const commit = (a: Ast) =>
-    setExpr(el.id, (e) => {
-      e.expression = { ast: a, display: printAst(a) }
-      // keep inputs in sync
-      const refs = new Set<string>()
-      const walk = (n: unknown) => {
-        if (!n || typeof n !== 'object') return
-        const o = n as Record<string, unknown>
-        if (o.op === 'ref' && typeof o.element_id === 'string') refs.add(o.element_id)
-        for (const v of Object.values(o)) {
-          if (Array.isArray(v)) v.forEach(walk)
-          else if (v && typeof v === 'object') walk(v)
-        }
-      }
-      walk(a)
-      e.inputs = [...refs]
-    })
+  // Commit the per-member body — re-wrapped in the vector_map when this element is an array.
+  const commitBody = (b: Ast) => {
+    const full: Ast = over ? { op: 'vector_map', over, body: b } : b
+    mutate(el.id, (e) => { e.expression = { ast: full, display: printAst(full) }; recomputeInputs(e) })
+  }
+
+  // Make/unmake this element an array over `dim`: wrap/unwrap the vector_map and mark the
+  // primary output dimensioned (what drives per-member `#k` result expansion).
+  const setOver = (dim: string) => mutate(el.id, (e) => {
+    const cur = (e.expression as { ast?: Ast } | undefined)?.ast
+    const curBody: Ast = (cur as any)?.op === 'vector_map' ? (cur as any).body : (cur ?? { op: 'literal', value: 0 })
+    const full: Ast = dim ? { op: 'vector_map', over: dim, body: curBody } : curBody
+    e.expression = { ast: full, display: printAst(full) }
+    const outs: any[] = Array.isArray((e as any).outputs) ? [...(e as any).outputs] : []
+    const o0: any = { name: e.name ?? e.id, unit: (e.unit as string) ?? '1', ...(outs[0] ?? {}) }
+    if (dim) o0.dimensions = [dim]
+    else delete o0.dimensions
+    outs[0] = o0
+    ;(e as any).outputs = outs
+    recomputeInputs(e)
+  })
 
   return (
-    <Field label="Expression" hint="References draw influence arrows; ⌘/Ctrl-Enter or blur to apply.">
-      <ExpressionEditor ast={ast} onCommit={commit} />
-    </Field>
+    <div className="space-y-2">
+      {dims.length > 0 && (
+        <Field label="Array over" hint="Compute one value per member of a declared dimension.">
+          <Select value={over} onChange={setOver}
+            options={[{ value: '', label: 'Scalar (not an array)' }, ...dims.map((d) => ({ value: d.id, label: `${d.name} (${d.size})` }))]} />
+        </Field>
+      )}
+      <Field
+        label={isArray ? 'Per-member expression' : 'Expression'}
+        hint={isArray
+          ? 'One value per member. `member` = this member’s index; `arr[member]` picks this member of an array.'
+          : 'References draw influence arrows; ⌘/Ctrl-Enter or blur to apply.'}>
+        <ExpressionEditor key={over} ast={body} onCommit={commitBody} />
+      </Field>
+    </div>
   )
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ── Stock ───────────────────────────────────────────────────────────────────────
 
