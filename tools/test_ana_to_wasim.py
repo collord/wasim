@@ -52,6 +52,15 @@ check("Choice(index, 2) -> selected position 2", r == "2" and ns == 0)
 r, refs, ns, _ = lower("Table(Scenarios)(Checkbox(1), Checkbox(0), Checkbox(1))")
 check("Checkbox inside Table lowers to 0/1 array", "1" in (r or "") and "0" in (r or ""))
 
+# ── Table(Index)(values): the index dimension must not leak into the value list ─
+_res, _ = A.parse_definition("Table(Action)(8,15,10,20,5,5,35,50)")
+_ast = A._as_ast(_res)
+check("Table array has exactly the value cells (index not leaked as element 0)",
+      _ast.get("op") == "array" and len(_ast["elements"]) == 8
+      and [c.get("value") for c in _ast["elements"]] == [8, 15, 10, 20, 5, 5, 35, 50])
+_r, _refs, _ns, _ = lower("Table(Action)(8,15,10,20,5,5,35,50)")
+check("Table index name is not treated as a data ref", "Action" not in _refs and _ns == 0)
+
 # ── numeric suffixes ──────────────────────────────────────────────────────────
 r, _, _, _ = lower("2K + 3M")
 check("K/M suffixes tokenize", r == "(2000 + 3000000)")

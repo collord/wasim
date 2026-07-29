@@ -295,6 +295,8 @@ class Call:
     name: str
     pos: list[Any]                        # positional args (AST nodes)
     named: dict[str, Any]                 # named args (AST nodes)
+    index: Optional[list[Any]] = None     # index-dimension args from a `Table(I…)(…)`
+                                          # double-application (kept out of `pos`)
 
 
 class ExprParser:
@@ -412,13 +414,17 @@ class ExprParser:
                 pos, named = self.parse_call_args()
                 self.expect(Tok.RP)
                 call = Call(name=val, pos=pos, named=named)
-                # Analytica double-application: Table(I)(v1, v2, ...)
+                # Analytica double-application `Table(I…)(v1, v2, …)`: the first
+                # parenthesis group names the index dimension(s), the second the cell
+                # values. Keep them separate — folding the index args into the value
+                # list (the old bug) leaked the index name in as a spurious element 0.
                 while self.peek()[0] == Tok.LP:
                     self.next()
                     pos2, named2 = self.parse_call_args()
                     self.expect(Tok.RP)
-                    call = Call(name=val, pos=call.pos + pos2,
-                                named={**call.named, **named2})
+                    call = Call(name=val, pos=pos2,
+                                named={**call.named, **named2},
+                                index=(call.index or []) + call.pos)
                 return call
             return {"op": "ref", "element_id": val, "output": "value"}
         raise ParseError(f"unexpected token {(kind, val)}")
