@@ -81,10 +81,13 @@ reducer (spec §3.5 item 2 / §3.6 item 3).
 ## Next steps to make it a deliverable
 
 1. ~~Add the masked-reduction builtin so wear-levelling drops the penalty idiom.~~ **Done** (above).
-2. **Dispatch-policy comparison** — the model implements wear-levelling; to *prove its value*,
-   run it against naive (nearest-truck) and deliberate-cohorting dispatch and compare the
-   damage-spread and clustered-downtime distributions (spec §1.3). This is a policy switch on
-   `overload_target`, not new engine work.
+2. ~~**Dispatch-policy comparison**~~ **Done** — [`STAGE3B_DISPATCH_POLICY.md`](STAGE3B_DISPATCH_POLICY.md)
+   + [`haul_fleet_dispatch.json`](parameters_examples/haul_fleet_dispatch.json) run wear-levelling
+   vs naive round-robin vs cohorting off one `dispatch_policy` switch. Result: cohorting drives
+   an ~80× fleet imbalance (the wear-levelling diagnostic), and — the sharper finding —
+   wear-levelling *clusters* failures while cohorting *staggers* them (balanced ≠ safer). Honest
+   caveat surfaced: naive ≈ wear-levelling in a symmetric run-to-failure fleet; argmin's edge
+   needs asymmetry (replacement/heterogeneity), which is the next refinement.
 3. **Availability feedback loop** (spec §1.4) — gate the per-truck damage rate on fleet
    availability so survivors work harder as trucks drop. The reinforcing loop is the single
    strongest argument for simulating rather than calculating; the fleet substrate now supports
