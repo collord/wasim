@@ -98,6 +98,11 @@ the same "#1 leverage" conclusion the rehydration prompt reached (§5), now shar
 reductions** (current reducers collapse *all* axes to scalar, `eval.rs:1234`) plus the
 still-static dimension size (item 10). Those three are the honest frontier.
 
+> **Update (2026-07-29):** the axis-selective-reduction gap is **closed** — the array reducers
+> now take an optional 1-based axis-position argument and collapse one axis, keeping the rest
+> (`STAGE3F_AXIS_SELECTIVE_REDUCTION.md`, proven by `axis_reduction_v2.rs`/`nd_recurrence_v2.rs`).
+> Of the three frontier items, only the **static dimension size** remains.
+
 ---
 
 ## 4. Open Thread #1 (geospatial transfer-function) — now answerable

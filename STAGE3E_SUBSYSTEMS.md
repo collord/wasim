@@ -19,7 +19,9 @@ Each truck now carries **three subsystems**, each its own `Fleet`-array with its
 and life, resetting independently on overhaul. A truck is down if **any** subsystem is down
 (`truck_available = avail_tires · avail_drive · avail_struct`, elementwise — which sidesteps the
 engine's missing axis-selective reduction by keeping each mode as a separate array rather than a
-`Fleet × Subsystem` matrix). Dispatch is unchanged — wear-levelling still argmins on the
+`Fleet × Subsystem` matrix). [**Update 2026-07-29:** that reduction gap is now closed — see
+`STAGE3F_AXIS_SELECTIVE_REDUCTION.md`; the per-mode-array workaround here is no longer forced, and
+the `Fleet × Subsystem` reformulation is the follow-up.] Dispatch is unchanged — wear-levelling still argmins on the
 **flattened** `total_damage_prev` (the composite health metric). The same fluid shop queue prices
 the (now denser) failure stream.
 
@@ -71,9 +73,9 @@ in the flattening, at both the failure layer *and* the dispatch layer.
 
 - A 3-mode × 6-truck failure model — 18 independent subsystem processes — built entirely from
   per-mode `Fleet` arrays + elementwise availability products, on today's engine. It also
-  surfaces a real engine gap for the *general* multi-mode case: no **axis-selective reduction**
+  surfaced a real engine gap for the *general* multi-mode case: no **axis-selective reduction**
   over a `Fleet × Subsystem` matrix (worked around here by one array per mode; fine for 3 modes,
-  awkward at 8).
+  awkward at 8). **This gap is now closed** — `STAGE3F_AXIS_SELECTIVE_REDUCTION.md`.
 - Per-mode criticality ranking (tires > drivetrain > structure), a standard RAM output.
 - Determinism: the wear-levelling run is bit-identical across repeats.
 
