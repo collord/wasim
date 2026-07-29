@@ -565,8 +565,9 @@ pub enum ExpressionSource {
 }
 
 /// AST node discriminated by the "op" field.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, strum::VariantNames)]
 #[serde(tag = "op", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum AstNode {
     Literal {
         value: f64,
@@ -1134,8 +1135,9 @@ pub struct ImportanceSpec {
     pub bias: Box<Distribution>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, strum::VariantNames)]
 #[serde(tag = "family", content = "parameters", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum DistributionKind {
     Uniform {
         min: QuantityOrFormula,

@@ -1,0 +1,4092 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://wasim.dev/schema/model/0.9.8",
+  "title": "WASiM Model (Primitives)",
+  "description": "Canonical model definition for a probabilistic, dynamic (Monte-Carlo) simulation. Built on six composable primitives (node, stock, link, event, gate, cell) with behavior determined by field presence (traits) rather than a fixed type taxonomy. Vendor-neutral. See wasim-engine-semantics.md for behavioral contracts.",
+  "type": "object",
+  "required": [
+    "wasim_version",
+    "simulation_settings",
+    "elements"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "wasim_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "WASiM schema version (semver)."
+    },
+    "source": {
+      "type": "object",
+      "description": "Provenance metadata. Not consumed by the engine.",
+      "additionalProperties": false,
+      "properties": {
+        "generator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generator_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "simulation_settings": {
+      "$ref": "#/$defs/simulation_settings"
+    },
+    "optimization": {
+      "description": "Optional study-level optimization config (search for input values that make a result best). Absent for non-optimization models. See wasim-engine-semantics.md \u00a713.",
+      "$ref": "#/$defs/optimization"
+    },
+    "dimensions": {
+      "type": "array",
+      "description": "Ordinal-set declarations \u2014 named, ordered dimensions (e.g. Months = 12 members) that `vector_map` comprehensions iterate over and `output_spec.dimensions` reference. Empty for scalar-only models. See wasim-engine-semantics.md \u00a715.",
+      "items": {
+        "$ref": "#/$defs/dimension_def"
+      },
+      "default": []
+    },
+    "containers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/container_def"
+      },
+      "default": []
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/element"
+      },
+      "description": "Flat list of all model elements. Hierarchy via container references. Every element `id` MUST be globally unique across this list (see element_base.id and wasim-engine-semantics.md \u00a71); string references resolve by exact id, not by scoped name."
+    },
+    "connections": {
+      "type": "array",
+      "description": "Visual connection graph from source model. Not consumed by the engine; preserved for rendering.",
+      "items": {
+        "$ref": "#/$defs/connection_edge"
+      },
+      "default": []
+    },
+    "time_history_displays": {
+      "type": "array",
+      "description": "Display-only expressions recovered from result/plot elements. Not part of the simulation graph.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "expression"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "expression": {
+            "$ref": "#/$defs/expression_field"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "simulation_settings": {
+      "type": "object",
+      "description": "Time-stepping and Monte-Carlo controls. A `duration` of 0 denotes a single-evaluation (driver/instant) model: the engine evaluates the model once at t=start and stops (see wasim-engine-semantics.md \u00a79). `duration` must be >= 0; `timestep` must be > 0.",
+      "required": [
+        "duration",
+        "timestep"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "$ref": "#/$defs/quantity"
+        },
+        "timestep": {
+          "$ref": "#/$defs/quantity"
+        },
+        "n_realizations": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "sampling_method": {
+          "type": "string",
+          "enum": [
+            "monte_carlo",
+            "lhs"
+          ],
+          "default": "monte_carlo"
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "reporting_periods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quantity"
+          },
+          "default": []
+        },
+        "calendar_start": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Model-clock start as seconds since the Unix epoch (B6). When set, time_ref calendar properties use a real proleptic-Gregorian calendar with leap years. Absent = fixed 365-day calendar."
+        }
+      }
+    },
+    "container_def": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "container",
+            "group",
+            "submodel"
+          ],
+          "default": "container",
+          "description": "Structural role. 'container'/'group': purely organizational (the engine ignores them). 'submodel': a nested simulation that runs with its own clock/sampling controls (see simulation_settings) and exposes a named interface. See wasim-engine-semantics.md \u00a712."
+        },
+        "simulation_settings": {
+          "description": "For kind='submodel': the nested run's time-stepping / Monte-Carlo settings. Null (or absent) inherits the parent model's settings.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/simulation_settings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Named inputs/outputs exposed at the container boundary (for submodels). See wasim-engine-semantics.md \u00a712.",
+          "properties": {
+            "inputs": {
+              "type": "array",
+              "default": [],
+              "description": "Boundary inputs: each binds a parent driver element to an interior consumer element.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "input"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "description": "Full slash-path id of the interior element the value flows into (the consumer)."
+                  },
+                  "from": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Full slash-path id of the parent element that drives it. Null for an engine/dashboard-supplied input with no model driver (e.g. realization count)."
+                  }
+                }
+              }
+            },
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Full slash-path ids of interior elements exposed as boundary outputs."
+            }
+          }
+        },
+        "optimization": {
+          "description": "For kind='submodel' only: a dynamic (per-timestep) optimization. The inner search is re-solved at each outer timestep against the objective evaluated at that step, so the optimized variables become per-timestep series rather than a single study result. Objective/variable element ids are interior submodel elements. Absent = the submodel is not optimized. Distinct from the top-level `optimization` block, which is a once-only study. See wasim-engine-semantics.md \u00a713a.",
+          "$ref": "#/$defs/optimization"
+        }
+      }
+    },
+    "dimension_def": {
+      "type": "object",
+      "description": "A named, ordered dimension (ordinal set). `size` members, optionally labeled. `vector_map.over` and `output_spec.dimensions` reference these by `id`.",
+      "required": [
+        "id",
+        "name",
+        "size"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of members (e.g. Months = 12)."
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional member labels in order (e.g. Jan..Dec). If present, length should equal `size`. Member numeric values, if any, live in the element that carries them, indexed by position."
+        }
+      }
+    },
+    "connection_edge": {
+      "type": "object",
+      "required": [
+        "edge_id",
+        "from_id",
+        "to_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "edge_id": {
+          "type": "integer"
+        },
+        "from_id": {
+          "type": "integer"
+        },
+        "to_id": {
+          "type": "integer"
+        },
+        "waypoints": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "default": []
+        }
+      }
+    },
+    "quantity": {
+      "type": "object",
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "display_unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "quantity_or_formula": {
+      "description": "A value that may be a fixed quantity, a parsed expression AST, or an unparsed formula string (fallback).",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/quantity"
+        },
+        {
+          "$ref": "#/$defs/expression_field"
+        },
+        {
+          "type": "string",
+          "description": "Unparsed formula (fallback). Engines should treat as 0.0 and warn."
+        }
+      ]
+    },
+    "quantity_expr": {
+      "description": "A value that may be a fixed quantity or an expression AST.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/quantity"
+        },
+        {
+          "$ref": "#/$defs/ast_node"
+        }
+      ]
+    },
+    "optimization": {
+      "type": "object",
+      "description": "Study-level optimization: search input values (variables) that make a result (objective) best. The problem definition only; the solver (e.g. Box's complex method) is an engine concern, not schema. See wasim-engine-semantics.md \u00a713.",
+      "required": [
+        "objective",
+        "variables"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "object",
+          "required": [
+            "element_id",
+            "direction"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "description": "Id of the result element being optimized. Must depend on every optimization variable."
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "maximize",
+                "minimize"
+              ]
+            },
+            "statistic": {
+              "description": "[probabilistic] the Monte-Carlo statistic of the objective output reduced across realizations; null (or absent) means a deterministic objective.",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "mean",
+                        "percentile",
+                        "peak",
+                        "valley",
+                        "sum"
+                      ]
+                    },
+                    "p": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Percentile in [0,100]. Required when kind='percentile'; ignored otherwise."
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "variables": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The input elements the optimizer may adjust. Each references an editable fixed-value or sample element, with SI bounds + initial guess.",
+          "items": {
+            "type": "object",
+            "required": [
+              "element_id",
+              "lower",
+              "upper",
+              "initial"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "element_id": {
+                "type": "string"
+              },
+              "lower": {
+                "$ref": "#/$defs/quantity"
+              },
+              "upper": {
+                "$ref": "#/$defs/quantity"
+              },
+              "initial": {
+                "$ref": "#/$defs/quantity"
+              },
+              "integer": {
+                "type": "boolean",
+                "default": false,
+                "description": "Restrict the search to integer values."
+              }
+            }
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "default": [],
+          "description": "Optional conditions a valid solution must satisfy.",
+          "items": {
+            "type": "object",
+            "required": [
+              "condition"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "condition": {
+                "$ref": "#/$defs/quantity_or_formula"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "sampling": {
+          "description": "[probabilistic] Monte-Carlo runs per candidate solution; null (or absent) if deterministic. When the objective references a submodel, this may be null and the submodel's own simulation_settings.n_realizations governs.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "realizations_per_trial"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "realizations_per_trial": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "output_spec": {
+      "type": "object",
+      "required": [
+        "name",
+        "unit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "display_unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Ids of the dimensions (top-level `dimensions[]`) this output is dimensioned over. Empty = scalar."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "addition",
+            "withdrawal",
+            "overflow",
+            "net_change",
+            "addition_rate",
+            "withdrawal_rate",
+            "overflow_rate"
+          ],
+          "description": "The flow a stock's secondary output port reports (semantics \u00a71c). 0.9.7 splits the flow identity from its accumulation: `role` names the flow ({addition, withdrawal, overflow, net_change}) and `output_kind` says how it accumulates. The fused `*_rate` names are retained as 0.9.6 aliases, each equivalent to `<flow>` with `output_kind: rate`. Role-less secondaries resolve to the element's primary value."
+        },
+        "output_kind": {
+          "type": "string",
+          "enum": [
+            "level",
+            "rate",
+            "cumulative"
+          ],
+          "description": "How this output accumulates the flow named by `role` (semantics \u00a71c). `level` = the stock's own value (its primary output); `rate` = the per-step applied flow (units = value/time); `cumulative` = the running total of that flow since the run start (units = value). Absent on a plain result output. When `role` is a flow name, `output_kind` disambiguates rate vs cumulative; when absent it defaults to `rate` (0.9.6 back-compat, where reservoir/pool roles were all rates)."
+        }
+      }
+    },
+    "save_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "final_value": {
+          "type": "boolean",
+          "default": false
+        },
+        "time_history": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "input_port_ref": {
+      "type": "object",
+      "required": [
+        "element_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "element_id": {
+          "type": "string"
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "trigger_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "always",
+            "on_condition",
+            "periodic",
+            "on_schedule",
+            "on_event"
+          ]
+        },
+        "condition": {
+          "$ref": "#/$defs/quantity_or_formula"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schedule": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quantity"
+          },
+          "default": []
+        }
+      }
+    },
+    "expression_field": {
+      "type": "object",
+      "required": [
+        "ast"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ast": {
+          "$ref": "#/$defs/ast_node"
+        },
+        "display": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "inferred",
+            "inferred_path",
+            "inferred_passthrough",
+            "inferred_container",
+            "inferred_ts",
+            "inferred_pool_rate",
+            "inferred_ast",
+            "inferred_stub"
+          ],
+          "default": "explicit"
+        }
+      }
+    },
+    "ast_node": {
+      "description": "Expression AST node. Discriminated by 'op'.",
+      "type": "object",
+      "required": [
+        "op"
+      ],
+      "oneOf": [
+        {
+          "description": "Numeric literal.",
+          "properties": {
+            "op": {
+              "const": "literal"
+            },
+            "value": {
+              "type": "number"
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Reference to another element's output.",
+          "properties": {
+            "op": {
+              "const": "ref"
+            },
+            "element_id": {
+              "type": "string"
+            },
+            "output": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "element_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Simulation time property.",
+          "properties": {
+            "op": {
+              "const": "time_ref"
+            },
+            "property": {
+              "type": "string",
+              "enum": [
+                "elapsed",
+                "timestep",
+                "year",
+                "month",
+                "day_of_year",
+                "day_of_month",
+                "days_in_month",
+                "hour",
+                "minute",
+                "second",
+                "start",
+                "elapsed_months",
+                "elapsed_years"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "property"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Binary operation.",
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "add",
+                "subtract",
+                "multiply",
+                "divide",
+                "power",
+                "lt",
+                "gt",
+                "lte",
+                "gte",
+                "eq",
+                "neq",
+                "and",
+                "or"
+              ]
+            },
+            "left": {
+              "$ref": "#/$defs/ast_node"
+            },
+            "right": {
+              "$ref": "#/$defs/ast_node"
+            }
+          },
+          "required": [
+            "op",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Unary operation.",
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "neg",
+                "not"
+              ]
+            },
+            "operand": {
+              "$ref": "#/$defs/ast_node"
+            }
+          },
+          "required": [
+            "op",
+            "operand"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Built-in function call.",
+          "properties": {
+            "op": {
+              "const": "call"
+            },
+            "fn": {
+              "type": "string",
+              "enum": [
+                "min",
+                "max",
+                "abs",
+                "sqrt",
+                "exp",
+                "ln",
+                "log",
+                "log2",
+                "sin",
+                "cos",
+                "tan",
+                "asin",
+                "acos",
+                "atan",
+                "atan2",
+                "sinh",
+                "cosh",
+                "tanh",
+                "gamma",
+                "floor",
+                "ceil",
+                "round",
+                "mod",
+                "sign",
+                "int",
+                "step",
+                "sum_array",
+                "mean_array",
+                "min_array",
+                "max_array",
+                "argmin_array",
+                "argmax_array",
+                "size_array",
+                "get_element",
+                "dot_product",
+                "interp_array",
+                "erf",
+                "erfc",
+                "get_year",
+                "get_month",
+                "get_day",
+                "get_hour",
+                "get_minute",
+                "get_second",
+                "table_min",
+                "table_max",
+                "column_count",
+                "pv_factor",
+                "annuity_factor"
+              ]
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ast_node"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "op",
+            "fn",
+            "args"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Inline array constructor.",
+          "properties": {
+            "op": {
+              "const": "array"
+            },
+            "elements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ast_node"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "op",
+            "elements"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Conditional (if/then/else).",
+          "properties": {
+            "op": {
+              "const": "if"
+            },
+            "cond": {
+              "$ref": "#/$defs/ast_node"
+            },
+            "then": {
+              "$ref": "#/$defs/ast_node"
+            },
+            "else": {
+              "$ref": "#/$defs/ast_node"
+            }
+          },
+          "required": [
+            "op",
+            "cond",
+            "then",
+            "else"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Lookup table evaluation.",
+          "properties": {
+            "op": {
+              "const": "lookup_call"
+            },
+            "element_id": {
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/$defs/ast_node"
+            },
+            "input2": {
+              "$ref": "#/$defs/ast_node"
+            }
+          },
+          "required": [
+            "op",
+            "element_id",
+            "input"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A Monte-Carlo statistic of a submodel output, reduced across the submodel's realizations (the `pdf_*` operations). See wasim-engine-semantics.md \u00a72 and SUBMODEL_STAT_ENCODING.md.",
+          "properties": {
+            "op": {
+              "const": "submodel_stat"
+            },
+            "submodel_id": {
+              "type": "string",
+              "description": "Full slash-path id of the submodel container."
+            },
+            "output": {
+              "type": "string",
+              "description": "Full slash-path id of the interface output element being reduced."
+            },
+            "statistic": {
+              "type": "string",
+              "enum": [
+                "mean",
+                "percentile",
+                "sd",
+                "cumulative_prob",
+                "exceedance",
+                "cte",
+                "sum",
+                "min",
+                "max"
+              ]
+            },
+            "arg": {
+              "$ref": "#/$defs/ast_node",
+              "description": "Required for `percentile` (p in [0,100]), `cumulative_prob`/`exceedance` (threshold value, may carry a unit) and `cte` (percentile); omitted for `mean`/`sd`/`sum`/`min`/`max`."
+            }
+          },
+          "required": [
+            "op",
+            "submodel_id",
+            "output",
+            "statistic"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Comprehension over an ordinal set: evaluate `body` (which may reference `index_ref`) once per member of the dimension `over`, producing an array dimensioned over that set. A matrix is nested `vector_map`s. See wasim-engine-semantics.md \u00a715.",
+          "properties": {
+            "op": {
+              "const": "vector_map"
+            },
+            "over": {
+              "type": "string",
+              "description": "Id of the dimension (top-level `dimensions[]`) the result is dimensioned over."
+            },
+            "body": {
+              "$ref": "#/$defs/ast_node"
+            }
+          },
+          "required": [
+            "op",
+            "over",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The implicit iteration index inside a `vector_map` body. `row` is the first (array) axis; `col` the matrix second axis.",
+          "properties": {
+            "op": {
+              "const": "index_ref"
+            },
+            "axis": {
+              "type": "string",
+              "enum": [
+                "row",
+                "col"
+              ],
+              "default": "row"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Array/matrix element access: array[i] or matrix[i, j]. `indices` holds one expression for a vector access or two for a matrix access (indices may be `index_ref`s).",
+          "properties": {
+            "op": {
+              "const": "index"
+            },
+            "array": {
+              "$ref": "#/$defs/ast_node"
+            },
+            "indices": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ast_node"
+              },
+              "minItems": 1,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "op",
+            "array",
+            "indices"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A source-model function the engine does not implement. Preserves the call (name + args) for round-tripping and connectivity; the engine treats it as opaque (evaluates to 0.0 with a warning). Use `call` for functions in the implemented `fn` enum; use `extern_call` for everything else so argument refs are still preserved.",
+          "properties": {
+            "op": {
+              "const": "extern_call"
+            },
+            "fn": {
+              "type": "string",
+              "description": "Source function name, verbatim."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ast_node"
+              }
+            }
+          },
+          "required": [
+            "op",
+            "fn",
+            "args"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Bivariate reduction of two outputs of the SAME submodel across that submodel's realizations — the `submodel_stat` analog of `run_stat2` (cov/corr/beta). See CONTROL_VARIATE_SCOPE.md Phase 4.",
+          "properties": {
+            "op": {
+              "const": "submodel_stat2"
+            },
+            "submodel_id": {
+              "type": "string"
+            },
+            "output_x": {
+              "type": "string"
+            },
+            "output_y": {
+              "type": "string"
+            },
+            "statistic": {
+              "type": "string",
+              "enum": [
+                "cov",
+                "corr",
+                "beta"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "submodel_id",
+            "output_x",
+            "output_y",
+            "statistic"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Conditional nested-submodel statistic: for each OUTER realization the submodel is re-run with its input constants bound to this path's realized values (`bindings`), and `statistic` reduces the inner `output`'s per-inner-realization finals. See NESTED_STAT_SCOPE.md.",
+          "properties": {
+            "op": {
+              "const": "nested_stat"
+            },
+            "submodel_id": {
+              "type": "string"
+            },
+            "output": {
+              "type": "string"
+            },
+            "statistic": {
+              "type": "string",
+              "enum": [
+                "mean",
+                "percentile",
+                "sd",
+                "cumulative_prob",
+                "exceedance",
+                "cte",
+                "sum",
+                "min",
+                "max"
+              ]
+            },
+            "arg": {
+              "$ref": "#/$defs/ast_node",
+              "description": "Literal argument for arg-taking statistics (percentile level, threshold, …)."
+            },
+            "bindings": {
+              "type": "array",
+              "description": "Pin inner input constants to outer elements' per-realization values (what makes the inner run conditional on the outer state).",
+              "items": {
+                "type": "object",
+                "required": [
+                  "input",
+                  "from"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "each_step": {
+              "type": "boolean",
+              "description": "false (default): bind to each outer realization's terminal state. true: bind at every timestep (per-step conditional expectation; exposure profiles, PFE)."
+            }
+          },
+          "required": [
+            "op",
+            "submodel_id",
+            "output",
+            "statistic"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Label subscript: select the slice of `array` where dimension `dim` equals `label` (Analytica `x[Dim = 'label']`). See WASIM_NAMEDARRAY_DESIGN.md §4.",
+          "properties": {
+            "op": {
+              "const": "subscript"
+            },
+            "array": {
+              "$ref": "#/$defs/ast_node"
+            },
+            "dim": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "array",
+            "dim",
+            "label"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Across-realization reduction of a same-model element over the Monte-Carlo Run axis (Analytica `Mean(x)`, `Probability(x>t)`). Pre-computed by the engine's two-pass driver; no topo dependency on `element_id`. See WASIM_NAMEDARRAY_DESIGN.md §4.",
+          "properties": {
+            "op": {
+              "const": "run_stat"
+            },
+            "element_id": {
+              "type": "string"
+            },
+            "statistic": {
+              "type": "string",
+              "enum": [
+                "mean",
+                "percentile",
+                "sd",
+                "cumulative_prob",
+                "exceedance",
+                "cte",
+                "sum",
+                "min",
+                "max"
+              ]
+            },
+            "arg": {
+              "$ref": "#/$defs/ast_node",
+              "description": "Required by percentile / cumulative_prob / exceedance / cte."
+            }
+          },
+          "required": [
+            "op",
+            "element_id",
+            "statistic"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Bivariate across-realization reduction of two same-model elements over the Monte-Carlo Run axis — the cov/corr/regression-slope companion to `run_stat`. `beta` = Cov(x,y)/Var(x). See CONTROL_VARIATE_SCOPE.md.",
+          "properties": {
+            "op": {
+              "const": "run_stat2"
+            },
+            "x": {
+              "type": "string"
+            },
+            "y": {
+              "type": "string"
+            },
+            "statistic": {
+              "type": "string",
+              "enum": [
+                "cov",
+                "corr",
+                "beta"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "x",
+            "y",
+            "statistic"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Multiple-control regression: the `index`-th OLS slope coefficient of regressing `y` on `controls` across realizations (control-variate generalization). See CONTROL_VARIATE_SCOPE.md Phase 3.",
+          "properties": {
+            "op": {
+              "const": "run_regress"
+            },
+            "y": {
+              "type": "string"
+            },
+            "controls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "index": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "op",
+            "y",
+            "controls",
+            "index"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Split-sample (K-fold jackknife) control-variate coefficient — a per-realization reduction. For realization i, beta(x,y) estimated over every realization NOT in i's fold. See CONTROL_VARIATE_SCOPE.md Phase 3.",
+          "properties": {
+            "op": {
+              "const": "run_split_beta"
+            },
+            "x": {
+              "type": "string"
+            },
+            "y": {
+              "type": "string"
+            },
+            "folds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "op",
+            "x",
+            "y",
+            "folds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Longstaff-Schwartz least-squares Monte Carlo for an early-exercise (American / Bermudan) option. Evaluates to this realization's discounted-to-t0 cashflow, so the element's mean is the option price. See AMERICAN_OPTION_SCOPE.md.",
+          "properties": {
+            "op": {
+              "const": "lsm"
+            },
+            "state": {
+              "type": "string",
+              "description": "Element whose per-step history is the regression state (usually the underlying price)."
+            },
+            "states": {
+              "type": "array",
+              "description": "Additional state elements for a multi-asset early-exercise option (multivariate monomial basis, total degree ≤ basis). Empty (default) = single-asset.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "payoff": {
+              "type": "string",
+              "description": "Element whose per-step history is the immediate-exercise payoff."
+            },
+            "basis": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Polynomial basis degree in the (scaled) state; default 3."
+            },
+            "rate": {
+              "type": "number",
+              "description": "Annual risk-free rate for per-step discounting."
+            },
+            "folds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Cross-fit folds. 1 (default) = in-sample; ≥ 2 = out-of-sample k-fold cross-fit."
+            }
+          },
+          "required": [
+            "op",
+            "state",
+            "payoff",
+            "rate"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Dual (upper-bound) companion to `lsm`. With `inner`=0 the loose single-hedge dual; with `inner`>0 the tight nested-Doob dual. Evaluates to this realization's max_t(Z_t - M_t), so the mean is the dual price. See AMERICAN_OPTION_SCOPE.md §8.",
+          "properties": {
+            "op": {
+              "const": "lsm_dual"
+            },
+            "state": {
+              "type": "string"
+            },
+            "payoff": {
+              "type": "string"
+            },
+            "rate": {
+              "type": "number",
+              "description": "Annual risk-free rate for per-step discounting."
+            },
+            "inner": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Inner samples for the tight (nested Doob) dual. 0 (default) = the loose single-hedge dual."
+            }
+          },
+          "required": [
+            "op",
+            "state",
+            "payoff",
+            "rate"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "distribution": {
+      "description": "Probability distribution specification. Discriminated by 'family'.",
+      "type": "object",
+      "required": [
+        "family",
+        "parameters"
+      ],
+      "properties": {
+        "family": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "truncation": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "correlation_group": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "importance": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "bias"
+          ],
+          "description": "Importance-sampling override (semantics § importance sampling). When present, the engine draws from `bias` (the biased distribution g) instead of this declared distribution (the target f), and weights every statistic by the likelihood ratio f(x)/g(x) — a variance-reduction technique for rare events. Phase 1 supports `bias` families {normal, lognormal, uniform, exponential} (a closed-form PDF is required for both f and g); other families error. An importance node draws plain Monte Carlo (LHS stratification / rank-correlation are skipped for that node).",
+          "properties": {
+            "bias": {
+              "$ref": "#/$defs/distribution",
+              "description": "The biased distribution g to sample from. Same schema as any distribution."
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "family": {
+              "const": "uniform"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "normal"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "mean",
+                "stddev"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mean": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "stddev": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "lognormal"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "mean",
+                "stddev"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mean": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "stddev": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "lognormal_moments"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "mean",
+                "stddev"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mean": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "stddev": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "triangular"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "mode",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "mode": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "trapezoidal"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "lower",
+                "upper",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "lower": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "upper": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "exponential"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "mean"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mean": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "gamma"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "shape",
+                "scale"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "shape": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "scale": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "beta"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "alpha",
+                "beta"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "alpha": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "beta": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "weibull"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "shape",
+                "scale"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "shape": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "scale": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "pert"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "mode",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "mode": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "pareto"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "scale",
+                "shape"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "scale": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "shape": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "location": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "extreme_value"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "location",
+                "scale"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "location": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "scale": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "pearson_iii"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "mean",
+                "stddev",
+                "skewness"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mean": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "stddev": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "skewness": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "pearson_v"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "shape",
+                "scale"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "shape": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "scale": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "student_t"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "degrees_of_freedom"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "degrees_of_freedom": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "location": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "scale": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "discrete"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "outcomes",
+                "probabilities"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "outcomes": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "probabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "cumulative"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "x",
+                      "cumulative_probability"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "cumulative_probability": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "sampled"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "samples"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "samples": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "weights": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "external"
+            },
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "definition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fallback": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "weights": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "log_uniform"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "log_triangular"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "mode",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "mode": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "log_cumulative"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "x",
+                      "cumulative_probability"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "cumulative_probability": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "triangular1090"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "p10",
+                "mode",
+                "p90"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "p10": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "mode": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "p90": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "log_triangular1090"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "p10",
+                "mode",
+                "p90"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "p10": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "mode": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "p90": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "binomial"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "n",
+                "prob"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "n": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "prob": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "negative_binomial"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "r",
+                "prob"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "r": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "prob": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "poisson"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "lambda"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "lambda": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "extreme_probability"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "base",
+                "n"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "type": "object"
+                },
+                "n": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "extreme": {
+                  "type": "string",
+                  "enum": [
+                    "min",
+                    "max"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "beta_success_failure"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "successes",
+                "failures"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "successes": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "failures": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "min": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                },
+                "max": {
+                  "$ref": "#/$defs/quantity_or_formula"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "discrete_uniform"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "type": "integer",
+                  "description": "Inclusive lower bound (integer draw)."
+                },
+                "max": {
+                  "type": "integer",
+                  "description": "Inclusive upper bound (integer draw)."
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "bernoulli"
+            },
+            "parameters": {
+              "type": "object",
+              "required": [
+                "prob"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "prob": {
+                  "$ref": "#/$defs/quantity",
+                  "description": "Success probability in [0, 1]."
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "process_spec": {
+      "type": "object",
+      "required": [
+        "family",
+        "mean_type",
+        "mean",
+        "stddev"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": [
+            "gbm"
+          ]
+        },
+        "mean_type": {
+          "type": "string",
+          "enum": [
+            "geometric",
+            "arithmetic",
+            "log_drift"
+          ]
+        },
+        "mean": {
+          "$ref": "#/$defs/quantity_or_formula",
+          "description": "Drift (per-time rate). Interpreted per `mean_type`. May be reference/formula-valued."
+        },
+        "stddev": {
+          "$ref": "#/$defs/quantity_or_formula",
+          "description": "Volatility (per-sqrt-time). May be reference/formula-valued."
+        },
+        "reversion_rate": {
+          "description": "Mean-reversion rate (per-time). Absent or zero = a non-reverting random walk (plain GBM/arithmetic). Non-zero makes the process mean-revert toward `reference_value` at this rate (an Ornstein-Uhlenbeck-style pull). May be reference/formula-valued. See wasim-engine-semantics.md \u00a716.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reference_value": {
+          "description": "The long-run level the process reverts toward when `reversion_rate` is non-zero. Required for a meaningful reversion; ignored when reversion is absent/zero. May be reference/formula-valued.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initial_value": {
+          "description": "The process value at t=0. Absent = start from the reference/drift-implied level. May be reference/formula-valued (e.g. an array-comprehension for a correlated array process); the engine resolves only the scalar form today.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "failure_process": {
+      "type": "object",
+      "required": [
+        "basis"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "type": "string",
+          "enum": [
+            "exposure_time",
+            "operating_time",
+            "demand",
+            "capacity_demand",
+            "event",
+            "condition"
+          ]
+        },
+        "time_to_failure": {
+          "$ref": "#/$defs/distribution"
+        },
+        "repair": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "time_to_repair": {
+              "$ref": "#/$defs/distribution"
+            },
+            "policy": {
+              "type": "string",
+              "enum": [
+                "none",
+                "repair",
+                "replace",
+                "preventive_maintenance"
+              ]
+            }
+          }
+        },
+        "demand_capacity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "gate_node": {
+      "type": "object",
+      "required": [
+        "op"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "and"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/gate_node"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "op",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "or"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/gate_node"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "op",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "not"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/gate_node"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "required": [
+            "op",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "n_vote"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/gate_node"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "op",
+            "threshold",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "reference"
+            },
+            "reference": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "reference"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "condition"
+            },
+            "condition": {
+              "$ref": "#/$defs/quantity_or_formula"
+            }
+          },
+          "required": [
+            "op",
+            "condition"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "input"
+            },
+            "input": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "input"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "flux_spec": {
+      "type": "object",
+      "required": [
+        "mechanism"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "enum": [
+            "advective",
+            "diffusive",
+            "direct",
+            "settling",
+            "precipitation"
+          ]
+        },
+        "rate": {
+          "$ref": "#/$defs/quantity_or_formula"
+        },
+        "coefficient": {
+          "$ref": "#/$defs/quantity_or_formula"
+        },
+        "species": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Species-element id transported by this flux (per (species, medium) pair). id, not raw label."
+        },
+        "medium": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Medium-element id the flux moves the species through. id, not raw label."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Upstream cell id. On a cell.fluxes[] entry, absent = the owning cell (implicit source). On a link, the link's source."
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Downstream (far endpoint) cell id."
+        }
+      }
+    },
+    "payoff_spec": {
+      "type": "object",
+      "description": "A financial payoff carried by an event (\u00a719): an option (pays when the underlying crosses the strike) or insurance (pays claims above a deductible up to a coverage cap). Element-id fields reference the driving inputs. Provenance-complete; the engine does not yet execute payoffs.",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "option",
+            "insurance"
+          ]
+        },
+        "option_style": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "american",
+            "european",
+            "asian",
+            null
+          ],
+          "description": "[option] Exercise style."
+        },
+        "strike_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "[option] Element id of the strike price."
+        },
+        "maturity_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "[option] Element id of the maturity/exercise time."
+        },
+        "underlying_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "[option] Element id of the underlying value."
+        },
+        "deductible_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "[insurance] Element id of the per-claim deductible."
+        },
+        "coverage_limit_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "[insurance] Element id of the coverage cap."
+        },
+        "reset_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "after_each_claim",
+            "annual",
+            "never",
+            "periodic",
+            null
+          ],
+          "description": "[insurance] When the coverage limit resets."
+        }
+      }
+    },
+    "effect_spec": {
+      "type": "object",
+      "required": [
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "Element id acted upon."
+        },
+        "change": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "additive",
+            "multiplicative",
+            "replace",
+            "interrupt",
+            "spend",
+            "deposit",
+            "borrow"
+          ],
+          "default": "additive"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "withdrawal_spec": {
+      "type": "object",
+      "required": [
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "request": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "species_ref": {
+      "type": "object",
+      "required": [
+        "species"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "species": {
+          "type": "string"
+        },
+        "initial_inventory": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "medium_ref": {
+      "type": "object",
+      "required": [
+        "medium"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "medium": {
+          "type": "string"
+        },
+        "fraction": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/quantity_or_formula"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "transition_entry": {
+      "description": "One row of a Markov transition matrix, or an expression-valued entry.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "description": "Fixed probability row (must sum to 1)."
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quantity_or_formula"
+          },
+          "description": "Expression-valued probability row."
+        }
+      ]
+    },
+    "element_base": {
+      "description": "Fields common to all primitives.",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "primitive"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Globally-unique element handle. MUST be unique across every element in `elements` (not merely within a container). All string references \u2014 `inputs[]`, AST `ref`/`lookup_call` `element_id`, `container.elements[]`, `container.interface`, and `optimization` element ids \u2014 resolve to this exact id by string equality; there is no relative-name or scope-aware resolution. Source names are container-scoped and collide, so emitters use a scope-qualified id (e.g. a path like `Model/CoverLayer/nCells`). JSON Schema does not enforce this uniqueness; it is a contract engines rely on. See wasim-engine-semantics.md \u00a71."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable display name (may collide across containers; not a reference key \u2014 use `id`)."
+        },
+        "primitive": {
+          "type": "string",
+          "enum": [
+            "node",
+            "stock",
+            "link",
+            "event",
+            "gate",
+            "cell",
+            "species",
+            "medium",
+            "resource"
+          ]
+        },
+        "container": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/output_spec"
+          },
+          "default": []
+        },
+        "save_results": {
+          "$ref": "#/$defs/save_spec"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ids of elements this element depends on. Each entry MUST equal a target element's `id` exactly (\u00a71 identity rule); a reference that matches no id is dangling and the engine evaluates it as 0.0 with a warning.",
+          "default": []
+        },
+        "source_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Original element type from source model. Engine ignores."
+        },
+        "source_object_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input_port_ref"
+          },
+          "default": []
+        }
+      }
+    },
+    "element": {
+      "description": "Any model element. Discriminated by 'primitive'.",
+      "oneOf": [
+        {
+          "description": "NODE: Produces a value at each timestep. Discriminated by 'value_rule'.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive",
+                "value_rule"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "node"
+                },
+                "value_rule": {
+                  "type": "string",
+                  "enum": [
+                    "fixed",
+                    "expression",
+                    "sample",
+                    "process",
+                    "lookup",
+                    "series",
+                    "lag",
+                    "convolution",
+                    "markov",
+                    "hysteresis",
+                    "filter",
+                    "gate_logic",
+                    "spreadsheet",
+                    "status",
+                    "milestone",
+                    "pid",
+                    "queue"
+                  ]
+                },
+                "value": {
+                  "$ref": "#/$defs/quantity",
+                  "description": "[fixed] Scalar value."
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[fixed] Array values."
+                },
+                "unit": {
+                  "type": "string",
+                  "description": "[fixed array] Shared unit for array values."
+                },
+                "cells": {
+                  "type": "array",
+                  "description": "[spreadsheet] The element's linked-Excel I/O cells: each binds a model port to a workbook range. See wasim-engine-semantics.md \u00a720. The engine does not evaluate spreadsheet links (the workbook is external); this carries the binding for round-trip and inspection.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "required": [
+                      "direction"
+                    ],
+                    "properties": {
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "input",
+                          "output"
+                        ],
+                        "description": "input = a model value written into the workbook; output = a workbook value read into the model."
+                      },
+                      "range": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "The Excel range reference (e.g. 'WGEN Parameters!B5' or 'Observed Stats!B7:B18')."
+                      },
+                      "port": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "The bound model port/element id (the consumer for output cells, the source for input cells)."
+                      },
+                      "unit": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "external_file": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "[spreadsheet] Path/reference of the linked workbook, when available."
+                },
+                "editable": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "[fixed] User-adjustable at runtime."
+                },
+                "bounds": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "expression": {
+                  "$ref": "#/$defs/expression_field",
+                  "description": "[expression] AST to evaluate."
+                },
+                "distribution": {
+                  "$ref": "#/$defs/distribution",
+                  "description": "[sample] Distribution to draw from."
+                },
+                "resampling": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/trigger_spec"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "[sample] Resampling trigger."
+                },
+                "autocorrelation": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "[sample] Lag-1 autocorrelation (0-1)."
+                },
+                "correlations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "partner",
+                      "coefficient"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "partner": {
+                        "type": "string"
+                      },
+                      "coefficient": {
+                        "type": "number",
+                        "minimum": -1,
+                        "maximum": 1
+                      }
+                    }
+                  },
+                  "description": "[sample] Rank-correlation partners."
+                },
+                "process": {
+                  "$ref": "#/$defs/process_spec",
+                  "description": "[process] Stochastic process definition."
+                },
+                "lower_bound": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "[process] Floor clamp."
+                },
+                "table": {
+                  "type": "object",
+                  "description": "[lookup] Interpolation table.",
+                  "properties": {
+                    "x": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "y": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "z": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "description": "2D table values (rows \u00d7 columns)."
+                    },
+                    "x_unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "y_unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "z_unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "interpolation": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "step",
+                    "log_linear",
+                    "spline"
+                  ],
+                  "description": "[lookup, series] Interpolation method."
+                },
+                "timestamps": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[series] Time axis values."
+                },
+                "time_unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "[series] Unit of timestamps."
+                },
+                "calendar_based": {
+                  "type": "boolean",
+                  "description": "[series] True when the source series was calendar-dated. Its `timestamps` are re-based to elapsed-from-sim-start (starting at 0); `calendar_start_seconds` recovers the absolute axis. See wasim-engine-semantics.md \u00a718."
+                },
+                "calendar_start_seconds": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "[series] For a calendar-based series: the absolute epoch time (seconds) of timestamp 0, so `absolute = calendar_start_seconds + timestamps[i]`. Null/absent for an elapsed-native series."
+                },
+                "n_histories": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "[series] When the source stored a stochastic ensemble of realization histories, the number carried. `values`/`timestamps` are the first history; the rest are not (yet) represented. 1 (or absent) = a single deterministic history."
+                },
+                "extra_value_rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "description": "[series] Additional value rows for a multi-column (array-valued) series; each row aligns with `timestamps`. Empty/absent for a scalar series."
+                },
+                "input": {
+                  "type": "string",
+                  "description": "[lag, convolution, hysteresis, filter] Element id of the input signal."
+                },
+                "initial": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "[lag] Value returned at first timestep."
+                },
+                "response": {
+                  "description": "[convolution] Response/transfer function.",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "times": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          }
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          }
+                        },
+                        "times_unit": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "values_unit": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "string",
+                      "description": "Element id of a lookup/series supplying the response function."
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "expression",
+                        "interval",
+                        "length"
+                      ],
+                      "description": "An expression-valued response: a formula over the local lag variable (an `extern_call` `fn: \"lag\"` node, \u03c4 \u2265 0), sampled by the engine onto the lag grid at run time. Unlike the baked `{times, values}` form, this keeps any referenced parameter live \u2014 so a calibratable unit hydrograph (e.g. GR4J `IF(lag < X4, (lag/X4)^2.5, 1)`, X4 an optimization variable) responds to the parameter rather than a value frozen at emit time. See wasim-engine-semantics.md \u00a717.",
+                      "properties": {
+                        "expression": {
+                          "$ref": "#/$defs/expression_field",
+                          "description": "The response formula over the lag variable."
+                        },
+                        "interval": {
+                          "$ref": "#/$defs/quantity",
+                          "description": "Lag sampling step (\u0394\u03c4)."
+                        },
+                        "length": {
+                          "$ref": "#/$defs/quantity",
+                          "description": "Response support (max lag)."
+                        },
+                        "cumulative": {
+                          "type": "boolean",
+                          "default": false,
+                          "description": "When true the expression is a cumulative response (an S-curve); the convolution weights are its successive differences. When false it is a density; weights = value \u00d7 interval."
+                        }
+                      }
+                    }
+                  ]
+                },
+                "states": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "[markov] State labels."
+                },
+                "initial_state": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "[markov] Starting state (label or index)."
+                },
+                "transition_matrix": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/transition_entry"
+                  },
+                  "description": "[markov] Row-stochastic transition matrix. Rows sum to 1."
+                },
+                "output_values": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "[markov] Numeric output per state."
+                },
+                "high_threshold": {
+                  "$ref": "#/$defs/quantity",
+                  "description": "[hysteresis] Upper activation threshold."
+                },
+                "low_threshold": {
+                  "$ref": "#/$defs/quantity",
+                  "description": "[hysteresis] Lower deactivation threshold."
+                },
+                "output_above": {
+                  "$ref": "#/$defs/quantity",
+                  "description": "[hysteresis] Output when active."
+                },
+                "output_below": {
+                  "$ref": "#/$defs/quantity",
+                  "description": "[hysteresis] Output when inactive."
+                },
+                "window": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "[filter] Window size in timesteps (or EMA span)."
+                },
+                "statistic": {
+                  "type": "string",
+                  "enum": [
+                    "mean",
+                    "min",
+                    "max",
+                    "sum",
+                    "ema"
+                  ],
+                  "description": "[filter] Rolling statistic to compute."
+                },
+                "root": {
+                  "$ref": "#/$defs/gate_node",
+                  "description": "[gate_logic] Root of the boolean logic tree."
+                },
+                "semantics": {
+                  "type": "string",
+                  "enum": [
+                    "success",
+                    "failure"
+                  ],
+                  "default": "success",
+                  "description": "[gate_logic] Interpretation of the tree output."
+                },
+                "setpoint": {
+                  "$ref": "#/$defs/quantity_or_formula",
+                  "description": "[pid] Target value the controller drives `input` toward."
+                },
+                "kp": {
+                  "type": "number",
+                  "description": "[pid] Proportional gain (0 if absent)."
+                },
+                "ki": {
+                  "type": "number",
+                  "description": "[pid] Integral gain (0 if absent)."
+                },
+                "kd": {
+                  "type": "number",
+                  "description": "[pid] Derivative gain (0 if absent)."
+                },
+                "output_min": {
+                  "type": "number",
+                  "description": "[pid] Lower output clamp."
+                },
+                "output_max": {
+                  "type": "number",
+                  "description": "[pid] Upper output clamp."
+                },
+                "deadband": {
+                  "type": "number",
+                  "description": "[pid] Error magnitude treated as zero (anti-chatter), as a number."
+                },
+                "controller_mode": {
+                  "type": "string",
+                  "enum": [
+                    "pid",
+                    "proportional",
+                    "on_off"
+                  ],
+                  "description": "[pid] GoldSim controller mode (semantics §2.15). `pid` (default) / `proportional` (kp only) use the PID law; `on_off` is a stateful bang-bang hysteresis latch (ON above setpoint+band/2, OFF below setpoint−band/2, else HOLD)."
+                },
+                "output_cap": {
+                  "$ref": "#/$defs/quantity_or_formula",
+                  "description": "[pid on_off] The \"ON\" output value of an on_off controller (may be a dynamic ref). Absent → the latch emits a 0/1 gate signal."
+                },
+                "deadband_ref": {
+                  "$ref": "#/$defs/quantity_or_formula",
+                  "description": "[pid on_off] The on_off hysteresis band as a quantity_or_formula (distinct from the numeric `deadband`); supersedes `deadband` for on_off when present."
+                },
+                "delay_time": {
+                  "$ref": "#/$defs/quantity_or_formula",
+                  "description": "[queue] Fixed transit/service delay for a `queue` value_rule node (required for queue nodes)."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "STOCK: State variable that accumulates over time. Traits activated by field presence.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive",
+                "initial_value"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "stock"
+                },
+                "initial_value": {
+                  "$ref": "#/$defs/quantity"
+                },
+                "rate": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Net rate of change."
+                },
+                "inflows": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Element ids contributing to positive rate."
+                },
+                "outflows": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Element ids contributing to negative rate."
+                },
+                "floor": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Minimum value (stock cannot go below)."
+                },
+                "capacity": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: capacity_clamp. Maximum value."
+                },
+                "overflow_target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "TRAIT: overflow_routing. Element id receiving excess. Requires capacity."
+                },
+                "return_rate": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: compound_growth. Self-referential return rate."
+                },
+                "withdrawals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/withdrawal_spec"
+                  },
+                  "description": "TRAIT: priority_withdrawal. Prioritized withdrawal demands.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "LINK: Directed connection moving quantity from source to target.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "link"
+                },
+                "source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Element id of the upstream stock/cell."
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Element id of the downstream stock/cell."
+                },
+                "rate": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Transfer rate (quantity per time)."
+                },
+                "fraction": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Transfer as fraction of source output."
+                },
+                "priority": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "TRAIT: priority_allocation. Lower = served first."
+                },
+                "transit_time": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: transit_buffer. Mean residence time."
+                },
+                "decay_rate": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: transit_decay. First-order loss in transit. Requires transit_time."
+                },
+                "dispersion": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: transit_dispersion. P\u00e9clet number (dimensionless, unit '1'). Higher = less dispersion. Requires transit_time. Math spec deferred to M4 appendix."
+                },
+                "schedule": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/trigger_spec"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: scheduled_flow. When transfers occur."
+                },
+                "species": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "TRAIT: species_transport. Species carried."
+                },
+                "medium": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "TRAIT: species_transport. Medium of transport."
+                },
+                "fluxes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/flux_spec"
+                  },
+                  "default": [],
+                  "description": "TRAIT: species_transport. Transport mechanisms."
+                },
+                "geometry": {
+                  "type": "string",
+                  "enum": [
+                    "cell",
+                    "aquifer",
+                    "pipe",
+                    "conduit"
+                  ],
+                  "description": "Pathway geometry."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "EVENT: Discrete occurrence that fires on a trigger and applies effects.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "event"
+                },
+                "trigger": {
+                  "$ref": "#/$defs/trigger_spec"
+                },
+                "effects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/effect_spec"
+                  },
+                  "default": []
+                },
+                "event_value": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_expr"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Value/magnitude carried by each event."
+                },
+                "count_limit": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Maximum number of events over the run."
+                },
+                "rate": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: rate_generation. Mean Poisson event rate."
+                },
+                "failure_process": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/failure_process"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: failure_state_machine. How the component fails and is repaired."
+                },
+                "payoff": {
+                  "$ref": "#/$defs/payoff_spec",
+                  "description": "TRAIT: financial payoff (option/insurance). A threshold-conditional payout that ordinary `effects` (additive/multiplicative/replace) can't express. Provenance-complete; engine execution is deferred. See wasim-engine-semantics.md \u00a719."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "GATE: Boolean logic composition (fault tree, RBD, event tree).",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive",
+                "root"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "gate"
+                },
+                "root": {
+                  "$ref": "#/$defs/gate_node"
+                },
+                "semantics": {
+                  "type": "string",
+                  "enum": [
+                    "success",
+                    "failure"
+                  ],
+                  "default": "success"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "CELL: Transport compartment holding species across media.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "cell"
+                },
+                "volume": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "media": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/medium_ref"
+                  },
+                  "default": []
+                },
+                "species": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/species_ref"
+                  },
+                  "default": []
+                },
+                "inflows": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                },
+                "partitioning": {
+                  "type": "array",
+                  "description": "TRAIT: partitioning_equilibrium. Equilibrium partition coefficients.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "species": {
+                        "type": "string"
+                      },
+                      "from_medium": {
+                        "type": "string"
+                      },
+                      "to_medium": {
+                        "type": "string"
+                      },
+                      "coefficient": {
+                        "$ref": "#/$defs/quantity_or_formula"
+                      }
+                    }
+                  },
+                  "default": []
+                },
+                "inventory": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: source_release. Total mass available."
+                },
+                "release_rate": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: source_release. Rate of release."
+                },
+                "release_schedule": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/trigger_spec"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "TRAIT: source_release. When release occurs."
+                },
+                "release_target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "TRAIT: source_release. Cell receiving released mass."
+                },
+                "fluxes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/flux_spec"
+                  },
+                  "default": [],
+                  "description": "TRAIT: coupled_transport. Advective/diffusive inter-cell mass transfer. Each entry is cell-owned: `source` absent = this cell, `target` = the far cell. Advective reads `rate` (volumetric flow); diffusive reads `coefficient`."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "SPECIES: Definition of a transported substance (no simulation behavior).",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "species"
+                },
+                "half_life": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "decay_products": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "species"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "species": {
+                        "type": "string"
+                      },
+                      "branching_fraction": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    }
+                  },
+                  "default": []
+                },
+                "molecular_weight": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "members": {
+                  "type": "array",
+                  "description": "Per-nuclide decay data when this element is a species SET (GoldSim SSpeciesElem: N nuclides as one dimension element). Cells and `decay_products[].species` reference members by bare `name`, not the set element id; the engine keys its per-nuclide decay table by member name. Empty for a plain single-species element.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Nuclide label, unique within the set. Referenced by cells and by other members' decay_products."
+                      },
+                      "half_life": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/$defs/quantity"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "decay_products": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "species"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "species": {
+                              "type": "string",
+                              "description": "Daughter member name (resolved within this set's membership)."
+                            },
+                            "branching_fraction": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        "default": []
+                      },
+                      "molecular_weight": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/$defs/quantity"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "default": []
+                },
+                "properties": {
+                  "type": "object",
+                  "default": {}
+                }
+              }
+            }
+          ]
+        },
+        {
+          "description": "MEDIUM: Definition of a material phase (no simulation behavior).",
+          "allOf": [
+            {
+              "$ref": "#/$defs/element_base"
+            },
+            {
+              "type": "object",
+              "required": [
+                "primitive",
+                "phase"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primitive": {
+                  "const": "medium"
+                },
+                "phase": {
+                  "type": "string",
+                  "enum": [
+                    "solid",
+                    "fluid",
+                    "gas",
+                    "reference_fluid"
+                  ]
+                },
+                "density": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "porosity": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/quantity_or_formula"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "properties": {
+                  "type": "object",
+                  "default": {}
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

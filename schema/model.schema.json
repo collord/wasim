@@ -1,0 +1,2237 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://wasim.dev/schema/model/0.7.0",
+  "title": "WASiM Model",
+  "description": "Canonical model definition for a probabilistic, dynamic (Monte-Carlo) simulation. Describes a directed graph of typed elements — inputs, functions, stocks, discrete events, reliability, financial, and mass-transport elements — driven over time across one or more stochastic realizations. Vendor-neutral: the vocabulary follows general stochastic-simulation / system-dynamics conventions and is independent of any particular authoring tool or file format.",
+  "$comment": "UNIT CONTRACT. Every `unit` and `*_unit` field is a free-form unit string (e.g. 'm3/yr', 'kg/m3', '1' for dimensionless). This schema does NOT validate units structurally — dimensional correctness is the producer's responsibility. The engine resolves each string to SI at load time using the companion unit registry units.json ($id 'https://wasim.dev/schema/units/0.1.0'), which maps each recognised unit string to an SI conversion factor and dimensional base; an unrecognised string is a load-time error, not a schema error. Where units attach: a scalar's unit lives on its own quantity; per-axis units (array.unit, timeseries.times_unit/values_unit, lookup.x_unit/y_unit, convolution.response.*_unit) apply to a whole array; a computed element's result unit is declared in element_base.outputs[].unit. Bare-number fields documented as inheriting a unit (min_value, constant.bounds, controller.bounds, distribution.truncation) take the unit of the value they bound, or may be given as a quantity to state the unit explicitly.",
+  "type": "object",
+  "required": ["wasim_version", "simulation_settings", "elements"],
+  "additionalProperties": false,
+  "properties": {
+    "wasim_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "WASiM schema version this file conforms to (semver)."
+    },
+    "source": {
+      "type": "object",
+      "description": "Provenance metadata. Not consumed by the engine.",
+      "additionalProperties": false,
+      "properties": {
+        "generator":         { "type": ["string", "null"] },
+        "generator_version": { "type": ["string", "null"] },
+        "created":           { "type": ["string", "null"], "format": "date-time" },
+        "notes":             { "type": ["string", "null"] }
+      }
+    },
+    "simulation_settings": { "$ref": "#/$defs/simulation_settings" },
+    "containers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/container_def" },
+      "default": []
+    },
+    "elements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" },
+      "description": "Flat list of all model elements. Hierarchy is expressed via container references."
+    },
+    "time_history_displays": {
+      "type": "array",
+      "description": "Display-only expressions recovered from result/plot elements in the source model. Not part of the simulation graph; preserved for inspection. Accepts the same provenance fields as element_base (source_type, source_object_id, path, input_ports).",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "expression"],
+        "additionalProperties": true,
+        "properties": {
+          "id":                 { "type": "string" },
+          "name":               { "type": "string" },
+          "expression":         { "$ref": "#/$defs/expression_field" },
+          "inputs":             { "type": "array", "items": { "type": "string" }, "default": [] },
+          "source_type":        { "type": ["string", "null"] },
+          "source_object_id":   { "type": ["integer", "null"] },
+          "path":               { "type": ["string", "null"] },
+          "input_ports":        { "type": "array", "items": { "$ref": "#/$defs/input_port_ref" }, "default": [] }
+        }
+      },
+      "default": []
+    },
+    "connections": {
+      "type": "array",
+      "description": "Directed connection graph extracted from the source model's connection/influence layer. Edges are keyed by source_object_id (a surrogate key — the source model's per-object stream index), NOT by the string element id/name. The two id-spaces ARE joinable within this document: every element and container carries its own source_object_id, so an edge's from_id/to_id resolve to elements/containers by matching that field (see connection_edge). Not consumed by the engine; preserved as the model's connectivity.",
+      "items": { "$ref": "#/$defs/connection_edge" },
+      "default": []
+    }
+  },
+
+  "$defs": {
+
+    "simulation_settings": {
+      "type": "object",
+      "description": "Time-stepping and Monte-Carlo controls for a simulation run.",
+      "required": ["duration", "timestep"],
+      "additionalProperties": false,
+      "properties": {
+        "duration":          { "$ref": "#/$defs/quantity", "description": "Total simulation duration." },
+        "timestep":          { "$ref": "#/$defs/quantity", "description": "Fixed timestep size." },
+        "n_realizations":    { "type": "integer", "minimum": 1, "default": 1, "description": "Number of Monte-Carlo realizations." },
+        "sampling_method":   { "type": "string", "enum": ["monte_carlo", "lhs"], "default": "monte_carlo", "description": "Sampling scheme for stochastic inputs: simple Monte-Carlo or Latin hypercube." },
+        "seed":              { "type": ["integer", "null"], "description": "RNG seed for reproducibility. Null for random." },
+        "reporting_periods": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/quantity" },
+          "description": "Optional reporting/output intervals at which results are recorded (each a duration quantity). Independent of the computation timestep; empty/absent records at every timestep.",
+          "default": []
+        }
+      }
+    },
+
+    "connection_edge": {
+      "type": "object",
+      "required": ["edge_id", "from_id", "to_id"],
+      "additionalProperties": false,
+      "description": "One directed edge of the connection graph. from_id/to_id/edge_id are u16 surrogate keys (the source model's per-object stream index), deliberately integer so they do not collide with the string element id/name keyspace. These integer ids ARE resolvable within this document: each element and container carries its own source_object_id, so from_id/to_id join to elements/containers by matching that field (no external map needed).",
+      "properties": {
+        "edge_id": { "type": "integer", "description": "u16 connection identifier, unique within the source model." },
+        "from_id": { "type": "integer", "description": "u16 source_object_id of the source element; resolves to the element/container whose source_object_id equals this value." },
+        "to_id":   { "type": "integer", "description": "u16 source_object_id of the destination element; resolves to the element/container whose source_object_id equals this value." },
+        "waypoints": {
+          "type": "array",
+          "description": "Visual wire-path pixel coordinates [x, y]. Empty for direct connections.",
+          "items": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "default": []
+        }
+      }
+    },
+
+    "quantity": {
+      "type": "object",
+      "required": ["value", "unit"],
+      "additionalProperties": false,
+      "description": "A numeric value with explicit unit declaration. The value is expressed in the declared unit — not necessarily SI base units. The engine converts to SI at load time for internal computation. display_unit controls how the value is presented to users in the frontend (defaults to unit if absent).",
+      "properties": {
+        "value":        { "type": "number",
+                          "description": "Numeric magnitude in the declared unit." },
+        "unit":         { "type": "string",
+                          "description": "Unit of value (e.g. 'mm/yr', 'kg/m3', 'd', '1' for dimensionless). A free-form unit string carrying the source model's display-unit string verbatim (e.g. 'pers/d', 'KAF/yr', 'kpers'); not necessarily a canonical vocabulary term and not validated structurally here. The engine normalises it to SI at load time via the unit registry (units.json, $id 'https://wasim.dev/schema/units/0.1.0'); an unrecognised string is a load-time error. See the top-level $comment for the full unit contract." },
+        "display_unit": { "type": ["string", "null"],
+                          "description": "Presentation form of the unit for frontend display and user input. If null, defaults to unit. The engine ignores this field." }
+      }
+    },
+
+    "quantity_expr": {
+      "description": "A value that may be either a fixed quantity or an expression AST.",
+      "oneOf": [
+        { "$ref": "#/$defs/quantity" },
+        { "$ref": "#/$defs/ast_node" }
+      ]
+    },
+
+    "quantity_or_formula": {
+      "description": "A value that may be a fixed quantity, a parsed expression AST, or a formula string referencing other model elements. Prefer the expression_field (AST) form when the transpiler can parse the formula — engines should consume the AST directly. The string form is a fallback for unparsed formulas; engines that don't carry their own parser should treat unparsed strings as 0.0 and emit a warning.",
+      "oneOf": [
+        { "$ref": "#/$defs/quantity" },
+        { "$ref": "#/$defs/expression_field" },
+        { "type": "string", "description": "Unparsed formula expression (fallback when transpiler parse failed)." }
+      ]
+    },
+
+    "output_spec": {
+      "type": "object",
+      "required": ["name", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "name":         { "type": "string" },
+        "unit":         { "type": "string", "description": "Result unit of this output (free-form unit string; see the unit contract in the top-level $comment and units.json)." },
+        "display_unit": { "type": ["string", "null"] },
+        "dimensions":   { "type": "array", "items": { "type": "string" }, "description": "Ordinal-set element ids this output is dimensioned over (empty = scalar)." }
+      }
+    },
+
+    "save_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "final_value":   { "type": "boolean", "default": false },
+        "time_history":  { "type": "boolean", "default": false }
+      }
+    },
+
+    "trigger_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Describes WHEN an element fires, resamples, or applies a change. A generic event/timing condition shared by event generators, resampled random variables, discrete events, consequences, and failure modes.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["always", "on_condition", "periodic", "on_schedule", "on_event"],
+          "description": "Firing rule. 'always': every timestep. 'on_condition': when the boolean condition becomes true. 'periodic': at a fixed recurrence period. 'on_schedule': at explicit times. 'on_event': when an upstream event element fires."
+        },
+        "condition": {
+          "$ref": "#/$defs/quantity_or_formula",
+          "description": "Boolean condition that fires the trigger when mode is 'on_condition'."
+        },
+        "source": {
+          "type": ["string", "null"],
+          "description": "Element id of the upstream event/signal that fires this trigger when mode is 'on_event'."
+        },
+        "period": {
+          "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ],
+          "description": "Recurrence interval when mode is 'periodic'."
+        },
+        "schedule": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/quantity" },
+          "description": "Explicit event times when mode is 'on_schedule'.",
+          "default": []
+        }
+      }
+    },
+
+    "flux_spec": {
+      "type": "object",
+      "required": ["mechanism"],
+      "additionalProperties": false,
+      "description": "A mass (or energy) transfer between transport cells or media.",
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "enum": ["advective", "diffusive", "direct", "settling", "precipitation"],
+          "description": "Transfer process: bulk advective flow, Fickian diffusion, a direct transfer, settling, or precipitation/dissolution exchange."
+        },
+        "rate": {
+          "$ref": "#/$defs/quantity_or_formula",
+          "description": "Advective flow rate (volume or mass per time) for advective mechanisms."
+        },
+        "coefficient": {
+          "$ref": "#/$defs/quantity_or_formula",
+          "description": "Diffusive conductance / mass-transfer coefficient for diffusive mechanisms."
+        },
+        "species": {
+          "type": ["string", "null"],
+          "description": "Element id of the transported species this flux carries; null = all species in the source cell."
+        },
+        "medium": {
+          "type": ["string", "null"],
+          "description": "Element id of the medium the flux moves through."
+        },
+        "target": {
+          "type": ["string", "null"],
+          "description": "Element id of the destination cell/pathway."
+        }
+      }
+    },
+
+    "gate_node": {
+      "description": "One node of a reliability/fault-tree, event-tree, or reliability block diagram. Combines child component states into a higher-level state. Discriminated by 'op'.",
+      "type": "object",
+      "required": ["op"],
+      "oneOf": [
+        {
+          "description": "Logical AND / series gate — true only if all children are true.",
+          "properties": {
+            "op":       { "const": "and" },
+            "children": { "type": "array", "items": { "$ref": "#/$defs/gate_node" }, "minItems": 1 }
+          },
+          "required": ["op", "children"],
+          "additionalProperties": false
+        },
+        {
+          "description": "Logical OR / parallel gate — true if any child is true.",
+          "properties": {
+            "op":       { "const": "or" },
+            "children": { "type": "array", "items": { "$ref": "#/$defs/gate_node" }, "minItems": 1 }
+          },
+          "required": ["op", "children"],
+          "additionalProperties": false
+        },
+        {
+          "description": "Logical negation of its single child.",
+          "properties": {
+            "op":       { "const": "not" },
+            "children": { "type": "array", "items": { "$ref": "#/$defs/gate_node" }, "minItems": 1, "maxItems": 1 }
+          },
+          "required": ["op", "children"],
+          "additionalProperties": false
+        },
+        {
+          "description": "k-out-of-n voting gate — true when at least 'threshold' children are true.",
+          "properties": {
+            "op":        { "const": "n_vote" },
+            "threshold": { "type": "integer", "minimum": 1 },
+            "children":  { "type": "array", "items": { "$ref": "#/$defs/gate_node" }, "minItems": 1 }
+          },
+          "required": ["op", "threshold", "children"],
+          "additionalProperties": false
+        },
+        {
+          "description": "Leaf referencing another element/component whose state feeds the tree.",
+          "properties": {
+            "op":        { "const": "reference" },
+            "reference": { "type": "string", "description": "Element id of the referenced component." }
+          },
+          "required": ["op", "reference"],
+          "additionalProperties": false
+        },
+        {
+          "description": "Leaf evaluating a boolean condition expression.",
+          "properties": {
+            "op":        { "const": "condition" },
+            "condition": { "$ref": "#/$defs/quantity_or_formula" }
+          },
+          "required": ["op", "condition"],
+          "additionalProperties": false
+        },
+        {
+          "description": "Leaf basic-event / input state.",
+          "properties": {
+            "op":    { "const": "input" },
+            "input": { "type": "string", "description": "Element id of the input/basic-event state." }
+          },
+          "required": ["op", "input"],
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "failure_process": {
+      "type": "object",
+      "required": ["basis"],
+      "additionalProperties": false,
+      "description": "How a component fails and is restored over time.",
+      "properties": {
+        "basis": {
+          "type": "string",
+          "enum": ["exposure_time", "operating_time", "demand", "capacity_demand", "event", "condition"],
+          "description": "What drives failure: calendar/exposure time, accumulated operating time, per-demand probability, capacity-versus-demand comparison, an external event, or a boolean condition."
+        },
+        "time_to_failure": {
+          "$ref": "#/$defs/distribution",
+          "description": "Distribution of time (or number of demands) to failure."
+        },
+        "repair": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Restoration behavior after a failure.",
+          "properties": {
+            "time_to_repair": { "$ref": "#/$defs/distribution" },
+            "policy": {
+              "type": "string",
+              "enum": ["none", "repair", "replace", "preventive_maintenance"],
+              "description": "How the component is restored: not repaired, repaired in place, replaced, or restored on a preventive-maintenance schedule."
+            }
+          }
+        },
+        "demand_capacity": {
+          "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ],
+          "description": "For 'capacity_demand' basis: the capacity threshold the demand is compared against; failure occurs when demand exceeds capacity."
+        },
+        "trigger": {
+          "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ],
+          "description": "For 'event'/'condition' basis: what fires the failure."
+        }
+      }
+    },
+
+    "medium_ref": {
+      "type": "object",
+      "required": ["ref"],
+      "additionalProperties": false,
+      "description": "Reference to a `medium` element present in a transport cell, with an optional volumetric fraction.",
+      "properties": {
+        "ref":      { "type": "string", "description": "Element id of a `medium` element." },
+        "fraction": { "type": ["number", "null"], "description": "Volume fraction of the cell occupied by this medium." },
+        "label":    { "type": ["string", "null"] }
+      }
+    },
+
+    "species_ref": {
+      "type": "object",
+      "required": ["ref"],
+      "additionalProperties": false,
+      "description": "Reference to a `species` element tracked in a cell/source, with an optional initial amount.",
+      "properties": {
+        "ref":    { "type": "string", "description": "Element id of a `species` element." },
+        "amount": { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Initial mass/inventory of this species." },
+        "label":  { "type": ["string", "null"] }
+      }
+    },
+
+    "container_def": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": true,
+      "properties": {
+        "id":                { "type": "string" },
+        "name":               { "type": "string" },
+        "description":        { "type": ["string", "null"] },
+        "kind": {
+          "type": "string",
+          "enum": ["container", "group", "submodel"],
+          "default": "container",
+          "description": "Structural role. 'container'/'group': purely organizational. 'submodel': a nested simulation that runs with its own clock/sampling controls (see simulation_settings) and exposes a named interface."
+        },
+        "parent":             { "type": ["string", "null"], "description": "ID of parent container, or null for top-level." },
+        "children":           { "type": "array", "items": { "type": "string" }, "description": "IDs of child containers.", "default": [] },
+        "simulation_settings": {
+          "oneOf": [ { "$ref": "#/$defs/simulation_settings" }, { "type": "null" } ],
+          "description": "For kind='submodel': the nested run's time-stepping/Monte-Carlo settings. Null inherits the parent model's settings."
+        },
+        "interface": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Named inputs/outputs exposed at the container boundary (for submodels and groups). Each entry is an element id within or feeding the container.",
+          "properties": {
+            "inputs":  { "type": "array", "items": { "type": "string" }, "default": [] },
+            "outputs": { "type": "array", "items": { "type": "string" }, "default": [] }
+          }
+        },
+        "source_type":        { "type": ["string", "null"], "description": "Original element kind in the source modelling tool (e.g. 'Container', 'Group', 'SubModel'). Engine ignores." },
+        "source_object_id":   { "type": ["integer", "null"], "description": "Original object id from the source model, for round-tripping. Engine ignores." },
+        "path":               { "type": ["string", "null"], "description": "Full container path in the source model. Engine ignores." },
+        "input_ports":        { "type": "array", "items": { "$ref": "#/$defs/input_port_ref" }, "default": [] }
+      }
+    },
+
+    "ast_node": {
+      "description": "A single node in a WASiM expression AST. Discriminated by 'op'.",
+      "type": "object",
+      "required": ["op"],
+      "oneOf": [
+
+        {
+          "description": "Numeric literal with optional unit.",
+          "properties": {
+            "op":    { "const": "literal" },
+            "value": { "type": "number" },
+            "unit":  { "type": ["string", "null"] }
+          },
+          "required": ["op", "value"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Reference to another element's output.",
+          "properties": {
+            "op":         { "const": "ref" },
+            "element_id": { "type": "string" },
+            "output":     { "type": "string", "default": "value" }
+          },
+          "required": ["op", "element_id"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Reference to a simulation time property.",
+          "properties": {
+            "op":       { "const": "time_ref" },
+            "property": {
+              "type": "string",
+              "enum": ["elapsed", "timestep", "year", "month", "day_of_year", "day_of_month", "days_in_month"]
+            }
+          },
+          "required": ["op", "property"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Binary arithmetic or logical operation.",
+          "properties": {
+            "op":    { "type": "string", "enum": ["add", "subtract", "multiply", "divide", "power", "lt", "gt", "lte", "gte", "eq", "neq", "and", "or"] },
+            "left":  { "$ref": "#/$defs/ast_node" },
+            "right": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "left", "right"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Unary operation.",
+          "properties": {
+            "op":      { "type": "string", "enum": ["neg", "not"] },
+            "operand": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "operand"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Built-in scalar function call.",
+          "properties": {
+            "op":   { "const": "call" },
+            "fn":   {
+              "type": "string",
+              "enum": ["min", "max", "abs", "sqrt", "exp", "ln", "log", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "floor", "ceil", "round", "mod", "sign", "int", "step",
+                       "sum_array", "mean_array", "min_array", "max_array", "size_array",
+                       "get_element", "dot_product", "interp_array",
+                       "erf", "erfc",
+                       "get_year", "get_month", "get_day", "get_hour", "get_minute", "get_second",
+                       "table_min", "table_max", "column_count",
+                       "pv_factor", "annuity_factor"]
+            },
+            "args": { "type": "array", "items": { "$ref": "#/$defs/ast_node" }, "minItems": 1 }
+          },
+          "required": ["op", "fn", "args"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Inline ordered array constructed from scalar expressions. Used for vector/array operations. Equivalent to a vector(a, b, c) constructor.",
+          "properties": {
+            "op":       { "const": "array" },
+            "elements": { "type": "array", "items": { "$ref": "#/$defs/ast_node" }, "minItems": 1 }
+          },
+          "required": ["op", "elements"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "If/then/else conditional.",
+          "properties": {
+            "op":   { "const": "if" },
+            "cond": { "$ref": "#/$defs/ast_node" },
+            "then": { "$ref": "#/$defs/ast_node" },
+            "else": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "cond", "then", "else"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Evaluate a lookup-table element at a given input. The element_id must refer to an element of type 'lookup'. The engine interpolates into that table using the evaluated input.",
+          "properties": {
+            "op":         { "const": "lookup_call" },
+            "element_id": { "type": "string", "description": "ID of the lookup element to evaluate." },
+            "input":      { "$ref": "#/$defs/ast_node", "description": "Expression for the lookup's independent variable." },
+            "input2":     { "$ref": "#/$defs/ast_node", "description": "Second independent variable for 2D lookup tables (optional)." }
+          },
+          "required": ["op", "element_id", "input"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "A source-model function the engine does not implement. Preserves the call (name + args) for round-tripping and inspection; the engine treats it as opaque/NaN. Use 'call' for functions in the implemented fn enum; use 'extern_call' for everything else so argument refs (and thus connectivity) are still preserved.",
+          "properties": {
+            "op":   { "const": "extern_call" },
+            "fn":   { "type": "string", "description": "Source function name, verbatim (e.g. 'pdf_mean')." },
+            "args": { "type": "array", "items": { "$ref": "#/$defs/ast_node" } }
+          },
+          "required": ["op", "fn", "args"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "The implicit iteration index inside a vector()/matrix() comprehension body (see 'vector_map'). 'row' is the array/first axis; 'col' the matrix second axis.",
+          "properties": {
+            "op":   { "const": "index_ref" },
+            "axis": { "type": "string", "enum": ["row", "col"], "default": "row" }
+          },
+          "required": ["op"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Array/matrix element access: array[i] or matrix[i, j]. 'indices' holds one expression for a vector access or two for a matrix access.",
+          "properties": {
+            "op":      { "const": "index" },
+            "array":   { "$ref": "#/$defs/ast_node" },
+            "indices": { "type": "array", "items": { "$ref": "#/$defs/ast_node" }, "minItems": 1, "maxItems": 2 }
+          },
+          "required": ["op", "array", "indices"],
+          "additionalProperties": false
+        },
+
+        {
+          "description": "Comprehension over an ordinal set: evaluate 'body' (which may reference 'index_ref') once per member of the set 'over', producing an array dimensioned over that set.",
+          "properties": {
+            "op":   { "const": "vector_map" },
+            "over": { "type": "string", "description": "Ordinal-set element id the result is dimensioned over." },
+            "body": { "$ref": "#/$defs/ast_node" }
+          },
+          "required": ["op", "over", "body"],
+          "additionalProperties": false
+        }
+
+      ]
+    },
+
+    "expression_field": {
+      "description": "Reusable bundle of AST + optional display string.",
+      "type": "object",
+      "required": ["ast"],
+      "additionalProperties": false,
+      "properties": {
+        "ast":     { "$ref": "#/$defs/ast_node" },
+        "display": { "type": ["string", "null"], "description": "Human-readable expression string. Not consumed by the engine." },
+        "source":  {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "inferred",
+            "inferred_path",
+            "inferred_passthrough",
+            "inferred_container",
+            "inferred_ts",
+            "inferred_pool_rate",
+            "inferred_ast",
+            "inferred_stub"
+          ],
+          "default": "explicit",
+          "description": "How the expression was recovered. 'explicit' = decoded directly from the source model (formula text or token table). 'inferred' = legacy generic inference (kept for backward compatibility). 'inferred_path' = port-path reference like '\\Container\\Element' resolved to a passthrough. 'inferred_passthrough' = single-incoming-connection passthrough. 'inferred_container' = container-boundary passthrough. 'inferred_ts' = name-convention time-series passthrough (e.g. Precip -> Precip_TS). 'inferred_pool_rate' = pool rate AST built from inflow/withdrawal port bindings rather than an inline formula. 'inferred_ast' = compiled-AST node graph (no formula text) decoded into structured AST nodes. 'inferred_stub' = formula extraction failed; placeholder Literal(0.0) emitted with connection-derived inputs to preserve graph topology. Engines should treat the 'inferred_*' sources as approximate and may warn."
+        }
+      }
+    },
+
+    "process_spec": {
+      "description": "Parameters for a stochastic process element. Values are in user-chosen units; the engine scales drift linearly with dt and stddev by sqrt(dt/T_ref) at each timestep.",
+      "type": "object",
+      "required": ["family", "mean_type", "mean", "stddev"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["gbm"],
+          "description": "'gbm' = geometric Brownian motion: lognormal per-step increments, no memory between steps."
+        },
+        "mean_type": {
+          "type": "string",
+          "enum": ["geometric", "arithmetic", "log_drift"],
+          "description": "Interpretation of the 'mean' parameter. 'geometric': mean is the per-period compound growth rate as a fraction (e.g. 0.07 for 7%/yr); engine derives log_drift = ln(1 + mean). 'arithmetic': mean is the arithmetic expected return; engine applies Ito correction (log_drift = ln(1+mean) - sigma^2/2). 'log_drift': mean is the log-space drift directly, no transformation."
+        },
+        "mean": {
+          "$ref": "#/$defs/quantity",
+          "description": "Central tendency of the process. Interpreted according to mean_type. Use the same unit as the intended output (e.g. '1/yr' for an annual return rate)."
+        },
+        "stddev": {
+          "$ref": "#/$defs/quantity",
+          "description": "Per-reference-period volatility. Engine scales to per-step diffusion as sigma_step = stddev.value * sqrt(dt / T_ref) where T_ref is the period implied by stddev.unit. Annual volatility of 15% -> stddev = {value: 0.15, unit: '1/yr'}."
+        }
+      }
+    },
+
+    "distribution": {
+      "description": "Probability distribution specification. Discriminated by 'family'.",
+      "type": "object",
+      "required": ["family", "parameters"],
+      "properties": {
+        "family": { "type": "string" },
+        "parameters": { "type": "object" },
+        "truncation": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Optional bounds clipping the sampled value (each in the variate's own unit).",
+          "properties": {
+            "min": { "type": ["number", "null"] },
+            "max": { "type": ["number", "null"] }
+          }
+        },
+        "correlation_group": { "type": ["string", "null"], "description": "Named correlation group for rank-correlation sampling." }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "family": { "const": "uniform" },
+            "parameters": {
+              "type": "object", "required": ["min", "max"], "additionalProperties": false,
+              "properties": {
+                "min": { "$ref": "#/$defs/quantity" },
+                "max": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "normal" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
+              "properties": {
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "lognormal" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
+              "properties": {
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "triangular" },
+            "parameters": {
+              "type": "object", "required": ["min", "mode", "max"], "additionalProperties": false,
+              "properties": {
+                "min":  { "$ref": "#/$defs/quantity" },
+                "mode": { "$ref": "#/$defs/quantity" },
+                "max":  { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Lognormal parameterized by the mean and stddev of the underlying (non-log) variable rather than of its logarithm.",
+          "properties": {
+            "family": { "const": "lognormal_moments" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev"], "additionalProperties": false,
+              "properties": {
+                "mean":   { "$ref": "#/$defs/quantity_or_formula" },
+                "stddev": { "$ref": "#/$defs/quantity_or_formula" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "exponential" },
+            "parameters": {
+              "type": "object", "required": ["mean"], "additionalProperties": false,
+              "properties": {
+                "mean": { "$ref": "#/$defs/quantity_or_formula" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "gamma" },
+            "parameters": {
+              "type": "object", "required": ["shape", "scale"], "additionalProperties": false,
+              "properties": {
+                "shape": { "$ref": "#/$defs/quantity" },
+                "scale": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "beta" },
+            "parameters": {
+              "type": "object", "required": ["alpha", "beta"], "additionalProperties": false,
+              "properties": {
+                "alpha": { "$ref": "#/$defs/quantity" },
+                "beta":  { "$ref": "#/$defs/quantity" },
+                "min":   { "$ref": "#/$defs/quantity" },
+                "max":   { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "weibull" },
+            "parameters": {
+              "type": "object", "required": ["shape", "scale"], "additionalProperties": false,
+              "properties": {
+                "shape": { "$ref": "#/$defs/quantity" },
+                "scale": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "pearson_v" },
+            "parameters": {
+              "type": "object", "required": ["shape", "scale"], "additionalProperties": false,
+              "properties": {
+                "shape": { "$ref": "#/$defs/quantity" },
+                "scale": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "family": { "const": "pearson_iii" },
+            "parameters": {
+              "type": "object", "required": ["mean", "stddev", "skewness"], "additionalProperties": false,
+              "properties": {
+                "mean":     { "$ref": "#/$defs/quantity" },
+                "stddev":   { "$ref": "#/$defs/quantity" },
+                "skewness": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "PERT / beta-PERT distribution defined by an optimistic min, most-likely mode, and pessimistic max.",
+          "properties": {
+            "family": { "const": "pert" },
+            "parameters": {
+              "type": "object", "required": ["min", "mode", "max"], "additionalProperties": false,
+              "properties": {
+                "min":  { "$ref": "#/$defs/quantity" },
+                "mode": { "$ref": "#/$defs/quantity" },
+                "max":  { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Pareto (power-law tail) distribution.",
+          "properties": {
+            "family": { "const": "pareto" },
+            "parameters": {
+              "type": "object", "required": ["scale", "shape"], "additionalProperties": false,
+              "properties": {
+                "scale":    { "$ref": "#/$defs/quantity", "description": "Scale parameter (x_m, the minimum value)." },
+                "shape":    { "$ref": "#/$defs/quantity", "description": "Tail/shape index (alpha)." },
+                "location": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Generalized extreme-value / Gumbel distribution.",
+          "properties": {
+            "family": { "const": "extreme_value" },
+            "parameters": {
+              "type": "object", "required": ["location", "scale"], "additionalProperties": false,
+              "properties": {
+                "location": { "$ref": "#/$defs/quantity" },
+                "scale":    { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Extreme-probability distribution (probability-weighted extreme value).",
+          "properties": {
+            "family": { "const": "extreme_probability" },
+            "parameters": {
+              "type": "object", "required": ["location"], "additionalProperties": false,
+              "properties": {
+                "location": { "$ref": "#/$defs/quantity" },
+                "scale":    { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Student's t distribution.",
+          "properties": {
+            "family": { "const": "student_t" },
+            "parameters": {
+              "type": "object", "required": ["degrees_of_freedom"], "additionalProperties": false,
+              "properties": {
+                "degrees_of_freedom": { "$ref": "#/$defs/quantity" },
+                "location":           { "$ref": "#/$defs/quantity" },
+                "scale":              { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Poisson count distribution.",
+          "properties": {
+            "family": { "const": "poisson" },
+            "parameters": {
+              "type": "object", "required": ["rate"], "additionalProperties": false,
+              "properties": {
+                "rate": { "$ref": "#/$defs/quantity_or_formula", "description": "Expected number of events (lambda)." }
+              }
+            }
+          }
+        },
+        {
+          "description": "Binomial count distribution: number of successes in n independent trials.",
+          "properties": {
+            "family": { "const": "binomial" },
+            "parameters": {
+              "type": "object", "required": ["trials", "prob"], "additionalProperties": false,
+              "properties": {
+                "trials": { "$ref": "#/$defs/quantity_or_formula", "description": "Number of trials (n)." },
+                "prob":   { "$ref": "#/$defs/quantity_or_formula", "description": "Per-trial success probability." }
+              }
+            }
+          }
+        },
+        {
+          "description": "Negative-binomial count distribution: number of trials until a target number of successes.",
+          "properties": {
+            "family": { "const": "negative_binomial" },
+            "parameters": {
+              "type": "object", "required": ["successes", "prob"], "additionalProperties": false,
+              "properties": {
+                "successes": { "$ref": "#/$defs/quantity_or_formula", "description": "Target number of successes (r)." },
+                "prob":      { "$ref": "#/$defs/quantity_or_formula", "description": "Per-trial success probability." }
+              }
+            }
+          }
+        },
+        {
+          "description": "Beta-binomial count distribution: binomial with a beta-distributed success probability.",
+          "properties": {
+            "family": { "const": "beta_binomial" },
+            "parameters": {
+              "type": "object", "required": ["trials", "alpha", "beta"], "additionalProperties": false,
+              "properties": {
+                "trials": { "$ref": "#/$defs/quantity_or_formula", "description": "Number of trials (n)." },
+                "alpha":  { "$ref": "#/$defs/quantity" },
+                "beta":   { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Discrete uniform over an integer range.",
+          "properties": {
+            "family": { "const": "discrete_uniform" },
+            "parameters": {
+              "type": "object", "required": ["min", "max"], "additionalProperties": false,
+              "properties": {
+                "min": { "type": "integer" },
+                "max": { "type": "integer" }
+              }
+            }
+          }
+        },
+        {
+          "description": "Bernoulli distribution: 1 with probability p, 0 otherwise.",
+          "properties": {
+            "family": { "const": "bernoulli" },
+            "parameters": {
+              "type": "object", "required": ["prob"], "additionalProperties": false,
+              "properties": {
+                "prob": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        },
+        {
+          "description": "General discrete distribution with an explicit probability-mass table.",
+          "properties": {
+            "family": { "const": "discrete" },
+            "parameters": {
+              "type": "object", "required": ["outcomes", "probabilities"], "additionalProperties": false,
+              "properties": {
+                "outcomes":      { "type": "array", "items": { "type": "number" },
+                                   "description": "Outcome values (e.g. 1.0, 2.0, ... 6.0 for a six-sided die)." },
+                "probabilities": { "type": "array", "items": { "type": "number", "minimum": 0 },
+                                   "description": "Probability of each outcome. Must be same length as outcomes and sum to 1." }
+              }
+            }
+          }
+        },
+        {
+          "description": "Empirical distribution defined by a cumulative-probability (CDF) point table.",
+          "properties": {
+            "family": { "const": "cumulative" },
+            "parameters": {
+              "type": "object", "required": ["points"], "additionalProperties": false,
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "description": "Ascending CDF points.",
+                  "items": {
+                    "type": "object",
+                    "required": ["x", "cumulative_probability"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "x":                      { "type": "number" },
+                      "cumulative_probability": { "type": "number", "minimum": 0, "maximum": 1 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "Empirical distribution defined by an explicit set of equally- or unequally-weighted sample values (resampled directly).",
+          "properties": {
+            "family": { "const": "sampled" },
+            "parameters": {
+              "type": "object", "required": ["samples"], "additionalProperties": false,
+              "properties": {
+                "samples": { "type": "array", "items": { "type": "number" }, "description": "Observed sample values." },
+                "weights": { "type": "array", "items": { "type": "number", "minimum": 0 }, "description": "Optional weights, same length as samples." }
+              }
+            }
+          }
+        },
+        {
+          "description": "Externally- or Bayesian-defined distribution whose form is supplied outside the model. Parameters are kept free-form for round-tripping.",
+          "properties": {
+            "family": { "const": "external" },
+            "parameters": {
+              "type": "object",
+              "description": "Free-form parameter bag describing the external definition.",
+              "properties": {
+                "definition": { "type": ["string", "null"], "description": "Reference or name of the external distribution definition." }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "element_base": {
+      "description": "Fields common to all element types.",
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id":          { "type": "string", "description": "Unique identifier within the model. Used for cross-references." },
+        "name":        { "type": "string", "description": "Human-readable display name." },
+        "type":        { "type": "string" },
+        "container":   { "type": ["string", "null"], "description": "ID of the containing container, or null for top-level." },
+        "description": { "type": ["string", "null"] },
+        "outputs":     { "type": "array", "items": { "$ref": "#/$defs/output_spec" }, "default": [] },
+        "save_results":{ "$ref": "#/$defs/save_spec" },
+        "source_type": {
+          "type": ["string", "null"],
+          "description": "Original element type from the source modelling tool (e.g. 'Pool', 'Integrator', 'Reservoir', 'Stochastic'). Preserves source-side semantics that may collapse to the same wasim type. Engine ignores."
+        },
+        "source_object_id": {
+          "type": ["integer", "null"],
+          "description": "Original object id from the source model, for round-tripping. Engine ignores."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Full container path in the source model (e.g. '\\System_Model\\Tailings\\Reclaim_from_Tailings'). Engine ignores; preserved for diagram rendering and cross-referencing port-path passthroughs."
+        },
+        "input_ports": {
+          "type": "array",
+          "description": "Richer connection metadata alongside 'inputs[]'. Each entry names a source element and, when known, the specific output port on the source and input port on this element. Engine consumes 'inputs[]'; this field is provenance for renderers/round-tripping.",
+          "items": { "$ref": "#/$defs/input_port_ref" },
+          "default": []
+        }
+      }
+    },
+
+    "input_port_ref": {
+      "type": "object",
+      "required": ["element_id"],
+      "additionalProperties": false,
+      "properties": {
+        "element_id": { "type": "string", "description": "ID of the upstream element." },
+        "output":     { "type": ["string", "null"], "description": "Name of the upstream element's output port that feeds this connection, if known." },
+        "input":      { "type": ["string", "null"], "description": "Name of this element's input port that the connection terminates on, if known." }
+      }
+    },
+
+    "element": {
+      "description": "Any model element. Discriminated by 'type'.",
+      "oneOf": [
+
+        {
+          "description": "Fixed scalar value, optionally editable at runtime.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "value"],
+              "additionalProperties": true,
+              "properties": {
+                "type":     { "const": "constant" },
+                "value":    { "$ref": "#/$defs/quantity" },
+                "editable": { "type": "boolean", "default": false,
+                              "description": "If true, value can be adjusted by the user at runtime without editing model.json." },
+                "bounds": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "description": "Optional valid range. A bare number is interpreted in the element's own unit; a quantity may state the unit explicitly.",
+                  "properties": {
+                    "min": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ] },
+                    "max": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ] }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Constant 1-D array of scalar values, indexed positionally (1..N by convention). All values share a single unit. Consumers (e.g. vinterp / interp_array) operate on the values vector directly.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "mode", "values", "unit"],
+              "additionalProperties": true,
+              "properties": {
+                "type":   { "const": "array" },
+                "mode":   { "const": "constant", "description": "Sub-discriminator for the constant array shape." },
+                "values": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "description": "Array values in declared unit. Empty array indicates the values are not yet extracted from the source model (see 'provenance')."
+                },
+                "unit":   { "type": "string", "description": "Unit shared by all values (e.g. '1', 'mm/mon')." },
+                "display_unit": { "type": ["string", "null"] },
+                "provenance": {
+                  "type": "string",
+                  "enum": ["extracted", "extraction_pending", "inferred"],
+                  "default": "extracted",
+                  "description": "Origin of the values vector. 'extraction_pending' means the type was inferred from consumer usage but the array body has not been decoded; consumers should treat values as unavailable."
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Samples from a probability distribution each realization. Value is constant within a realization unless a resampling trigger is set.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "distribution"],
+              "additionalProperties": true,
+              "properties": {
+                "type":         { "const": "random_variable" },
+                "distribution": { "$ref": "#/$defs/distribution" },
+                "autocorrelation": {
+                  "type": ["number", "null"],
+                  "description": "Lag-1 autocorrelation coefficient (0-1). Applied across simulation time steps within a realization."
+                },
+                "resampling": {
+                  "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ],
+                  "description": "When the variable resamples during a realization. Null/absent = sample once per realization."
+                },
+                "trigger": {
+                  "type": ["object", "null"],
+                  "description": "Legacy resampling-trigger provenance (e.g. resample on a specific signal). Engine treats per-step resampling identically regardless of trigger; prefer 'resampling'.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": { "type": "string", "description": "Name or kind of the trigger that fires resampling. Common values: an elapsed-time index, 'Timestep'." }
+                  }
+                },
+                "correlations": {
+                  "type": "array",
+                  "description": "Cross-correlations with other random variables in the model.",
+                  "items": {
+                    "type": "object",
+                    "required": ["partner", "coefficient"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "partner":     { "type": "string", "description": "ID of the correlated element." },
+                      "coefficient": { "type": "number", "minimum": -1, "maximum": 1, "description": "Spearman rank correlation coefficient." }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Re-draws from a stochastic process at every timestep. Each realization gets independent draws at each step, modeling sequence-of-outcomes risk. Unlike random_variable (which draws once per realization), variance of cumulative outcomes grows with horizon. Engine scales stddev by sqrt(dt/T_ref) automatically; drift scales linearly.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "process"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "stochastic_process" },
+                "process": { "$ref": "#/$defs/process_spec" },
+                "lower_bound": {
+                  "description": "Optional floor clamped on the per-step drawn value, expressed as a quantity in the same unit as process.mean. null = no bound. For GBM, lognormal increments are naturally bounded below by -1 (total loss); set lower_bound only to impose a tighter floor or when using a non-lognormal family.",
+                  "oneOf": [
+                    { "$ref": "#/$defs/quantity" },
+                    { "type": "null" }
+                  ],
+                  "default": null
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Computes a value from other elements via a mathematical expression. Also covers boolean/logical combinators (and/or/not), which are encoded in the AST.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "expression"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "expression" },
+                "expression": { "$ref": "#/$defs/expression_field" },
+                "inputs":     {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs referenced by this expression. Redundant with the AST; used for fast dependency graph construction.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Conditional switch. Evaluates ordered cases and returns the value of the first whose condition is true; otherwise the default. Selection may also be index-based via selector_input.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "cases"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "selector" },
+                "selector_input": {
+                  "type": ["string", "null"],
+                  "description": "Element id of the discrete index/signal that selects a case, when selection is index-based rather than condition-based."
+                },
+                "cases": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["value"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "condition": { "$ref": "#/$defs/quantity_or_formula", "description": "Boolean condition (or index match) selecting this case." },
+                      "label":     { "type": ["string", "null"] },
+                      "value":     { "$ref": "#/$defs/quantity_or_formula", "description": "Value returned when this case is selected." }
+                    }
+                  }
+                },
+                "default": {
+                  "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ],
+                  "description": "Value returned when no case matches."
+                },
+                "inputs": { "type": "array", "items": { "type": "string" }, "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Reduces several inputs (or a single input accumulated over time) to one value via an associative operation (sum, product, min, max, mean; or their running/over-time variants).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "operation"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "aggregator" },
+                "operation": {
+                  "type": "string",
+                  "enum": ["sum", "product", "min", "max", "mean", "running_sum", "running_min", "running_max", "running_mean"],
+                  "description": "Reduction applied. 'running_*' accumulate over simulation time."
+                },
+                "over": {
+                  "type": "string",
+                  "enum": ["inputs", "time"],
+                  "default": "inputs",
+                  "description": "Reduce across the listed inputs, or accumulate a single input over simulation time."
+                },
+                "inputs": { "type": "array", "items": { "type": "string" }, "default": [] },
+                "operands": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/expression_field" },
+                  "description": "Explicit operand expressions when the summands are formulas rather than plain element references.",
+                  "default": []
+                },
+                "reset": {
+                  "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ],
+                  "description": "For running_* operations, when to reset the accumulation."
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Integrates a net rate over time. State variable with initial condition. Pure integrator (the net rate is supplied directly); see 'pool' and 'reservoir' for stocks with discrete inflow/withdrawal accounting.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "initial_value", "rate"],
+              "additionalProperties": true,
+              "properties": {
+                "type":          { "const": "accumulator" },
+                "initial_value": { "$ref": "#/$defs/quantity" },
+                "initial_expression": {
+                  "$ref": "#/$defs/expression_field",
+                  "description": "Expression evaluated at t=0 to compute the initial state. When present, overrides initial_value. Used when the initial condition is computed from other elements."
+                },
+                "rate":          {
+                  "$ref": "#/$defs/expression_field",
+                  "description": "Net rate of change per timestep (d/dt of state). The transpiler is responsible for encoding inflows minus loss formulas as a single rate expression."
+                },
+                "min_value": {
+                  "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ],
+                  "default": 0,
+                  "description": "Lower bound enforced after each timestep (stocks cannot go below it). A bare number is interpreted in the stock's own unit; a quantity may state the unit explicitly. Default 0."
+                },
+                "capacity": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/quantity" },
+                    { "type": "null" }
+                  ],
+                  "description": "Upper bound on state value. Null for unbounded."
+                },
+                "inputs": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs referenced by the rate expression.",
+                  "default": []
+                },
+                "inflows": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs that contribute mass/value to this accumulator (additive). Source-semantic decomposition of the rate; redundant with rate.ast. Engine consumes rate.ast.",
+                  "default": []
+                },
+                "requests": {
+                  "type": "array", "items": { "type": "string" },
+                  "description": "Element IDs that draw mass/value from this accumulator subject to availability (subtractive). Paired with 'inflows[]'. Engine consumes rate.ast.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A stock that accounts for discrete inflows and prioritized withdrawals. State rises by inflows and falls by withdrawals subject to availability, bounded below by min_value and above by capacity. Withdrawals are served in priority order.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "initial_value"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "pool" },
+                "initial_value": { "$ref": "#/$defs/quantity" },
+                "initial_expression": {
+                  "$ref": "#/$defs/expression_field",
+                  "description": "Expression evaluated at t=0 to compute the initial state; overrides initial_value when present."
+                },
+                "inflows": {
+                  "type": "array",
+                  "description": "Additive contributions to the stock.",
+                  "items": {
+                    "type": "object",
+                    "required": ["source"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "source": { "type": "string", "description": "Element id contributing the inflow." },
+                      "label":  { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                },
+                "withdrawals": {
+                  "type": "array",
+                  "description": "Subtractive draws, served in ascending priority order subject to availability.",
+                  "items": {
+                    "type": "object",
+                    "required": ["target"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "target":   { "type": "string", "description": "Element id receiving the withdrawal." },
+                      "priority": { "type": ["integer", "null"], "description": "Lower numbers are served first." },
+                      "limit":    { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Maximum draw per timestep." },
+                      "label":    { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                },
+                "capacity":  { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Upper bound on the stock. Null = unbounded." },
+                "min_value": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "default": 0, "description": "Lower bound enforced each timestep. A bare number is interpreted in the stock's own unit; a quantity may state the unit explicitly." },
+                "inputs":    { "type": "array", "items": { "type": "string" }, "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A stock with finite capacity that spills/overflows above capacity and may release a controlled lower outflow. Models reservoirs, tanks, and similar bounded storages.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "initial_value"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "reservoir" },
+                "initial_value":  { "$ref": "#/$defs/quantity" },
+                "inflow":         { "$ref": "#/$defs/expression_field", "description": "Net inflow rate into the reservoir." },
+                "capacity":       { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Storage capacity; volume above this spills." },
+                "overflow_target":{ "type": ["string", "null"], "description": "Element id receiving spill/overflow above capacity." },
+                "lower_outflow":  { "oneOf": [ { "$ref": "#/$defs/expression_field" }, { "type": "null" } ], "description": "Controlled release rate drawn from the reservoir." },
+                "min_value":      { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "default": 0, "description": "Lower bound enforced each timestep. A bare number is interpreted in the reservoir's own unit; a quantity may state the unit explicitly." },
+                "inputs":         { "type": "array", "items": { "type": "string" }, "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Externally supplied time-varying input, interpolated between data points.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "interpolation", "values_unit"],
+              "additionalProperties": true,
+              "properties": {
+                "type":          { "const": "timeseries" },
+                "interpolation": { "type": "string", "enum": ["linear", "step", "cubic"], "default": "linear" },
+                "times_unit":    { "type": "string", "description": "Unit of the time axis (e.g. 'd', 'yr')." },
+                "values_unit":   { "type": "string", "description": "Unit of the value axis." },
+                "times":         {
+                  "type": "array", "items": { "type": "number" },
+                  "description": "Time coordinates, monotonically increasing, in times_unit."
+                },
+                "values": {
+                  "type": "array", "items": { "type": "number" },
+                  "description": "Values at each time coordinate, in values_unit. Must be same length as times."
+                },
+                "display_unit":  { "type": ["string", "null"] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Table-based interpolation mapping one (or two) independent variables to an output.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "x_unit", "y_unit", "x"],
+              "additionalProperties": true,
+              "properties": {
+                "type":          { "const": "lookup" },
+                "x_unit":        { "type": "string" },
+                "y_unit":        { "type": "string" },
+                "x":             { "type": "array", "items": { "type": "number" }, "description": "Independent variable values, strictly increasing." },
+                "y":             { "type": "array", "items": { "type": "number" }, "description": "Dependent variable values (1-D lookup). Same length as x." },
+                "columns":       { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "Output columns for a 2-D lookup table. Each inner array has the same length as x. Use input2 to select the column (1-indexed)." },
+                "extrapolation": { "type": "string", "enum": ["clamp", "linear", "error"], "default": "clamp",
+                                   "description": "Behavior when input is outside the x range." },
+                "display_unit":  { "type": ["string", "null"] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Embedded or linked tabular data source (spreadsheet). Holds a cell grid (optionally formula-bearing) and/or a link to an external workbook, exposing named ranges as model values.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "spreadsheet" },
+                "cells": {
+                  "type": "array",
+                  "description": "Decoded cell grid.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "row":     { "type": "integer" },
+                      "column":  { "type": "integer" },
+                      "value":   { "type": ["number", "string", "null"] },
+                      "formula": { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                },
+                "links": {
+                  "type": "array",
+                  "description": "Named ranges exposed as inputs/outputs of the element.",
+                  "items": {
+                    "type": "object",
+                    "required": ["name"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "name":      { "type": "string" },
+                      "range":     { "type": ["string", "null"], "description": "Cell range backing this name (e.g. 'B2:B10')." },
+                      "direction": { "type": "string", "enum": ["input", "output"], "default": "output" },
+                      "unit":      { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                },
+                "external_file": { "type": ["string", "null"], "description": "Path/reference to a linked external workbook, if any." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Outputs a time-lagged version of an input signal (information/signal delay). The value is delayed but not otherwise transformed.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "input", "lag"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "delay" },
+                "input":   { "type": "string", "description": "Element ID of the signal to delay." },
+                "lag":     { "$ref": "#/$defs/quantity", "description": "Lag duration." },
+                "initial": { "$ref": "#/$defs/quantity", "description": "Value to return before the lag duration has elapsed." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Mass-conserving transport delay: material entering is released after a transit time, optionally attenuated by first-order decay and spread by dispersion. Unlike 'delay' (a pure signal lag), this conserves the integral of the throughput.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "input", "transit_time"],
+              "additionalProperties": true,
+              "properties": {
+                "type":         { "const": "material_delay" },
+                "input":        { "type": "string", "description": "Element ID of the throughput entering the delay." },
+                "transit_time": { "$ref": "#/$defs/quantity", "description": "Mean residence/transit time." },
+                "decay_rate":   { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "First-order loss rate applied to in-transit material." },
+                "dispersion":   { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Spread of the transit-time distribution (0 = plug flow)." },
+                "initial":      { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Initial in-transit content." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "One-timestep memory: outputs the value its input held at the previous timestep (the initial value before the first step). Used to break algebraic loops and model lag-1 feedback.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "input"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "previous_value" },
+                "input":   { "type": "string", "description": "Element ID whose previous-step value is returned." },
+                "initial": { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Value returned at the first timestep." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Convolves an input signal with a response (transfer) function — e.g. a unit hydrograph or impulse response.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "input", "response"],
+              "additionalProperties": true,
+              "properties": {
+                "type":  { "const": "convolution" },
+                "input": { "type": "string", "description": "Element ID of the signal to convolve." },
+                "response": {
+                  "description": "The response/transfer function, either an explicit table or a reference to a lookup/timeseries element supplying it.",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "times":       { "type": "array", "items": { "type": "number" } },
+                        "values":      { "type": "array", "items": { "type": "number" } },
+                        "times_unit":  { "type": ["string", "null"] },
+                        "values_unit": { "type": ["string", "null"] }
+                      }
+                    },
+                    { "type": "string", "description": "Element id of a lookup/timeseries supplying the response function." }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Feedback controller that drives a controlled variable toward a setpoint, with optional proportional/integral/derivative gains and output bounds.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "controller" },
+                "controlled": { "type": ["string", "null"], "description": "Element id of the process variable being controlled." },
+                "setpoint":   { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Target value." },
+                "gains": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Controller gains. Omit terms that are unused.",
+                  "properties": {
+                    "proportional": { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ] },
+                    "integral":     { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ] },
+                    "derivative":   { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ] }
+                  }
+                },
+                "bounds": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "description": "Optional valid range. A bare number is interpreted in the element's own unit; a quantity may state the unit explicitly.",
+                  "properties": {
+                    "min": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ] },
+                    "max": { "oneOf": [ { "type": "number" }, { "$ref": "#/$defs/quantity" }, { "type": "null" } ] }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Distributes a constrained supply across competing demands in priority order. Each demand receives up to its request, limited by remaining supply.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "allocator" },
+                "supply": {
+                  "description": "Total available supply: a fixed quantity, a formula, or the element id of a source.",
+                  "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ]
+                },
+                "supply_source": { "type": ["string", "null"], "description": "Element id supplying the available amount, when supply is connection-bound rather than inline." },
+                "demands": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["target"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "target":   { "type": "string", "description": "Element id receiving the allocation." },
+                      "priority": { "type": ["integer", "null"], "description": "Lower numbers are served first." },
+                      "request":  { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Amount requested by this demand." },
+                      "limit":    { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Cap on what this demand may receive." },
+                      "label":    { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                },
+                "inputs": { "type": "array", "items": { "type": "string" }, "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Splits a single input flow into several outputs by fixed or computed fractions.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "input", "splits"],
+              "additionalProperties": true,
+              "properties": {
+                "type":  { "const": "splitter" },
+                "input": { "type": "string", "description": "Element ID of the flow being split." },
+                "splits": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["target"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "target":   { "type": "string", "description": "Element id receiving this fraction of the flow." },
+                      "fraction": { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Share of the input routed to target (fractions across splits typically sum to 1)." },
+                      "label":    { "type": ["string", "null"] }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Procedural computation block for expressions requiring iteration or local variables.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "language", "source"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "script" },
+                "language":   { "type": "string", "enum": ["wasim_script"], "description": "Reserved for future extension." },
+                "source":     { "type": "string", "description": "Raw script source text (human-readable; engine uses expressions)." },
+                "expressions": {
+                  "type": "array",
+                  "description": "Transpiler-parsed AstNode expressions, one per evaluable output formula. Index 0 is the primary output. Log-message formulas are excluded. Absent when no formulas could be parsed.",
+                  "items": { "$ref": "#/$defs/expression_field" },
+                  "default": []
+                },
+                "variables":  { "type": "array", "items": { "type": "string" }, "default": [], "description": "Local variable names in declaration order. Index 0 is the implicit result variable (self-reference). Absent for scripts using the alternate binary format." },
+                "procedural": { "type": "boolean", "default": false, "description": "True if the source script body contains procedural opcodes (control flow / multi-statement assignments) that the engine cannot faithfully execute under Tier 1. Engines should warn when evaluating procedural scripts; expression-only scripts (false) are correctly evaluable as a single formula." },
+                "inputs":     { "type": "array", "items": { "type": "string" }, "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Named ordered array of scalar values, each computed from an expression. Supports vector patterns where multiple related quantities are grouped and operated on together (sum, mean, indexing).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "mode", "values_unit", "expressions"],
+              "additionalProperties": true,
+              "properties": {
+                "type":        { "const": "array" },
+                "mode":        { "const": "expression", "description": "Sub-discriminator for the expression-based array shape." },
+                "values_unit": { "type": "string", "description": "Unit shared by all elements of the array. Use '1' for dimensionless." },
+                "expressions": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/expression_field" },
+                  "minItems": 1,
+                  "description": "Ordered list of scalar expressions that constitute the array elements."
+                },
+                "labels": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Optional human-readable label for each element. Must match length of expressions if present."
+                },
+                "inputs": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Element IDs referenced across all expressions.",
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Generates discrete events on a schedule, at a (possibly stochastic) rate, or when a trigger fires. Each event may carry a value/magnitude consumed by downstream consequence elements.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "event_generator" },
+                "trigger": { "$ref": "#/$defs/trigger_spec", "description": "When events are generated." },
+                "rate":    { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Mean event rate for rate-based (e.g. Poisson) generation." },
+                "event_value": { "oneOf": [ { "$ref": "#/$defs/quantity_expr" }, { "type": "null" } ], "description": "Value/magnitude carried by each generated event." },
+                "count_limit": { "type": ["integer", "null"], "description": "Maximum number of events over the run." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "On each trigger, selects one outcome at random from a weighted set — a discrete stochastic branch.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "outcomes"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "random_choice" },
+                "outcomes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["weight"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "value":  { "oneOf": [ { "$ref": "#/$defs/quantity_expr" }, { "type": "null" } ], "description": "Value produced when this outcome is chosen." },
+                      "target": { "type": ["string", "null"], "description": "Element id taken when this outcome is chosen (branch destination)." },
+                      "label":  { "type": ["string", "null"] },
+                      "weight": { "$ref": "#/$defs/quantity_or_formula", "description": "Relative selection probability (weights are normalized)." }
+                    }
+                  }
+                },
+                "trigger": { "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ], "description": "When a new outcome is drawn." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "When its trigger fires, applies one or more changes/consequences to target elements (e.g. a discrete change of a stock or parameter).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "consequence" },
+                "trigger": { "$ref": "#/$defs/trigger_spec", "description": "What fires the consequences." },
+                "consequences": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["target"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "target": { "type": "string", "description": "Element id affected." },
+                      "change": { "oneOf": [ { "$ref": "#/$defs/quantity_expr" }, { "type": "null" } ], "description": "Value/change applied to the target." },
+                      "label":  { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Halts or pauses the simulation (or ends the current realization) when its condition becomes true.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "condition"],
+              "additionalProperties": true,
+              "properties": {
+                "type":      { "const": "interrupt" },
+                "condition": { "$ref": "#/$defs/quantity_or_formula", "description": "Boolean condition that triggers the interrupt." },
+                "action":    { "type": "string", "enum": ["halt", "pause", "end_realization"], "default": "halt", "description": "What happens when the condition fires." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Tracks a discrete status/state derived from a condition (e.g. on/off, ok/failed/degraded).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "condition"],
+              "additionalProperties": true,
+              "properties": {
+                "type":      { "const": "status" },
+                "condition": { "$ref": "#/$defs/quantity_or_formula", "description": "Expression whose value sets the status." },
+                "states":    { "type": "array", "items": { "type": "string" }, "description": "Ordered labels of the possible states.", "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Boolean decision element. Evaluates a true/false condition each timestep; carries a condition but no continuous output value.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "condition"],
+              "additionalProperties": true,
+              "properties": {
+                "type":      { "const": "decision" },
+                "condition": { "type": "string", "description": "Boolean condition expression text recovered from the element (e.g. 'LSLeak_Count > 0'). Raw formula string; may be unparsed." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Milestone marker. Fires when its trigger condition becomes true; carries an optional time marker.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "trigger"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "milestone" },
+                "trigger": { "type": "string", "description": "Trigger condition expression text (e.g. 'ETime > 0 day', 'abs(MB) > Allowable_Error'). Raw formula string." },
+                "marker":  { "$ref": "#/$defs/quantity", "description": "Time marker quantity (e.g. a day/datetime offset) when recoverable." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Discrete change delay. Applies a change value after a fixed delay; has no trigger condition.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":   { "const": "discrete_change_delay" },
+                "delay":  { "$ref": "#/$defs/quantity", "description": "Delay duration before the change applies (a time quantity, e.g. {5,'day'})." },
+                "change": { "$ref": "#/$defs/quantity", "description": "Non-time change value quantity (e.g. {10,'kg'})." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Discrete change event. On its trigger, applies a change value to a downstream element. The trigger is often event-graph bound (fired by a separate event element).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":    { "const": "discrete_change" },
+                "trigger": { "type": "string", "description": "Trigger condition expression text (e.g. 'ETime > 9 hr', 'Bank_Account < 0$'). Raw formula string; may be absent when the trigger is event-graph bound." },
+                "change":  { "$ref": "#/$defs/quantity_expr", "description": "Change value applied on trigger. A fixed quantity (e.g. {10000,'$'}) when the change is a single scalar, or an expression AST when computed (e.g. round(Birth_Splitter.Males))." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Timed event. Fires on a recurrence schedule rather than a state condition.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "timed_event" },
+                "recurrence": { "type": "string", "description": "Event recurrence/period text — the event period or frequency. May be a period ('1/30 day'), a rate ('0.05 day-1'), or an expression. Kept as the raw recovered string." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A component failure-and-restoration process for reliability simulation. Produces a binary up/down (or capacity) state over time driven by a failure process, optionally applying consequences on failure.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "failure_process"],
+              "additionalProperties": true,
+              "properties": {
+                "type":            { "const": "failure_mode" },
+                "failure_process": { "$ref": "#/$defs/failure_process" },
+                "consequences": {
+                  "type": "array",
+                  "description": "Effects applied to other elements when this failure mode activates.",
+                  "items": {
+                    "type": "object",
+                    "required": ["target"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "target": { "type": "string" },
+                      "change": { "oneOf": [ { "$ref": "#/$defs/quantity_expr" }, { "type": "null" } ] },
+                      "label":  { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A fault tree, event tree, or reliability block diagram. Combines component states through logic gates (AND/OR/NOT/k-of-n) into an overall system state.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "root"],
+              "additionalProperties": true,
+              "properties": {
+                "type": { "const": "logic_tree" },
+                "root": { "$ref": "#/$defs/gate_node", "description": "Root node of the gate tree." },
+                "semantics": {
+                  "type": "string",
+                  "enum": ["success", "failure"],
+                  "default": "success",
+                  "description": "Whether the tree evaluates the probability of system success (reliability block diagram) or system failure (fault tree)."
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Maps component/subsystem states to actions or consequences — the operational logic layer of a reliability model.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":   { "const": "reliability_function" },
+                "inputs": { "type": "array", "items": { "type": "string" }, "default": [] },
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["target"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "target":    { "type": "string", "description": "Element id acted upon." },
+                      "condition": { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "State condition under which the action fires." },
+                      "change":    { "oneOf": [ { "$ref": "#/$defs/quantity_expr" }, { "type": "null" } ], "description": "Effect applied to the target." },
+                      "label":     { "type": ["string", "null"] }
+                    }
+                  },
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "An interest- or return-bearing balance (financial account). Grows by a (possibly stochastic) return rate and is adjusted by contributions and withdrawals.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "initial_balance"],
+              "additionalProperties": true,
+              "properties": {
+                "type":           { "const": "fund" },
+                "initial_balance":{ "$ref": "#/$defs/quantity" },
+                "return_rate":    { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Per-period rate of return applied to the balance." },
+                "contributions":  { "type": "array", "items": { "type": "string" }, "description": "Element ids feeding the account.", "default": [] },
+                "withdrawals":    { "type": "array", "items": { "type": "string" }, "description": "Element ids drawing on the account.", "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Invested principal that earns a (possibly stochastic) return over time.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "principal"],
+              "additionalProperties": true,
+              "properties": {
+                "type":        { "const": "investment" },
+                "principal":   { "$ref": "#/$defs/quantity", "description": "Amount invested." },
+                "return_rate": { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Per-period rate of return." },
+                "horizon":     { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Investment term/maturity." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A scheduled stream of payments or receipts (negative amounts denote outflows).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "amount"],
+              "additionalProperties": true,
+              "properties": {
+                "type":     { "const": "cash_flow" },
+                "amount":   { "$ref": "#/$defs/quantity_or_formula", "description": "Payment amount per occurrence (negative for an outflow)." },
+                "schedule": { "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ], "description": "When payments occur." },
+                "target":   { "type": ["string", "null"], "description": "Element id of the account the flow settles into." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A contingent-claim instrument (option) whose payoff depends on an underlying value relative to a strike.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":       { "const": "option" },
+                "underlying": { "type": ["string", "null"], "description": "Element id of the underlying value." },
+                "style":      { "type": "string", "enum": ["call", "put"], "description": "Direction of the payoff." },
+                "strike":     { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Exercise/strike level." },
+                "premium":    { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Cost to hold the option." },
+                "exercise":   { "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ], "description": "When/whether the option may be exercised." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "An indemnity contract (insurance): pays claims above a deductible up to a coverage limit in exchange for a premium.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":           { "const": "insurance" },
+                "premium":        { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Periodic premium paid." },
+                "coverage_limit": { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Maximum payout." },
+                "deductible":     { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Loss retained before coverage applies." },
+                "claims":         { "type": "array", "items": { "type": "string" }, "description": "Element ids producing loss/claim events.", "default": [] }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A mixing cell / control volume that holds species across one or more media, with partitioning between media and first-order decay. The fundamental node of a mass-transport network.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":   { "const": "transport_cell" },
+                "volume": { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Cell volume." },
+                "media":  { "type": "array", "items": { "$ref": "#/$defs/medium_ref" }, "description": "Media present in the cell (e.g. a solid and a fluid phase).", "default": [] },
+                "species":{ "type": "array", "items": { "$ref": "#/$defs/species_ref" }, "description": "Species tracked in the cell with optional initial inventory.", "default": [] },
+                "inflows":{ "type": "array", "items": { "type": "string" }, "description": "Element ids of pathways/sources delivering mass to the cell.", "default": [] },
+                "partitioning": {
+                  "type": "array",
+                  "description": "Equilibrium partition coefficients between media within the cell.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "species":     { "type": "string" },
+                      "from_medium": { "type": "string" },
+                      "to_medium":   { "type": "string" },
+                      "coefficient": { "$ref": "#/$defs/quantity_or_formula" }
+                    }
+                  },
+                  "default": []
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Carries mass between transport cells via one or more flux mechanisms (advection, diffusion).",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":      { "const": "transport_pathway" },
+                "from_cell": { "type": ["string", "null"], "description": "Element id of the upstream cell." },
+                "to_cell":   { "type": ["string", "null"], "description": "Element id of the downstream cell." },
+                "fluxes":    { "type": "array", "items": { "$ref": "#/$defs/flux_spec" }, "default": [] },
+                "geometry":  { "type": "string", "enum": ["cell", "aquifer", "pipe", "conduit"], "description": "Pathway geometry/idealization." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Introduces mass of one or more species into a transport network, on a release schedule or from a finite inventory.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":        { "const": "transport_source" },
+                "species":     { "type": "array", "items": { "$ref": "#/$defs/species_ref" }, "default": [] },
+                "inventory":   { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Total mass available to release." },
+                "release_rate":{ "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ], "description": "Rate of release." },
+                "schedule":    { "oneOf": [ { "$ref": "#/$defs/trigger_spec" }, { "type": "null" } ], "description": "When release occurs." },
+                "target":      { "type": ["string", "null"], "description": "Element id of the cell/pathway receiving the release." }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "Definition of a transported species/solute, including its radioactive/chemical decay chain.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": true,
+              "properties": {
+                "type":      { "const": "species" },
+                "half_life": { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ], "description": "Decay half-life (omit for stable species)." },
+                "decay_products": {
+                  "type": "array",
+                  "description": "Daughter species produced on decay.",
+                  "items": {
+                    "type": "object",
+                    "required": ["species"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "species":            { "type": "string", "description": "Element id of the daughter species." },
+                      "branching_fraction": { "type": ["number", "null"], "description": "Fraction of decays producing this daughter." }
+                    }
+                  },
+                  "default": []
+                },
+                "molecular_weight": { "oneOf": [ { "$ref": "#/$defs/quantity" }, { "type": "null" } ] },
+                "properties": {
+                  "type": "object",
+                  "description": "Additional decoded physical properties (solubility, diffusivity, etc.).",
+                  "default": {}
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "description": "A material medium (solid, fluid, or gas phase) through which species are transported.",
+          "allOf": [
+            { "$ref": "#/$defs/element_base" },
+            {
+              "type": "object",
+              "required": ["type", "phase"],
+              "additionalProperties": true,
+              "properties": {
+                "type":     { "const": "medium" },
+                "phase":    { "type": "string", "enum": ["solid", "fluid", "gas", "reference_fluid"], "description": "Physical phase of the medium." },
+                "density":  { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ] },
+                "porosity": { "oneOf": [ { "$ref": "#/$defs/quantity_or_formula" }, { "type": "null" } ] },
+                "properties": {
+                  "type": "object",
+                  "description": "Additional decoded transport properties.",
+                  "default": {}
+                }
+              }
+            }
+          ]
+        }
+
+      ]
+    }
+
+  }
+}
