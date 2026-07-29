@@ -243,6 +243,15 @@ export function updateSettings(doc: ModelDoc, patch: Partial<ModelDoc['simulatio
   return next
 }
 
+// ── Dimensions (declared array axes, spec §7) ─────────────────────────────────────
+
+export function setDimensions(doc: ModelDoc, dimensions: ModelDoc['dimensions']): ModelDoc {
+  const next = clone(doc)
+  if (dimensions && dimensions.length) next.dimensions = dimensions
+  else delete next.dimensions
+  return next
+}
+
 // ── Element scaffolds (palette insert, spec §3) ──────────────────────────────────
 
 export interface PaletteEntry {

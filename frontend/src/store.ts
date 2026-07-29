@@ -14,7 +14,7 @@ import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
   addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId, replaceElement,
-  serializeModel, setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+  serializeModel, setContainer, setDimensions, setPosition, setPositions, updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
 
@@ -130,6 +130,7 @@ interface Actions {
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
+  editDimensions: (dimensions: ModelDoc['dimensions']) => void
   undo: () => void
   redo: () => void
 
@@ -391,6 +392,12 @@ export const useStore = create<State & Actions>((set, get) => ({
     const next = updateSettings(doc, patch)
     get().applyEdit(next)
     set(runtimeFromDoc(next))
+  },
+
+  editDimensions(dimensions) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(setDimensions(doc, dimensions))
   },
 
   undo() {

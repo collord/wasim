@@ -33,12 +33,19 @@ constructs is what's thin.
 
 ## What's thin (the real limiters)
 
-1. **Only 7 of ~26 engine constructs are authorable.** Palette (`model/edits.ts:197`): Constant,
-   Stochastic, Time Series, Lookup, Expression, Previous-Value (lag), Stock. **Missing from
-   authoring entirely:** node rules Process, Convolution, Markov, Hysteresis, PID, Queue,
-   Status, Milestone, GateLogic, TerminalExpression; and every non-node primitive — **Link,
-   Event (failure FSM), Gate, Cell/Species/Medium, Resource.** That is the transport,
-   reliability, logic, and controller half of the engine.
+> **Update (2026-07-29):** the **Event / failure state machine is now authorable** (palette
+> "Failure / Event" + a structured `EventEditor`: trigger modes, condition expression, failure
+> basis + repair policy with TTF/TTR pickers, effects), and **model dimensions are now
+> declarable** in the settings dialog — so the single-truck RAM model is GUI-buildable and the
+> fleet-array story has its declaration surface. The counts below are pre-update; items struck
+> through are addressed.
+
+1. **~8 of ~26 engine constructs are authorable.** Palette (`model/edits.ts`): Constant,
+   Stochastic, Time Series, Lookup, Expression, Previous-Value (lag), Stock, ~~Event (failure
+   FSM)~~ **✅ added**. **Still missing from authoring:** node rules Process, Convolution,
+   Markov, Hysteresis, PID, Queue, Status, Milestone, GateLogic, TerminalExpression; and
+   non-node primitives **Link, Gate, Cell/Species/Medium, Resource.** (All remain editable via
+   the new raw-JSON escape hatch; they just lack structured editors.)
 2. **No visual wiring.** The canvas (`canvas/EditableCanvas.tsx`) is a *read-only projection* of
    the dependency graph — edges are derived from `inputs`; there are no ports, no edge-drawing,
    no edge deletion, and the three edge kinds (influence/flow/event, §2.2) collapse to one
@@ -89,6 +96,17 @@ constants, and see results — but could not build it.
 pattern. Those two unlock authoring the reliability and fleet models — turning "we can run it"
 into "a domain expert can build it." Runner-up: port-based visual wiring (§2.2) and
 container/submodel authoring (§5.8).
+
+**Delivered (2026-07-29):**
+- ✅ **Event / failure-FSM authoring** — the single-truck RAM model is now GUI-buildable end to
+  end (drop a Stock for damage, drop a Failure/Event, set the condition `damage ≥ 1`, pick
+  run-to-failure). This is the reliability half of the RAM direction.
+- ✅ **Dimension declaration UI** — the `Fleet` axis is declarable in Settings, the foundation
+  the fleet array rides on.
+- ⏭ **Still to do for the fleet model:** a structured `vector_map` / per-member builder
+  (declare an element array over a dimension and author the `index_ref` body without dropping
+  to JSON). This is the one substantial remaining piece; today the per-member expressions are
+  authored via the expression/raw-JSON editors on a dimensioned element.
 
 ## Build note
 
