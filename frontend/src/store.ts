@@ -13,7 +13,7 @@ import type {
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
-  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId,
+  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId, replaceElement,
   serializeModel, setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
@@ -121,6 +121,7 @@ interface Actions {
   applyEdit: (next: ModelDoc, opts?: { reconcile?: boolean }) => void
   updateElementField: (id: string, patch: Partial<FlatElement>) => void
   mutateEl: (id: string, fn: (el: FlatElement) => void) => void
+  replaceEl: (id: string, el: FlatElement) => void
   addNewElement: (el: FlatElement, pos?: NodeView) => void
   duplicateElement: (id: string) => void
   removeElement: (id: string) => void
@@ -318,6 +319,12 @@ export const useStore = create<State & Actions>((set, get) => ({
     const doc = get().doc
     if (!doc) return
     get().applyEdit(mutateElement(doc, id, fn))
+  },
+
+  replaceEl(id, el) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(replaceElement(doc, id, el))
   },
 
   addNewElement(el, pos) {

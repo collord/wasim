@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore, useElements, useContainers } from '../../store'
 import type { ElementSummary } from '../../types'
 import type { FlatElement } from '../../model/schema'
@@ -83,7 +83,7 @@ function DefinitionSection({ el, flat }: { el: ElementSummary; flat: FlatElement
   const rule = el.value_rule
   const prim = el.primitive
 
-  let body = <UnsupportedEditor el={el} />
+  let body = <UnsupportedEditor el={el} flat={flat} />
   if (prim === 'stock') body = <StockEditor el={el} flat={flat} />
   else if (rule === 'fixed') body = <FixedEditor el={el} flat={flat} />
   else if (rule === 'sample') body = <SampleEditor el={el} flat={flat} />
@@ -474,12 +474,55 @@ function FilterEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
 
 // ── Unsupported-rule fallback (engine-truthful; no faked UI, §14) ─────────────────
 
-function UnsupportedEditor({ el }: { el: ElementSummary }) {
+function UnsupportedEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const replaceEl = useStore((s) => s.replaceEl)
+  const [text, setText] = useState(() => JSON.stringify(flat, null, 2))
+  const [err, setErr] = useState<string | null>(null)
+
+  // Re-seed the editor only when a *different* element is selected — not on every reconcile,
+  // so an in-progress edit isn't clobbered by the doc snapshot changing identity.
+  useEffect(() => { setText(JSON.stringify(flat, null, 2)); setErr(null) }, [flat.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const apply = () => {
+    let parsed: FlatElement
+    try {
+      parsed = JSON.parse(text)
+    } catch (e) {
+      setErr(`Invalid JSON: ${(e as Error).message}`)
+      return
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setErr('The element must be a JSON object.')
+      return
+    }
+    if (parsed.id !== flat.id) {
+      setErr(`Keep "id": "${flat.id}" — use the ID field above to rename (that also updates references).`)
+      return
+    }
+    setErr(null)
+    replaceEl(flat.id, parsed) // reconciles + validates live
+  }
+
   return (
     <div className="space-y-2 text-[11px] text-slate-500">
-      <p>Rich editing for <span className="font-mono">{kindLabel(el)}</span> isn’t built yet.</p>
-      {el.formula && <p className="rounded bg-slate-50 p-2 font-mono text-slate-600">{el.formula}</p>}
-      <p className="text-slate-400">Edit this element’s fields directly in the model JSON; the reconcile loop validates it live.</p>
+      <p>No structured editor for <span className="font-mono">{kindLabel(el)}</span> yet — edit its raw JSON below; the reconcile loop validates it live.</p>
+      <textarea
+        className="h-56 w-full resize-y rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] leading-snug text-slate-700 focus:border-slate-400 focus:outline-none"
+        spellCheck={false}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      {err && <p className="rounded bg-rose-50 p-1.5 text-rose-600">{err}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={apply}
+          className="rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-700">
+          Apply JSON
+        </button>
+        <button type="button" onClick={() => { setText(JSON.stringify(flat, null, 2)); setErr(null) }}
+          className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50">
+          Revert
+        </button>
+      </div>
     </div>
   )
 }

@@ -56,14 +56,20 @@ constructs is what's thin.
 8. **Distribution picker: 14 families vs ~30 in the engine** — missing Poisson/Binomial/
    NegBinomial, Pareto/EV/Student-t, and the log-scale variants.
 
-## Two correctness bugs (not just missing features)
+## Two correctness bugs (not just missing features) — FIXED ✅
 
-- **Rename/delete does not track references inside expression ASTs.** `renameId` rewrites
+- **Rename/delete did not track references inside expression ASTs.** `renameId` rewrote
   `inputs`/`inflows`/`outflows`/`view`, but a renamed id used *inside a formula* silently
-  dangles. A real edit path produces a broken model.
-- **Dead escape hatch.** The unsupported-type inspector tells the user to "edit the model JSON
-  directly," but there is **no JSON editing surface in the app** (ModelTab is read-only). So
-  imported models using any of the ~19 unsupported constructs are effectively uneditable.
+  dangled. **Fixed** (`frontend/src/model/edits.ts`): rename now deep-rewrites every AST `ref`
+  node (expression, stock rate, event trigger/condition, effect `change`), the scalar id fields
+  (lag `input`, event `source`, `effects[].target`), and refreshes the cached `display`
+  strings; delete scrubs those same fields and drops effects targeting the deleted element (AST
+  refs are left on delete so the reconcile/validate loop reports them).
+- **Dead escape hatch.** The unsupported-type inspector told the user to "edit the model JSON
+  directly," but there was **no JSON editing surface**. **Fixed**
+  (`frontend/src/components/inspector/Inspector.tsx`): the fallback is now a real per-element
+  raw-JSON editor (Apply/Revert, live parse errors, id-lock so renames still route through the
+  ref-rewriting path), via a new `replaceEl` store action + `replaceElement` transform.
 
 ## Strategic connection (matters for the RAM beachhead)
 

@@ -50,6 +50,16 @@ export function mutateElement(doc: ModelDoc, id: string, fn: (el: FlatElement) =
   return next
 }
 
+/** Replace element `id` wholesale with a new element object (the raw-JSON editor escape hatch,
+ *  §14). Unlike `updateElement` (shallow-merge) this can also *remove* fields. */
+export function replaceElement(doc: ModelDoc, id: string, el: FlatElement): ModelDoc {
+  const idx = doc.elements.findIndex((e) => e.id === id)
+  if (idx === -1) return doc
+  const next = clone(doc)
+  next.elements[idx] = clone(el)
+  return next
+}
+
 export function addElement(doc: ModelDoc, el: FlatElement, pos?: NodeView): ModelDoc {
   const next = clone(doc)
   next.elements.push(clone(el))
@@ -57,27 +67,82 @@ export function addElement(doc: ModelDoc, el: FlatElement, pos?: NodeView): Mode
   return next
 }
 
-/** Delete an element and scrub dangling references to it (from `inputs` lists + view). */
+// The element fields that carry a single element id (not in an AST): the lag `input`, an
+// event's `source` (on_event trigger). `effects[].target` is handled separately (nested).
+const ID_SCALAR_FIELDS = ['input', 'source'] as const
+const ID_LIST_FIELDS = ['inputs', 'inflows', 'outflows'] as const
+
+/** Rewrite every AST `ref` node's `element_id` (oldId → newId) anywhere inside `obj` — the
+ *  expression/rate ASTs, an event's trigger/set/reset conditions, effect `change` ASTs, etc.
+ *  Deep, but only mutates `{ op: 'ref', element_id }` nodes, so it never mangles unrelated
+ *  strings (names, units, display text). Returns whether anything changed. Mutates in place. */
+function renameAstRefs(obj: unknown, oldId: string, newId: string): boolean {
+  if (!obj || typeof obj !== 'object') return false
+  if (Array.isArray(obj)) {
+    let changed = false
+    for (const v of obj) changed = renameAstRefs(v, oldId, newId) || changed
+    return changed
+  }
+  const rec = obj as Record<string, unknown>
+  let changed = false
+  if (rec.op === 'ref' && rec.element_id === oldId) { rec.element_id = newId; changed = true }
+  for (const v of Object.values(rec)) changed = renameAstRefs(v, oldId, newId) || changed
+  return changed
+}
+
+/** Re-derive the cached `display` string of an expression/rate field after its AST changed. */
+function refreshDisplay(ef: unknown): void {
+  const e = ef as { ast?: Ast; display?: string }
+  if (e && typeof e === 'object' && e.ast) e.display = printAst(e.ast)
+}
+
+/** Delete an element and scrub dangling references to it (id lists, scalar id fields, event
+ *  effect targets, view). References buried in ASTs are left in place — they become dangling
+ *  refs that the reconcile/validate loop reports, which is the honest signal (you cannot
+ *  meaningfully rewrite `a + deleted` on delete). */
 export function deleteElement(doc: ModelDoc, id: string): ModelDoc {
   const next = clone(doc)
   next.elements = next.elements.filter((e) => e.id !== id)
   for (const e of next.elements) {
-    if (Array.isArray(e.inputs)) e.inputs = e.inputs.filter((r) => r !== id)
-    if (Array.isArray(e.inflows)) e.inflows = e.inflows.filter((r) => r !== id)
-    if (Array.isArray(e.outflows)) e.outflows = e.outflows.filter((r) => r !== id)
+    const anyE = e as Record<string, unknown>
+    for (const key of ID_LIST_FIELDS) {
+      if (Array.isArray(anyE[key])) anyE[key] = (anyE[key] as string[]).filter((r) => r !== id)
+    }
+    for (const key of ID_SCALAR_FIELDS) {
+      if (anyE[key] === id) anyE[key] = null
+    }
+    if (Array.isArray(anyE.effects)) {
+      anyE.effects = (anyE.effects as Array<{ target?: string }>).filter((eff) => !eff || eff.target !== id)
+    }
   }
   if (next.view?.positions) delete next.view.positions[id]
   return next
 }
 
-/** Rename an element's id, rewriting every reference (inputs, inflows/outflows, view). */
+/** Rename an element's id, rewriting every reference: id lists (inputs/inflows/outflows),
+ *  scalar id fields (lag `input`, event `source`), event `effects[].target`, references buried
+ *  in ASTs (expression, rate, trigger/condition, effect changes), and the view positions. */
 export function renameId(doc: ModelDoc, oldId: string, newId: string): ModelDoc {
   const next = clone(doc)
   for (const e of next.elements) {
+    const anyE = e as Record<string, unknown>
     if (e.id === oldId) e.id = newId
-    if (Array.isArray(e.inputs)) e.inputs = e.inputs.map((r) => (r === oldId ? newId : r))
-    if (Array.isArray(e.inflows)) e.inflows = e.inflows.map((r) => (r === oldId ? newId : r))
-    if (Array.isArray(e.outflows)) e.outflows = e.outflows.map((r) => (r === oldId ? newId : r))
+    for (const key of ID_LIST_FIELDS) {
+      if (Array.isArray(anyE[key])) anyE[key] = (anyE[key] as string[]).map((r) => (r === oldId ? newId : r))
+    }
+    for (const key of ID_SCALAR_FIELDS) {
+      if (anyE[key] === oldId) anyE[key] = newId
+    }
+    if (Array.isArray(anyE.effects)) {
+      for (const eff of anyE.effects as Array<{ target?: string }>) {
+        if (eff && eff.target === oldId) eff.target = newId
+      }
+    }
+    // References inside any AST the element carries (expression, rate, trigger, effects…).
+    renameAstRefs(e, oldId, newId)
+    // Keep the cached pretty-printed formulas honest.
+    refreshDisplay(anyE.expression)
+    refreshDisplay(anyE.rate)
   }
   if (next.view?.positions?.[oldId]) {
     next.view.positions[newId] = next.view.positions[oldId]
