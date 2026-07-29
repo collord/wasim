@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema",
-  "$id": "https://wasim.dev/schema/model/0.9.8",
+  "$id": "https://wasim.dev/schema/model/0.9.9",
   "title": "WASiM Model (Primitives)",
   "description": "Canonical model definition for a probabilistic, dynamic (Monte-Carlo) simulation. Built on six composable primitives (node, stock, link, event, gate, cell) with behavior determined by field presence (traits) rather than a fixed type taxonomy. Vendor-neutral. See wasim-engine-semantics.md for behavioral contracts.",
   "type": "object",
@@ -3434,6 +3434,16 @@
                 "delay_time": {
                   "$ref": "#/$defs/quantity_or_formula",
                   "description": "[queue] Fixed transit/service delay for a `queue` value_rule node (required for queue nodes)."
+                },
+                "leak_rate": {
+                  "$ref": "#/$defs/quantity_or_formula",
+                  "description": "[queue] Optional first-order decay applied over a queue node's transit (a scheduled parcel of size `a` with transit `T` exits as `a·exp(-leak_rate·T)`); models loss/reneging in transit. Mirrors link `decay_rate`."
+                },
+                "discipline": {
+                  "type": "string",
+                  "enum": ["conveyor", "fixed_at_entry"],
+                  "default": "conveyor",
+                  "description": "[queue] Delay-sampling discipline. `conveyor` (default) = fixed transit from entry (plug flow). `fixed_at_entry` = delay sampled once when the entity is admitted. Equivalent under a constant `delay_time`."
                 }
               }
             }

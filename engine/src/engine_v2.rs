@@ -2116,9 +2116,12 @@ impl<'a> RunState<'a> {
                             let val: f64 = buf.iter().zip(weights.iter()).map(|(b, w)| b * w).sum();
                             Value::Scalar(val)
                         }
-                        NodeRule::Queue { input, delay_time, capacity, .. } => {
+                        NodeRule::Queue { input, delay_time, capacity, leak_rate, .. } => {
                             // Event/discrete-change delay (§B3). Arrivals wait `delay_time` then
                             // exit; `capacity` caps the number waiting (excess arrivals blocked).
+                            // The release step is computed at admit and frozen into the buffer key,
+                            // so the delay is effectively sampled at entry (fixed_at_entry); the
+                            // default `conveyor` discipline is identical under this plug-flow model.
                             let arrivals = outputs.get(input.as_str()).map(|v| v.as_scalar()).unwrap_or(0.0).max(0.0);
                             let ctx = ctx_at(&lookups, &outputs, &prev_outputs, elapsed, dt, &dt_unit, step_idx, &arr);
                             let delay = eval_qof_value(delay_time, &ctx)?.as_scalar().max(0.0);
@@ -2137,9 +2140,22 @@ impl<'a> RunState<'a> {
                                 None => arrivals,
                             };
                             if admitted > 0.0 {
-                                *buf.entry(step_idx + delay_steps.max(1)).or_default() += admitted;
+                                // Optional first-order leak over the transit: schedule the surviving
+                                // amount `admitted·exp(-leak·transit)` (mirrors the link decay path).
+                                // Applied at admit so each parcel decays by exactly its own transit.
+                                let scheduled = match leak_rate {
+                                    Some(lr) => {
+                                        let leak = eval_qof_value(lr, &ctx)?.as_scalar().max(0.0);
+                                        let transit = (delay_steps.max(1)) as f64 * dt;
+                                        admitted * (-leak * transit).exp()
+                                    }
+                                    None => admitted,
+                                };
+                                *buf.entry(step_idx + delay_steps.max(1)).or_default() += scheduled;
                             }
-                            // Publish the queue level (post-admit) as the secondary `num_in_queue` port.
+                            // Publish the queue level as the secondary `num_in_queue` port. This is
+                            // the physical count in queue (pre-leak `admitted`); the leak represents
+                            // loss on exit, so the scheduled/released amount carries the decay.
                             queue_level.insert(elem_id.clone(), in_queue + admitted);
                             Value::Scalar(released)
                         }

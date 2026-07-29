@@ -4,6 +4,17 @@ Breaking changes to `model.schema.json` and `quantity_or_formula` / element
 shapes. One line per change. The `$id` is bumped on every breaking change so
 engines can detect stale schemas at load time.
 
+## 0.9.9 — 2026-07-29
+
+Three additive engine feature capabilities (RK4 integration deferred). `$id` bumped. Drift guard
+unaffected (no `ast_node` op or `distribution` family added). All prior corpus still validates.
+
+- **Queue `leak_rate`** (Feature C): optional first-order decay over a `queue` node's transit — a
+  scheduled parcel of size `a` with transit `T` exits as `a·exp(-leak_rate·T)`, modeling loss/reneging
+  in transit. Mirrors link `decay_rate`.
+- **Queue `discipline`** documented (`conveyor` | `fixed_at_entry`): previously parsed by the engine
+  but undeclared in the schema (pre-existing drift; the branch is `additionalProperties:true`).
+
 ## 0.9.8 — 2026-07-29
 
 Engine↔schema drift catch-up. The engine's JSON parser had gained constructs the schema never

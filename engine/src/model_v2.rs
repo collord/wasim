@@ -221,12 +221,15 @@ pub enum NodeRule {
     /// blocked/dropped that step). The node's primary output is this step's throughput (amount
     /// exiting); a secondary output with role `num_in_queue` reports the current queue level.
     /// `conveyor` discipline = fixed transit from entry (plug flow); the delay is sampled once at
-    /// entry for `fixed_at_entry`. Per-realization queue-schedule state.
+    /// entry for `fixed_at_entry`. `leak_rate` (optional) applies first-order decay over the
+    /// transit time — a scheduled parcel of size `a` with transit `T` exits as `a·exp(-leak·T)`,
+    /// modeling loss/reneging in transit (mirrors link `decay_rate`). Per-realization schedule state.
     Queue {
         input: String,
         delay_time: QuantityOrFormula,
         capacity: Option<QuantityOrFormula>,
         discipline: QueueDiscipline,
+        leak_rate: Option<QuantityOrFormula>,
     },
 }
 

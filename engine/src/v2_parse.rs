@@ -188,6 +188,8 @@ struct RawElement {
     delay_time: Option<QuantityOrFormula>,
     #[serde(default)]
     discipline: Option<String>,
+    #[serde(default)]
+    leak_rate: Option<QuantityOrFormula>,
 
     // stock
     #[serde(default)]
@@ -747,6 +749,7 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
                 Some("fixed_at_entry") => v2::QueueDiscipline::FixedAtEntry,
                 _ => v2::QueueDiscipline::Conveyor,
             },
+            leak_rate: e.leak_rate.clone(),
         },
         // A linked-Excel element (§20): the workbook is external, so the engine cannot evaluate
         // it. Parse it as a fixed-0 placeholder (the cells/external_file binding is preserved in
