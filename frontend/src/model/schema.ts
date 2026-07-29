@@ -92,12 +92,22 @@ export interface ViewBlock {
   [k: string]: unknown
 }
 
-/** The whole model document as edited. Extra top-level fields (source, dimensions, …) are
- *  preserved via the index signature so nothing is lost on save. */
+/** A declared array axis (spec §7 / engine `DimensionDef`): a fixed-size, optionally-labelled
+ *  index that per-member (`vector_map`) elements range over — e.g. a fleet of N trucks. */
+export interface DimensionDef {
+  id: string
+  name: string
+  size: number
+  labels?: string[]
+}
+
+/** The whole model document as edited. Extra top-level fields (source, …) are preserved via
+ *  the index signature so nothing is lost on save. */
 export interface ModelDoc {
   wasim_version: string
   simulation_settings: SimulationSettings
   containers?: ContainerDef[]
+  dimensions?: DimensionDef[]
   elements: FlatElement[]
   view?: ViewBlock
   [k: string]: unknown

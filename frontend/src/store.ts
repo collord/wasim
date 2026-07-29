@@ -13,8 +13,8 @@ import type {
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
-  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId,
-  serializeModel, setContainer, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId, replaceElement,
+  serializeModel, setContainer, setDimensions, setPosition, setPositions, updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
 
@@ -121,6 +121,7 @@ interface Actions {
   applyEdit: (next: ModelDoc, opts?: { reconcile?: boolean }) => void
   updateElementField: (id: string, patch: Partial<FlatElement>) => void
   mutateEl: (id: string, fn: (el: FlatElement) => void) => void
+  replaceEl: (id: string, el: FlatElement) => void
   addNewElement: (el: FlatElement, pos?: NodeView) => void
   duplicateElement: (id: string) => void
   removeElement: (id: string) => void
@@ -129,6 +130,7 @@ interface Actions {
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
+  editDimensions: (dimensions: ModelDoc['dimensions']) => void
   undo: () => void
   redo: () => void
 
@@ -320,6 +322,12 @@ export const useStore = create<State & Actions>((set, get) => ({
     get().applyEdit(mutateElement(doc, id, fn))
   },
 
+  replaceEl(id, el) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(replaceElement(doc, id, el))
+  },
+
   addNewElement(el, pos) {
     const doc = get().doc
     if (!doc) return
@@ -384,6 +392,12 @@ export const useStore = create<State & Actions>((set, get) => ({
     const next = updateSettings(doc, patch)
     get().applyEdit(next)
     set(runtimeFromDoc(next))
+  },
+
+  editDimensions(dimensions) {
+    const doc = get().doc
+    if (!doc) return
+    get().applyEdit(setDimensions(doc, dimensions))
   },
 
   undo() {

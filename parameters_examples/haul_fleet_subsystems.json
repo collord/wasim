@@ -1,0 +1,1825 @@
+{
+  "wasim_version": "0.9.7",
+  "name": "Haul Fleet \u2014 Multi-Subsystem Dispatch (composite vs modal failure)",
+  "description": "Stage-3e: tests whether Stage-3d's wear-levelling burstiness was an artifact of a single composite failure per truck. Each truck now fails by three INDEPENDENT subsystems with different load exponents (tires beta=4, drivetrain beta=3, structure beta=1.5), each its own Fleet-array with its own life, resetting independently on overhaul; the truck is down if ANY subsystem is down (truck_available = product of subsystem availabilities). Wear-levelling still dispatches on the FLATTENED aggregate (total_damage_prev). The failure stream is now a superposition of different-rate processes, so it should be less bursty and wear-levelling's shop-downtime penalty should shrink vs the composite Stage-3d. cumfail_{tires,drive,struct} give per-mode criticality. See STAGE3E_SUBSYSTEMS.md.",
+  "source": {
+    "generator": "gen_subsys.py"
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 3,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 1,
+      "unit": "wk"
+    },
+    "n_realizations": 300,
+    "sampling_method": "lhs",
+    "seed": 20260729
+  },
+  "dimensions": [
+    {
+      "id": "Fleet",
+      "name": "Fleet",
+      "size": 6,
+      "labels": [
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T06"
+      ]
+    }
+  ],
+  "elements": [
+    {
+      "id": "dispatch_policy",
+      "name": "Dispatch policy",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "editable": true,
+      "value": {
+        "value": 1,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "wear_mult",
+      "name": "Wear multiplier (uncertainty)",
+      "primitive": "node",
+      "value_rule": "sample",
+      "distribution": {
+        "family": "triangular",
+        "parameters": {
+          "min": {
+            "value": 0.85,
+            "unit": "1"
+          },
+          "mode": {
+            "value": 1.0,
+            "unit": "1"
+          },
+          "max": {
+            "value": 1.15,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "initial_damage",
+      "name": "Initial per-truck damage (age ramp)",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "values": [
+        0.0,
+        0.15,
+        0.3,
+        0.45,
+        0.6,
+        0.75
+      ],
+      "unit": "1",
+      "outputs": [
+        {
+          "name": "InitialDamage",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "is_start",
+      "name": "First-step flag",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "lt",
+          "left": {
+            "op": "time_ref",
+            "property": "elapsed"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "time_ref",
+              "property": "timestep"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.5
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "truck_index",
+      "name": "Truck index",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "index_ref",
+            "axis": "row"
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "Truck index",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dmg_prev_tires",
+      "name": "tires damage (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "dmg_tires",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      },
+      "outputs": [
+        {
+          "name": "tires damage (prev)",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dmg_prev_drive",
+      "name": "drive damage (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "dmg_drive",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      },
+      "outputs": [
+        {
+          "name": "drive damage (prev)",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dmg_prev_struct",
+      "name": "struct damage (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "dmg_struct",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      },
+      "outputs": [
+        {
+          "name": "struct damage (prev)",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "avail_tires",
+      "name": "tires available",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "lt",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_tires"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "tires available",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "avail_drive",
+      "name": "drive available",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_drive"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "lt",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_drive"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "drive available",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "avail_struct",
+      "name": "struct available",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_struct"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "lt",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_struct"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "struct available",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "truck_available",
+      "name": "Truck available (all subsystems up)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "avail_drive",
+        "avail_struct",
+        "avail_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "multiply",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "avail_tires"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "avail_drive"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              }
+            },
+            "right": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "avail_struct"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "Truck available (all subsystems up)",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "total_damage_prev",
+      "name": "Total truck damage (prev, aggregate)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_drive",
+        "dmg_prev_struct",
+        "dmg_prev_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "add",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_tires"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_drive"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              }
+            },
+            "right": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "dmg_prev_struct"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "Total truck damage (prev, aggregate)",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "target_wl",
+      "name": "Target - wear-levelling",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "total_damage_prev",
+        "truck_available"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmin_where",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "total_damage_prev"
+            },
+            {
+              "op": "ref",
+              "element_id": "truck_available"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "target_cohort",
+      "name": "Target - cohorting",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "truck_available",
+        "truck_index"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmin_where",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "truck_index"
+            },
+            {
+              "op": "ref",
+              "element_id": "truck_available"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "target_naive",
+      "name": "Target - naive round-robin",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "call",
+            "fn": "mod",
+            "args": [
+              {
+                "op": "call",
+                "fn": "floor",
+                "args": [
+                  {
+                    "op": "add",
+                    "left": {
+                      "op": "divide",
+                      "left": {
+                        "op": "time_ref",
+                        "property": "elapsed"
+                      },
+                      "right": {
+                        "op": "time_ref",
+                        "property": "timestep"
+                      }
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 0.5
+                    }
+                  }
+                ]
+              },
+              {
+                "op": "literal",
+                "value": 6
+              }
+            ]
+          },
+          "right": {
+            "op": "literal",
+            "value": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "overload_target",
+      "name": "Truck chosen to overload",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dispatch_policy",
+        "target_cohort",
+        "target_naive",
+        "target_wl"
+      ],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "lt",
+            "left": {
+              "op": "ref",
+              "element_id": "dispatch_policy"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.5
+            }
+          },
+          "then": {
+            "op": "ref",
+            "element_id": "target_naive"
+          },
+          "else": {
+            "op": "if",
+            "cond": {
+              "op": "lt",
+              "left": {
+                "op": "ref",
+                "element_id": "dispatch_policy"
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.5
+              }
+            },
+            "then": {
+              "op": "ref",
+              "element_id": "target_wl"
+            },
+            "else": {
+              "op": "ref",
+              "element_id": "target_cohort"
+            }
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true
+      }
+    },
+    {
+      "id": "payload",
+      "name": "Per-truck payload",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "overload_target"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "eq",
+              "left": {
+                "op": "ref",
+                "element_id": "overload_target"
+              },
+              "right": {
+                "op": "index_ref",
+                "axis": "row"
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 300
+            },
+            "else": {
+              "op": "literal",
+              "value": 240
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "Per-truck payload",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rate_tires",
+      "name": "tires damage rate",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "payload",
+        "truck_available",
+        "wear_mult"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "truck_available"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "power",
+                "left": {
+                  "op": "divide",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "payload"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 240
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 4.0
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "wear_mult"
+                  }
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.02
+              }
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "tires damage rate",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dmg_tires",
+      "name": "tires cumulative damage",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_tires",
+        "initial_damage",
+        "is_start",
+        "rate_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "if",
+              "cond": {
+                "op": "gt",
+                "left": {
+                  "op": "ref",
+                  "element_id": "is_start"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.5
+                }
+              },
+              "then": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "initial_damage"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "else": {
+                "op": "if",
+                "cond": {
+                  "op": "gte",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "dmg_prev_tires"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1.0
+                  }
+                },
+                "then": {
+                  "op": "literal",
+                  "value": 0
+                },
+                "else": {
+                  "op": "index",
+                  "array": {
+                    "op": "ref",
+                    "element_id": "dmg_prev_tires"
+                  },
+                  "indices": [
+                    {
+                      "op": "index_ref",
+                      "axis": "row"
+                    }
+                  ]
+                }
+              }
+            },
+            "right": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "rate_tires"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "tires cumulative damage",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "newfail_tires",
+      "name": "tires failure this step",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "gte",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_tires"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "tires failure this step",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fail_step_tires",
+      "name": "tires failures this step (fleet)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "newfail_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "newfail_tires"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cumfail_tires_prev",
+      "name": "tires cum failures (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "cumfail_tires",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "cumfail_tires",
+      "name": "tires cumulative failures",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "cumfail_tires_prev",
+        "fail_step_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cumfail_tires_prev"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "fail_step_tires"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "rate_drive",
+      "name": "drive damage rate",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "payload",
+        "truck_available",
+        "wear_mult"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "truck_available"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "power",
+                "left": {
+                  "op": "divide",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "payload"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 240
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 3.0
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "wear_mult"
+                  }
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.011
+              }
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "drive damage rate",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dmg_drive",
+      "name": "drive cumulative damage",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_drive",
+        "initial_damage",
+        "is_start",
+        "rate_drive"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "if",
+              "cond": {
+                "op": "gt",
+                "left": {
+                  "op": "ref",
+                  "element_id": "is_start"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.5
+                }
+              },
+              "then": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "initial_damage"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "else": {
+                "op": "if",
+                "cond": {
+                  "op": "gte",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "dmg_prev_drive"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1.0
+                  }
+                },
+                "then": {
+                  "op": "literal",
+                  "value": 0
+                },
+                "else": {
+                  "op": "index",
+                  "array": {
+                    "op": "ref",
+                    "element_id": "dmg_prev_drive"
+                  },
+                  "indices": [
+                    {
+                      "op": "index_ref",
+                      "axis": "row"
+                    }
+                  ]
+                }
+              }
+            },
+            "right": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "rate_drive"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "drive cumulative damage",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "newfail_drive",
+      "name": "drive failure this step",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_drive"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "gte",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_drive"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "drive failure this step",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fail_step_drive",
+      "name": "drive failures this step (fleet)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "newfail_drive"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "newfail_drive"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cumfail_drive_prev",
+      "name": "drive cum failures (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "cumfail_drive",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "cumfail_drive",
+      "name": "drive cumulative failures",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "cumfail_drive_prev",
+        "fail_step_drive"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cumfail_drive_prev"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "fail_step_drive"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "rate_struct",
+      "name": "struct damage rate",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "payload",
+        "truck_available",
+        "wear_mult"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "truck_available"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "power",
+                "left": {
+                  "op": "divide",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "payload"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 240
+                  }
+                },
+                "right": {
+                  "op": "multiply",
+                  "left": {
+                    "op": "literal",
+                    "value": 1.5
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "wear_mult"
+                  }
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.005
+              }
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "struct damage rate",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dmg_struct",
+      "name": "struct cumulative damage",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_struct",
+        "initial_damage",
+        "is_start",
+        "rate_struct"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "if",
+              "cond": {
+                "op": "gt",
+                "left": {
+                  "op": "ref",
+                  "element_id": "is_start"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.5
+                }
+              },
+              "then": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "initial_damage"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "else": {
+                "op": "if",
+                "cond": {
+                  "op": "gte",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "dmg_prev_struct"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1.0
+                  }
+                },
+                "then": {
+                  "op": "literal",
+                  "value": 0
+                },
+                "else": {
+                  "op": "index",
+                  "array": {
+                    "op": "ref",
+                    "element_id": "dmg_prev_struct"
+                  },
+                  "indices": [
+                    {
+                      "op": "index_ref",
+                      "axis": "row"
+                    }
+                  ]
+                }
+              }
+            },
+            "right": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "rate_struct"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "struct cumulative damage",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "newfail_struct",
+      "name": "struct failure this step",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dmg_prev_struct"
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "gte",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "dmg_prev_struct"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "outputs": [
+        {
+          "name": "struct failure this step",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fail_step_struct",
+      "name": "struct failures this step (fleet)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "newfail_struct"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "newfail_struct"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cumfail_struct_prev",
+      "name": "struct cum failures (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "cumfail_struct",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "cumfail_struct",
+      "name": "struct cumulative failures",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "cumfail_struct_prev",
+        "fail_step_struct"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cumfail_struct_prev"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "fail_step_struct"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "failures_this_step",
+      "name": "Fleet subsystem-failures this step",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "fail_step_drive",
+        "fail_step_struct",
+        "fail_step_tires"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "add",
+            "left": {
+              "op": "ref",
+              "element_id": "fail_step_tires"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "fail_step_drive"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "fail_step_struct"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true
+      }
+    },
+    {
+      "id": "shop_throughput",
+      "name": "Shop throughput (repairs/step)",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "value": {
+        "value": 0.3,
+        "unit": "1"
+      },
+      "description": "bays/repair_time. Higher than Stage-3d because subsystem repairs are more frequent (tires fail often); tuned to ~70% utilisation of the higher failure rate."
+    },
+    {
+      "id": "backlog_prev",
+      "name": "Backlog (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "backlog",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "backlog",
+      "name": "Repair backlog",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "backlog_prev",
+        "failures_this_step",
+        "shop_throughput"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "max",
+          "args": [
+            {
+              "op": "literal",
+              "value": 0
+            },
+            {
+              "op": "subtract",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "backlog_prev"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "failures_this_step"
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "shop_throughput"
+              }
+            }
+          ]
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "trucks_down",
+      "name": "Repairs in queue",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "backlog"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "min",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "backlog"
+            },
+            {
+              "op": "literal",
+              "value": 6
+            }
+          ]
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "cum_downtime_prev",
+      "name": "Cum downtime (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "cum_downtime",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "cum_downtime",
+      "name": "Cumulative repair-downtime (subsystem-steps)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "cum_downtime_prev",
+        "trucks_down"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cum_downtime_prev"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "trucks_down"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    }
+  ]
+}

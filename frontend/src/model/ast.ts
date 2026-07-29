@@ -11,6 +11,14 @@ export type Ast =
   | { op: 'neg' | 'not'; operand: Ast }
   | { op: 'call'; fn: string; args: Ast[] }
   | { op: 'if'; cond: Ast; then: Ast; else: Ast }
+  // Dimensioned / per-member array forms (spec §7). `vector_map` synthesises an axis;
+  // `index_ref` is the current 1-based coordinate inside it; `index` subscripts by position;
+  // `subscript` selects a member by declared label; `array` is a literal vector.
+  | { op: 'vector_map'; over: string; body: Ast }
+  | { op: 'index_ref'; axis?: string }
+  | { op: 'index'; array: Ast; indices: Ast[] }
+  | { op: 'subscript'; array: Ast; dim: string; label: string }
+  | { op: 'array'; elements: Ast[] }
   // Preserved verbatim on round-trip; the text editor renders these opaquely.
   | { op: string; [k: string]: unknown }
 
@@ -71,7 +79,17 @@ export const BUILTINS: FnDoc[] = [
   { name: 'mean_array', sig: 'mean_array(arr)', group: 'Array' },
   { name: 'min_array', sig: 'min_array(arr)', group: 'Array' },
   { name: 'max_array', sig: 'max_array(arr)', group: 'Array' },
+  { name: 'argmin_array', sig: 'argmin_array(arr)', group: 'Array' },
+  { name: 'argmax_array', sig: 'argmax_array(arr)', group: 'Array' },
   { name: 'dot_product', sig: 'dot_product(a, b)', group: 'Array' },
+  // Masked / filtered reductions — select members where mask ≠ 0 (e.g. available trucks).
+  { name: 'argmin_where', sig: 'argmin_where(values, mask)', group: 'Array' },
+  { name: 'argmax_where', sig: 'argmax_where(values, mask)', group: 'Array' },
+  { name: 'masked_sum', sig: 'masked_sum(values, mask)', group: 'Array' },
+  { name: 'masked_mean', sig: 'masked_mean(values, mask)', group: 'Array' },
+  { name: 'masked_min', sig: 'masked_min(values, mask)', group: 'Array' },
+  { name: 'masked_max', sig: 'masked_max(values, mask)', group: 'Array' },
+  { name: 'masked_count', sig: 'masked_count(mask)', group: 'Array' },
 ]
 
 export const TIME_REFS: string[] = [
@@ -119,6 +137,16 @@ export function printAst(node: Ast | undefined | null, parentPrec = 0): string {
       return `if(${printAst((node as any).cond)}, ${printAst((node as any).then)}, ${printAst((node as any).else)})`
     case 'call':
       return `${(node as any).fn}(${((node as any).args as Ast[]).map((a) => printAst(a)).join(', ')})`
+    case 'index_ref':
+      return 'member'
+    case 'index':
+      return `${printAst((node as any).array, 8)}[${((node as any).indices as Ast[]).map((a) => printAst(a)).join(', ')}]`
+    case 'subscript':
+      return `${printAst((node as any).array, 8)}#${(node as any).label}`
+    case 'vector_map':
+      return `over ${(node as any).over}: ${printAst((node as any).body)}`
+    case 'array':
+      return `[${((node as any).elements as Ast[]).map((a) => printAst(a)).join(', ')}]`
     default: {
       if (node.op in BIN_SYM) {
         const prec = PREC[node.op] ?? 0
@@ -158,7 +186,7 @@ type Tok =
   | { t: 'num'; v: number; p: number }
   | { t: 'id'; v: string; p: number }
   | { t: 'op'; v: string; p: number }
-  | { t: 'lp' | 'rp' | 'comma'; p: number }
+  | { t: 'lp' | 'rp' | 'comma' | 'lb' | 'rb'; p: number }
 
 function lex(src: string): Tok[] {
   const toks: Tok[] = []
@@ -169,6 +197,8 @@ function lex(src: string): Tok[] {
     if (/\s/.test(c)) { i++; continue }
     if (c === '(') { toks.push({ t: 'lp', p: i }); i++; continue }
     if (c === ')') { toks.push({ t: 'rp', p: i }); i++; continue }
+    if (c === '[') { toks.push({ t: 'lb', p: i }); i++; continue }
+    if (c === ']') { toks.push({ t: 'rb', p: i }); i++; continue }
     if (c === ',') { toks.push({ t: 'comma', p: i }); i++; continue }
     const pair = src.slice(i, i + 2)
     if (two.includes(pair)) { toks.push({ t: 'op', v: pair, p: i }); i += 2; continue }
@@ -228,7 +258,7 @@ export function parseExpr(src: string): Ast {
   const eof = () => pos >= toks.length
 
   function parse(minbp: number): Ast {
-    let left = nud()
+    let left = postfix(nud())
     while (!eof()) {
       const tk = peek()
       if (tk.t !== 'op') break
@@ -239,6 +269,17 @@ export function parseExpr(src: string): Ast {
       left = { op: info.op, left, right }
     }
     return left
+  }
+
+  // Postfix subscript: `arr[i]` → index, chainable (`m[i][j]`).
+  function postfix(node: Ast): Ast {
+    while (peek()?.t === 'lb') {
+      pos++
+      const idx = parse(0)
+      expect('rb')
+      node = { op: 'index', array: node, indices: [idx] }
+    }
+    return node
   }
 
   function nud(): Ast {
@@ -256,6 +297,17 @@ export function parseExpr(src: string): Ast {
       const e = parse(0)
       expect('rp')
       return e
+    }
+    if (tk.t === 'lb') {
+      // Array literal `[a, b, c]`.
+      pos++
+      const elements: Ast[] = []
+      if (peek()?.t !== 'rb') {
+        elements.push(parse(0))
+        while (peek()?.t === 'comma') { pos++; elements.push(parse(0)) }
+      }
+      expect('rb')
+      return { op: 'array', elements }
     }
     if (tk.t === 'id') {
       pos++
@@ -276,6 +328,8 @@ export function parseExpr(src: string): Ast {
         if (!BUILTIN_NAMES.has(name)) throw new ParseError(`unknown function '${name}'`, tk.p)
         return { op: 'call', fn: name, args }
       }
+      // `member` = the current 1-based coordinate inside a per-member (vector_map) body.
+      if (name === 'member') return { op: 'index_ref', axis: 'row' }
       if (TIME_REF_NAMES.has(name)) return { op: 'time_ref', property: name }
       return { op: 'ref', element_id: name }
     }

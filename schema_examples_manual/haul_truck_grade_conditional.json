@@ -1,0 +1,155 @@
+{
+  "wasim_version": "0.1.0",
+  "source": {
+    "generator": null,
+    "notes": "Stage-1b RAM demo: grade-conditional overloading (single unit). Extends the Stage-1 overload model (haul_truck_overload_reliability.json) with the policy insight from HAUL_FLEET_MODEL_SPEC.md sec 1.2: DAMAGE IS PAID IN TONNES, REVENUE IS EARNED IN METAL. A 300 t load of high-grade ore is worth far more than 300 t of waste, while the damage is identical (mass, not value). So the rational policy is not 'overload' or 'don't' — it is grade-conditional: overload only when value (grade x price) clears the crossover where the extra throughput outweighs the super-linear life cost. Three policies are compared on the SAME per-realization draws of load exponent beta ~ Triangular(2.5,3,4), grade ~ Triangular(0.5,1,1.5), and price ~ Lognormal: A = always nominal 240 t, B = always overload 300 t, C = grade-conditional. Economics are steady-state over a 10 yr horizon: revenue_rate = payload x value (linear in payload) minus failure_rate x replacement_cost, where failure_rate = base_rate x (payload/240)^beta (super-linear in payload). NPV integrates the discounted net rate. Result: the conditional policy C dominates both fixed policies in expectation — it captures overload's upside only when grade justifies the accelerated wear. See STAGE1B_GRADE_CONDITIONAL.md."
+  },
+  "simulation_settings": {
+    "duration": { "value": 10.0, "unit": "yr" },
+    "timestep": { "value": 0.1, "unit": "yr" },
+    "n_realizations": 4000,
+    "sampling_method": "monte_carlo",
+    "seed": 20260728
+  },
+  "containers": [
+    { "id": "inputs",    "name": "Physics & Economics Inputs", "parent": null, "children": [] },
+    { "id": "uncertain", "name": "Uncertain Inputs (sampled per realization)", "parent": null, "children": [] },
+    { "id": "polA", "name": "Policy A — Always Nominal 240 t", "parent": null, "children": [] },
+    { "id": "polB", "name": "Policy B — Always Overload 300 t", "parent": null, "children": [] },
+    { "id": "polC", "name": "Policy C — Grade-Conditional", "parent": null, "children": [] }
+  ],
+  "elements": [
+
+    { "id": "rated", "name": "Rated payload", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs", "value": { "value": 240.0, "unit": "t" } },
+    { "id": "payload_nom", "name": "Nominal payload", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs", "value": { "value": 240.0, "unit": "t" } },
+    { "id": "payload_ovl", "name": "Overload payload", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs", "value": { "value": 300.0, "unit": "t" } },
+    { "id": "base_rate", "name": "Base failure rate", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Lives consumed per year at rated load. 0.2/yr => nominal life 5 yr. In steady state with replacement, this IS the failure frequency (failures/yr).",
+      "value": { "value": 0.2, "unit": "1/yr" } },
+    { "id": "repl_cost", "name": "Replacement cost", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Cost per failure/replacement ($). Sets the wear penalty.",
+      "value": { "value": 100000.0, "unit": "USD" } },
+    { "id": "disc_rate", "name": "Discount rate", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs", "value": { "value": 0.08, "unit": "1/yr" } },
+    { "id": "crossover", "name": "Value crossover (g* x p*)", "primitive": "node", "value_rule": "fixed",
+      "container": "inputs",
+      "description": "Overload-vs-nominal value crossover at beta=3: 0.2*(1.25^3-1)*repl_cost / (payload_ovl-payload_nom) = 0.1906*100000/60 ~= 318 $/t. Overload pays when grade*price exceeds this.",
+      "value": { "value": 318.0, "unit": "USD" } },
+
+    { "id": "beta", "name": "Load exponent (beta)", "primitive": "node", "value_rule": "sample",
+      "container": "uncertain",
+      "distribution": { "family": "triangular", "parameters": {
+        "min": { "value": 2.5, "unit": "1" }, "mode": { "value": 3.0, "unit": "1" }, "max": { "value": 4.0, "unit": "1" } } },
+      "save_results": { "final_value": true } },
+    { "id": "grade", "name": "Ore grade (relative)", "primitive": "node", "value_rule": "sample",
+      "container": "uncertain",
+      "description": "Grade of the material at the active face, relative to reference. Triangular(0.5, 1.0, 1.5). Known from the mine plan at dispatch time.",
+      "distribution": { "family": "triangular", "parameters": {
+        "min": { "value": 0.5, "unit": "1" }, "mode": { "value": 1.0, "unit": "1" }, "max": { "value": 1.5, "unit": "1" } } },
+      "save_results": { "final_value": true } },
+    { "id": "price", "name": "Metal price ($/unit)", "primitive": "node", "value_rule": "sample",
+      "container": "uncertain",
+      "description": "Real-space lognormal (lognormal_moments): mean 320, sd 70 in $/unit. NOTE family=lognormal_moments takes REAL-SPACE moments; family=lognormal takes LOG-SPACE (mu, sigma).",
+      "distribution": { "family": "lognormal_moments", "parameters": {
+        "mean": { "value": 320.0, "unit": "USD" }, "stddev": { "value": 70.0, "unit": "USD" } } },
+      "save_results": { "final_value": true } },
+
+    { "id": "value", "name": "Value per tonne (grade x price)", "primitive": "node", "value_rule": "expression",
+      "container": "uncertain", "inputs": ["grade", "price"],
+      "description": "Net value realised per tonne handled. Damage is paid in tonnes; this is the metal earned per tonne.",
+      "expression": { "display": "grade * price", "ast": {
+        "op": "multiply", "left": { "op": "ref", "element_id": "grade" }, "right": { "op": "ref", "element_id": "price" } } } },
+
+    { "id": "discount", "name": "Discount factor", "primitive": "node", "value_rule": "expression",
+      "container": "inputs", "inputs": ["disc_rate"],
+      "expression": { "display": "exp(-disc_rate * t)", "ast": {
+        "op": "call", "fn": "exp", "args": [ { "op": "neg", "operand": {
+          "op": "multiply", "left": { "op": "ref", "element_id": "disc_rate" }, "right": { "op": "time_ref", "property": "elapsed" } } } ] } } },
+
+    { "id": "overload_C", "name": "Overload chosen? (policy C)", "primitive": "node", "value_rule": "expression",
+      "container": "polC", "inputs": ["value", "crossover"],
+      "description": "1 if the conditional policy overloads this realization (value > crossover), else 0.",
+      "expression": { "display": "if value > crossover then 1 else 0", "ast": {
+        "op": "if",
+        "cond": { "op": "gt", "left": { "op": "ref", "element_id": "value" }, "right": { "op": "ref", "element_id": "crossover" } },
+        "then": { "op": "literal", "value": 1.0 }, "else": { "op": "literal", "value": 0.0 } } },
+      "save_results": { "final_value": true } },
+    { "id": "payload_C", "name": "Payload (policy C)", "primitive": "node", "value_rule": "expression",
+      "container": "polC", "inputs": ["value", "crossover", "payload_ovl", "payload_nom"],
+      "expression": { "display": "if value > crossover then 300 else 240", "ast": {
+        "op": "if",
+        "cond": { "op": "gt", "left": { "op": "ref", "element_id": "value" }, "right": { "op": "ref", "element_id": "crossover" } },
+        "then": { "op": "ref", "element_id": "payload_ovl" }, "else": { "op": "ref", "element_id": "payload_nom" } } } },
+
+    { "id": "fail_rate_A", "name": "Failure rate (A)", "primitive": "node", "value_rule": "expression",
+      "container": "polA", "inputs": ["base_rate", "payload_nom", "rated", "beta"],
+      "expression": { "display": "base_rate * (payload_nom/rated)^beta", "ast": {
+        "op": "multiply", "left": { "op": "ref", "element_id": "base_rate" },
+        "right": { "op": "power",
+          "left": { "op": "divide", "left": { "op": "ref", "element_id": "payload_nom" }, "right": { "op": "ref", "element_id": "rated" } },
+          "right": { "op": "ref", "element_id": "beta" } } } } },
+    { "id": "fail_rate_B", "name": "Failure rate (B)", "primitive": "node", "value_rule": "expression",
+      "container": "polB", "inputs": ["base_rate", "payload_ovl", "rated", "beta"],
+      "expression": { "display": "base_rate * (payload_ovl/rated)^beta", "ast": {
+        "op": "multiply", "left": { "op": "ref", "element_id": "base_rate" },
+        "right": { "op": "power",
+          "left": { "op": "divide", "left": { "op": "ref", "element_id": "payload_ovl" }, "right": { "op": "ref", "element_id": "rated" } },
+          "right": { "op": "ref", "element_id": "beta" } } } } },
+    { "id": "fail_rate_C", "name": "Failure rate (C)", "primitive": "node", "value_rule": "expression",
+      "container": "polC", "inputs": ["base_rate", "payload_C", "rated", "beta"],
+      "expression": { "display": "base_rate * (payload_C/rated)^beta", "ast": {
+        "op": "multiply", "left": { "op": "ref", "element_id": "base_rate" },
+        "right": { "op": "power",
+          "left": { "op": "divide", "left": { "op": "ref", "element_id": "payload_C" }, "right": { "op": "ref", "element_id": "rated" } },
+          "right": { "op": "ref", "element_id": "beta" } } } } },
+
+    { "id": "net_rate_A", "name": "Net rate (A)", "primitive": "node", "value_rule": "expression",
+      "container": "polA", "inputs": ["payload_nom", "value", "fail_rate_A", "repl_cost"],
+      "expression": { "display": "payload_nom*value - fail_rate_A*repl_cost", "ast": {
+        "op": "subtract",
+        "left": { "op": "multiply", "left": { "op": "ref", "element_id": "payload_nom" }, "right": { "op": "ref", "element_id": "value" } },
+        "right": { "op": "multiply", "left": { "op": "ref", "element_id": "fail_rate_A" }, "right": { "op": "ref", "element_id": "repl_cost" } } } } },
+    { "id": "net_rate_B", "name": "Net rate (B)", "primitive": "node", "value_rule": "expression",
+      "container": "polB", "inputs": ["payload_ovl", "value", "fail_rate_B", "repl_cost"],
+      "expression": { "display": "payload_ovl*value - fail_rate_B*repl_cost", "ast": {
+        "op": "subtract",
+        "left": { "op": "multiply", "left": { "op": "ref", "element_id": "payload_ovl" }, "right": { "op": "ref", "element_id": "value" } },
+        "right": { "op": "multiply", "left": { "op": "ref", "element_id": "fail_rate_B" }, "right": { "op": "ref", "element_id": "repl_cost" } } } } },
+    { "id": "net_rate_C", "name": "Net rate (C)", "primitive": "node", "value_rule": "expression",
+      "container": "polC", "inputs": ["payload_C", "value", "fail_rate_C", "repl_cost"],
+      "expression": { "display": "payload_C*value - fail_rate_C*repl_cost", "ast": {
+        "op": "subtract",
+        "left": { "op": "multiply", "left": { "op": "ref", "element_id": "payload_C" }, "right": { "op": "ref", "element_id": "value" } },
+        "right": { "op": "multiply", "left": { "op": "ref", "element_id": "fail_rate_C" }, "right": { "op": "ref", "element_id": "repl_cost" } } } } },
+
+    { "id": "npv_A", "name": "NPV (A — always nominal)", "primitive": "stock",
+      "container": "polA", "initial_value": { "value": 0.0, "unit": "USD" },
+      "rate": { "ast": { "op": "multiply", "left": { "op": "ref", "element_id": "net_rate_A" }, "right": { "op": "ref", "element_id": "discount" } } },
+      "save_results": { "time_history": true, "final_value": true } },
+    { "id": "npv_B", "name": "NPV (B — always overload)", "primitive": "stock",
+      "container": "polB", "initial_value": { "value": 0.0, "unit": "USD" },
+      "rate": { "ast": { "op": "multiply", "left": { "op": "ref", "element_id": "net_rate_B" }, "right": { "op": "ref", "element_id": "discount" } } },
+      "save_results": { "time_history": true, "final_value": true } },
+    { "id": "npv_C", "name": "NPV (C — grade-conditional)", "primitive": "stock",
+      "container": "polC", "initial_value": { "value": 0.0, "unit": "USD" },
+      "rate": { "ast": { "op": "multiply", "left": { "op": "ref", "element_id": "net_rate_C" }, "right": { "op": "ref", "element_id": "discount" } } },
+      "save_results": { "time_history": true, "final_value": true } },
+
+    { "id": "life_A", "name": "Component life (A)", "primitive": "node", "value_rule": "expression",
+      "container": "polA", "inputs": ["fail_rate_A"],
+      "expression": { "display": "1 / fail_rate_A", "ast": {
+        "op": "divide", "left": { "op": "literal", "value": 1.0 }, "right": { "op": "ref", "element_id": "fail_rate_A" } } },
+      "save_results": { "final_value": true } },
+    { "id": "life_B", "name": "Component life (B)", "primitive": "node", "value_rule": "expression",
+      "container": "polB", "inputs": ["fail_rate_B"],
+      "expression": { "display": "1 / fail_rate_B", "ast": {
+        "op": "divide", "left": { "op": "literal", "value": 1.0 }, "right": { "op": "ref", "element_id": "fail_rate_B" } } },
+      "save_results": { "final_value": true } }
+
+  ]
+}

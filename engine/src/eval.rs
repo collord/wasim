@@ -126,12 +126,161 @@ impl NamedArray {
         }
         Some(Value::array(NamedArray { axes: remaining, data: out }))
     }
+
+    /// Row-major strides for this array's own axes.
+    fn strides(&self) -> Vec<usize> {
+        let mut s = vec![1usize; self.axes.len()];
+        for i in (0..self.axes.len().saturating_sub(1)).rev() {
+            s[i] = s[i + 1] * self.axes[i + 1].len;
+        }
+        s
+    }
+
+    /// Fold axis `axis_ix` (0-based) away with `fold` from `init`, keeping the other axes
+    /// (axis-selective reduction — reduce one axis of an n-d array, keep the rest). A 1-D
+    /// array → `Scalar`; an n-d array → the (n-1)-d result. Deterministic: the reduced axis
+    /// folds in ascending coordinate order (the bit-identity rule), like `reduce_data`.
+    pub fn reduce_axis(&self, axis_ix: usize, init: f64, fold: impl Fn(f64, f64) -> f64) -> Value {
+        let strides = self.strides();
+        let axis_len = self.axes[axis_ix].len;
+        let remaining: Vec<Axis> = self
+            .axes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != axis_ix)
+            .map(|(_, a)| a.clone())
+            .collect();
+        let total: usize = remaining.iter().map(|a| a.len).product::<usize>().max(1);
+        let mut out = Vec::with_capacity(total);
+        let mut coord = vec![0usize; remaining.len()];
+        for _ in 0..total {
+            // flat base index over the remaining axes (reduced axis pinned at 0)
+            let mut base = 0usize;
+            let mut rc = 0;
+            for (i, _) in self.axes.iter().enumerate() {
+                if i == axis_ix {
+                    continue;
+                }
+                base += coord[rc] * strides[i];
+                rc += 1;
+            }
+            let mut acc = init;
+            for k in 0..axis_len {
+                acc = fold(acc, self.data.get(base + k * strides[axis_ix]).copied().unwrap_or(0.0));
+            }
+            out.push(acc);
+            for d in (0..remaining.len()).rev() {
+                coord[d] += 1;
+                if coord[d] < remaining[d].len {
+                    break;
+                }
+                coord[d] = 0;
+            }
+        }
+        if remaining.is_empty() {
+            Value::Scalar(out.first().copied().unwrap_or(init))
+        } else {
+            Value::array(NamedArray { axes: remaining, data: out })
+        }
+    }
+
+    /// 1-based index of the extreme (min if `want_min`, else max) along axis `axis_ix`, per
+    /// remaining cell; ties → lowest index; NaN never wins (strict comparison). A 1-D array
+    /// → a `Scalar` index.
+    pub fn argreduce_axis(&self, axis_ix: usize, want_min: bool) -> Value {
+        let strides = self.strides();
+        let axis_len = self.axes[axis_ix].len;
+        let remaining: Vec<Axis> = self
+            .axes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != axis_ix)
+            .map(|(_, a)| a.clone())
+            .collect();
+        let total: usize = remaining.iter().map(|a| a.len).product::<usize>().max(1);
+        let mut out = Vec::with_capacity(total);
+        let mut coord = vec![0usize; remaining.len()];
+        for _ in 0..total {
+            let mut base = 0usize;
+            let mut rc = 0;
+            for (i, _) in self.axes.iter().enumerate() {
+                if i == axis_ix {
+                    continue;
+                }
+                base += coord[rc] * strides[i];
+                rc += 1;
+            }
+            let mut best_k = 0usize;
+            let mut best_val = if want_min { f64::INFINITY } else { f64::NEG_INFINITY };
+            let mut found = false;
+            for k in 0..axis_len {
+                let x = self.data.get(base + k * strides[axis_ix]).copied().unwrap_or(0.0);
+                let better = if want_min { x < best_val } else { x > best_val };
+                if better {
+                    best_val = x;
+                    best_k = k;
+                    found = true;
+                }
+            }
+            out.push(if found { (best_k + 1) as f64 } else { 0.0 });
+            for d in (0..remaining.len()).rev() {
+                coord[d] += 1;
+                if coord[d] < remaining[d].len {
+                    break;
+                }
+                coord[d] = 0;
+            }
+        }
+        if remaining.is_empty() {
+            Value::Scalar(out.first().copied().unwrap_or(0.0))
+        } else {
+            Value::array(NamedArray { axes: remaining, data: out })
+        }
+    }
 }
 
 /// Reduce a value's data to a scalar with a stable, order-fixed fold (used by the
 /// array reducers). Deterministic by construction — no reordering (§6).
 fn reduce_data(data: &[f64], init: f64, fold: impl Fn(f64, f64) -> f64) -> f64 {
     data.iter().copied().fold(init, fold)
+}
+
+/// Reduce a value: over one axis (1-based position `axis`) when given AND the value is a
+/// multi-axis array with that axis, else fully collapse to a scalar (the historical
+/// behavior — so a no-axis / 1-D call is bit-identical). `is_mean` divides by the reduced
+/// count. Axis order for arrays built by align-by-name is canonical (dimension ids sorted).
+fn reduce_value(
+    v: Value,
+    axis: Option<usize>,
+    init: f64,
+    fold: impl Fn(f64, f64) -> f64,
+    is_mean: bool,
+) -> Value {
+    if let (Some(ax1), Value::Array(a)) = (axis, &v) {
+        if a.axes.len() >= 2 && ax1 >= 1 && ax1 <= a.axes.len() {
+            let ax = ax1 - 1;
+            let alen = a.axes[ax].len.max(1) as f64;
+            let r = a.reduce_axis(ax, init, &fold);
+            return if is_mean { r.map(|x| x / alen) } else { r };
+        }
+    }
+    let data = v.into_vec();
+    let s = reduce_data(&data, init, &fold);
+    if is_mean {
+        Value::Scalar(if data.is_empty() { 0.0 } else { s / data.len() as f64 })
+    } else {
+        Value::Scalar(s)
+    }
+}
+
+/// The optional axis argument of a reducer: 1-based position of the axis to reduce, from
+/// the reducer's second argument (absent → `None` → full collapse).
+fn axis_of(args: &[crate::model::AstNode], ctx: &EvalCtx) -> Result<Option<usize>, EngineError> {
+    Ok(if args.len() >= 2 {
+        Some((eval_ast_scalar(&args[1], ctx)?.round() as i64).max(1) as usize)
+    } else {
+        None
+    })
 }
 
 /// The `run_stats` injection key for a `RunStat` node (Phase 4): identifies a
@@ -1249,37 +1398,46 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
     }
     // Array-consuming functions: evaluate first arg as a vector, return scalar.
     match func {
-        // Array reducers collapse all axes to a scalar via a shared, order-fixed
-        // fold (`reduce_data`) — deterministic by construction (§6). Same numbers
-        // as before; one code path. (Axis-selective reduction — reduce one named
-        // axis, keep the rest — is deferred: it needs a dimension-id argument.)
+        // Array reducers collapse to a scalar (order-fixed fold, deterministic §6) — OR,
+        // given a second argument (a 1-based axis position), reduce just that axis of an
+        // n-d array and keep the rest (axis-selective reduction). No-axis / 1-D calls are
+        // bit-identical to before. Axes of arrays built by align-by-name are in canonical
+        // (dimension-id-sorted) order.
         BuiltinFn::SumArray => {
-            require_args("sum_array", args.len(), 1, 1)?;
-            let v = eval_ast(&args[0], ctx)?.into_vec();
-            return Ok(Value::Scalar(reduce_data(&v, 0.0, |a, b| a + b)));
+            require_args("sum_array", args.len(), 1, 2)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(reduce_value(v, axis_of(args, ctx)?, 0.0, |a, b| a + b, false));
         }
         BuiltinFn::MeanArray => {
-            require_args("mean_array", args.len(), 1, 1)?;
-            let v = eval_ast(&args[0], ctx)?.into_vec();
-            let sum = reduce_data(&v, 0.0, |a, b| a + b);
-            return Ok(Value::Scalar(if v.is_empty() { 0.0 } else { sum / v.len() as f64 }));
+            require_args("mean_array", args.len(), 1, 2)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(reduce_value(v, axis_of(args, ctx)?, 0.0, |a, b| a + b, true));
         }
         BuiltinFn::MinArray => {
-            require_args("min_array", args.len(), 1, 1)?;
-            let v = eval_ast(&args[0], ctx)?.into_vec();
-            return Ok(Value::Scalar(reduce_data(&v, f64::INFINITY, f64::min)));
+            require_args("min_array", args.len(), 1, 2)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(reduce_value(v, axis_of(args, ctx)?, f64::INFINITY, f64::min, false));
         }
         BuiltinFn::MaxArray => {
-            require_args("max_array", args.len(), 1, 1)?;
-            let v = eval_ast(&args[0], ctx)?.into_vec();
-            return Ok(Value::Scalar(reduce_data(&v, f64::NEG_INFINITY, f64::max)));
+            require_args("max_array", args.len(), 1, 2)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(reduce_value(v, axis_of(args, ctx)?, f64::NEG_INFINITY, f64::max, false));
         }
         BuiltinFn::ArgminArray => {
             // 1-based index of the minimum member; ties → lowest index (deterministic, the
             // bit-identity requirement). Empty array → 0 (dangling-ref policy). NaN members
-            // never win (strict `<` skips them).
-            require_args("argmin_array", args.len(), 1, 1)?;
-            let v = eval_ast(&args[0], ctx)?.into_vec();
+            // never win (strict `<` skips them). With a 2nd arg (axis position) and a
+            // multi-axis array, returns the per-cell argmin along that axis (keeping the rest).
+            require_args("argmin_array", args.len(), 1, 2)?;
+            let v = eval_ast(&args[0], ctx)?;
+            if let Some(ax1) = axis_of(args, ctx)? {
+                if let Value::Array(a) = &v {
+                    if a.axes.len() >= 2 && ax1 >= 1 && ax1 <= a.axes.len() {
+                        return Ok(a.argreduce_axis(ax1 - 1, true));
+                    }
+                }
+            }
+            let v = v.into_vec();
             let mut best = 0usize;
             let mut best_val = f64::INFINITY;
             for (i, &x) in v.iter().enumerate() {
@@ -1288,8 +1446,16 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             return Ok(Value::Scalar(if v.is_empty() { 0.0 } else { (best + 1) as f64 }));
         }
         BuiltinFn::ArgmaxArray => {
-            require_args("argmax_array", args.len(), 1, 1)?;
-            let v = eval_ast(&args[0], ctx)?.into_vec();
+            require_args("argmax_array", args.len(), 1, 2)?;
+            let v = eval_ast(&args[0], ctx)?;
+            if let Some(ax1) = axis_of(args, ctx)? {
+                if let Value::Array(a) = &v {
+                    if a.axes.len() >= 2 && ax1 >= 1 && ax1 <= a.axes.len() {
+                        return Ok(a.argreduce_axis(ax1 - 1, false));
+                    }
+                }
+            }
+            let v = v.into_vec();
             let mut best = 0usize;
             let mut best_val = f64::NEG_INFINITY;
             for (i, &x) in v.iter().enumerate() {
@@ -1341,6 +1507,73 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::ColumnCount => {
             require_args("column_count", args.len(), 1, 1)?;
             return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().len() as f64));
+        }
+        // Masked / filtered reductions: (values, mask) collapsed over the members whose mask is
+        // "selected" (non-zero, non-NaN). Iteration is in member order (like `reduce_data`), so
+        // ties and float accumulation are deterministic. `none selected → 0.0` mirrors the
+        // dangling/empty policy of `argmin_array` / `get_element`.
+        BuiltinFn::ArgminWhere => {
+            require_args("argmin_where", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut best_val, mut found) = (0usize, f64::INFINITY, false);
+            for i in 0..n {
+                if selected(mask[i]) && v[i] < best_val { best_val = v[i]; best = i; found = true; }
+            }
+            return Ok(Value::Scalar(if found { (best + 1) as f64 } else { 0.0 }));
+        }
+        BuiltinFn::ArgmaxWhere => {
+            require_args("argmax_where", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut best_val, mut found) = (0usize, f64::NEG_INFINITY, false);
+            for i in 0..n {
+                if selected(mask[i]) && v[i] > best_val { best_val = v[i]; best = i; found = true; }
+            }
+            return Ok(Value::Scalar(if found { (best + 1) as f64 } else { 0.0 }));
+        }
+        BuiltinFn::MaskedSum => {
+            require_args("masked_sum", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let mut s = 0.0;
+            for i in 0..n { if selected(mask[i]) { s += v[i]; } }
+            return Ok(Value::Scalar(s));
+        }
+        BuiltinFn::MaskedMean => {
+            require_args("masked_mean", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut s, mut c) = (0.0, 0usize);
+            for i in 0..n { if selected(mask[i]) { s += v[i]; c += 1; } }
+            return Ok(Value::Scalar(if c == 0 { 0.0 } else { s / c as f64 }));
+        }
+        BuiltinFn::MaskedMin => {
+            require_args("masked_min", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut found) = (f64::INFINITY, false);
+            for i in 0..n { if selected(mask[i]) && v[i] < best { best = v[i]; found = true; } }
+            return Ok(Value::Scalar(if found { best } else { 0.0 }));
+        }
+        BuiltinFn::MaskedMax => {
+            require_args("masked_max", args.len(), 2, 2)?;
+            let v = eval_ast(&args[0], ctx)?.into_vec();
+            let mask = eval_ast(&args[1], ctx)?.into_vec();
+            let n = v.len().min(mask.len());
+            let (mut best, mut found) = (f64::NEG_INFINITY, false);
+            for i in 0..n { if selected(mask[i]) && v[i] > best { best = v[i]; found = true; } }
+            return Ok(Value::Scalar(if found { best } else { 0.0 }));
+        }
+        BuiltinFn::MaskedCount => {
+            require_args("masked_count", args.len(), 1, 1)?;
+            let mask = eval_ast(&args[0], ctx)?.into_vec();
+            return Ok(Value::Scalar(mask.iter().filter(|&&m| selected(m)).count() as f64));
         }
         // ── Array-language layer (Phase 1): shape-preserving array→array ops ──
         BuiltinFn::SortArray => {
@@ -1428,6 +1661,10 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
         | BuiltinFn::MaxArray | BuiltinFn::ArgminArray | BuiltinFn::ArgmaxArray
         | BuiltinFn::DotProduct
+        // Masked reducers are handled by the array-consuming match above; never reach here.
+        | BuiltinFn::ArgminWhere | BuiltinFn::ArgmaxWhere | BuiltinFn::MaskedSum
+        | BuiltinFn::MaskedMean | BuiltinFn::MaskedMin | BuiltinFn::MaskedMax
+        | BuiltinFn::MaskedCount
         // Array-language layer: handled by the early return above; never reach here.
         | BuiltinFn::SortArray | BuiltinFn::SortIndex | BuiltinFn::RankArray
         | BuiltinFn::Cumulate | BuiltinFn::Cumproduct
@@ -1435,6 +1672,13 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };
     Ok(Value::Scalar(result))
+}
+
+/// A member is *selected* by a masked reduction when its mask value is non-zero (and not NaN).
+/// Mirrors the engine's boolean convention (comparisons/logic yield 1.0 / 0.0).
+#[inline]
+fn selected(mask_value: f64) -> bool {
+    mask_value != 0.0 && !mask_value.is_nan()
 }
 
 fn require_args(name: &str, got: usize, min: usize, max: usize) -> Result<(), EngineError> {

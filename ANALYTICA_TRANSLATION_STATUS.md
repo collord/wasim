@@ -401,6 +401,12 @@ That is simultaneously the **Analytica-alignment** move *and* the engine's bigge
 `Vector` and v2 array results reconciled). It generalizes the problem space rather
 than bolting on cases.
 
+> **Update (2026-07-29):** the `NamedArray` value type and align-by-name broadcast have
+> shipped, and the array reducers now do **axis-selective reduction** — `sum_array(x, n)` /
+> `argmax_array(x, n)` collapse one named axis and keep the rest (over a *user* axis; the
+> `Run` axis is still engine-privileged). See `STAGE3F_AXIS_SELECTIVE_REDUCTION.md`. The
+> "reduce over any axis, including `Run`" unification above is the remaining generalization.
+
 ### 9.4 The tweaks, ranked — Analytica payoff *and* general payoff
 
 Smallest-first; each shippable alone.

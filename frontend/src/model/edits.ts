@@ -4,7 +4,7 @@
 
 import type { FlatElement, ModelDoc, ModelFormat, NodeView } from './schema'
 import { detectFormat } from './schema'
-import { printAst, refsOf, type Ast } from './ast'
+import { printAst, type Ast } from './ast'
 
 // ── Clone / lookup ──────────────────────────────────────────────────────────────
 
@@ -50,6 +50,16 @@ export function mutateElement(doc: ModelDoc, id: string, fn: (el: FlatElement) =
   return next
 }
 
+/** Replace element `id` wholesale with a new element object (the raw-JSON editor escape hatch,
+ *  §14). Unlike `updateElement` (shallow-merge) this can also *remove* fields. */
+export function replaceElement(doc: ModelDoc, id: string, el: FlatElement): ModelDoc {
+  const idx = doc.elements.findIndex((e) => e.id === id)
+  if (idx === -1) return doc
+  const next = clone(doc)
+  next.elements[idx] = clone(el)
+  return next
+}
+
 export function addElement(doc: ModelDoc, el: FlatElement, pos?: NodeView): ModelDoc {
   const next = clone(doc)
   next.elements.push(clone(el))
@@ -57,27 +67,82 @@ export function addElement(doc: ModelDoc, el: FlatElement, pos?: NodeView): Mode
   return next
 }
 
-/** Delete an element and scrub dangling references to it (from `inputs` lists + view). */
+// The element fields that carry a single element id (not in an AST): the lag `input`, an
+// event's `source` (on_event trigger). `effects[].target` is handled separately (nested).
+const ID_SCALAR_FIELDS = ['input', 'source'] as const
+const ID_LIST_FIELDS = ['inputs', 'inflows', 'outflows'] as const
+
+/** Rewrite every AST `ref` node's `element_id` (oldId → newId) anywhere inside `obj` — the
+ *  expression/rate ASTs, an event's trigger/set/reset conditions, effect `change` ASTs, etc.
+ *  Deep, but only mutates `{ op: 'ref', element_id }` nodes, so it never mangles unrelated
+ *  strings (names, units, display text). Returns whether anything changed. Mutates in place. */
+function renameAstRefs(obj: unknown, oldId: string, newId: string): boolean {
+  if (!obj || typeof obj !== 'object') return false
+  if (Array.isArray(obj)) {
+    let changed = false
+    for (const v of obj) changed = renameAstRefs(v, oldId, newId) || changed
+    return changed
+  }
+  const rec = obj as Record<string, unknown>
+  let changed = false
+  if (rec.op === 'ref' && rec.element_id === oldId) { rec.element_id = newId; changed = true }
+  for (const v of Object.values(rec)) changed = renameAstRefs(v, oldId, newId) || changed
+  return changed
+}
+
+/** Re-derive the cached `display` string of an expression/rate field after its AST changed. */
+function refreshDisplay(ef: unknown): void {
+  const e = ef as { ast?: Ast; display?: string }
+  if (e && typeof e === 'object' && e.ast) e.display = printAst(e.ast)
+}
+
+/** Delete an element and scrub dangling references to it (id lists, scalar id fields, event
+ *  effect targets, view). References buried in ASTs are left in place — they become dangling
+ *  refs that the reconcile/validate loop reports, which is the honest signal (you cannot
+ *  meaningfully rewrite `a + deleted` on delete). */
 export function deleteElement(doc: ModelDoc, id: string): ModelDoc {
   const next = clone(doc)
   next.elements = next.elements.filter((e) => e.id !== id)
   for (const e of next.elements) {
-    if (Array.isArray(e.inputs)) e.inputs = e.inputs.filter((r) => r !== id)
-    if (Array.isArray(e.inflows)) e.inflows = e.inflows.filter((r) => r !== id)
-    if (Array.isArray(e.outflows)) e.outflows = e.outflows.filter((r) => r !== id)
+    const anyE = e as Record<string, unknown>
+    for (const key of ID_LIST_FIELDS) {
+      if (Array.isArray(anyE[key])) anyE[key] = (anyE[key] as string[]).filter((r) => r !== id)
+    }
+    for (const key of ID_SCALAR_FIELDS) {
+      if (anyE[key] === id) anyE[key] = null
+    }
+    if (Array.isArray(anyE.effects)) {
+      anyE.effects = (anyE.effects as Array<{ target?: string }>).filter((eff) => !eff || eff.target !== id)
+    }
   }
   if (next.view?.positions) delete next.view.positions[id]
   return next
 }
 
-/** Rename an element's id, rewriting every reference (inputs, inflows/outflows, view). */
+/** Rename an element's id, rewriting every reference: id lists (inputs/inflows/outflows),
+ *  scalar id fields (lag `input`, event `source`), event `effects[].target`, references buried
+ *  in ASTs (expression, rate, trigger/condition, effect changes), and the view positions. */
 export function renameId(doc: ModelDoc, oldId: string, newId: string): ModelDoc {
   const next = clone(doc)
   for (const e of next.elements) {
+    const anyE = e as Record<string, unknown>
     if (e.id === oldId) e.id = newId
-    if (Array.isArray(e.inputs)) e.inputs = e.inputs.map((r) => (r === oldId ? newId : r))
-    if (Array.isArray(e.inflows)) e.inflows = e.inflows.map((r) => (r === oldId ? newId : r))
-    if (Array.isArray(e.outflows)) e.outflows = e.outflows.map((r) => (r === oldId ? newId : r))
+    for (const key of ID_LIST_FIELDS) {
+      if (Array.isArray(anyE[key])) anyE[key] = (anyE[key] as string[]).map((r) => (r === oldId ? newId : r))
+    }
+    for (const key of ID_SCALAR_FIELDS) {
+      if (anyE[key] === oldId) anyE[key] = newId
+    }
+    if (Array.isArray(anyE.effects)) {
+      for (const eff of anyE.effects as Array<{ target?: string }>) {
+        if (eff && eff.target === oldId) eff.target = newId
+      }
+    }
+    // References inside any AST the element carries (expression, rate, trigger, effects…).
+    renameAstRefs(e, oldId, newId)
+    // Keep the cached pretty-printed formulas honest.
+    refreshDisplay(anyE.expression)
+    refreshDisplay(anyE.rate)
   }
   if (next.view?.positions?.[oldId]) {
     next.view.positions[newId] = next.view.positions[oldId]
@@ -118,20 +183,28 @@ export function setExpression(doc: ModelDoc, id: string, ast: Ast, field: 'expre
   })
 }
 
-/** Recompute an element's `inputs` from all ASTs it carries (expression + rate). Keeps the
- *  dependency graph honest after an expression edit. */
+/** Deep-collect every AST `ref` element_id inside `obj`, walking all nested objects/arrays
+ *  (not just AST-shaped ones), so it reaches wrapped ASTs like `trigger.condition.ast` and
+ *  `effects[].change.ast`. Only reads `{ op: 'ref', element_id }` nodes — plain id strings
+ *  (effect targets) are not treated as inputs. */
+function collectRefsDeep(obj: unknown, acc: Set<string>): void {
+  if (!obj || typeof obj !== 'object') return
+  if (Array.isArray(obj)) { for (const v of obj) collectRefsDeep(v, acc); return }
+  const rec = obj as Record<string, unknown>
+  if (rec.op === 'ref' && typeof rec.element_id === 'string') acc.add(rec.element_id)
+  for (const v of Object.values(rec)) collectRefsDeep(v, acc)
+}
+
+/** Recompute an element's `inputs` from every AST it carries — expression, stock rate, event
+ *  trigger/condition, status set/reset, and effect `change` values — plus explicit
+ *  flow/lag fields. Keeps the dependency graph + influence arrows honest after any edit. */
 export function recomputeInputs(el: FlatElement): void {
   const refs = new Set<string>()
-  const collect = (ef?: { ast?: Ast } | unknown) => {
-    const ast = (ef as { ast?: Ast })?.ast
-    if (ast) refsOf(ast, refs)
+  for (const field of [el.expression, el.rate, el.trigger, el.set, el.reset, el.effects]) {
+    collectRefsDeep(field, refs)
   }
-  collect(el.expression)
-  if (el.rate && typeof el.rate === 'object' && 'ast' in el.rate) collect(el.rate)
-  // Stocks also list inflows/outflows as inputs.
   const explicit = [...(el.inflows ?? []), ...(el.outflows ?? []), el.input].filter(Boolean) as string[]
-  const merged = new Set<string>([...refs, ...explicit])
-  el.inputs = [...merged]
+  el.inputs = [...new Set<string>([...refs, ...explicit])]
 }
 
 // ── View block (positions / collapse) ────────────────────────────────────────────
@@ -167,6 +240,15 @@ export function setPositions(doc: ModelDoc, positions: Record<string, NodeView>)
 export function updateSettings(doc: ModelDoc, patch: Partial<ModelDoc['simulation_settings']>): ModelDoc {
   const next = clone(doc)
   next.simulation_settings = { ...next.simulation_settings, ...patch }
+  return next
+}
+
+// ── Dimensions (declared array axes, spec §7) ─────────────────────────────────────
+
+export function setDimensions(doc: ModelDoc, dimensions: ModelDoc['dimensions']): ModelDoc {
+  const next = clone(doc)
+  if (dimensions && dimensions.length) next.dimensions = dimensions
+  else delete next.dimensions
   return next
 }
 
@@ -237,6 +319,20 @@ export const PALETTE: PaletteEntry[] = [
     make: (id, name, fmt) => withKind(
       { id, name, initial_value: q(0), inflows: [], outflows: [] },
       fmt, 'accumulator', 'stock'),
+  },
+  {
+    // v2-native failure state machine (spec §5.5). Scaffolds a `condition`-basis FSM — fails
+    // when its condition (e.g. a damage stock ≥ threshold) becomes true; run-to-failure by
+    // default. Output is 0 = operating, 1 = failed. (Events are v2-only.)
+    key: 'event', label: 'Failure / Event', group: 'Reliability', iconType: 'event',
+    make: (id, name) => ({
+      id, name, primitive: 'event',
+      trigger: { mode: 'on_condition', condition: { ast: { op: 'literal', value: 0 }, display: '0' } },
+      failure_process: { basis: 'condition', repair: { policy: 'none' } },
+      effects: [],
+      inputs: [],
+      save_results: { time_history: true, final_value: true },
+    }),
   },
 ]
 

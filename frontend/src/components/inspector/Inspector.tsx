@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore, useElements, useContainers } from '../../store'
 import type { ElementSummary } from '../../types'
 import type { FlatElement } from '../../model/schema'
@@ -83,8 +83,9 @@ function DefinitionSection({ el, flat }: { el: ElementSummary; flat: FlatElement
   const rule = el.value_rule
   const prim = el.primitive
 
-  let body = <UnsupportedEditor el={el} />
+  let body = <UnsupportedEditor el={el} flat={flat} />
   if (prim === 'stock') body = <StockEditor el={el} flat={flat} />
+  else if (prim === 'event') body = <EventEditor el={el} flat={flat} />
   else if (rule === 'fixed') body = <FixedEditor el={el} flat={flat} />
   else if (rule === 'sample') body = <SampleEditor el={el} flat={flat} />
   else if (rule === 'expression') body = <ExpressionRuleEditor el={el} />
@@ -225,36 +226,58 @@ function TruncationEditor({ el, flat }: { el: ElementSummary; flat: FlatElement 
 
 // ── Expression ──────────────────────────────────────────────────────────────────
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 function ExpressionRuleEditor({ el }: { el: ElementSummary }) {
-  const setExpr = useStore((s) => s.mutateEl)
+  const mutate = useStore((s) => s.mutateEl)
   const doc = useStore((s) => s.doc)
   const flat = doc?.elements.find((e) => e.id === el.id)
+  const dims = doc?.dimensions ?? []
   const ast = (flat?.expression as { ast?: Ast } | undefined)?.ast
+  const isArray = (ast as any)?.op === 'vector_map'
+  const over: string = isArray ? (ast as any).over : ''
+  const body: Ast | undefined = isArray ? (ast as any).body : ast
 
-  const commit = (a: Ast) =>
-    setExpr(el.id, (e) => {
-      e.expression = { ast: a, display: printAst(a) }
-      // keep inputs in sync
-      const refs = new Set<string>()
-      const walk = (n: unknown) => {
-        if (!n || typeof n !== 'object') return
-        const o = n as Record<string, unknown>
-        if (o.op === 'ref' && typeof o.element_id === 'string') refs.add(o.element_id)
-        for (const v of Object.values(o)) {
-          if (Array.isArray(v)) v.forEach(walk)
-          else if (v && typeof v === 'object') walk(v)
-        }
-      }
-      walk(a)
-      e.inputs = [...refs]
-    })
+  // Commit the per-member body — re-wrapped in the vector_map when this element is an array.
+  const commitBody = (b: Ast) => {
+    const full: Ast = over ? { op: 'vector_map', over, body: b } : b
+    mutate(el.id, (e) => { e.expression = { ast: full, display: printAst(full) }; recomputeInputs(e) })
+  }
+
+  // Make/unmake this element an array over `dim`: wrap/unwrap the vector_map and mark the
+  // primary output dimensioned (what drives per-member `#k` result expansion).
+  const setOver = (dim: string) => mutate(el.id, (e) => {
+    const cur = (e.expression as { ast?: Ast } | undefined)?.ast
+    const curBody: Ast = (cur as any)?.op === 'vector_map' ? (cur as any).body : (cur ?? { op: 'literal', value: 0 })
+    const full: Ast = dim ? { op: 'vector_map', over: dim, body: curBody } : curBody
+    e.expression = { ast: full, display: printAst(full) }
+    const outs: any[] = Array.isArray((e as any).outputs) ? [...(e as any).outputs] : []
+    const o0: any = { name: e.name ?? e.id, unit: (e.unit as string) ?? '1', ...(outs[0] ?? {}) }
+    if (dim) o0.dimensions = [dim]
+    else delete o0.dimensions
+    outs[0] = o0
+    ;(e as any).outputs = outs
+    recomputeInputs(e)
+  })
 
   return (
-    <Field label="Expression" hint="References draw influence arrows; ⌘/Ctrl-Enter or blur to apply.">
-      <ExpressionEditor ast={ast} onCommit={commit} />
-    </Field>
+    <div className="space-y-2">
+      {dims.length > 0 && (
+        <Field label="Array over" hint="Compute one value per member of a declared dimension.">
+          <Select value={over} onChange={setOver}
+            options={[{ value: '', label: 'Scalar (not an array)' }, ...dims.map((d) => ({ value: d.id, label: `${d.name} (${d.size})` }))]} />
+        </Field>
+      )}
+      <Field
+        label={isArray ? 'Per-member expression' : 'Expression'}
+        hint={isArray
+          ? 'One value per member. `member` = this member’s index; `arr[member]` picks this member of an array.'
+          : 'References draw influence arrows; ⌘/Ctrl-Enter or blur to apply.'}>
+        <ExpressionEditor key={over} ast={body} onCommit={commitBody} />
+      </Field>
+    </div>
   )
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ── Stock ───────────────────────────────────────────────────────────────────────
 
@@ -472,14 +495,228 @@ function FilterEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
   )
 }
 
+// ── Event / failure state machine (spec §5.5) ─────────────────────────────────────
+
+const TRIGGER_MODES = [
+  { value: 'on_condition', label: 'When a condition is true' },
+  { value: 'on_schedule', label: 'At scheduled times' },
+  { value: 'on_event', label: 'When another event fires' },
+  { value: 'periodic', label: 'Periodically' },
+  { value: 'always', label: 'Every timestep' },
+]
+const FAILURE_BASES = [
+  { value: 'condition', label: 'Condition (state ≥ threshold)' },
+  { value: 'operating_time', label: 'Operating time (TTF)' },
+  { value: 'exposure_time', label: 'Exposure time (TTF)' },
+  { value: 'demand', label: 'On demand (per-demand p)' },
+]
+const REPAIR_POLICIES = [
+  { value: 'none', label: 'None (run to failure)' },
+  { value: 'repair', label: 'Repair (as-was)' },
+  { value: 'replace', label: 'Replace (as-new)' },
+  { value: 'preventive_maintenance', label: 'Preventive maintenance' },
+]
+const EFFECT_MODES = ['additive', 'multiplicative', 'replace', 'interrupt', 'spend', 'deposit', 'borrow']
+const NEEDS_TTF = new Set(['operating_time', 'exposure_time', 'demand'])
+const NEEDS_TTR = new Set(['repair', 'replace', 'preventive_maintenance'])
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function EventEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const elements = useElements()
+  const tsUnit = useStore((s) => s.doc?.simulation_settings.timestep.unit) ?? 's'
+  const trigger = (flat.trigger as any) ?? { mode: 'on_condition' }
+  const fp = flat.failure_process as any
+  const effects = (flat.effects as any[]) ?? []
+  const mode: string = trigger.mode ?? 'on_condition'
+  const others = elements.filter((e) => e.id !== el.id)
+
+  const patchTrigger = (fn: (t: any) => void) =>
+    mutate(el.id, (e) => { const t = { ...((e.trigger as any) ?? {}) }; fn(t); e.trigger = t; recomputeInputs(e) })
+  const patchFp = (fn: (f: any) => void) =>
+    mutate(el.id, (e) => { const f = { ...((e.failure_process as any) ?? {}) }; fn(f); e.failure_process = f })
+  const setEffects = (next: any[]) => mutate(el.id, (e) => { e.effects = next; recomputeInputs(e) })
+
+  return (
+    <div className="space-y-3">
+      <Field label="Fires" hint="What makes this event / failure fire.">
+        <Select value={mode} onChange={(m) => patchTrigger((t) => {
+          t.mode = m
+          if (m === 'on_condition' && !t.condition) t.condition = { ast: { op: 'literal', value: 0 }, display: '0' }
+          if (m === 'on_schedule' && !t.schedule) t.schedule = []
+        })} options={TRIGGER_MODES} />
+      </Field>
+
+      {mode === 'on_condition' && (
+        <Field label="Condition" hint="Fires the step this becomes true — e.g. damage ≥ 1.">
+          <ExpressionEditor ast={(trigger.condition as any)?.ast}
+            onCommit={(a) => patchTrigger((t) => { t.condition = { ast: a, display: printAst(a) } })}
+            placeholder="e.g. damage ≥ 1" />
+        </Field>
+      )}
+      {mode === 'on_schedule' && (
+        <Field label={`Times (${tsUnit})`} hint="Comma-separated instants.">
+          <TextInput mono value={((trigger.schedule as any[]) ?? []).map((s) => s.value).join(', ')}
+            onChange={(v) => patchTrigger((t) => {
+              t.schedule = v.split(',').map((s) => Number(s.trim())).filter((n) => !isNaN(n)).map((n) => ({ value: n, unit: tsUnit }))
+            })} />
+        </Field>
+      )}
+      {mode === 'on_event' && (
+        <Field label="Source event">
+          <Select value={(trigger.source as string) ?? ''} onChange={(v) => patchTrigger((t) => { t.source = v || null })}
+            options={[{ value: '', label: '— none —' }, ...others.map((e) => ({ value: e.id, label: e.name }))]} />
+        </Field>
+      )}
+      {mode === 'periodic' && (
+        <Field label={`Period (${tsUnit})`}>
+          <NumInput value={(trigger.period as any)?.value ?? 1} onChange={(v) => patchTrigger((t) => { t.period = { value: v, unit: tsUnit } })} />
+        </Field>
+      )}
+
+      <Toggle label="Acts as a failure state machine" checked={!!fp}
+        onChange={(on) => mutate(el.id, (e) => {
+          if (on) e.failure_process = { basis: 'condition', repair: { policy: 'none' } }
+          else delete (e as any).failure_process
+        })} />
+
+      {fp && (
+        <div className="space-y-2 rounded border border-slate-200 bg-slate-50/50 p-2">
+          <Field label="Failure basis" hint="How failure is decided.">
+            <Select value={fp.basis ?? 'condition'} onChange={(b) => patchFp((f) => { f.basis = b })} options={FAILURE_BASES} />
+          </Field>
+          {NEEDS_TTF.has(fp.basis ?? '') && (
+            <DistPicker label="Time to failure" dist={fp.time_to_failure} onChange={(d) => patchFp((f) => { f.time_to_failure = d })} />
+          )}
+          <Field label="Repair policy">
+            <Select value={fp.repair?.policy ?? 'none'} onChange={(p) => patchFp((f) => { f.repair = { ...(f.repair ?? {}), policy: p } })} options={REPAIR_POLICIES} />
+          </Field>
+          {NEEDS_TTR.has(fp.repair?.policy ?? 'none') && (
+            <DistPicker label="Time to repair" dist={fp.repair?.time_to_repair} onChange={(d) => patchFp((f) => { f.repair = { ...(f.repair ?? {}), time_to_repair: d } })} />
+          )}
+        </div>
+      )}
+
+      <EffectsEditor targets={others} effects={effects} unit={el.unit} onChange={setEffects} />
+    </div>
+  )
+}
+
+/** Compact distribution editor (family + params) for TTF / TTR fields. */
+function DistPicker({ label, dist, onChange }: { label: string; dist: any; onChange: (d: any) => void }) {
+  const family: string = dist?.family ?? 'lognormal'
+  const def = distDef(family)
+  return (
+    <Field label={label}>
+      <Select value={family} onChange={(fam) => { const d = distDef(fam); onChange({ family: fam, parameters: d ? d.defaults() : {} }) }}
+        options={DISTRIBUTIONS.map((d) => ({ value: d.family, label: d.label, group: d.group }))} />
+      {def && (
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          {def.params.map((p) => (
+            <Field key={p} label={p}>
+              <NumInput value={paramValue(dist?.parameters?.[p])}
+                onChange={(v) => onChange({ family, parameters: { ...(dist?.parameters ?? {}), [p]: { value: v, unit: '1' } } })} />
+            </Field>
+          ))}
+        </div>
+      )}
+    </Field>
+  )
+}
+
+/** Effects applied when the event fires (spec §5.5): target element + how it changes. */
+function EffectsEditor({ targets, effects, unit, onChange }: {
+  targets: ElementSummary[]; effects: any[]; unit: string; onChange: (e: any[]) => void
+}) {
+  const add = () => onChange([...effects, { target: targets[0]?.id ?? '', mode: 'additive', change: { value: 0, unit } }])
+  const update = (i: number, patch: any) => onChange(effects.map((e, j) => (j === i ? { ...e, ...patch } : e)))
+  const remove = (i: number) => onChange(effects.filter((_, j) => j !== i))
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-slate-500">Effects on fire</span>
+        <button type="button" onClick={add} className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50">+ add</button>
+      </div>
+      {effects.length === 0 && <p className="text-[11px] text-slate-400">No effects — a failure FSM still exposes its 0 / 1 failed state.</p>}
+      {effects.map((eff, i) => (
+        <div key={i} className="space-y-1 rounded border border-slate-200 p-1.5">
+          <div className="flex items-center gap-1">
+            <div className="flex-1">
+              <Select value={eff.target ?? ''} onChange={(v) => update(i, { target: v })}
+                options={[{ value: '', label: '— target —' }, ...targets.map((t) => ({ value: t.id, label: t.name }))]} />
+            </div>
+            <button type="button" onClick={() => remove(i)} className="px-1 text-slate-400 hover:text-rose-500" title="Remove effect">×</button>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="flex-1">
+              <Select value={eff.mode ?? 'additive'} onChange={(v) => update(i, { mode: v })}
+                options={EFFECT_MODES.map((m) => ({ value: m, label: m }))} />
+            </div>
+            {eff.mode !== 'interrupt' && (
+              <div className="w-24">
+                <NumInput value={(eff.change as any)?.value ?? 0}
+                  onChange={(v) => update(i, { change: { value: v, unit: (eff.change as any)?.unit ?? '1' } })} />
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 // ── Unsupported-rule fallback (engine-truthful; no faked UI, §14) ─────────────────
 
-function UnsupportedEditor({ el }: { el: ElementSummary }) {
+function UnsupportedEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const replaceEl = useStore((s) => s.replaceEl)
+  const [text, setText] = useState(() => JSON.stringify(flat, null, 2))
+  const [err, setErr] = useState<string | null>(null)
+
+  // Re-seed the editor only when a *different* element is selected — not on every reconcile,
+  // so an in-progress edit isn't clobbered by the doc snapshot changing identity.
+  useEffect(() => { setText(JSON.stringify(flat, null, 2)); setErr(null) }, [flat.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const apply = () => {
+    let parsed: FlatElement
+    try {
+      parsed = JSON.parse(text)
+    } catch (e) {
+      setErr(`Invalid JSON: ${(e as Error).message}`)
+      return
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setErr('The element must be a JSON object.')
+      return
+    }
+    if (parsed.id !== flat.id) {
+      setErr(`Keep "id": "${flat.id}" — use the ID field above to rename (that also updates references).`)
+      return
+    }
+    setErr(null)
+    replaceEl(flat.id, parsed) // reconciles + validates live
+  }
+
   return (
     <div className="space-y-2 text-[11px] text-slate-500">
-      <p>Rich editing for <span className="font-mono">{kindLabel(el)}</span> isn’t built yet.</p>
-      {el.formula && <p className="rounded bg-slate-50 p-2 font-mono text-slate-600">{el.formula}</p>}
-      <p className="text-slate-400">Edit this element’s fields directly in the model JSON; the reconcile loop validates it live.</p>
+      <p>No structured editor for <span className="font-mono">{kindLabel(el)}</span> yet — edit its raw JSON below; the reconcile loop validates it live.</p>
+      <textarea
+        className="h-56 w-full resize-y rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] leading-snug text-slate-700 focus:border-slate-400 focus:outline-none"
+        spellCheck={false}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      {err && <p className="rounded bg-rose-50 p-1.5 text-rose-600">{err}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={apply}
+          className="rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-700">
+          Apply JSON
+        </button>
+        <button type="button" onClick={() => { setText(JSON.stringify(flat, null, 2)); setErr(null) }}
+          className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50">
+          Revert
+        </button>
+      </div>
     </div>
   )
 }
