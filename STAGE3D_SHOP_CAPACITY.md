@@ -65,6 +65,12 @@ manager than "wear-levelling is best practice."
   authored `vector_map`/`lag`/reduction elements plus `max`/`min` builtins. No new engine work.
 - Determinism: the wear-levelling run is bit-identical across repeats.
 
+> **Follow-up ([`STAGE3E_SUBSYSTEMS.md`](STAGE3E_SUBSYSTEMS.md)):** this 67% penalty is inflated
+> by treating each truck as a *single composite failure*. Splitting the truck into independent
+> subsystems (tires β4 / drivetrain β3 / structure β1.5), whose failures desynchronize, drops the
+> wear-levelling penalty to **~30% (1.30× vs 1.67×)** — most of it was a flattening artifact. The
+> policy *ranking* survives; the *magnitude* was overstated ~1.8×.
+
 ## Next (to make it decision-grade)
 
 1. **Faithful per-bay queue with a repair *delay***: replace the fluid backlog with a real
