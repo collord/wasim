@@ -92,7 +92,7 @@ with only a plotting nicety left to (C).
 
 | Phase | Deliverable | Size | Risk |
 |---|---|---|---|
-| 1 | **`sort_array`/`rank_array`/`sort_index` + `cumulate`/`cumproduct`** — self-contained `BuiltinFn`s + `eval.rs` arms; deterministic (`total_cmp`, fixed-order scan). Dim lane inherits them. | M | Low |
+| 1 ✅ | **`sort_array`/`rank_array`/`sort_index` + `cumulate`/`cumproduct`** — self-contained `BuiltinFn`s + shape-preserving `eval.rs` arms; deterministic (`total_cmp` with stable lowest-source-index tie-break, fixed-order scan). *Shipped: engine builtins + `map_shape`/`argsort` helpers; converter maps `SortIndex`/`Sort`/`Rank`/`cumulate`/`cumproduct` (dropping the index arg); `array_language_v2.rs` checks all five on the scalar **and** dimensioned array lanes bit-identically, and `sort_index` reproduces the Marginal-Abatement `Sorted_action` exactly (`[1,3,6,8,2,7,4,5]`).* | M | Low |
 | 2 | **`gather`/reindex-by-index** (the `x[Dim=perm]` form) + **standalone ordinal** (`positions`/`@`) — axis-aware; extends `Subscript`/adds an AST node. | M | Med |
 | 3 | **`null`→NaN** value policy: propagation + reducer/results NaN-skip + plot gaps. | M | Low–Med |
 | 4 | **Derived permutation index** (B): `sort_index` result usable as an index for gather/label alignment, not just positionally. | M–L | Med |

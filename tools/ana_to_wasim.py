@@ -490,6 +490,14 @@ _ARRAY_REDUCERS = {
     "min": "min_array", "max": "max_array", "size": "size_array",
 }
 
+# Shape-preserving array→array ops (WASIM_ARRAY_LANGUAGE_SCOPE Phase 1). Like the
+# reducers, an optional trailing index arg is dropped (`cumulate(x, I)` → `cumulate(x)`);
+# unlike them, the result keeps the array's axis.
+_ARRAY_MAP_OPS = {
+    "sortindex": "sort_index", "sort": "sort_array", "rank": "rank_array",
+    "cumulate": "cumulate", "cumproduct": "cumproduct",
+}
+
 _DISTRIBUTIONS = {
     "uniform", "normal", "lognormal", "triangular", "beta", "gamma",
     "exponential", "bernoulli", "weibull",
@@ -503,7 +511,7 @@ _DISTRIBUTIONS = {
 _SAMPLE_STATS = {
     "probability", "probbands", "getfract", "cdf", "pdf", "sdeviation",
     "variance", "kurtosis", "skewness", "correlation", "frequency",
-    "cumulate", "cumproduct", "rank", "dynamic",
+    "dynamic",
 }
 
 
@@ -537,6 +545,11 @@ def resolve_call(call: Call) -> dict:
                             "but Analytica's Mean over the Run sample is a results-layer "
                             "(A3) statistic in WASiM, not a mid-graph array mean — verify axis.")
         return {"op": "call", "fn": _ARRAY_REDUCERS[name], "args": args[:1] or args}
+
+    if name in _ARRAY_MAP_OPS:
+        # `SortIndex(x)` / `cumulate(x, I)` etc. → array→array builtin; drop any
+        # trailing index arg (the axis is implicit), keep the array's shape.
+        return {"op": "call", "fn": _ARRAY_MAP_OPS[name], "args": args[:1] or args}
 
     if name in _SAMPLE_STATS:
         warn(call.name, "across-realization/dynamic statistic has no mid-graph v0.1.0 "

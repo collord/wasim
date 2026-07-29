@@ -77,6 +77,15 @@ check("lognormal(median,gsdev) -> log space", d is not None and abs(d["parameter
 d2 = A.call_to_distribution(A.Call("Normal", [{"op": "ref", "element_id": "mu"}, {"op": "literal", "value": 1.0}], {}), "1")
 check("formula-param distribution -> stub", d2 is None)
 
+# ── array-language Phase 1 ops (sort/cumulate) map to builtins, drop index arg ──
+for _defn, _fn in [("SortIndex(cost)", "sort_index"), ("Sort(x, I)", "sort_array"),
+                   ("Rank(x)", "rank_array"), ("cumulate(x, Time)", "cumulate"),
+                   ("cumproduct(x)", "cumproduct")]:
+    _res, _ = A.parse_definition(_defn)
+    _ast = A._as_ast(_res)
+    check(f"{_defn} -> {_fn}(x) (index arg dropped, no stub)",
+          _ast.get("op") == "call" and _ast.get("fn") == _fn and len(_ast.get("args", [])) == 1)
+
 print()
 if _fails:
     print(f"{len(_fails)} failure(s): {_fails}")
