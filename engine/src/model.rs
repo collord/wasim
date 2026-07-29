@@ -1046,6 +1046,17 @@ pub enum BuiltinFn {
     Cumulate,
     /// `cumproduct(x)`: running prefix product, `out[i] = Π_{j≤i} x[j]`.
     Cumproduct,
+    // ── Array-language layer (WASIM_ARRAY_LANGUAGE_SCOPE.md, Phase 2) ──
+    /// `gather(x, idx)`: reindex/gather — `out[k] = x[idx[k] - 1]` (1-based). The
+    /// result rides `idx`'s shape/axis; out-of-range indices degrade to 0.0
+    /// (dangling-ref policy). Lowers Analytica's `x[Dim = perm_index]` reordering.
+    Gather,
+    /// `ordinal(x)`: the 1-based positions `[1, 2, …, len(x)]` along the argument's
+    /// axis (Analytica's standalone `@Index`). Rides the argument's shape.
+    Ordinal,
+    /// `null()`: Analytica's `null` / empty cell → `f64::NaN` (WASIM_ARRAY_LANGUAGE_SCOPE
+    /// Phase 3). Nullary; propagates through arithmetic and marks plot/staircase gaps.
+    Null,
 }
 
 // ── Stochastic process ────────────────────────────────────────────────────────
