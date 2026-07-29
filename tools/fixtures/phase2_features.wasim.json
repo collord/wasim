@@ -1,0 +1,200 @@
+{
+  "wasim_version": "0.9.8",
+  "source": {
+    "generator": "xmile_to_wasim.py",
+    "notes": "Converted from XMILE: Phase2 Features. XMILE is a deterministic system-dynamics interchange format; WaSiM is a probabilistic time-stepping engine. This is a structural translation of the stock/flow/aux core; integration is explicit-Euler only (RK methods are down-converted). Constructs with no WaSiM equivalent become extern_call stubs \u2014 see the conversion warnings. Numeric fidelity is 'same trajectory under Euler', not bit-identical to Stella/Vensim."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 10.0,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "1"
+    },
+    "n_realizations": 1,
+    "seed": 0
+  },
+  "elements": [
+    {
+      "id": "Main/normal_backlog",
+      "name": "normal_backlog",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "fixed",
+      "value": {
+        "value": 1000.0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "Main/Backlog",
+      "name": "Backlog",
+      "primitive": "stock",
+      "container": "Main",
+      "initial_value": {
+        "value": 8000.0,
+        "unit": "1"
+      },
+      "inflows": [
+        "Main/orders_entered"
+      ],
+      "outflows": [
+        "Main/orders_completed"
+      ],
+      "floor": {
+        "value": 0.0,
+        "unit": "1"
+      },
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    },
+    {
+      "id": "Main/orders_entered",
+      "name": "orders_entered",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "fixed",
+      "value": {
+        "value": 100.0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "Main/orders_completed",
+      "name": "orders_completed",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "max",
+          "args": [
+            {
+              "op": "divide",
+              "left": {
+                "op": "ref",
+                "element_id": "Main/Backlog"
+              },
+              "right": {
+                "op": "literal",
+                "value": 10.0
+              }
+            },
+            {
+              "op": "literal",
+              "value": 0.0
+            }
+          ]
+        },
+        "display": "Backlog / 10",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/Backlog"
+      ]
+    },
+    {
+      "id": "Main/effect_of_backlog",
+      "name": "effect_of_backlog",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "lookup_call",
+          "element_id": "Main/effect_of_backlog__gf",
+          "input": {
+            "op": "divide",
+            "left": {
+              "op": "ref",
+              "element_id": "Main/Backlog"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Main/normal_backlog"
+            }
+          }
+        },
+        "display": "Backlog / normal_backlog",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/Backlog",
+        "Main/normal_backlog"
+      ]
+    },
+    {
+      "id": "Main/effect_of_backlog__gf",
+      "name": "effect_of_backlog (gf)",
+      "primitive": "node",
+      "value_rule": "lookup",
+      "table": {
+        "x": [
+          0.0,
+          1.0,
+          2.0,
+          3.0
+        ],
+        "y": [
+          0.0,
+          1.0,
+          1.5,
+          1.7
+        ]
+      },
+      "interpolation": "linear",
+      "container": "Main"
+    },
+    {
+      "id": "Main/parity",
+      "name": "parity",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "eq",
+            "left": {
+              "op": "call",
+              "fn": "mod",
+              "args": [
+                {
+                  "op": "ref",
+                  "element_id": "Main/normal_backlog"
+                },
+                {
+                  "op": "literal",
+                  "value": 2.0
+                }
+              ]
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 1.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
+        },
+        "display": "IF (normal_backlog MOD 2) = 0 THEN 1 ELSE 0",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/normal_backlog"
+      ]
+    }
+  ]
+}

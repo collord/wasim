@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+    <header><name>Phase4 Arrays</name></header>
+    <sim_specs><start>0</start><stop>3</stop><dt>1</dt></sim_specs>
+    <dimensions>
+        <dim name="Region"><elem name="North"/><elem name="South"/><elem name="East"/></dim>
+    </dimensions>
+    <model><variables>
+        <aux name="base_pop"><dimensions><dim name="Region"/></dimensions><eqn>100</eqn></aux>
+        <aux name="growth"><dimensions><dim name="Region"/></dimensions><eqn>base_pop * 1.1</eqn></aux>
+        <aux name="total"><eqn>SUM(growth)</eqn></aux>
+    </variables></model>
+</xmile>

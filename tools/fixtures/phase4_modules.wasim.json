@@ -1,0 +1,124 @@
+{
+  "wasim_version": "0.9.8",
+  "source": {
+    "generator": "xmile_to_wasim.py",
+    "notes": "Converted from XMILE: Phase4 Modules. XMILE is a deterministic system-dynamics interchange format; WaSiM is a probabilistic time-stepping engine. This is a structural translation of the stock/flow/aux core; integration is explicit-Euler only (RK methods are down-converted). Constructs with no WaSiM equivalent become extern_call stubs \u2014 see the conversion warnings. Numeric fidelity is 'same trajectory under Euler', not bit-identical to Stella/Vensim."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 3.0,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "1"
+    },
+    "n_realizations": 1,
+    "seed": 0
+  },
+  "elements": [
+    {
+      "id": "Main/driver",
+      "name": "driver",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "fixed",
+      "value": {
+        "value": 5.0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "Main/result",
+      "name": "result",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "submodel_stat",
+            "submodel_id": "Main/sub",
+            "output": "Main/sub/doubled",
+            "statistic": "mean"
+          },
+          "right": {
+            "op": "literal",
+            "value": 1.0
+          }
+        },
+        "display": "sub.doubled + 1",
+        "source": "explicit"
+      }
+    },
+    {
+      "id": "Main/sub/input_signal",
+      "name": "input_signal",
+      "primitive": "node",
+      "container": "Main/sub",
+      "value_rule": "fixed",
+      "value": {
+        "value": 0.0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "Main/sub/doubled",
+      "name": "doubled",
+      "primitive": "node",
+      "container": "Main/sub",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "Main/sub/input_signal"
+          },
+          "right": {
+            "op": "literal",
+            "value": 2.0
+          }
+        },
+        "display": "input_signal * 2",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/sub/input_signal"
+      ]
+    }
+  ],
+  "containers": [
+    {
+      "id": "Main/sub",
+      "name": "sub",
+      "kind": "submodel",
+      "elements": [
+        "Main/sub/input_signal",
+        "Main/sub/doubled"
+      ],
+      "simulation_settings": {
+        "duration": {
+          "value": 3.0,
+          "unit": "1"
+        },
+        "timestep": {
+          "value": 1.0,
+          "unit": "1"
+        },
+        "n_realizations": 1
+      },
+      "parent": "Main",
+      "interface": {
+        "inputs": [
+          {
+            "input": "Main/sub/input_signal",
+            "from": "Main/driver"
+          }
+        ],
+        "outputs": []
+      }
+    }
+  ]
+}

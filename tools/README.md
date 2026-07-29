@@ -239,3 +239,90 @@ the converter end-to-end (they are **not** real Analytica corpus files):
   miss-penalty cost).
 - `coverage_probe_synthetic.ana` — exercises the mapping table and every
   degradation path.
+
+---
+
+# `xmile_to_wasim.py` — XMILE → WaSiM v2 converter
+
+Converts an [XMILE](https://www.oasis-open.org/standard/xmile1-0/) system-dynamics
+model (`.xmile` / `.stmx`, the OASIS stock-and-flow interchange standard) into a
+WaSiM **v2** `model.json` (`$id .../0.9.8`, `primitive`-based). Stdlib-only; no
+dependencies. This is the first converter to target the v2 schema.
+
+```bash
+python3 tools/xmile_to_wasim.py path/to/model.xmile -o model.wasim.json
+python3 tools/xmile_to_wasim.py path/to/model.xmile --stdout      # JSON to stdout
+```
+
+Conversion warnings go to **stderr**; the JSON goes to the file / stdout. As with
+the Analytica converter, the emitted model is designed to always validate against
+`schema/wasim-schema-v2.json` and to load in the engine — anything the converter
+can't map faithfully degrades to an inert `extern_call` (the engine evaluates it
+to `0.0` while preserving the function name + args) with a named `XMILE-*` warning,
+never a silent wrong number.
+
+## What maps
+
+| XMILE | WaSiM | Notes |
+|---|---|---|
+| `<stock>` | `stock` primitive | `<eqn>` is the **initial value** (not a rate); `<inflow>`/`<outflow>` → `inflows`/`outflows`; `<non_negative/>` → `floor: 0` |
+| `<flow>` | `node` `value_rule:"expression"` | a rate expression; `<non_negative/>` → `max(rate, 0)` |
+| `<aux>` | `node` `fixed` (const eqn) or `expression` | derived node |
+| `<gf>` (named or embedded) | `node` `value_rule:"lookup"` + `lookup_call` | embedded GFs lower to two elements |
+| `<eqn>` infix language | op-discriminated AST | full arithmetic/logic, `IF/THEN/ELSE`, `MOD`, quoted identifiers |
+| math builtins | `call fn:…` | ABS/EXP/SQRT/LN/LOG/trig/MIN/MAX/INT/MOD/SIGN |
+| `TIME() DT()` | `time_ref` | |
+| `STEP PULSE RAMP PI` | composed AST | e.g. `RAMP(s,t0)` → `s·max(0, elapsed−t0)` |
+| `PREVIOUS` | `lag` node | one-step delay |
+| `SMTH1` | `filter` node (`ema`) | averaging time τ → integer window `round(τ/dt)` |
+| per-step randoms | `sample` node, `resampling:"always"` | NORMAL/UNIFORM/POISSON/EXPRND/LOGNORMAL |
+| `<dimensions>` + apply-to-all array | top-level `dimensions` + `vector_map` | |
+| `SUM/MEAN/MIN/MAX/SIZE(array)` | `*_array` reducers | |
+| `<module>` + `<connect>` | `container_def kind:"submodel"` + interface bindings | structure preserved — **see caveat below** |
+
+## What warns (deferred / lossy)
+
+Each surfaces as a stable `XMILE-*` code (greppable, asserted in the tests):
+
+- `INTEGRATOR-DOWNCONVERT` — RK2/RK4/RK45/Gear → Euler (WaSiM is Euler-only; stiff/oscillatory models diverge numerically).
+- `START-OFFSET` — nonzero `<start>`; WaSiM's clock is t=0-relative (`duration = stop − start`).
+- `MODULE-SEMANTICS` — a WaSiM submodel is a nested simulation; the converter runs it at `n_realizations:1` and rewrites parent reads of interior variables (`mod.var`) to `submodel_stat(mean, …)`, which at one realization returns the exact value. So a module round-trips as an inline deterministic sub-call (values flow back — verified `result = 11` in the Rust test). Caveat: interior variables the parent never references aren't surfaced in top-level results, and any randomness inside the submodel is collapsed to a single draw.
+- `ARRAY-ELEMENTWISE` / `ARRAY-3D` — only apply-to-all arrays over ≤2 axes; element-specific and ≥3-D arrays are dropped/partial.
+- `CONVEYOR` / `QUEUE`, `MACRO-COMPLEX`, `UNITS-ALGEBRA`, `INIT-ACCESSOR`, `SELF`, `UNMAPPED-BUILTIN` — no faithful WaSiM form → `extern_call` stub.
+
+**Fidelity bar:** *structural* round-trip (topology, names, flows, tables) is high-fidelity; *numeric* round-trip is "same trajectory under Euler," not bit-identical to Stella/Vensim.
+
+## Validate + run
+
+```bash
+pip install jsonschema     # test-only; the converter itself is stdlib-only
+python3 - <<'PY'
+import json, jsonschema
+jsonschema.validate(json.load(open("model.wasim.json")),
+                    json.load(open("schema/wasim-schema-v2.json")))
+print("valid")
+PY
+```
+
+## Worked example — the SDXorg `teacup`
+
+`tools/fixtures/` has the canonical smallest XMILE model end-to-end:
+
+| file | what |
+|---|---|
+| `teacup.xmile` | source model (SDXorg test-models) |
+| `teacup.json` | converter output — validates against the v2 schema and runs |
+| `teacup_output.csv` | SDXorg canonical Euler trajectory |
+
+The Rust test `engine/tests/xmile_teacup_v2.rs` runs `teacup.json` through the
+engine and asserts the `Teacup Temperature` trajectory matches the canonical CSV
+within Euler tolerance across all 240 steps. `phase2_features` / `phase3_builtins`
+/ `phase4_arrays` fixtures exercise embedded GFs, non-negativity, the composed and
+element-producing builtins, and apply-to-all arrays.
+
+## Tests
+
+```bash
+python3 tools/test_xmile_to_wasim.py            # parser + emitter + lowering + schema (stdlib + jsonschema)
+cargo test -p wasim-engine --test xmile_teacup_v2   # numeric acceptance in the engine
+```

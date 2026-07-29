@@ -1,0 +1,98 @@
+{
+  "wasim_version": "0.9.8",
+  "source": {
+    "generator": "xmile_to_wasim.py",
+    "notes": "Converted from XMILE: Teacup. XMILE is a deterministic system-dynamics interchange format; WaSiM is a probabilistic time-stepping engine. This is a structural translation of the stock/flow/aux core; integration is explicit-Euler only (RK methods are down-converted). Constructs with no WaSiM equivalent become extern_call stubs \u2014 see the conversion warnings. Numeric fidelity is 'same trajectory under Euler', not bit-identical to Stella/Vensim."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 30.0,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 0.125,
+      "unit": "1"
+    },
+    "n_realizations": 1,
+    "seed": 0
+  },
+  "elements": [
+    {
+      "id": "Main/Heat Loss to Room",
+      "name": "Heat Loss to Room",
+      "primitive": "node",
+      "container": "Main",
+      "description": "Heat Loss to Room",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "divide",
+          "left": {
+            "op": "subtract",
+            "left": {
+              "op": "ref",
+              "element_id": "Main/Teacup Temperature"
+            },
+            "right": {
+              "op": "ref",
+              "element_id": "Main/Room Temperature"
+            }
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "Main/Characteristic Time"
+          }
+        },
+        "display": "(\"Teacup Temperature\"-\"Room Temperature\")/\"Characteristic Time\"",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/Characteristic Time",
+        "Main/Room Temperature",
+        "Main/Teacup Temperature"
+      ]
+    },
+    {
+      "id": "Main/Room Temperature",
+      "name": "Room Temperature",
+      "primitive": "node",
+      "container": "Main",
+      "description": "Ambient Room Temperature",
+      "value_rule": "fixed",
+      "value": {
+        "value": 70.0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "Main/Teacup Temperature",
+      "name": "Teacup Temperature",
+      "primitive": "stock",
+      "container": "Main",
+      "description": "The average temperature of the tea and the cup",
+      "initial_value": {
+        "value": 180.0,
+        "unit": "1"
+      },
+      "inflows": [],
+      "outflows": [
+        "Main/Heat Loss to Room"
+      ],
+      "save_results": {
+        "final_value": true,
+        "time_history": true
+      }
+    },
+    {
+      "id": "Main/Characteristic Time",
+      "name": "Characteristic Time",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "fixed",
+      "value": {
+        "value": 10.0,
+        "unit": "1"
+      }
+    }
+  ]
+}

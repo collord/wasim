@@ -1,0 +1,234 @@
+{
+  "wasim_version": "0.9.8",
+  "source": {
+    "generator": "xmile_to_wasim.py",
+    "notes": "Converted from XMILE: Phase3 Builtins. XMILE is a deterministic system-dynamics interchange format; WaSiM is a probabilistic time-stepping engine. This is a structural translation of the stock/flow/aux core; integration is explicit-Euler only (RK methods are down-converted). Constructs with no WaSiM equivalent become extern_call stubs \u2014 see the conversion warnings. Numeric fidelity is 'same trajectory under Euler', not bit-identical to Stella/Vensim."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 10.0,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 0.5,
+      "unit": "1"
+    },
+    "n_realizations": 1,
+    "seed": 0
+  },
+  "elements": [
+    {
+      "id": "Main/driver",
+      "name": "driver",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "literal",
+            "value": 10.0
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "literal",
+              "value": 2.0
+            },
+            "right": {
+              "op": "call",
+              "fn": "max",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": 0.0
+                },
+                {
+                  "op": "subtract",
+                  "left": {
+                    "op": "time_ref",
+                    "property": "elapsed"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 2.0
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "display": "10 + RAMP(2, 2)",
+        "source": "explicit"
+      }
+    },
+    {
+      "id": "Main/clock",
+      "name": "clock",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "time_ref",
+          "property": "elapsed"
+        },
+        "display": "TIME()",
+        "source": "explicit"
+      }
+    },
+    {
+      "id": "Main/pulsed",
+      "name": "pulsed",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "and",
+            "left": {
+              "op": "gte",
+              "left": {
+                "op": "time_ref",
+                "property": "elapsed"
+              },
+              "right": {
+                "op": "literal",
+                "value": 3.0
+              }
+            },
+            "right": {
+              "op": "lt",
+              "left": {
+                "op": "time_ref",
+                "property": "elapsed"
+              },
+              "right": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": 3.0
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.5
+                }
+              }
+            }
+          },
+          "then": {
+            "op": "divide",
+            "left": {
+              "op": "literal",
+              "value": 100.0
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.5
+            }
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
+        },
+        "display": "PULSE(100, 3)",
+        "source": "explicit"
+      }
+    },
+    {
+      "id": "Main/stepped",
+      "name": "stepped",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "gte",
+            "left": {
+              "op": "time_ref",
+              "property": "elapsed"
+            },
+            "right": {
+              "op": "literal",
+              "value": 4.0
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": 5.0
+          },
+          "else": {
+            "op": "literal",
+            "value": 0.0
+          }
+        },
+        "display": "STEP(5, 4)",
+        "source": "explicit"
+      }
+    },
+    {
+      "id": "Main/prev_driver",
+      "name": "prev_driver",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "Main/prev_driver__prev1"
+        },
+        "display": "PREVIOUS(driver, 10)",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/prev_driver__prev1"
+      ]
+    },
+    {
+      "id": "Main/prev_driver__prev1",
+      "name": "previous",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "Main/driver",
+      "container": "Main",
+      "initial": {
+        "value": 10.0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "Main/smoothed",
+      "name": "smoothed",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "ref",
+          "element_id": "Main/smoothed__smth1"
+        },
+        "display": "SMTH1(driver, 2)",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/smoothed__smth1"
+      ]
+    },
+    {
+      "id": "Main/smoothed__smth1",
+      "name": "smooth",
+      "primitive": "node",
+      "value_rule": "filter",
+      "input": "Main/driver",
+      "window": 4,
+      "statistic": "ema",
+      "container": "Main"
+    }
+  ]
+}

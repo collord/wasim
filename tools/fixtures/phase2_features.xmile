@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+    <header>
+        <name>Phase2 Features</name>
+    </header>
+    <sim_specs>
+        <start>0</start>
+        <stop>10</stop>
+        <dt>1</dt>
+    </sim_specs>
+    <model>
+        <variables>
+            <aux name="normal_backlog">
+                <eqn>1000</eqn>
+            </aux>
+            <stock name="Backlog">
+                <eqn>8000</eqn>
+                <inflow>orders_entered</inflow>
+                <outflow>orders_completed</outflow>
+                <non_negative/>
+            </stock>
+            <flow name="orders_entered">
+                <eqn>100</eqn>
+            </flow>
+            <flow name="orders_completed">
+                <eqn>Backlog / 10</eqn>
+                <non_negative/>
+            </flow>
+            <aux name="effect_of_backlog">
+                <eqn>Backlog / normal_backlog</eqn>
+                <gf>
+                    <xpts>0,1,2,3</xpts>
+                    <ypts>0,1,1.5,1.7</ypts>
+                </gf>
+            </aux>
+            <aux name="parity">
+                <eqn>IF (normal_backlog MOD 2) = 0 THEN 1 ELSE 0</eqn>
+            </aux>
+        </variables>
+    </model>
+</xmile>

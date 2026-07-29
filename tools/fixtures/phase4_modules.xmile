@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+    <header><name>Phase4 Modules</name></header>
+    <sim_specs><start>0</start><stop>3</stop><dt>1</dt></sim_specs>
+    <model>
+        <variables>
+            <aux name="driver"><eqn>5</eqn></aux>
+            <module name="sub">
+                <connect to="sub.input_signal" from="driver"/>
+            </module>
+            <aux name="result"><eqn>sub.doubled + 1</eqn></aux>
+        </variables>
+    </model>
+    <model name="sub">
+        <variables>
+            <aux name="input_signal"><eqn>0</eqn></aux>
+            <aux name="doubled"><eqn>input_signal * 2</eqn></aux>
+        </variables>
+    </model>
+</xmile>

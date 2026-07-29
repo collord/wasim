@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+    <header>
+        <name>Phase3 Builtins</name>
+    </header>
+    <sim_specs>
+        <start>0</start>
+        <stop>10</stop>
+        <dt>0.5</dt>
+    </sim_specs>
+    <model>
+        <variables>
+            <aux name="driver">
+                <eqn>10 + RAMP(2, 2)</eqn>
+            </aux>
+            <aux name="clock">
+                <eqn>TIME()</eqn>
+            </aux>
+            <aux name="pulsed">
+                <eqn>PULSE(100, 3)</eqn>
+            </aux>
+            <aux name="stepped">
+                <eqn>STEP(5, 4)</eqn>
+            </aux>
+            <aux name="prev_driver">
+                <eqn>PREVIOUS(driver, 10)</eqn>
+            </aux>
+            <aux name="smoothed">
+                <eqn>SMTH1(driver, 2)</eqn>
+            </aux>
+        </variables>
+    </model>
+</xmile>

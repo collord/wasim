@@ -1,0 +1,123 @@
+{
+  "wasim_version": "0.9.8",
+  "source": {
+    "generator": "xmile_to_wasim.py",
+    "notes": "Converted from XMILE: Phase4 Arrays. XMILE is a deterministic system-dynamics interchange format; WaSiM is a probabilistic time-stepping engine. This is a structural translation of the stock/flow/aux core; integration is explicit-Euler only (RK methods are down-converted). Constructs with no WaSiM equivalent become extern_call stubs \u2014 see the conversion warnings. Numeric fidelity is 'same trajectory under Euler', not bit-identical to Stella/Vensim."
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 3.0,
+      "unit": "1"
+    },
+    "timestep": {
+      "value": 1.0,
+      "unit": "1"
+    },
+    "n_realizations": 1,
+    "seed": 0
+  },
+  "elements": [
+    {
+      "id": "Main/base_pop",
+      "name": "base_pop",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Region",
+          "body": {
+            "op": "literal",
+            "value": 100.0
+          }
+        },
+        "source": "explicit",
+        "display": "100"
+      },
+      "outputs": [
+        {
+          "name": "base_pop",
+          "unit": "1",
+          "dimensions": [
+            "Region"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Main/growth",
+      "name": "growth",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Region",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "ref",
+              "element_id": "Main/base_pop"
+            },
+            "right": {
+              "op": "literal",
+              "value": 1.1
+            }
+          }
+        },
+        "source": "explicit",
+        "display": "base_pop * 1.1"
+      },
+      "outputs": [
+        {
+          "name": "growth",
+          "unit": "1",
+          "dimensions": [
+            "Region"
+          ]
+        }
+      ],
+      "inputs": [
+        "Main/base_pop"
+      ]
+    },
+    {
+      "id": "Main/total",
+      "name": "total",
+      "primitive": "node",
+      "container": "Main",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "Main/growth"
+            }
+          ]
+        },
+        "display": "SUM(growth)",
+        "source": "explicit"
+      },
+      "inputs": [
+        "Main/growth"
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "Region",
+      "name": "Region",
+      "size": 3,
+      "labels": [
+        "North",
+        "South",
+        "East"
+      ]
+    }
+  ]
+}
