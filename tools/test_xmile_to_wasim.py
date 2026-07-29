@@ -310,6 +310,26 @@ cs = {e["id"]: e for e in cinit["elements"]}["Main/s"]
 check("constant stock initial stays a scalar quantity",
       cs["initial_value"] == {"value": 180.0, "unit": "1"})
 
+# ── Feature D: ≥3-D apply-to-all array → nested vector_map, no ARRAY-3D warning ─
+X.reset_warnings()
+d3 = X.convert('''<xmile xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <sim_specs><start>0</start><stop>1</stop><dt>1</dt></sim_specs>
+  <dimensions><dim name="A" size="2"/><dim name="B" size="2"/><dim name="C" size="2"/></dimensions>
+  <model><variables>
+    <aux name="grid"><dimensions><dim name="A"/><dim name="B"/><dim name="C"/></dimensions><eqn>1</eqn></aux>
+  </variables></model></xmile>''')
+_g = {e["id"]: e for e in d3["elements"]}["Main/grid"]
+_depth = 0
+_n = _g["expression"]["ast"]
+while isinstance(_n, dict) and _n.get("op") == "vector_map":
+    _depth += 1
+    _n = _n["body"]
+check("3-D array → 3-deep nested vector_map", _depth == 3)
+check("3-D array emits no XMILE-ARRAY-3D warning",
+      not any("XMILE-ARRAY-3D" in w for w in X.WARNINGS))
+check("3-D array output declares all 3 dimensions",
+      _g["outputs"][0]["dimensions"] == ["A", "B", "C"])
+
 # ── robustness: bad input + alternate namespace ───────────────────────────────
 try:
     X.convert("this is not xml")

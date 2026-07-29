@@ -726,10 +726,16 @@ pub enum AstNode {
         over: String,
         body: Box<AstNode>,
     },
-    // The implicit iteration index inside a `vector_map` body.
+    // The implicit iteration index inside a `vector_map` body. `axis` names the
+    // innermost (`row`) or next-enclosing (`col`) comprehension for the 1-D/2-D case;
+    // `depth` generalizes past two axes for ≥3-D arrays — `depth: n` reads the index
+    // of the n-th enclosing `vector_map` (0 = innermost, equivalent to `row`; 1 = `col`).
+    // When `depth` is present it overrides `axis`.
     IndexRef {
         #[serde(default)]
         axis: IndexAxis,
+        #[serde(default)]
+        depth: Option<u32>,
     },
     // Array/matrix element access: array[i] or matrix[i, j].
     Index {

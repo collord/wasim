@@ -53,18 +53,14 @@
       "value_rule": "expression",
       "expression": {
         "ast": {
-          "op": "vector_map",
-          "over": "Region",
-          "body": {
-            "op": "multiply",
-            "left": {
-              "op": "ref",
-              "element_id": "Main/base_pop"
-            },
-            "right": {
-              "op": "literal",
-              "value": 1.1
-            }
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "Main/base_pop"
+          },
+          "right": {
+            "op": "literal",
+            "value": 1.1
           }
         },
         "source": "explicit",

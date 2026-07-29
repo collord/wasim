@@ -18,6 +18,11 @@ unaffected (no `ast_node` op or `distribution` family added). All prior corpus s
   t=0 level from an expression over other elements, including other stocks' evaluated initials
   (resolved by an init-only topological order; a circular initial dependency falls back to the
   scalar/0 seed + warning). Mirrors the 0.9.8 `process_spec.mean` widening.
+- **`index_ref.depth`** added and **`index.indices` `maxItems`** raised 2 → 8 (Feature D): the array
+  authoring surface now supports ≥3 dimensions. A nested `vector_map` builds a genuine N-D array
+  (axes = the nesting order), `index_ref.depth: n` reads the n-th enclosing comprehension's index
+  (0 = innermost = `row`, 1 = `col`), and `index` gathers a cell by N indices. The runtime NamedArray
+  engine was already N-D; `row`/`col` and existing 1-D/2-D arrays are unchanged (byte-identical).
 
 ## 0.9.8 — 2026-07-29
 

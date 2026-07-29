@@ -391,9 +391,12 @@ fn render_ast(n: &AstNode) -> String {
             format!("submodel_stat2({sub}.{ox}, {sub}.{oy}, {statistic:?})")
         }
         AstNode::VectorMap { over, body } => format!("vector[{over}]({})", render_ast(body)),
-        AstNode::IndexRef { axis } => match axis {
-            IndexAxis::Row => "row".to_string(),
-            IndexAxis::Col => "col".to_string(),
+        AstNode::IndexRef { axis, depth } => match depth {
+            Some(d) => format!("depth{d}"),
+            None => match axis {
+                IndexAxis::Row => "row".to_string(),
+                IndexAxis::Col => "col".to_string(),
+            },
         },
         AstNode::Index { array, indices } => {
             let idx: Vec<String> = indices.iter().map(render_ast).collect();

@@ -1043,6 +1043,11 @@
                 "col"
               ],
               "default": "row"
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Read the iteration index of the n-th enclosing `vector_map` (0 = innermost, equivalent to axis `row`; 1 = `col`). Generalizes `axis` past two dimensions for ≥3-D arrays. When present, overrides `axis`."
             }
           },
           "required": [
@@ -1065,7 +1070,7 @@
                 "$ref": "#/$defs/ast_node"
               },
               "minItems": 1,
-              "maxItems": 2
+              "maxItems": 8
             }
           },
           "required": [

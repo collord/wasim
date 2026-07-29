@@ -943,48 +943,92 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
         // GoldSim arrays): `vector_map` pushes the current 1-based member index onto the
         // shared stack, `index_ref` reads it, `index` subtracts 1 to select.
         AstNode::VectorMap { over, body } => {
-            // Phase 1: the comprehension's result ranges over the `over` dimension,
-            // so tag it with that axis id. Consumers still read `.data` positionally
-            // (via into_vec/as_scalar), so this is bit-identical — the axis just now
-            // travels with the value for Phase-2 align-by-name.
+            // The comprehension ranges over the `over` dimension. If the body evaluates
+            // to a SCALAR, the result is a 1-D array tagged `over` (bit-identical to the
+            // pre-N-D behavior). If the body evaluates to an ARRAY (a nested vector_map
+            // building a matrix / ≥3-D array), stack `over` as the OUTERMOST axis onto the
+            // inner array's axes and concatenate each member's row-major data in order —
+            // yielding one dense N-D NamedArray with axes [over, ...inner].
             let size = *ctx.dimensions.get(over.as_str()).unwrap_or(&0);
             if size == 0 {
                 // Unknown/empty dimension: degrade to an empty (tagged) array.
                 return Ok(Value::array(NamedArray::tagged(over.clone(), Vec::new())));
             }
-            let mut out = Vec::with_capacity(size);
+            let mut inner_axes: Option<Vec<Axis>> = None;
+            let mut flat: Vec<f64> = Vec::with_capacity(size);
             for i in 1..=size {
                 ctx.index_stack.borrow_mut().push(i);
                 let r = eval_ast(body, ctx);
                 ctx.index_stack.borrow_mut().pop();
-                out.push(r?.as_scalar());
+                match r? {
+                    Value::Array(a) => {
+                        if inner_axes.is_none() {
+                            inner_axes = Some(a.axes.clone());
+                        }
+                        flat.extend_from_slice(&a.data);
+                    }
+                    other => flat.push(other.as_scalar()),
+                }
             }
-            Ok(Value::array(NamedArray::tagged(over.clone(), out)))
-        }
-        AstNode::IndexRef { axis } => {
-            let stack = ctx.index_stack.borrow();
-            // `row` = innermost (top); `col` = the enclosing vector_map (one below).
-            let v = match axis {
-                crate::model::IndexAxis::Row => stack.last().copied(),
-                crate::model::IndexAxis::Col => {
-                    let n = stack.len();
-                    if n >= 2 { stack.get(n - 2).copied() } else { None }
+            let axes = match inner_axes {
+                None => vec![Axis { id: over.clone(), len: size }],
+                Some(inner) => {
+                    let mut ax = Vec::with_capacity(inner.len() + 1);
+                    ax.push(Axis { id: over.clone(), len: size });
+                    ax.extend(inner);
+                    ax
                 }
             };
+            Ok(Value::array(NamedArray { axes, data: flat }))
+        }
+        AstNode::IndexRef { axis, depth } => {
+            let stack = ctx.index_stack.borrow();
+            let n = stack.len();
+            // `depth` (when present) reads the d-th enclosing vector_map from the top
+            // (0 = innermost); otherwise `axis` maps row→0, col→1. This keeps existing
+            // row/col usage byte-identical (row = stack.last, col = stack[n-2]) while
+            // generalizing to ≥3 dimensions.
+            let from_top = match depth {
+                Some(d) => *d as usize,
+                None => match axis {
+                    crate::model::IndexAxis::Row => 0,
+                    crate::model::IndexAxis::Col => 1,
+                },
+            };
+            let v = if n > from_top { stack.get(n - 1 - from_top).copied() } else { None };
             Ok(Value::Scalar(v.unwrap_or(0) as f64))
         }
         AstNode::Index { array, indices } => {
-            let v = eval_ast(array, ctx)?.into_vec();
-            // First index selects the (1-based) member; a second index (matrix col) is only
-            // meaningful for nested arrays, which the flat Value::Vector doesn't model — take
-            // the first index for the vector case.
-            let i = indices
-                .first()
-                .map(|n| eval_ast_scalar(n, ctx))
-                .transpose()?
-                .unwrap_or(0.0);
-            let idx = (i.round() as i64 - 1).max(0) as usize;
-            Ok(Value::Scalar(v.get(idx).copied().unwrap_or(0.0)))
+            let val = eval_ast(array, ctx)?;
+            // Evaluate all indices (1-based → 0-based).
+            let idxs: Vec<usize> = indices
+                .iter()
+                .map(|n| eval_ast_scalar(n, ctx).map(|f| (f.round() as i64 - 1).max(0) as usize))
+                .collect::<Result<_, _>>()?;
+            match val {
+                // N-D: peel axes left-to-right via subscript (fix axes[0] at idx[0], then the
+                // next remaining axis, …). A fully-indexed array collapses to a scalar.
+                Value::Array(a) if !idxs.is_empty() => {
+                    let mut cur = Value::Array(a);
+                    for &ix in &idxs {
+                        match &cur {
+                            Value::Array(arr) => match arr.axes.first().map(|ax| ax.id.clone()) {
+                                Some(axis_id) => {
+                                    cur = arr.subscript(&axis_id, ix).unwrap_or(Value::Scalar(0.0));
+                                }
+                                None => break,
+                            },
+                            _ => break,
+                        }
+                    }
+                    Ok(Value::Scalar(cur.as_scalar()))
+                }
+                // Scalar/vector fallback: single index into the flat data (byte-identical to before).
+                other => {
+                    let i = idxs.first().copied().unwrap_or(0);
+                    Ok(Value::Scalar(other.into_vec().get(i).copied().unwrap_or(0.0)))
+                }
+            }
         }
 
         // Label subscript `array[dim = label]` (Phase 3): resolve the label to a
@@ -2253,7 +2297,7 @@ mod named_array_tests {
         };
         let node = AstNode::VectorMap {
             over: "D".to_string(),
-            body: Box::new(AstNode::IndexRef { axis: crate::model::IndexAxis::Row }),
+            body: Box::new(AstNode::IndexRef { axis: crate::model::IndexAxis::Row, depth: None }),
         };
         match eval_ast(&node, &ctx).unwrap() {
             Value::Array(a) => {

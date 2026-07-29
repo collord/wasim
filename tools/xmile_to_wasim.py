@@ -244,9 +244,8 @@ def _parse_variables(vars_elem: ET.Element, scope: tuple[str, ...],
             warn(name, "XMILE-ARRAY-ELEMENTWISE: element-specific array equations "
                        "(<element subscript=...>) are not supported; only the "
                        "apply-to-all <eqn> is used (per-element values dropped).")
-        if len(v.dims) >= 3:
-            warn(name, "XMILE-ARRAY-3D: arrays with >=3 dimensions exceed WaSiM's "
-                       "2-axis (row/col) indexing; the extra axes may not evaluate.")
+        # (≥3-D apply-to-all arrays are supported as of schema 0.9.9 — the converter
+        #  emits one nested vector_map per dimension and the engine builds an N-D array.)
         out.append(v)
 
 
@@ -972,10 +971,15 @@ def _const_value(ast: Any) -> Optional[float]:
 
 
 def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
-                 interior: Optional[dict[str, str]] = None) -> tuple[dict, list[dict]]:
+                 interior: Optional[dict[str, str]] = None,
+                 dimensioned: Optional[set[str]] = None) -> tuple[dict, list[dict]]:
     """Emit the WaSiM element(s) for one IRVar. Returns (primary, extras).
     `interior` (interior-id -> submodel-id) lets cross-submodel reads become
-    `submodel_stat` (see resolve_refs)."""
+    `submodel_stat` (see resolve_refs). `dimensioned` is the set of qualified ids
+    that are themselves arrays — used to decide whether an apply-to-all array eqn
+    needs a `vector_map` wrap (constant/scalar body) or should broadcast (body
+    already references a dimensioned array)."""
+    dimensioned = dimensioned or set()
     unit = v.units or "1"
     extras: list[dict] = []
 
@@ -1067,17 +1071,25 @@ def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
     # a gap (warned in convert()).
     if v.dims:
         body = ast if ast is not None else {"op": "literal", "value": 0.0}
-        wrapped = body
-        for dim in reversed(v.dims):
-            wrapped = {"op": "vector_map", "over": dim, "body": wrapped}
+        refs = set()
+        _collect_refs(body, refs)
+        # If the body already references a dimensioned array, emit the PLAIN expression
+        # and let the engine's align-by-name broadcast produce the dimensioned result
+        # (wrapping it in vector_map would double-count the axis). Only a body with no
+        # dimensioned input (a constant, or one over index_ref) needs vector_map to
+        # materialize across the dimension.
+        if refs & dimensioned:
+            wrapped = body
+        else:
+            wrapped = body
+            for dim in reversed(v.dims):
+                wrapped = {"op": "vector_map", "over": dim, "body": wrapped}
         base["value_rule"] = "expression"
         expr = {"ast": wrapped, "source": "explicit"}
         if v.eqn:
             expr["display"] = v.eqn
         base["expression"] = expr
         base["outputs"] = [{"name": v.name, "unit": unit, "dimensions": list(v.dims)}]
-        refs = set()
-        _collect_refs(body, refs)
         if refs:
             base["inputs"] = sorted(refs)
         return base, extras
@@ -1204,10 +1216,13 @@ def convert(xml_text: str, model_name: Optional[str] = None) -> dict:
         if owning:
             interior[vid] = max(owning, key=len)
 
+    # Qualified ids of dimensioned (array) variables — used to decide vector_map wrap.
+    dimensioned = {v.qual_id for v in model.variables if v.dims}
+
     elements: list[dict] = []
     for v in model.variables:
         try:
-            primary, extras = emit_element(v, resolver, model.sim, interior)
+            primary, extras = emit_element(v, resolver, model.sim, interior, dimensioned)
         except Exception as e:  # noqa: BLE001
             warn(v.qual_id or v.raw_name, f"internal error emitting element: {e}; skipped.")
             continue
