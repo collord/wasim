@@ -517,6 +517,7 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::Cumproduct => "cumproduct",
         BuiltinFn::Gather => "gather",
         BuiltinFn::Ordinal => "ordinal",
+        BuiltinFn::Null => "null",
         BuiltinFn::Occurs => "occurs",
         BuiltinFn::Changed => "changed",
     }

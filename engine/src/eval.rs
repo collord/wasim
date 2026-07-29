@@ -782,9 +782,15 @@ pub fn eval_ast(node: &AstNode, ctx: &EvalCtx) -> Result<Value, EngineError> {
                     let cs = other.into_vec();
                     let then_vs = eval_ast(then, ctx)?.into_vec();
                     let else_vs = eval_ast(else_, ctx)?.into_vec();
+                    // A scalar (length-1) branch broadcasts across the condition; a
+                    // matching-length branch is read positionally. This makes
+                    // `if vec_cond then vec else scalar` (e.g. `… else null()`) fill
+                    // *every* false cell with the scalar, not just cell 0.
+                    let pick = |vs: &[f64], i: usize| -> f64 {
+                        if vs.len() == 1 { vs[0] } else { vs.get(i).copied().unwrap_or(0.0) }
+                    };
                     let data: Vec<f64> = cs.iter().enumerate().map(|(i, &c)| {
-                        if is_true(c) { then_vs.get(i).copied().unwrap_or(0.0) }
-                        else          { else_vs.get(i).copied().unwrap_or(0.0) }
+                        if is_true(c) { pick(&then_vs, i) } else { pick(&else_vs, i) }
                     }).collect();
                     Ok(match axis {
                         Some(id) => Value::array(NamedArray::tagged(id, data)),
@@ -1623,6 +1629,11 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             let v = eval_ast(&args[0], ctx)?;
             return Ok(map_shape(v, |d| (1..=d.len()).map(|i| i as f64).collect()));
         }
+        BuiltinFn::Null => {
+            // null(): Analytica null / empty cell → NaN (Phase 3).
+            require_args("null", args.len(), 0, 0)?;
+            return Ok(Value::Scalar(f64::NAN));
+        }
         _ => {}
     }
 
@@ -1685,6 +1696,7 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         // Array-language layer: handled by the early return above; never reach here.
         | BuiltinFn::SortArray | BuiltinFn::SortIndex | BuiltinFn::RankArray
         | BuiltinFn::Cumulate | BuiltinFn::Cumproduct | BuiltinFn::Gather | BuiltinFn::Ordinal
+        | BuiltinFn::Null
         // Event predicates are handled by the early return above; never reach the scalar path.
         | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };

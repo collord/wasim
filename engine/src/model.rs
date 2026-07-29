@@ -1054,6 +1054,9 @@ pub enum BuiltinFn {
     /// `ordinal(x)`: the 1-based positions `[1, 2, …, len(x)]` along the argument's
     /// axis (Analytica's standalone `@Index`). Rides the argument's shape.
     Ordinal,
+    /// `null()`: Analytica's `null` / empty cell → `f64::NaN` (WASIM_ARRAY_LANGUAGE_SCOPE
+    /// Phase 3). Nullary; propagates through arithmetic and marks plot/staircase gaps.
+    Null,
 }
 
 // ── Stochastic process ────────────────────────────────────────────────────────

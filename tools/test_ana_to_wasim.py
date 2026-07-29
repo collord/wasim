@@ -113,6 +113,15 @@ _res, _err = A.parse_definition("x[Dim='label']")
 check("x[Dim='label'] (non-index RHS) does not silently gather", _res is None or
       (A._as_ast(_res).get("fn") != "gather"))
 
+# ── Phase 3: null / Undefined → null() (→ NaN), not an inert 0 stub ──
+for _defn in ["null", "Undefined"]:
+    _res, _ = A.parse_definition(_defn)
+    _ast = A._as_ast(_res)
+    check(f"{_defn} -> null() builtin",
+          _ast.get("op") == "call" and _ast.get("fn") == "null" and _ast.get("args") == [])
+_r, _refs, _ns, _ = lower("if a > b then a else null")
+check("if … else null keeps null() (no stub)", _ns == 0 and "null()" in (_r or ""))
+
 print()
 if _fails:
     print(f"{len(_fails)} failure(s): {_fails}")

@@ -123,6 +123,40 @@ fn gather_and_ordinal_match_on_both_lanes() {
     }
 }
 
+// Phase 3: null() → NaN, and it broadcasts through the vector-cond `if … else null()`
+// (the staircase-gap idiom) so every false cell is NaN, not 0. Both lanes.
+const NULLS: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1, "seed": 1},
+  "dimensions": [{"id":"D","name":"D","size":5}],
+  "containers": [{"id":"M","name":"M","elements":["M/x","M/y"]}],
+  "elements": [
+    {"id":"M/x","name":"x","primitive":"node","value_rule":"fixed","container":"M","values":[-1,2,-3,4,-5],"unit":"1","outputs":[{"name":"x","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}},
+    {"id":"M/y","name":"y","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x"],
+     "expression":{"ast":{"op":"if","cond":{"op":"gt","left":{"op":"ref","element_id":"M/x"},"right":{"op":"literal","value":0}},
+        "then":{"op":"ref","element_id":"M/x"},
+        "else":{"op":"call","fn":"null","args":[]}}},"outputs":[{"name":"y","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn null_broadcasts_as_nan_gaps_on_both_lanes() {
+    let m = parse_v2(NULLS).unwrap();
+    assert!(array_lane::eligible(&m).is_ok());
+    let g = ModelGraphV2::build(&m).unwrap();
+    let scalar = run_v2(&m, &g, &RunConfig { array_lane: false, ..Default::default() }).unwrap();
+    let array = run_v2(&m, &g, &RunConfig { array_lane: true, ..Default::default() }).unwrap();
+    let y = members(&scalar, "M/y", 5);
+    assert!(y[0].is_nan() && y[2].is_nan() && y[4].is_nan(), "false cells must be NaN: {y:?}");
+    assert_eq!(y[1], 2.0);
+    assert_eq!(y[3], 4.0);
+    for k in 1..=5 { // NaN has a canonical bit pattern; both lanes must match
+        let key = format!("M/y#{k}");
+        assert_eq!(scalar.elements[&key].final_values[0].to_bits(),
+                   array.elements[&key].final_values[0].to_bits(), "{key}: lanes differ");
+    }
+}
+
 // The Phase 2 payoff: Marginal Abatement `Cum_reduction` computed natively end-to-end —
 // cumulate(gather(amount, sort_index(marg))) — matching Analytica exactly.
 #[test]

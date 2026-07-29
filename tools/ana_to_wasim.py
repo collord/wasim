@@ -432,8 +432,12 @@ class ExprParser:
         if kind == Tok.IDENT:
             if val.lower() in _KEYWORDS:
                 raise ParseError(f"unexpected keyword {val!r}")
+            if val.lower() in ("null", "nan", "undefined"):
+                # Analytica null / empty cell → the `null()` builtin (→ NaN). Marks
+                # staircase/plot gaps and propagates through arithmetic (Phase 3).
+                return {"op": "call", "fn": "null", "args": []}
             if val.lower() in _OPAQUE_IDENTS:
-                # INF / Undefined / NaN etc. — no finite JSON literal; keep the
+                # INF / Infinity / self — no finite JSON literal and no builtin; keep the
                 # symbol in provenance and evaluate to an inert 0.0.
                 return {"op": "literal", "value": 0.0, "_stub_display": val}
             if self.peek()[0] == Tok.LP:
@@ -1086,8 +1090,24 @@ def _build_index_element(node: AnaNode, base: dict, units: str) -> Optional[dict
                         values.append(v)
                         labels.append(_num(v))
     if not values:
-        warn(node.ident, "Index has no constant members (dynamic/label index?) — "
-                         "no v0.1.0 dimension equivalent; emitted inert scalar stub.")
+        # A computed / dynamic index (e.g. `SortIndex(x)`, a reindex) has no constant
+        # members, so it can't be a v0.1.0 dimension. If its definition is convertible,
+        # DEMOTE it to a computed expression VARIABLE holding the derived values (Phase 4,
+        # derived-index): downstream `x[Dim=thisIndex]` gathers and `@thisIndex` ordinals
+        # then resolve against the computed array. Only when even the definition can't be
+        # converted do we fall back to the inert scalar stub.
+        if parsed is not None:
+            ast = _as_ast(parsed)
+            cleaned, stubs = strip_stub_markers(ast)
+            if not stubs:
+                base.update({
+                    "type": "expression",
+                    "expression": {"ast": ast, "display": definition, "source": "explicit"},
+                    "inputs": sorted(_collect_refs(cleaned)),
+                })
+                return base
+        warn(node.ident, "Index has no constant members and its definition is not "
+                         "convertible (dynamic/label index); emitted inert scalar stub.")
         base.update({
             "type": "expression",
             "expression": {"ast": {"op": "literal", "value": 0.0},
