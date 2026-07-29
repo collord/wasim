@@ -240,6 +240,22 @@ the converter end-to-end (they are **not** real Analytica corpus files):
 - `coverage_probe_synthetic.ana` — exercises the mapping table and every
   degradation path.
 
+`tools/fixtures/ana_corpus/` is a corpus of **real** third-party `.ana` models
+(fetched from public GitHub repos at pinned commits — see
+`ana_corpus/SOURCE.md` for provenance + licenses). They exercise the reader
+against models written by other people in different Analytica versions, with
+real-world encodings (CRLF, `~` line-wrap markers, non-ASCII titles) and
+constructs. `tools/test_ana_corpus.py` converts each and asserts it parses
+without crashing (plus a schema check where `jsonschema` is installed). Two of
+these real models currently convert to **schema-invalid** output — genuine
+converter bugs the corpus pins (a `gather` op missing from the schema's builtin
+enum, and a call emitted with empty `args`); the test tracks them as
+expected-invalid so a future fix is noticed.
+
+```bash
+python3 tools/test_ana_corpus.py    # convert every real fixture + schema check
+```
+
 ---
 
 # `xmile_to_wasim.py` — XMILE → WaSiM v2 converter
