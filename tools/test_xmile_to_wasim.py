@@ -285,6 +285,31 @@ check("parent read of module interior (sub.doubled) → submodel_stat(mean)",
 check("no dangling-ref warning for the module interior read",
       not any("XMILE-DANGLING-REF" in w for w in X.WARNINGS))
 
+# ── Feature B: non-constant stock initial → expression (no warning) ───────────
+X.reset_warnings()
+binit = X.convert('''<xmile xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <sim_specs><start>0</start><stop>2</stop><dt>1</dt></sim_specs>
+  <model><variables>
+    <aux name="total"><eqn>1000</eqn></aux>
+    <stock name="pool"><eqn>total</eqn></stock>
+  </variables></model></xmile>''')
+binit_els = {e["id"]: e for e in binit["elements"]}
+pool = binit_els.get("Main/pool")
+check("non-constant stock initial → expression initial_value (not scalar-0)",
+      pool and isinstance(pool["initial_value"], dict) and "ast" in pool["initial_value"]
+      and pool["initial_value"]["ast"]["op"] == "ref")
+check("non-constant stock initial emits no XMILE-STOCK-INITIAL-EXPR warning",
+      not any("XMILE-STOCK-INITIAL-EXPR" in w for w in X.WARNINGS))
+
+# constant stock initial stays scalar (regression)
+X.reset_warnings()
+cinit = X.convert('''<xmile xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <sim_specs><start>0</start><stop>2</stop><dt>1</dt></sim_specs>
+  <model><variables><stock name="s"><eqn>180</eqn></stock></variables></model></xmile>''')
+cs = {e["id"]: e for e in cinit["elements"]}["Main/s"]
+check("constant stock initial stays a scalar quantity",
+      cs["initial_value"] == {"value": 180.0, "unit": "1"})
+
 # ── robustness: bad input + alternate namespace ───────────────────────────────
 try:
     X.convert("this is not xml")
@@ -327,6 +352,36 @@ except ImportError:
     print("skip  schema validation (jsonschema not installed)")
 except Exception as e:  # noqa: BLE001
     check(f"teacup validates against wasim-schema-v2.json: {e}", False)
+
+
+# ── OASIS canonical corpus: every example converts to schema-valid v2 with no
+#    dangling references (a dangling ref is a converter name-resolution bug, not a
+#    model gap). See fixtures/xmile_oasis/SOURCE.md. ────────────────────────────
+import glob
+_oasis = sorted(glob.glob(os.path.join(_here, "fixtures", "xmile_oasis", "*.xml")))
+check("OASIS corpus present", len(_oasis) >= 10)
+try:
+    import jsonschema
+    _schema = json.load(open(os.path.join(_repo, "schema", "wasim-schema-v2.json")))
+    _validator = jsonschema.Draft7Validator(_schema)
+except ImportError:
+    _validator = None
+
+for path in _oasis:
+    name = os.path.basename(path)
+    X.reset_warnings()
+    try:
+        model = X.convert(open(path, encoding="utf-8").read())
+    except Exception as e:  # noqa: BLE001
+        check(f"OASIS {name}: converts", False)
+        continue
+    dangling = [w for w in X.WARNINGS if "XMILE-DANGLING-REF" in w]
+    check(f"OASIS {name}: no dangling references", not dangling)
+    polluted = [e["id"] for e in model["elements"] if "\\n" in e["id"] or "\n" in e["id"]]
+    check(f"OASIS {name}: element ids are clean", not polluted)
+    if _validator is not None:
+        errs = list(_validator.iter_errors(model))
+        check(f"OASIS {name}: schema-valid", not errs)
 
 
 if _fails:

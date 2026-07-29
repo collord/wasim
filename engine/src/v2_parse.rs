@@ -193,7 +193,7 @@ struct RawElement {
 
     // stock
     #[serde(default)]
-    initial_value: Option<Quantity>,
+    initial_value: Option<QuantityOrFormula>,
     #[serde(default)]
     rate: Option<QuantityOrFormula>,
     #[serde(default)]
@@ -550,9 +550,17 @@ fn lower_element(e: RawElement) -> Result<v2::Element, EngineError> {
             porosity: e.porosity.clone(),
         }),
         "resource" => v2::Primitive::Resource(v2::Resource {
-            initial: e.initial_value.clone().or_else(|| e.initial.clone()).ok_or_else(|| {
-                EngineError::InvalidModel(format!("resource '{}' missing 'initial_value'", e.id))
-            })?,
+            // A resource's initial is scalar-only; if `initial_value` widened to an expression
+            // (stock feature), take its Quantity form, else the legacy `initial` field.
+            initial: e.initial_value.clone()
+                .and_then(|qof| match qof {
+                    QuantityOrFormula::Quantity(q) => Some(q),
+                    _ => None,
+                })
+                .or_else(|| e.initial.clone())
+                .ok_or_else(|| {
+                    EngineError::InvalidModel(format!("resource '{}' missing 'initial_value'", e.id))
+                })?,
             capacity: e.capacity.clone(),
         }),
         "link" => v2::Primitive::Link(v2::Link {
@@ -774,11 +782,31 @@ fn lower_node(e: &RawElement) -> Result<v2::Node, EngineError> {
 }
 
 fn lower_stock(e: &RawElement) -> Result<v2::Stock, EngineError> {
+    // `initial_value` widened to quantity_or_formula (0.9.9): a scalar seeds `initial_value`
+    // directly; an expression routes to `initial_expression` (evaluated at t=0 in an init-only
+    // topological order — see engine_v2). A raw formula string has no AST, so it degrades to a
+    // scalar-0 seed + warning, matching the engine's Formula handling elsewhere.
+    let unit = e.unit.clone().unwrap_or_else(|| "1".to_string());
+    let (initial_value, initial_expression) = match e.initial_value.clone() {
+        Some(QuantityOrFormula::Quantity(q)) => (q, None),
+        Some(QuantityOrFormula::Expression(ef)) => (
+            Quantity { value: 0.0, unit, display_unit: None },
+            Some(ef),
+        ),
+        Some(QuantityOrFormula::Formula(_)) => {
+            eprintln!("warn: stock '{}' initial_value is an unparsed formula string; \
+                       seeding 0 (no AST to evaluate).", e.id);
+            (Quantity { value: 0.0, unit, display_unit: None }, None)
+        }
+        None => {
+            return Err(EngineError::InvalidModel(format!(
+                "stock '{}' missing initial_value", e.id
+            )))
+        }
+    };
     Ok(v2::Stock {
-        initial_value: e.initial_value.clone().ok_or_else(|| {
-            EngineError::InvalidModel(format!("stock '{}' missing initial_value", e.id))
-        })?,
-        initial_expression: None,
+        initial_value,
+        initial_expression,
         rate: e.rate.clone(),
         inflows: e.inflows.clone(),
         outflows: e.outflows.clone(),

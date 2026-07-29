@@ -14,6 +14,10 @@ unaffected (no `ast_node` op or `distribution` family added). All prior corpus s
   in transit. Mirrors link `decay_rate`.
 - **Queue `discipline`** documented (`conveyor` | `fixed_at_entry`): previously parsed by the engine
   but undeclared in the schema (pre-existing drift; the branch is `additionalProperties:true`).
+- **Stock `initial_value`** (Feature B): `quantity` → `quantity_or_formula` — a stock may now seed its
+  t=0 level from an expression over other elements, including other stocks' evaluated initials
+  (resolved by an init-only topological order; a circular initial dependency falls back to the
+  scalar/0 seed + warning). Mirrors the 0.9.8 `process_spec.mean` widening.
 
 ## 0.9.8 — 2026-07-29
 

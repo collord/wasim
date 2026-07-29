@@ -186,7 +186,7 @@ fn collect_gate_deps<'a>(node: &'a GateNode, out: &mut Vec<&'a str>) {
 
 /// Collect element ids referenced by `ref` nodes in an AST. `lookup_call` targets are
 /// static tables, not runtime deps, so only its input sub-expressions are walked.
-fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
+pub(crate) fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
     match node {
         AstNode::Ref { element_id, .. } => out.push(element_id.as_str()),
         AstNode::Add { left, right }
@@ -269,4 +269,122 @@ fn collect_ast_refs<'a>(node: &'a AstNode, out: &mut Vec<&'a str>) {
         }
         AstNode::IndexRef { .. } | AstNode::Literal { .. } | AstNode::TimeRef { .. } => {}
     }
+}
+
+/// Init-only topological order for the t=0 initialization pass (§ stock initial expressions).
+///
+/// The runtime graph deliberately gives stocks no incoming edges (they read their rate inputs in
+/// a second pass), so `topo_order` does not order stocks by their *initial-value* dependencies.
+/// But a stock whose `initial_expression` references another stock's initial, or an aux whose
+/// initial references a stock initial, must be evaluated in dependency order at t=0. This builds a
+/// separate init-dep graph over the nodes that produce an init value we must order — aux
+/// `Expression` nodes and stocks carrying an `initial_expression` — and returns them in
+/// evaluation order, plus the set of ids that participate in a dependency cycle (evaluated with a
+/// scalar/0 fallback by the caller rather than looping forever).
+///
+/// Nodes seeded directly (fixed/sample/process, and plain-quantity stocks) are not ordered here —
+/// they are already in `init_outputs` and are simply read when referenced.
+pub(crate) fn init_order(model: &Model) -> (Vec<String>, HashSet<String>) {
+    // The set of ids that carry an init expression we must order.
+    let init_ids: HashSet<&str> = model
+        .elements
+        .iter()
+        .filter(|e| match &e.primitive {
+            Primitive::Node(n) => matches!(n.rule, NodeRule::Expression(_)),
+            Primitive::Stock(s) => s.initial_expression.is_some(),
+            _ => false,
+        })
+        .map(|e| e.id())
+        .collect();
+
+    let mut graph: DiGraph<&str, ()> = DiGraph::new();
+    let mut idx: HashMap<&str, NodeIndex> = HashMap::new();
+    for &id in &init_ids {
+        idx.insert(id, graph.add_node(id));
+    }
+    // Edge r -> n means "r must be evaluated before n" (n references r's init value).
+    for e in &model.elements {
+        let nid = e.id();
+        let Some(&ni) = idx.get(nid) else { continue };
+        let ast = match &e.primitive {
+            Primitive::Node(n) => match &n.rule {
+                NodeRule::Expression(ef) => &ef.ast,
+                _ => continue,
+            },
+            Primitive::Stock(s) => match &s.initial_expression {
+                Some(ef) => &ef.ast,
+                None => continue,
+            },
+            _ => continue,
+        };
+        let mut refs = Vec::new();
+        collect_ast_refs(ast, &mut refs);
+        for r in refs {
+            if r != nid {
+                if let Some(&ri) = idx.get(r) {
+                    graph.add_edge(ri, ni, ());
+                }
+            }
+        }
+    }
+
+    if let Ok(sorted) = toposort(&graph, None) {
+        let order = sorted.iter().map(|&n| graph[n].to_string()).collect();
+        return (order, HashSet::new());
+    }
+
+    // Cyclic: identify cyclic nodes (SCC > 1 or self-loop), order the acyclic ones, and let the
+    // caller fall back to scalar/0 for the cyclic ones. We still return a best-effort order over
+    // the acyclic subgraph so as much as possible resolves.
+    let self_loops: HashSet<NodeIndex> = graph
+        .edge_references()
+        .filter(|e| e.source() == e.target())
+        .map(|e| e.source())
+        .collect();
+    let mut cyclic: HashSet<String> = HashSet::new();
+    for scc in kosaraju_scc(&graph) {
+        if scc.len() > 1 || scc.iter().any(|n| self_loops.contains(n)) {
+            for n in scc {
+                cyclic.insert(graph[n].to_string());
+            }
+        }
+    }
+    // Build the acyclic-subgraph order.
+    let mut pruned: DiGraph<&str, ()> = DiGraph::new();
+    let mut pidx: HashMap<&str, NodeIndex> = HashMap::new();
+    for &id in &init_ids {
+        if !cyclic.contains(id) {
+            pidx.insert(id, pruned.add_node(id));
+        }
+    }
+    for e in &model.elements {
+        let nid = e.id();
+        if !pidx.contains_key(nid) {
+            continue;
+        }
+        let ast = match &e.primitive {
+            Primitive::Node(n) => match &n.rule {
+                NodeRule::Expression(ef) => &ef.ast,
+                _ => continue,
+            },
+            Primitive::Stock(s) => match &s.initial_expression {
+                Some(ef) => &ef.ast,
+                None => continue,
+            },
+            _ => continue,
+        };
+        let mut refs = Vec::new();
+        collect_ast_refs(ast, &mut refs);
+        for r in refs {
+            if r != nid {
+                if let (Some(&ri), Some(&ni)) = (pidx.get(r), pidx.get(nid)) {
+                    pruned.add_edge(ri, ni, ());
+                }
+            }
+        }
+    }
+    let order = toposort(&pruned, None)
+        .map(|s| s.iter().map(|&n| pruned[n].to_string()).collect())
+        .unwrap_or_default();
+    (order, cyclic)
 }

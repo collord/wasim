@@ -3467,7 +3467,8 @@
                   "const": "stock"
                 },
                 "initial_value": {
-                  "$ref": "#/$defs/quantity"
+                  "$ref": "#/$defs/quantity_or_formula",
+                  "description": "The stock's level at t=0. A scalar quantity, or an expression over other elements (including other stocks' initials — resolved by an init-only topological order at t=0; a circular initial dependency falls back to the scalar/0 seed with a warning)."
                 },
                 "rate": {
                   "oneOf": [

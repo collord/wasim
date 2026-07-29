@@ -1595,30 +1595,54 @@ impl<'a> RunState<'a> {
                 _ => {}
             }
         }
-        for elem_id in &graph.topo_order {
-            let elem = &model.elements[elem_idx[elem_id.as_str()]];
-            if let Primitive::Node(n) = &elem.primitive {
-                if let NodeRule::Expression(ef) = &n.rule {
-                    let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0, &arr);
-                    if let Ok(v) = eval_ast(&ef.ast, &ctx) {
-                        init_outputs.insert(elem_id.clone(), v);
-                    }
-                }
-            }
+        // Build the init dependency order (structural — same every realization). Warn once.
+        let (init_topo, init_cyclic) = crate::graph_v2::init_order(model);
+        if !init_cyclic.is_empty() && real_idx == from {
+            let mut ids: Vec<&String> = init_cyclic.iter().collect();
+            ids.sort();
+            eprintln!(
+                "warn: {} element(s) have a circular initial-value dependency; \
+                 seeding them from their scalar initial_value instead: {}",
+                ids.len(),
+                ids.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            );
         }
 
-        // Initialize stock state (initial_expression if present, else initial_value).
+        // Unified init-only topological pass (§ stock initial expressions). Aux `Expression`
+        // nodes and stocks carrying an `initial_expression` are evaluated in one dependency order
+        // (`init_order`), each result fed back into `init_outputs` so a downstream stock/aux
+        // initial that references it sees the EVALUATED value, not the raw scalar seed above.
+        // Cyclic init nodes fall back to their scalar seed (already in init_outputs) — no loop.
         let mut stock_state: HashMap<String, Value> = HashMap::new();
-        for &id in stock_ids {
-            if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
-                let init = match &s.initial_expression {
-                    Some(expr) => {
+        for elem_id in &init_topo {
+            let elem = &model.elements[elem_idx[elem_id.as_str()]];
+            match &elem.primitive {
+                Primitive::Node(n) => {
+                    if let NodeRule::Expression(ef) = &n.rule {
                         let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0, &arr);
-                        eval_ast(&expr.ast, &ctx)?
+                        if let Ok(v) = eval_ast(&ef.ast, &ctx) {
+                            init_outputs.insert(elem_id.clone(), v);
+                        }
                     }
-                    None => Value::Scalar(s.initial_value.value),
-                };
-                stock_state.insert(id.to_string(), init);
+                }
+                Primitive::Stock(s) => {
+                    if let Some(expr) = &s.initial_expression {
+                        let ctx = ctx_at(&lookups, &init_outputs, &empty_map, 0.0, dt, &dt_unit, 0, &arr);
+                        let init = eval_ast(&expr.ast, &ctx)?;
+                        init_outputs.insert(elem_id.clone(), init.clone());
+                        stock_state.insert(elem_id.clone(), init);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Seed any stock NOT handled by the init-topo pass (plain-quantity initials, and cyclic
+        // stocks that fell back) from its scalar initial_value.
+        for &id in stock_ids {
+            if !stock_state.contains_key(id) {
+                if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
+                    stock_state.insert(id.to_string(), Value::Scalar(s.initial_value.value));
+                }
             }
         }
 

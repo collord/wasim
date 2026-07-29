@@ -336,14 +336,47 @@ def _num_or(text: str, default: float) -> float:
 # --------------------------------------------------------------------------- #
 
 def _norm_name(name: str) -> str:
-    """Normalize an XMILE name/reference for matching: strip surrounding quotes,
-    collapse internal whitespace, casefold. XMILE treats non-word chars (spaces,
-    underscores) loosely; we key on this canonical form."""
+    """Normalize an XMILE name/reference for matching. Per the XMILE spec (§3.1.1),
+    identifiers are matched case-insensitively with **spaces and underscores
+    equivalent**, and display names may carry embedded newlines (`\\n`) for
+    multi-line rendering that references write as spaces/underscores. So we treat any
+    run of whitespace (incl. newlines) or underscores as a single canonical
+    separator and casefold. E.g. `Sales\\nForce`, `Sales Force`, and `Sales_Force`
+    all key the same."""
     n = name.strip()
     if len(n) >= 2 and n[0] == '"' and n[-1] == '"':
         n = n[1:-1]
-    n = re.sub(r"\s+", " ", n.strip())
+    # XMILE display names embed line breaks as the literal two-character escape `\n`
+    # (backslash + n), which references write as a space/underscore. Fold the literal
+    # `\n` / `\r` escapes first, then any run of real whitespace or underscores → one
+    # canonical separator. E.g. `indicated\nsales_force` == `indicated_sales_force`.
+    n = re.sub(r"\\[nrt]", "_", n)
+    n = re.sub(r"[\s_]+", "_", n.strip())
     return n.casefold()
+
+
+def _reserved_ident(name: str) -> Optional[dict]:
+    """XMILE reserved identifiers referenceable without parentheses. Returns the
+    lowered AST node, or None if `name` is not reserved."""
+    key = re.sub(r"[\s_]+", "", name.strip()).casefold()
+    if key == "time":
+        return {"op": "time_ref", "property": "elapsed"}
+    if key in ("dt", "timestep"):
+        return {"op": "time_ref", "property": "timestep"}
+    if key in ("starttime", "initialtime"):
+        return {"op": "time_ref", "property": "start"}
+    if key == "pi":
+        return {"op": "literal", "value": 3.141592653589793}
+    return None
+
+
+def _id_segment(name: str) -> str:
+    """A clean id segment from an XMILE name: fold the literal `\\n`/`\\r`/`\\t`
+    escapes and real whitespace to single spaces (so ids don't carry raw line-break
+    escapes), keeping the readable words. `Sales\\nForce` → `Sales Force`."""
+    n = re.sub(r"\\[nrt]", " ", name.strip())
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
 
 
 def build_scope_table(model: IRModel) -> dict[tuple[str, ...], dict[str, str]]:
@@ -352,7 +385,7 @@ def build_scope_table(model: IRModel) -> dict[tuple[str, ...], dict[str, str]]:
     resolver: dict[tuple[str, ...], dict[str, str]] = {}
     seen_ids: set[str] = set()
     for v in model.variables:
-        display = v.raw_name.strip()
+        display = _id_segment(v.raw_name)
         qual = "/".join(v.scope + (display,))
         if qual in seen_ids:
             i = 2
@@ -884,6 +917,10 @@ def resolve_refs(ast: Any, scope: tuple[str, ...],
     if isinstance(ast, IdentRef):
         qid = resolve_ref(ast.name, scope, resolver)
         if qid is None:
+            # XMILE reserved identifiers usable without parens (TIME, DT, PI, …).
+            reserved = _reserved_ident(ast.name)
+            if reserved is not None:
+                return reserved
             warn(who, f"XMILE-DANGLING-REF: '{ast.name}' does not resolve to a "
                       f"variable; replaced with 0.")
             return {"op": "literal", "value": 0.0}
@@ -968,14 +1005,18 @@ def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
     if v.kind == "stock":
         base["primitive"] = "stock"
         init = _const_value(ast) if ast is not None else None
-        if init is None:
-            init = 0.0
-            if ast is not None:
-                warn(v.qual_id, "XMILE-STOCK-INITIAL-EXPR: stock initial <eqn> "
-                                f"'{v.eqn}' is not a constant; WaSiM's initial_value "
-                                "is a scalar quantity, so it was set to 0. Supply a "
-                                "numeric initial or set it manually after import.")
-        base["initial_value"] = _q(init, unit)
+        if init is not None:
+            base["initial_value"] = _q(init, unit)          # constant initial
+        elif ast is not None:
+            # Non-constant initial: WaSiM 0.9.9 accepts an expression here (evaluated at t=0,
+            # ordered among other stock/aux initials). Emit the same expression_field shape as
+            # aux expressions.
+            expr = {"ast": ast, "source": "explicit"}
+            if v.eqn:
+                expr["display"] = v.eqn
+            base["initial_value"] = expr
+        else:
+            base["initial_value"] = _q(0.0, unit)           # truly empty <eqn>
         base["inflows"] = [resolve_ref(x, v.scope, scope_resolver) or x for x in v.inflows]
         base["outflows"] = [resolve_ref(x, v.scope, scope_resolver) or x for x in v.outflows]
         if v.non_negative:
