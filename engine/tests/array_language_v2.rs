@@ -86,3 +86,77 @@ fn marginal_abatement_sort_index_matches_analytica() {
     // Weather(1), Ceiling(3), Thermostat(6), Windows(8), Door(2), Furnace(7), Wall(4), Subfloor(5)
     assert_eq!(members(&r, "M/sorted", 8), vec![1.0, 3.0, 6.0, 8.0, 2.0, 7.0, 4.0, 5.0]);
 }
+
+// Phase 2: gather (reindex-by-index) and ordinal (standalone @), on both lanes.
+// x = [10,20,30,40,50], idx = [3,1,5,2,4] → gather picks x[idx[k]-1].
+const GATHER: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1, "seed": 1},
+  "dimensions": [{"id":"D","name":"D","size":5}],
+  "containers": [{"id":"M","name":"M","elements":["M/x","M/idx","M/g","M/o"]}],
+  "elements": [
+    {"id":"M/x","name":"x","primitive":"node","value_rule":"fixed","container":"M","values":[10,20,30,40,50],"unit":"1","outputs":[{"name":"x","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}},
+    {"id":"M/idx","name":"idx","primitive":"node","value_rule":"fixed","container":"M","values":[3,1,5,2,4],"unit":"1","outputs":[{"name":"i","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}},
+    {"id":"M/g","name":"g","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x","M/idx"],
+     "expression":{"ast":{"op":"call","fn":"gather","args":[{"op":"ref","element_id":"M/x"},{"op":"ref","element_id":"M/idx"}]}},"outputs":[{"name":"g","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}},
+    {"id":"M/o","name":"o","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x"],
+     "expression":{"ast":{"op":"call","fn":"ordinal","args":[{"op":"ref","element_id":"M/x"}]}},"outputs":[{"name":"o","unit":"1","dimensions":["D"]}],"save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn gather_and_ordinal_match_on_both_lanes() {
+    let m = parse_v2(GATHER).unwrap();
+    assert!(array_lane::eligible(&m).is_ok());
+    let g = ModelGraphV2::build(&m).unwrap();
+    let scalar = run_v2(&m, &g, &RunConfig { array_lane: false, ..Default::default() }).unwrap();
+    let array = run_v2(&m, &g, &RunConfig { array_lane: true, ..Default::default() }).unwrap();
+
+    assert_eq!(members(&scalar, "M/g", 5), vec![30.0, 10.0, 50.0, 20.0, 40.0]); // x[idx[k]-1]
+    assert_eq!(members(&scalar, "M/o", 5), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+    for id in ["M/g", "M/o"] {
+        for k in 1..=5 {
+            let key = format!("{id}#{k}");
+            assert_eq!(scalar.elements[&key].final_values[0].to_bits(),
+                       array.elements[&key].final_values[0].to_bits(), "{key}: lanes differ");
+        }
+    }
+}
+
+// The Phase 2 payoff: Marginal Abatement `Cum_reduction` computed natively end-to-end —
+// cumulate(gather(amount, sort_index(marg))) — matching Analytica exactly.
+#[test]
+fn marginal_abatement_cumulative_reduction_matches_analytica() {
+    let json = r#"{
+      "wasim_version": "0.9.7",
+      "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1, "seed": 1},
+      "dimensions": [{"id":"Action","name":"Action","size":8}],
+      "containers": [{"id":"M","name":"M","elements":["M/amount","M/gross","M/net","M/marg","M/sorted","M/amt_sorted","M/cum"]}],
+      "elements": [
+        {"id":"M/amount","name":"amount","primitive":"node","value_rule":"fixed","container":"M","values":[8,15,10,20,5,5,35,50],"unit":"1","outputs":[{"name":"a","unit":"1","dimensions":["Action"]}]},
+        {"id":"M/gross","name":"gross","primitive":"node","value_rule":"fixed","container":"M","values":[20,1000,400,4000,2000,250,5500,3000],"unit":"1","outputs":[{"name":"g","unit":"1","dimensions":["Action"]}]},
+        {"id":"M/net","name":"net","primitive":"node","value_rule":"expression","container":"M","inputs":["M/gross","M/amount"],
+         "expression":{"ast":{"op":"subtract","left":{"op":"ref","element_id":"M/gross"},"right":{"op":"multiply","left":{"op":"ref","element_id":"M/amount"},"right":{"op":"literal","value":50}}}},"outputs":[{"name":"n","unit":"1","dimensions":["Action"]}]},
+        {"id":"M/marg","name":"marg","primitive":"node","value_rule":"expression","container":"M","inputs":["M/net","M/amount"],
+         "expression":{"ast":{"op":"divide","left":{"op":"ref","element_id":"M/net"},"right":{"op":"ref","element_id":"M/amount"}}},"outputs":[{"name":"m","unit":"1","dimensions":["Action"]}]},
+        {"id":"M/sorted","name":"sorted","primitive":"node","value_rule":"expression","container":"M","inputs":["M/marg"],
+         "expression":{"ast":{"op":"call","fn":"sort_index","args":[{"op":"ref","element_id":"M/marg"}]}},"outputs":[{"name":"s","unit":"1","dimensions":["Action"]}]},
+        {"id":"M/amt_sorted","name":"amt_sorted","primitive":"node","value_rule":"expression","container":"M","inputs":["M/amount","M/sorted"],
+         "expression":{"ast":{"op":"call","fn":"gather","args":[{"op":"ref","element_id":"M/amount"},{"op":"ref","element_id":"M/sorted"}]}},"outputs":[{"name":"as","unit":"1","dimensions":["Action"]}]},
+        {"id":"M/cum","name":"cum","primitive":"node","value_rule":"expression","container":"M","inputs":["M/amt_sorted"],
+         "expression":{"ast":{"op":"call","fn":"cumulate","args":[{"op":"ref","element_id":"M/amt_sorted"}]}},"outputs":[{"name":"c","unit":"1","dimensions":["Action"]}],"save_results":{"final_value":true}}
+      ]
+    }"#;
+    let m = parse_v2(json).unwrap();
+    let g = ModelGraphV2::build(&m).unwrap();
+    // Both lanes; the whole chain is dimensioned array-language ops.
+    let scalar = run_v2(&m, &g, &RunConfig { array_lane: false, ..Default::default() }).unwrap();
+    let array = run_v2(&m, &g, &RunConfig { array_lane: true, ..Default::default() }).unwrap();
+    // Analytica Cum_reduction: cumulative MBTU as the cheapest actions are done first.
+    assert_eq!(members(&scalar, "M/cum", 8), vec![8.0, 18.0, 23.0, 73.0, 88.0, 123.0, 143.0, 148.0]);
+    for k in 1..=8 {
+        let key = format!("M/cum#{k}");
+        assert_eq!(scalar.elements[&key].final_values[0].to_bits(),
+                   array.elements[&key].final_values[0].to_bits(), "{key}: lanes differ");
+    }
+}

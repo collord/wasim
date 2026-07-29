@@ -1606,6 +1606,23 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             let v = eval_ast(&args[0], ctx)?;
             return Ok(map_shape(v, |d| { let mut acc = 1.0; d.iter().map(|&x| { acc *= x; acc }).collect() }));
         }
+        // ── Array-language layer (Phase 2) ──
+        BuiltinFn::Gather => {
+            // gather(x, idx): out[k] = x[idx[k]-1] (1-based). Result rides idx's shape.
+            require_args("gather", args.len(), 2, 2)?;
+            let x = eval_ast(&args[0], ctx)?.into_vec();
+            let idx = eval_ast(&args[1], ctx)?;
+            return Ok(map_shape(idx, |d| d.iter().map(|&i| {
+                let j = i.round() as i64 - 1;
+                if j >= 0 && (j as usize) < x.len() { x[j as usize] } else { 0.0 }
+            }).collect()));
+        }
+        BuiltinFn::Ordinal => {
+            // ordinal(x): 1-based positions [1..len(x)] along x's axis (standalone `@`).
+            require_args("ordinal", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(map_shape(v, |d| (1..=d.len()).map(|i| i as f64).collect()));
+        }
         _ => {}
     }
 
@@ -1667,7 +1684,7 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         | BuiltinFn::MaskedCount
         // Array-language layer: handled by the early return above; never reach here.
         | BuiltinFn::SortArray | BuiltinFn::SortIndex | BuiltinFn::RankArray
-        | BuiltinFn::Cumulate | BuiltinFn::Cumproduct
+        | BuiltinFn::Cumulate | BuiltinFn::Cumproduct | BuiltinFn::Gather | BuiltinFn::Ordinal
         // Event predicates are handled by the early return above; never reach the scalar path.
         | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };

@@ -327,7 +327,7 @@ class ExprParser:
         return node
 
     def parse_expr(self, min_bp: int) -> Any:
-        left = self.parse_prefix()
+        left = self.parse_postfix(self.parse_prefix())
         while True:
             kind, val = self.peek()
             opname = None
@@ -360,6 +360,11 @@ class ExprParser:
             self.next()
             operand = _as_ast(self.parse_expr(11))
             return {"op": "not", "operand": operand}
+        if kind == Tok.OP and val == "@":
+            # Analytica ordinal `@Index` → the 1-based positions along that index.
+            self.next()
+            operand = _as_ast(self.parse_expr(11))
+            return {"op": "call", "fn": "ordinal", "args": [operand]}
         if kind == Tok.IDENT and val.lower() == "if":
             # Functional form `If(cond, then, else)` vs keyword form
             # `If cond Then a Else b`: disambiguate on the next token.
@@ -371,6 +376,28 @@ class ExprParser:
                 return Call(name="if", pos=pos, named=named)
             return self.parse_if()
         return self.parse_atom()
+
+    def parse_postfix(self, node: Any) -> Any:
+        # Analytica postfix subscript `x[Dim = …]`. We support the reindex-by-index form
+        # `x[Dim = anIndex]` → `gather(x, anIndex)` (Phase 2). The dimension name is
+        # dropped (dims are implicit in v0.1.0). Other forms — label/number select,
+        # multi-dimensional — raise, so the fragment falls back to the existing stub path.
+        while self.peek()[0] == Tok.LB:
+            self.next()  # consume '['
+            base = _as_ast(node)
+            if self.peek()[0] != Tok.IDENT:
+                raise ParseError("unsupported subscript (expected `Dim = …`)")
+            self.next()  # dimension name (dropped)
+            if not (self.peek()[0] == Tok.OP and self.peek()[1] == "="):
+                raise ParseError("unsupported subscript (expected `=`)")
+            self.next()  # '='
+            rhs = _as_ast(self.parse_expr(0))
+            self.expect(Tok.RB)
+            if isinstance(rhs, dict) and rhs.get("op") == "ref":
+                node = {"op": "call", "fn": "gather", "args": [base, rhs]}
+            else:
+                raise ParseError("unsupported subscript RHS (not an index ref)")
+        return node
 
     def parse_if(self) -> Any:
         self.next()  # 'if'

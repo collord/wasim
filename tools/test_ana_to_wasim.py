@@ -86,6 +86,33 @@ for _defn, _fn in [("SortIndex(cost)", "sort_index"), ("Sort(x, I)", "sort_array
     check(f"{_defn} -> {_fn}(x) (index arg dropped, no stub)",
           _ast.get("op") == "call" and _ast.get("fn") == _fn and len(_ast.get("args", [])) == 1)
 
+# ── Phase 2: reindex-by-index `x[Dim=idx]` → gather; `@Index` → ordinal ──
+_res, _ = A.parse_definition("Amount[Action=Sorted]")
+_ast = A._as_ast(_res)
+check("x[Dim=idx] -> gather(x, idx)",
+      _ast.get("op") == "call" and _ast.get("fn") == "gather"
+      and [a.get("element_id") for a in _ast["args"]] == ["Amount", "Sorted"])
+
+_res, _ = A.parse_definition("cumulate(Amount[Action=Sorted], Sorted)")
+_ast = A._as_ast(_res)
+check("cumulate(x[Dim=idx]) -> cumulate(gather(x, idx))",
+      _ast.get("fn") == "cumulate" and _ast["args"][0].get("fn") == "gather")
+
+_res, _ = A.parse_definition("@Sorted_action")
+_ast = A._as_ast(_res)
+check("@Index -> ordinal(Index)",
+      _ast.get("op") == "call" and _ast.get("fn") == "ordinal"
+      and _ast["args"][0].get("element_id") == "Sorted_action")
+
+_r, _refs, _ns, _ = lower("@Cumulative = @Sorted + 1")
+check("@ binds tighter than +/= (ordinal on each index, no stub)",
+      _ns == 0 and set(_refs) == {"Cumulative", "Sorted"})
+
+# a label subscript (string RHS) still degrades rather than mis-gathering
+_res, _err = A.parse_definition("x[Dim='label']")
+check("x[Dim='label'] (non-index RHS) does not silently gather", _res is None or
+      (A._as_ast(_res).get("fn") != "gather"))
+
 print()
 if _fails:
     print(f"{len(_fails)} failure(s): {_fails}")
