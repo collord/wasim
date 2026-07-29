@@ -67,8 +67,9 @@ regime it runs under, not just the dispatch rule.
 
 ## Next
 
-- **Repair *delay* + a shop-capacity queue** (finite bays): turn the overhaul from instant to a
-  multi-step downtime through a queue, so the clustered-vs-staggered failure timing becomes a
-  *lost-production* difference. That is the setting where the Stage-3b tradeoff (wear-levelling
-  synchronizes, cohorting staggers) shows up as dollars, and where cohorting can win outright.
+- ~~**Repair *delay* + a shop-capacity queue** (finite bays): turn the clustered-vs-staggered
+  failure timing into a lost-production difference.~~ **Done** —
+  [`STAGE3D_SHOP_CAPACITY.md`](STAGE3D_SHOP_CAPACITY.md): with a capacity-constrained shop,
+  wear-levelling's synchronized failures overwhelm it and cost **67% more downtime** than naive
+  (78.7 vs 47.2 truck-steps) — the case where balanced dispatch loses.
 - Scale to N = 40 and fold in the grade/price-conditional overload gate from the base fleet model.

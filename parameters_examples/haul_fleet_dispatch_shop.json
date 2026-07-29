@@ -1,0 +1,977 @@
+{
+  "wasim_version": "0.9.7",
+  "name": "Haul Fleet \u2014 Dispatch Policy with a Capacity-Constrained Repair Shop",
+  "description": "Stage-3d: adds the SHOP as the binding constraint. The Stage-3c dispatch/overhaul layer generates the failure timing (bursty under wear-levelling, which synchronises ages; steady under naive/cohort, which stagger them). A fluid repair queue with capped throughput (shop_throughput = bays / repair_time trucks per step, ~70% utilised) then prices that timing: backlog[t] = max(0, backlog_prev + failures_this_step - shop_throughput), computed per realization, so each realization's burstiness drives its own downtime. trucks_down = min(backlog, N); cum_downtime integrates it. Insight: when the shop is the constraint, wear-levelling's clustered failures overwhelm it (queue backs up -> more downtime -> lost production) while staggered policies keep the shop fed -- the case where balanced dispatch LOSES. Run three times per dispatch_policy. The overhaul reset here is a fluid/aggregate approximation of finite repair capacity (the array primitives don't express top-k bay assignment); the relative policy comparison is driven by the failure-timing burstiness, which the per-truck layer captures. See STAGE3D_SHOP_CAPACITY.md.",
+  "source": {
+    "generator": "hand-authored-scenario"
+  },
+  "simulation_settings": {
+    "duration": {
+      "value": 3,
+      "unit": "yr"
+    },
+    "timestep": {
+      "value": 1,
+      "unit": "wk"
+    },
+    "n_realizations": 300,
+    "sampling_method": "lhs",
+    "seed": 20260729
+  },
+  "dimensions": [
+    {
+      "id": "Fleet",
+      "name": "Fleet",
+      "size": 6,
+      "labels": [
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T06"
+      ]
+    }
+  ],
+  "elements": [
+    {
+      "id": "beta",
+      "name": "Load exponent (damage power law)",
+      "primitive": "node",
+      "value_rule": "sample",
+      "distribution": {
+        "family": "triangular",
+        "parameters": {
+          "min": {
+            "value": 2.5,
+            "unit": "1"
+          },
+          "mode": {
+            "value": 3.0,
+            "unit": "1"
+          },
+          "max": {
+            "value": 4.0,
+            "unit": "1"
+          }
+        }
+      },
+      "save_results": {
+        "final_value": true
+      }
+    },
+    {
+      "id": "dispatch_policy",
+      "name": "Dispatch policy (0 naive / 1 wear-level / 2 cohort)",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "editable": true,
+      "value": {
+        "value": 1,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "dmg_scale",
+      "name": "Per-step damage scale",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "value": {
+        "value": 0.013,
+        "unit": "1"
+      },
+      "description": "Nominal per-step damage. Nominal life ~1/0.013 ~= 77 wk, so trucks cycle through overhaul 1-2x over the 156-wk horizon \u2014 enough to keep ages mixed."
+    },
+    {
+      "id": "initial_damage",
+      "name": "Initial per-truck damage (age ramp)",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "values": [
+        0.0,
+        0.15,
+        0.3,
+        0.45,
+        0.6,
+        0.75
+      ],
+      "unit": "1",
+      "outputs": [
+        {
+          "name": "InitialDamage",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "description": "The young-vs-old fleet: T01 brand new, T06 three-quarters worn."
+    },
+    {
+      "id": "is_start",
+      "name": "First-step flag",
+      "primitive": "node",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "lt",
+          "left": {
+            "op": "time_ref",
+            "property": "elapsed"
+          },
+          "right": {
+            "op": "multiply",
+            "left": {
+              "op": "time_ref",
+              "property": "timestep"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.5
+            }
+          }
+        }
+      },
+      "description": "1 on the first step (elapsed < dt/2), else 0 \u2014 seeds the initial age ramp into the damage recurrence."
+    },
+    {
+      "id": "truck_index",
+      "name": "Per-truck 1-based index",
+      "primitive": "node",
+      "value_rule": "expression",
+      "outputs": [
+        {
+          "name": "TruckIndex",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "index_ref",
+            "axis": "row"
+          }
+        }
+      }
+    },
+    {
+      "id": "available",
+      "name": "Per-truck availability (down the overhaul step)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "damage_prev"
+      ],
+      "outputs": [
+        {
+          "name": "Available",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "lt",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "damage_prev"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      },
+      "description": "1 while operating; 0 the single step a truck is overhauled (damage_prev >= 1)."
+    },
+    {
+      "id": "damage_prev",
+      "name": "Damage (previous step)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "outputs": [
+        {
+          "name": "DamagePrev",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "input": "damage",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "target_wl",
+      "name": "Target \u2014 wear-levelling",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "damage_prev",
+        "available"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmin_where",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "damage_prev"
+            },
+            {
+              "op": "ref",
+              "element_id": "available"
+            }
+          ]
+        }
+      },
+      "description": "Least-damaged available truck \u2014 steers overload onto the freshly-overhauled young truck."
+    },
+    {
+      "id": "target_cohort",
+      "name": "Target \u2014 cohorting",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "truck_index",
+        "available"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "argmin_where",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "truck_index"
+            },
+            {
+              "op": "ref",
+              "element_id": "available"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "target_naive",
+      "name": "Target \u2014 naive round-robin",
+      "primitive": "node",
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "call",
+            "fn": "mod",
+            "args": [
+              {
+                "op": "call",
+                "fn": "floor",
+                "args": [
+                  {
+                    "op": "add",
+                    "left": {
+                      "op": "divide",
+                      "left": {
+                        "op": "time_ref",
+                        "property": "elapsed"
+                      },
+                      "right": {
+                        "op": "time_ref",
+                        "property": "timestep"
+                      }
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 0.5
+                    }
+                  }
+                ]
+              },
+              {
+                "op": "literal",
+                "value": 6
+              }
+            ]
+          },
+          "right": {
+            "op": "literal",
+            "value": 1
+          }
+        }
+      },
+      "description": "(step mod N) + 1 \u2014 damage-blind rotation, ignores which trucks are young or old."
+    },
+    {
+      "id": "overload_target",
+      "name": "Truck chosen to overload",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "dispatch_policy",
+        "target_naive",
+        "target_wl",
+        "target_cohort"
+      ],
+      "expression": {
+        "ast": {
+          "op": "if",
+          "cond": {
+            "op": "lt",
+            "left": {
+              "op": "ref",
+              "element_id": "dispatch_policy"
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.5
+            }
+          },
+          "then": {
+            "op": "ref",
+            "element_id": "target_naive"
+          },
+          "else": {
+            "op": "if",
+            "cond": {
+              "op": "lt",
+              "left": {
+                "op": "ref",
+                "element_id": "dispatch_policy"
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.5
+              }
+            },
+            "then": {
+              "op": "ref",
+              "element_id": "target_wl"
+            },
+            "else": {
+              "op": "ref",
+              "element_id": "target_cohort"
+            }
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true
+      }
+    },
+    {
+      "id": "payload",
+      "name": "Per-truck payload (t)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "overload_target"
+      ],
+      "outputs": [
+        {
+          "name": "Payload",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "eq",
+              "left": {
+                "op": "ref",
+                "element_id": "overload_target"
+              },
+              "right": {
+                "op": "index_ref",
+                "axis": "row"
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 300
+            },
+            "else": {
+              "op": "literal",
+              "value": 240
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "damage_rate",
+      "name": "Per-truck damage rate",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "payload",
+        "beta",
+        "dmg_scale",
+        "available"
+      ],
+      "outputs": [
+        {
+          "name": "DamageRate",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "available"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "power",
+                "left": {
+                  "op": "divide",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "payload"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 240
+                  }
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "beta"
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "dmg_scale"
+              }
+            }
+          }
+        }
+      },
+      "description": "available * (payload/240)^beta * scale. A truck being overhauled (available=0) accrues nothing."
+    },
+    {
+      "id": "damage",
+      "name": "Per-truck cumulative damage (with overhaul reset)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "is_start",
+        "initial_damage",
+        "damage_prev",
+        "damage_rate"
+      ],
+      "outputs": [
+        {
+          "name": "Damage",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "add",
+            "left": {
+              "op": "if",
+              "cond": {
+                "op": "gt",
+                "left": {
+                  "op": "ref",
+                  "element_id": "is_start"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 0.5
+                }
+              },
+              "then": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "initial_damage"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "else": {
+                "op": "if",
+                "cond": {
+                  "op": "gte",
+                  "left": {
+                    "op": "index",
+                    "array": {
+                      "op": "ref",
+                      "element_id": "damage_prev"
+                    },
+                    "indices": [
+                      {
+                        "op": "index_ref",
+                        "axis": "row"
+                      }
+                    ]
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1.0
+                  }
+                },
+                "then": {
+                  "op": "literal",
+                  "value": 0
+                },
+                "else": {
+                  "op": "index",
+                  "array": {
+                    "op": "ref",
+                    "element_id": "damage_prev"
+                  },
+                  "indices": [
+                    {
+                      "op": "index_ref",
+                      "axis": "row"
+                    }
+                  ]
+                }
+              }
+            },
+            "right": {
+              "op": "index",
+              "array": {
+                "op": "ref",
+                "element_id": "damage_rate"
+              },
+              "indices": [
+                {
+                  "op": "index_ref",
+                  "axis": "row"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "description": "base + rate. base = initial age on step 0, then 0 the step after crossing 1.0 (overhaul \u2192 young), else the carried level. Sawtooths between 0 and ~1.",
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "new_failure",
+      "name": "Per-truck overhaul event this step",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "damage_prev"
+      ],
+      "outputs": [
+        {
+          "name": "NewFailure",
+          "unit": "1",
+          "dimensions": [
+            "Fleet"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Fleet",
+          "body": {
+            "op": "if",
+            "cond": {
+              "op": "gte",
+              "left": {
+                "op": "index",
+                "array": {
+                  "op": "ref",
+                  "element_id": "damage_prev"
+                },
+                "indices": [
+                  {
+                    "op": "index_ref",
+                    "axis": "row"
+                  }
+                ]
+              },
+              "right": {
+                "op": "literal",
+                "value": 1.0
+              }
+            },
+            "then": {
+              "op": "literal",
+              "value": 1
+            },
+            "else": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "failures_this_step",
+      "name": "Overhauls this step (fleet)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "new_failure"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "new_failure"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cum_failures_prev",
+      "name": "Cumulative overhauls (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "cum_failures",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "cum_failures",
+      "name": "Cumulative overhauls over horizon",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "cum_failures_prev",
+        "failures_this_step"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cum_failures_prev"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "failures_this_step"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "damage_spread",
+      "name": "Damage spread (max - min)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "damage"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "call",
+            "fn": "max_array",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "damage"
+              }
+            ]
+          },
+          "right": {
+            "op": "call",
+            "fn": "min_array",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "damage"
+              }
+            ]
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "damage_mean",
+      "name": "Mean fleet damage",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "damage"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "mean_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "damage"
+            }
+          ]
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "shop_throughput",
+      "name": "Shop repair throughput (trucks/step)",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "value": {
+        "value": 0.12,
+        "unit": "1"
+      },
+      "description": "bays / repair_time. Mean failure rate is ~0.083 trucks/step, so the shop runs ~70% utilised \u2014 near enough to the limit that bursts queue. Lower this (fewer bays / a slower mechanic) to make the shop bite harder."
+    },
+    {
+      "id": "backlog_prev",
+      "name": "Repair backlog (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "backlog",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "backlog",
+      "name": "Repair backlog (trucks waiting + in service)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "backlog_prev",
+        "failures_this_step",
+        "shop_throughput"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "max",
+          "args": [
+            {
+              "op": "literal",
+              "value": 0
+            },
+            {
+              "op": "subtract",
+              "left": {
+                "op": "add",
+                "left": {
+                  "op": "ref",
+                  "element_id": "backlog_prev"
+                },
+                "right": {
+                  "op": "ref",
+                  "element_id": "failures_this_step"
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "shop_throughput"
+              }
+            }
+          ]
+        }
+      },
+      "description": "Fluid queue: carry-over + arrivals - service, floored at 0. Bursty arrivals (wear-levelling) build it up; steady arrivals (naive/cohort) keep it near zero.",
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "trucks_down",
+      "name": "Trucks down for repair",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "backlog"
+      ],
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "min",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "backlog"
+            },
+            {
+              "op": "literal",
+              "value": 6
+            }
+          ]
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "available_shop",
+      "name": "Available trucks (after repair queue)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "trucks_down"
+      ],
+      "expression": {
+        "ast": {
+          "op": "subtract",
+          "left": {
+            "op": "literal",
+            "value": 6
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "trucks_down"
+          }
+        }
+      },
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "cum_downtime_prev",
+      "name": "Cumulative downtime (prev)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "cum_downtime",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      }
+    },
+    {
+      "id": "cum_downtime",
+      "name": "Cumulative truck-downtime (truck-steps)",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "cum_downtime_prev",
+        "trucks_down"
+      ],
+      "expression": {
+        "ast": {
+          "op": "add",
+          "left": {
+            "op": "ref",
+            "element_id": "cum_downtime_prev"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "trucks_down"
+          }
+        }
+      },
+      "description": "Integral of trucks_down \u2014 total truck-steps lost to the repair queue. Lower is better (more uptime, more production).",
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    }
+  ]
+}
