@@ -1197,6 +1197,26 @@ fn secs_of_day(secs: f64) -> (u32, u32, u32) {
 fn bool_val(b: bool) -> f64 { if b { 1.0 } else { 0.0 } }
 fn is_true(v: f64) -> bool  { v != 0.0 }
 
+/// Ascending argsort (`total_cmp`, **stable** → lowest source index wins a tie). The
+/// determinism anchor for the array-language sort family (WASIM_ARRAY_LANGUAGE_SCOPE).
+fn argsort(data: &[f64]) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..data.len()).collect();
+    idx.sort_by(|&a, &b| data[a].total_cmp(&data[b]));
+    idx
+}
+
+/// Apply a length-preserving transform to an array value, keeping its shape: an
+/// `Array` keeps its axes, a `Vector` stays a vector, a `Scalar` stays scalar. Phase 1
+/// array-language ops are 1-axis; a multi-axis input transforms over its flat
+/// row-major data and keeps its axes.
+fn map_shape(v: Value, f: impl FnOnce(&[f64]) -> Vec<f64>) -> Value {
+    match v {
+        Value::Scalar(s) => Value::Scalar(f(&[s]).first().copied().unwrap_or(0.0)),
+        Value::Vector(vs) => Value::Vector(f(&vs)),
+        Value::Array(a) => Value::array(NamedArray { axes: a.axes, data: f(&a.data) }),
+    }
+}
+
 fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value, EngineError> {
     // Event predicate functions (§2). Their argument names an element/event id, so it is read
     // as a `Ref` rather than evaluated to a scalar.
@@ -1322,6 +1342,37 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             require_args("column_count", args.len(), 1, 1)?;
             return Ok(Value::Scalar(eval_ast(&args[0], ctx)?.into_vec().len() as f64));
         }
+        // ── Array-language layer (Phase 1): shape-preserving array→array ops ──
+        BuiltinFn::SortArray => {
+            require_args("sort_array", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(map_shape(v, |d| { let mut s = d.to_vec(); s.sort_by(f64::total_cmp); s }));
+        }
+        BuiltinFn::SortIndex => {
+            require_args("sort_index", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(map_shape(v, |d| argsort(d).iter().map(|&i| (i + 1) as f64).collect()));
+        }
+        BuiltinFn::RankArray => {
+            require_args("rank_array", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(map_shape(v, |d| {
+                let order = argsort(d);
+                let mut rank = vec![0.0; d.len()];
+                for (k, &i) in order.iter().enumerate() { rank[i] = (k + 1) as f64; }
+                rank
+            }));
+        }
+        BuiltinFn::Cumulate => {
+            require_args("cumulate", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(map_shape(v, |d| { let mut acc = 0.0; d.iter().map(|&x| { acc += x; acc }).collect() }));
+        }
+        BuiltinFn::Cumproduct => {
+            require_args("cumproduct", args.len(), 1, 1)?;
+            let v = eval_ast(&args[0], ctx)?;
+            return Ok(map_shape(v, |d| { let mut acc = 1.0; d.iter().map(|&x| { acc *= x; acc }).collect() }));
+        }
         _ => {}
     }
 
@@ -1377,6 +1428,9 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
         | BuiltinFn::MaxArray | BuiltinFn::ArgminArray | BuiltinFn::ArgmaxArray
         | BuiltinFn::DotProduct
+        // Array-language layer: handled by the early return above; never reach here.
+        | BuiltinFn::SortArray | BuiltinFn::SortIndex | BuiltinFn::RankArray
+        | BuiltinFn::Cumulate | BuiltinFn::Cumproduct
         // Event predicates are handled by the early return above; never reach the scalar path.
         | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
     };

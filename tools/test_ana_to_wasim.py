@@ -52,6 +52,15 @@ check("Choice(index, 2) -> selected position 2", r == "2" and ns == 0)
 r, refs, ns, _ = lower("Table(Scenarios)(Checkbox(1), Checkbox(0), Checkbox(1))")
 check("Checkbox inside Table lowers to 0/1 array", "1" in (r or "") and "0" in (r or ""))
 
+# ── Table(Index)(values): the index dimension must not leak into the value list ─
+_res, _ = A.parse_definition("Table(Action)(8,15,10,20,5,5,35,50)")
+_ast = A._as_ast(_res)
+check("Table array has exactly the value cells (index not leaked as element 0)",
+      _ast.get("op") == "array" and len(_ast["elements"]) == 8
+      and [c.get("value") for c in _ast["elements"]] == [8, 15, 10, 20, 5, 5, 35, 50])
+_r, _refs, _ns, _ = lower("Table(Action)(8,15,10,20,5,5,35,50)")
+check("Table index name is not treated as a data ref", "Action" not in _refs and _ns == 0)
+
 # ── numeric suffixes ──────────────────────────────────────────────────────────
 r, _, _, _ = lower("2K + 3M")
 check("K/M suffixes tokenize", r == "(2000 + 3000000)")
@@ -67,6 +76,15 @@ check("lognormal(median,gsdev) -> log space", d is not None and abs(d["parameter
 # non-constant distribution params degrade to a stub (None)
 d2 = A.call_to_distribution(A.Call("Normal", [{"op": "ref", "element_id": "mu"}, {"op": "literal", "value": 1.0}], {}), "1")
 check("formula-param distribution -> stub", d2 is None)
+
+# ── array-language Phase 1 ops (sort/cumulate) map to builtins, drop index arg ──
+for _defn, _fn in [("SortIndex(cost)", "sort_index"), ("Sort(x, I)", "sort_array"),
+                   ("Rank(x)", "rank_array"), ("cumulate(x, Time)", "cumulate"),
+                   ("cumproduct(x)", "cumproduct")]:
+    _res, _ = A.parse_definition(_defn)
+    _ast = A._as_ast(_res)
+    check(f"{_defn} -> {_fn}(x) (index arg dropped, no stub)",
+          _ast.get("op") == "call" and _ast.get("fn") == _fn and len(_ast.get("args", [])) == 1)
 
 print()
 if _fails:

@@ -295,6 +295,8 @@ class Call:
     name: str
     pos: list[Any]                        # positional args (AST nodes)
     named: dict[str, Any]                 # named args (AST nodes)
+    index: Optional[list[Any]] = None     # index-dimension args from a `Table(I…)(…)`
+                                          # double-application (kept out of `pos`)
 
 
 class ExprParser:
@@ -412,13 +414,17 @@ class ExprParser:
                 pos, named = self.parse_call_args()
                 self.expect(Tok.RP)
                 call = Call(name=val, pos=pos, named=named)
-                # Analytica double-application: Table(I)(v1, v2, ...)
+                # Analytica double-application `Table(I…)(v1, v2, …)`: the first
+                # parenthesis group names the index dimension(s), the second the cell
+                # values. Keep them separate — folding the index args into the value
+                # list (the old bug) leaked the index name in as a spurious element 0.
                 while self.peek()[0] == Tok.LP:
                     self.next()
                     pos2, named2 = self.parse_call_args()
                     self.expect(Tok.RP)
-                    call = Call(name=val, pos=call.pos + pos2,
-                                named={**call.named, **named2})
+                    call = Call(name=val, pos=pos2,
+                                named={**call.named, **named2},
+                                index=(call.index or []) + call.pos)
                 return call
             return {"op": "ref", "element_id": val, "output": "value"}
         raise ParseError(f"unexpected token {(kind, val)}")
@@ -484,6 +490,14 @@ _ARRAY_REDUCERS = {
     "min": "min_array", "max": "max_array", "size": "size_array",
 }
 
+# Shape-preserving array→array ops (WASIM_ARRAY_LANGUAGE_SCOPE Phase 1). Like the
+# reducers, an optional trailing index arg is dropped (`cumulate(x, I)` → `cumulate(x)`);
+# unlike them, the result keeps the array's axis.
+_ARRAY_MAP_OPS = {
+    "sortindex": "sort_index", "sort": "sort_array", "rank": "rank_array",
+    "cumulate": "cumulate", "cumproduct": "cumproduct",
+}
+
 _DISTRIBUTIONS = {
     "uniform", "normal", "lognormal", "triangular", "beta", "gamma",
     "exponential", "bernoulli", "weibull",
@@ -497,7 +511,7 @@ _DISTRIBUTIONS = {
 _SAMPLE_STATS = {
     "probability", "probbands", "getfract", "cdf", "pdf", "sdeviation",
     "variance", "kurtosis", "skewness", "correlation", "frequency",
-    "cumulate", "cumproduct", "rank", "dynamic",
+    "dynamic",
 }
 
 
@@ -531,6 +545,11 @@ def resolve_call(call: Call) -> dict:
                             "but Analytica's Mean over the Run sample is a results-layer "
                             "(A3) statistic in WASiM, not a mid-graph array mean — verify axis.")
         return {"op": "call", "fn": _ARRAY_REDUCERS[name], "args": args[:1] or args}
+
+    if name in _ARRAY_MAP_OPS:
+        # `SortIndex(x)` / `cumulate(x, I)` etc. → array→array builtin; drop any
+        # trailing index arg (the axis is implicit), keep the array's shape.
+        return {"op": "call", "fn": _ARRAY_MAP_OPS[name], "args": args[:1] or args}
 
     if name in _SAMPLE_STATS:
         warn(call.name, "across-realization/dynamic statistic has no mid-graph v0.1.0 "
