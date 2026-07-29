@@ -81,8 +81,11 @@ make wear-levelling pull ahead.
 
 ## Next
 
-1. **Add replacement** (`status` reset on a repair-completion condition + a repair delay) so the
-   young-vs-old asymmetry appears — then re-run and show wear-levelling separating from naive.
+1. ~~**Add replacement** so the young-vs-old asymmetry appears — show wear-levelling separating
+   from naive.~~ **Done** — [`STAGE3C_YOUNG_VS_OLD.md`](STAGE3C_YOUNG_VS_OLD.md): with heterogeneous
+   ages + instant overhaul, wear-levelling drops to 0.684 steady-state spread vs naive's 0.828
+   (they were identical here), and is the most balanced of the three — while total overhaul
+   count stays policy-independent (no free lunch).
 2. **Shop-capacity queue** (finite bays) so the clustered-vs-staggered failure timing turns into
    a *downtime / lost-production* difference, not just a failure count — that is where cohorting
    can win outright.
