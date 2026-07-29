@@ -1030,6 +1030,22 @@ pub enum BuiltinFn {
     MaskedMax,
     /// `masked_count(mask)`: the number of selected (non-zero, non-NaN) members. One array arg.
     MaskedCount,
+    // ── Array-language layer (WASIM_ARRAY_LANGUAGE_SCOPE.md, Phase 1) ──
+    // Shape-preserving array→array ops (unlike the collapsing reducers above): they
+    // return a value on the *same* axis as their argument. Deterministic — sorts use
+    // `total_cmp` with a stable lowest-source-index tie-break; scans run in fixed axis
+    // order — so they satisfy the bit-identity guarantee.
+    /// `sort_array(x)`: members sorted ascending.
+    SortArray,
+    /// `sort_index(x)`: the sorting permutation — 1-based source positions in ascending
+    /// order of value (Analytica `SortIndex`). `x[k]`'s new home, inverse of `rank_array`.
+    SortIndex,
+    /// `rank_array(x)`: 1-based rank of each member (1 = smallest); ties → stable order.
+    RankArray,
+    /// `cumulate(x)`: running prefix sum, `out[i] = Σ_{j≤i} x[j]`.
+    Cumulate,
+    /// `cumproduct(x)`: running prefix product, `out[i] = Π_{j≤i} x[j]`.
+    Cumproduct,
 }
 
 // ── Stochastic process ────────────────────────────────────────────────────────

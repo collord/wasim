@@ -510,6 +510,11 @@ fn fn_name(f: &BuiltinFn) -> &'static str {
         BuiltinFn::MaskedMin => "masked_min",
         BuiltinFn::MaskedMax => "masked_max",
         BuiltinFn::MaskedCount => "masked_count",
+        BuiltinFn::SortArray => "sort_array",
+        BuiltinFn::SortIndex => "sort_index",
+        BuiltinFn::RankArray => "rank_array",
+        BuiltinFn::Cumulate => "cumulate",
+        BuiltinFn::Cumproduct => "cumproduct",
         BuiltinFn::Occurs => "occurs",
         BuiltinFn::Changed => "changed",
     }
