@@ -102,6 +102,37 @@ check("no leftover `_reduce_axis` markers survive emit",
       "_reduce_axis" not in __import__("json").dumps(m))
 
 
+# ── Stage 2b: DetermTable scalar-selector + domain/Choice semantics ────────────
+
+c = convert("Compression_Post_Load_Capacity.ana")
+
+# `D = Choice(Self, 3)` over numeric domain [2,3,4,5,…] → the MEMBER VALUE 5
+# (used numerically as `D-0.5`), NOT the position.
+d = by_id(c, "D")
+check("Choice(Self,k) over a numeric domain → selected member value",
+      d and d.get("value_rule") == "fixed" and d["value"]["value"] == 5.0)
+# `Grade = Choice(Self, 0)` over a label domain → the 1-based position 1.
+grade = by_id(c, "Grade")
+check("Choice(Self,k) over a label domain → 1-based position",
+      grade and grade["value"]["value"] == 1.0)
+
+# `Fc0 = DetermTable(Grade)(…)` → get_element(values, Grade's position 1).
+fc0 = by_id(c, "Fc0")
+fc0a = fc0["expression"]["ast"] if fc0 else {}
+check("single-selector DetermTable → get_element at the selector position",
+      fc0a.get("fn") == "get_element"
+      and fc0a.get("args", [{}, {}])[1] == {"op": "literal", "value": 1.0})
+check("get_element selects the correct first cell (1700)",
+      fc0a.get("args", [{}])[0]["elements"][0] == {"op": "literal", "value": 1700.0})
+
+# `Cf = DetermTable(D, Grade)(…)` → a 2-selector flat get_element (multi-index).
+cf = by_id(c, "Cf")
+cfa = cf["expression"]["ast"] if cf else {}
+check("multi-selector DetermTable → single flat get_element",
+      cfa.get("fn") == "get_element"
+      and cfa.get("args", [{}, {}])[1].get("op") == "literal")
+
+
 print()
 if _fails:
     print(f"{len(_fails)} failure(s): {_fails}")

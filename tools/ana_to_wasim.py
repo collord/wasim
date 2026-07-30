@@ -942,6 +942,47 @@ def collect_dimensions(nodes: list["AnaNode"]) -> dict[str, dict]:
     return dims
 
 
+def collect_selectors(nodes: list["AnaNode"]) -> dict[str, dict]:
+    """Variables defined `Choice(Self, k[, …])` with a `domain` self-index.
+
+    Analytica `Choice(Self, k)` selects the domain member at 0-based UI position
+    `k`; its 1-based position is `k+1`. Such a variable serves two roles:
+      - numeric use (`D-0.5`) → its selected MEMBER VALUE `domain[k]` (numeric
+        domains only; a label domain has no numeric value → falls back to k+1);
+      - `DetermTable(thisVar)(…)` index → the domain POSITION `k+1`.
+
+    Returns `{ident: {"pos": k+1, "value": <member value or k+1>, "size": n}}`.
+    Only constant `Choice(Self, k)` selections are captured (the corpus case)."""
+    out: dict[str, dict] = {}
+    for n in nodes:
+        definition = n.attrs.get("definition", "").strip()
+        domain = n.attrs.get("domain", "").strip()
+        if not domain or not re.match(r"(?i)\s*choice\s*\(", definition):
+            continue
+        parsed, _ = parse_definition(definition)
+        if not isinstance(parsed, Call) or parsed.name.lower() != "choice":
+            continue
+        # Choice(Self, default[, multi]); default is the 0-based UI position.
+        if len(parsed.pos) < 2:
+            continue
+        k = _param_value(_as_ast(parsed.pos[1]))
+        if k is None:
+            continue
+        k = int(k)
+        dparsed, _ = parse_definition(domain)
+        dast = _as_ast(dparsed) if dparsed else None
+        members: list[dict] = dast.get("elements", []) if isinstance(dast, dict) and dast.get("op") == "array" else []
+        pos = k + 1  # 1-based position of the selected member
+        # numeric member value if the domain is numeric, else the position
+        val = float(pos)
+        if 0 <= k < len(members):
+            mv = _param_value(members[k])
+            if mv is not None:
+                val = mv
+        out[n.ident] = {"pos": pos, "value": val, "size": len(members)}
+    return out
+
+
 def _index_at(depth: int) -> dict:
     """The 1-based iteration index of the `depth`-th enclosing `vector_map`
     (0 = innermost)."""
@@ -976,23 +1017,45 @@ def _flat_index_expr(dim_ids: list[str], sizes: list[int]) -> dict:
     return {"op": "add", "left": expr, "right": {"op": "literal", "value": 1.0}}
 
 
-def materialize_table(table: dict, dims: dict[str, dict]) -> Optional[dict]:
-    """A `_table` marker → nested `vector_map` over its named DECLARED dimensions.
+def materialize_table(table: dict, dims: dict[str, dict],
+                      selectors: dict[str, dict]) -> Optional[dict]:
+    """A `_table` marker → an engine-tagged array or a scalar lookup:
 
-    Returns None (caller falls back to a bare array literal) when any index is not
-    a declared dimension — e.g. `DetermTable(Grade)(…)` where `Grade` is a scalar
-    selector variable with a `domain` self-index rather than a top-level Index.
-    That scalar-selector / domain case is deferred to a later stage; falling back
-    to a bare array keeps the model valid and running."""
+      - all index args are DECLARED dimensions → nested `vector_map` over them
+        (mints a NamedArray with named axes; the shape align-by-name/reducers need);
+      - all index args are Choice/`domain` SELECTORS → a scalar `get_element` into
+        the flat row-major values at the selectors' combined 1-based position
+        (`DetermTable(D, Grade)(…)`).
+
+    Returns None (caller falls back to a bare array literal) when the shape can't
+    be reconstructed (unknown index, value-count mismatch, or a mix of the two)."""
     dim_ids = table.get("dims", [])
-    if not dim_ids or any(d not in dims for d in dim_ids):
-        return None
     values = table.get("elements", [])
+    if not dim_ids:
+        return None
+
+    # Selector-indexed DetermTable → flat row-major get_element at the combined
+    # 1-based position (all selectors are constant, so the position is static).
+    if all(d in selectors for d in dim_ids):
+        sizes = [selectors[d]["size"] for d in dim_ids]
+        offset = 0
+        for k, d in enumerate(dim_ids):
+            offset = offset * sizes[k] + (selectors[d]["pos"] - 1)
+        expect = 1
+        for s in sizes:
+            expect *= s
+        if expect and len(values) != expect:
+            return None
+        return {"op": "call", "fn": "get_element",
+                "args": [{"op": "array", "elements": values},
+                         {"op": "literal", "value": float(offset + 1)}]}
+
+    if any(d not in dims for d in dim_ids):
+        return None
     sizes = [dims[d]["size"] for d in dim_ids]
     expect = 1
     for s in sizes:
         expect *= s
-    values = table.get("elements", [])
     if len(values) != expect:
         return None
     body = {"op": "index",
@@ -1003,7 +1066,8 @@ def materialize_table(table: dict, dims: dict[str, dict]) -> Optional[dict]:
     return body
 
 
-def _lower_tables(ast: Any, dims: dict[str, dict]) -> tuple[Any, list[str]]:
+def _lower_tables(ast: Any, dims: dict[str, dict],
+                  selectors: dict[str, dict]) -> tuple[Any, list[str]]:
     """Recursively turn `_table` markers into `vector_map` chains; return the
     rewritten AST and the source-declared dim ids of any TOP-LEVEL table (used
     to tag `outputs[].dimensions`). Non-top-level tables still lower correctly;
@@ -1011,14 +1075,16 @@ def _lower_tables(ast: Any, dims: dict[str, dict]) -> tuple[Any, list[str]]:
     top_dims: list[str] = []
     if isinstance(ast, dict):
         if ast.get("op") == "_table":
-            lowered = materialize_table(ast, dims)
+            lowered = materialize_table(ast, dims, selectors)
             if lowered is not None:
+                # Only DECLARED dimensions become output axes; a selector lookup
+                # collapses to a scalar (no axes).
                 top_dims = [d for d in ast["dims"] if d in dims]
                 return lowered, top_dims
             return {"op": "array", "elements": ast.get("elements", [])}, []
         out = {}
         for k, v in ast.items():
-            nv, td = _lower_tables(v, dims)
+            nv, td = _lower_tables(v, dims, selectors)
             out[k] = nv
             if td and not top_dims:
                 top_dims = td
@@ -1026,7 +1092,7 @@ def _lower_tables(ast: Any, dims: dict[str, dict]) -> tuple[Any, list[str]]:
     if isinstance(ast, list):
         out_list = []
         for v in ast:
-            nv, _ = _lower_tables(v, dims)
+            nv, _ = _lower_tables(v, dims, selectors)
             out_list.append(nv)
         return out_list, top_dims
     return ast, top_dims
@@ -1156,12 +1222,14 @@ def _slug(ident: str) -> str:
 
 
 def build_element(node: AnaNode, container: Optional[str],
-                  dims: dict[str, dict]) -> Optional[dict]:
+                  dims: dict[str, dict], selectors: dict[str, dict]) -> Optional[dict]:
     """Emit ONE v2-native element (`primitive:"node"`).
 
     `dims` is the model's collected dimensions (see `collect_dimensions`); it lets
-    `_table` markers lower to `vector_map` and lets an Index member-carrier node be
-    materialized when referenced numerically."""
+    `_table` markers lower to `vector_map`. `selectors` maps Choice/`domain`
+    variables to their selected member value/position (see `collect_selectors`),
+    so a `Choice(Self,k)` var emits its member value and `DetermTable(thisVar)(…)`
+    resolves to a `get_element` lookup."""
     ident = node.ident
     name = node.attrs.get("title", ident).strip() or ident
     units = node.attrs.get("units", "").strip() or "1"
@@ -1181,7 +1249,14 @@ def build_element(node: AnaNode, container: Optional[str],
     # An Index becomes a top-level dimension_def (handled in `convert`). Here it
     # emits its numeric-member CARRIER node so `@I` / member arithmetic resolve.
     if node.cls == "index":
-        return _build_index_carrier(node, base, units, dims)
+        return _build_index_carrier(node, base, units, dims, selectors)
+
+    # A Choice(Self,k) selector with a `domain`: emit its selected MEMBER VALUE as
+    # a fixed constant (numeric use). `DetermTable(thisVar)(…)` separately resolves
+    # via the selector's position (see materialize_table).
+    if node.ident in selectors:
+        base.update({"value_rule": "fixed", "value": _q(selectors[node.ident]["value"], units)})
+        return base
 
     if not definition:
         # No formula: a bare input. Decisions/Constants with a numeric Value.
@@ -1223,7 +1298,7 @@ def build_element(node: AnaNode, container: Optional[str],
 
     # Lower any `_table` markers to nested vector_map; capture the top-level
     # table's dims so we can tag `outputs[].dimensions`.
-    ast, table_dims = _lower_tables(ast, dims)
+    ast, table_dims = _lower_tables(ast, dims, selectors)
 
     # A genuine bare number -> fixed constant (but NOT a formula that merely
     # stubbed to 0.0 — those stay expressions so the original text survives).
@@ -1252,7 +1327,7 @@ def build_element(node: AnaNode, container: Optional[str],
 
 
 def _build_index_carrier(node: AnaNode, base: dict, units: str,
-                         dims: dict[str, dict]) -> Optional[dict]:
+                         dims: dict[str, dict], selectors: dict[str, dict]) -> Optional[dict]:
     """A constant-member Index → a dimensioned node carrying its member VALUES
     (so `@I` ordinals and member arithmetic resolve). The dimension_def itself is
     emitted separately in `convert`. A dynamic/label-only index with no numeric
@@ -1278,7 +1353,7 @@ def _build_index_carrier(node: AnaNode, base: dict, units: str,
         ast = _as_ast(parsed)
         cleaned, stubs = strip_stub_markers(ast)
         if not stubs:
-            ast, _td = _lower_tables(ast, dims)
+            ast, _td = _lower_tables(ast, dims, selectors)
             base.update({
                 "value_rule": "expression",
                 "expression": {"ast": ast, "display": definition, "source": "explicit"},
@@ -1495,8 +1570,9 @@ def _sorted_union(axis_lists) -> list[str]:
 def convert(text: str, model_name: Optional[str] = None) -> dict:
     nodes, sample_size = lex_ana(text)
 
-    # Pass A — collect dimensions from constant-member Index nodes.
+    # Pass A — collect dimensions from Index nodes and Choice/domain selectors.
     dims = collect_dimensions(nodes)
+    selectors = collect_selectors(nodes)
 
     # Containers from Model/Module nodes.
     containers: list[dict] = []
@@ -1524,7 +1600,7 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
             continue
         container = n.parent if n.parent in module_ids else None
         try:
-            el = build_element(n, container, dims)
+            el = build_element(n, container, dims, selectors)
         except Exception as e:  # noqa: BLE001
             warn(n.ident, f"internal error building element: {e}; skipped.")
             el = None
