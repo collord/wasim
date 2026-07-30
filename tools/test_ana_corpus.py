@@ -31,17 +31,11 @@ CORPUS = os.path.join(_here, "fixtures", "ana_corpus")
 # the check below fails and names it (and a listed one becoming valid also fails,
 # so the set stays honest).
 #
-# The three below are known v2-emit gaps the strict schema surfaces (all still
-# RUN through the engine — see engine/tests/ana_corpus_runs_v2.rs — the engine is
-# lenient where the schema is strict). Slated for the subscript/null stage:
-#   - Vector_Math: a nested `if`/`and` sub-expression shape the schema rejects.
-#   - Comparing_retirement_account_types: `index` into an array containing `null()`.
-#   - iamamr_amr_food_template: an empty-`elements` array literal (0-value table).
-EXPECTED_INVALID = {
-    "Vector_Math.ana",
-    "Comparing_retirement_account_types.ana",
-    "iamamr_amr_food_template.ana",
-}
+# Empty: every fixture validates against wasim-schema-v2.json. This previously
+# pinned three models that emit the nullary `null()` call (and one 0-value table);
+# the v2 schema's `call` node now allows exactly-zero args for `null` (and the
+# `array` node allows an empty `elements`), mirroring the v1 schema fix.
+EXPECTED_INVALID = set()
 
 _fails = []
 

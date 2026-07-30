@@ -898,8 +898,7 @@
               "type": "array",
               "items": {
                 "$ref": "#/$defs/ast_node"
-              },
-              "minItems": 1
+              }
             }
           },
           "required": [
@@ -907,7 +906,14 @@
             "fn",
             "args"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": { "properties": { "fn": { "const": "null" } }, "required": ["fn"] },
+              "then": { "properties": { "args": { "maxItems": 0 } } },
+              "else": { "properties": { "args": { "minItems": 1 } } }
+            }
+          ]
         },
         {
           "description": "Inline array constructor.",
@@ -919,8 +925,7 @@
               "type": "array",
               "items": {
                 "$ref": "#/$defs/ast_node"
-              },
-              "minItems": 1
+              }
             }
           },
           "required": [
