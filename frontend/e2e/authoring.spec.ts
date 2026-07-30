@@ -86,7 +86,8 @@ test('runs an optimization over an editable variable', async ({ page }) => {
   await page.getByRole('button', { name: 'Optimization', exact: true }).click()
 
   // Objective: pick the first real element; minimize its final value (deterministic model).
-  const objSelect = page.locator('select').first()
+  // Target by accessible name so the toolbar's lens picker (also a <select>) doesn't collide.
+  const objSelect = page.getByRole('combobox', { name: 'Element' })
   const opts = await objSelect.locator('option').evaluateAll(
     (o) => o.map((x) => (x as HTMLOptionElement).value).filter((v) => v))
   await objSelect.selectOption(opts[opts.length - 1])

@@ -15,11 +15,13 @@ export function Palette() {
   const lens = useActiveLens()
   const groups = lens.palette(PALETTE)
 
-  const insert = (key: string) => {
+  const insert = (key: string, label: string, lensRole?: string) => {
     const entry = PALETTE.find((p) => p.key === key)
     if (!entry) return
-    const name = entry.label
-    const el = entry.make(slugify(name), name, format)
+    const el = entry.make(slugify(label), label, format)
+    // Tag the element with its lens role so the lens round-trips (re-opening reconstructs the
+    // vocabulary rather than a raw graph). Engine-ignored; see WASIM_LENS_IMPLEMENTATION_PLAN.md.
+    if (lensRole) el.lens_role = lensRole
     // Place near the origin; the canvas persists positions in the view block.
     addNewElement(el, { x: 120, y: 120 })
   }
@@ -30,10 +32,10 @@ export function Palette() {
         <div key={g.label}>
           <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{g.label}</div>
           <div className="grid grid-cols-2 gap-1">
-            {g.entries.map((p) => (
+            {g.items.map((p) => (
               <button
-                key={p.key}
-                onClick={() => insert(p.key)}
+                key={`${p.key}:${p.label}`}
+                onClick={() => insert(p.key, p.label, p.lensRole)}
                 draggable
                 onDragStart={(e) => e.dataTransfer.setData('application/wasim-palette', p.key)}
                 className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] text-slate-600 hover:border-blue-300 hover:bg-blue-50"

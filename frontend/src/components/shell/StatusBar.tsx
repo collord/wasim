@@ -1,8 +1,10 @@
-import { useState } from 'react'
-import { useStore } from '../../store'
+import { useMemo, useState } from 'react'
+import { useStore, useActiveLens } from '../../store'
 
-/** Status bar + expandable issues panel (spec §8). Fed entirely by the engine's validation
- *  round-trip — the FE never re-derives schema truth. Clicking an issue jumps to its element. */
+/** Status bar + expandable issues panel (spec §8). Fed by the engine's validation round-trip
+ *  (the FE never re-derives schema truth) *plus* the active lens's author-time invariants — the
+ *  lens's governance warnings (e.g. stock-flow consistency) are merged in but never gate the run.
+ *  Clicking an issue jumps to its element. */
 export function StatusBar() {
   const issues = useStore((s) => s.issues)
   const valid = useStore((s) => s.valid)
@@ -13,14 +15,26 @@ export function StatusBar() {
   const dirty = useStore((s) => s.dirty)
   const [open, setOpen] = useState(false)
 
-  const errors = issues.filter((i) => i.severity === 'error')
-  const warnings = issues.filter((i) => i.severity === 'warning')
+  // Active lens invariants → warnings, computed over the engine summary + canonical doc. Memoized
+  // so the derived array keeps a stable reference (avoids the useSyncExternalStore churn a fresh
+  // array in a selector would cause).
+  const lens = useActiveLens()
+  const summary = useStore((s) => s.modelSummary)
+  const doc = useStore((s) => s.doc)
+  const lensIssues = useMemo(
+    () => (lens.invariants && summary && doc ? lens.invariants(summary, doc) : []),
+    [lens, summary, doc],
+  )
+  const issuesAll = useMemo(() => [...issues, ...lensIssues], [issues, lensIssues])
+
+  const errors = issuesAll.filter((i) => i.severity === 'error')
+  const warnings = issuesAll.filter((i) => i.severity === 'warning')
 
   return (
     <div className="border-t border-slate-200 bg-white text-xs">
-      {open && issues.length > 0 && (
+      {open && issuesAll.length > 0 && (
         <div className="max-h-48 overflow-auto border-b border-slate-100">
-          {issues.map((iss, i) => (
+          {issuesAll.map((iss, i) => (
             <button
               key={i}
               onClick={() => iss.element_id && select(iss.element_id)}
@@ -51,7 +65,7 @@ export function StatusBar() {
         <span className="text-slate-300">|</span>
         <span className="text-slate-500">{count} elems</span>
         <span className="ml-auto text-slate-400">{dirty ? 'unsaved changes' : 'saved'}</span>
-        {issues.length > 0 && (
+        {issuesAll.length > 0 && (
           <button onClick={() => setOpen((o) => !o)} className="text-slate-400 hover:text-slate-600">
             {open ? 'hide issues ▾' : 'show issues ▸'}
           </button>

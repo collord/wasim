@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { useStore, type Mode } from '../../store'
+import { useStore, useActiveLens, type Mode } from '../../store'
 import { SettingsDialog } from './SettingsDialog'
+import { listLenses } from '../../lenses/registry'
+import type { LensId } from '../../lenses/types'
 
 /** Top toolbar (spec §1.1): file ops, run, undo/redo, and the Edit│Result mode switch. */
 export function Toolbar() {
@@ -17,6 +19,9 @@ export function Toolbar() {
   const setMode = useStore((s) => s.setMode)
   const filename = useStore((s) => s.modelFilename)
   const dirty = useStore((s) => s.dirty)
+  const hasDoc = useStore((s) => !!s.doc)
+  const activeLens = useActiveLens()
+  const setLens = useStore((s) => s.setLens)
 
   const [showSettings, setShowSettings] = useState(false)
 
@@ -51,6 +56,21 @@ export function Toolbar() {
       </div>
 
       <button className={btn} onClick={() => setShowSettings(true)}>Settings…</button>
+
+      {hasDoc && (
+        <label className="flex items-center gap-1 text-[11px] text-slate-500" title="Authoring lens — reprograms the palette and validation for a domain">
+          <span className="text-slate-400">Lens</span>
+          <select
+            value={activeLens.id}
+            onChange={(e) => setLens(e.target.value as LensId)}
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-medium text-slate-700"
+          >
+            {listLenses().map((l) => (
+              <option key={l.id} value={l.id} title={l.tagline}>{l.label}</option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <button
         onClick={run}
