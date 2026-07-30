@@ -1,6 +1,7 @@
 import type { LensId, LensSpec } from './types'
 import { groupInOrder } from './types'
 import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
+import { RELIABILITY_TEMPLATES } from './reliabilityTemplates'
 import { mutateElement } from '../model/edits'
 import type { ModelDoc } from '../model/schema'
 import type { ModelSummary } from '../types'
@@ -114,7 +115,48 @@ function wireFlow(doc: ModelDoc, stockId: string, field: 'inflows' | 'outflows',
   })
 }
 
-const REGISTERED: LensSpec[] = [stockFlowLens, generalLens]
+/** Reliability author-time checks: a non-empty model that models no components can't yield a
+ *  reliability answer. (The redundancy/gate well-formedness checks arrive with the gate editor.) */
+function reliabilityInvariants(_summary: ModelSummary, doc: ModelDoc): Issue[] {
+  const issues: Issue[] = []
+  const hasComponent = doc.elements.some((e) => e.lens_role === 'component')
+  if (doc.elements.length > 0 && !hasComponent) {
+    issues.push({
+      severity: 'warning',
+      message: 'No components — add a Component (failure FSM) to model reliability.',
+    })
+  }
+  return issues
+}
+
+/** Reliability / RBD: repairable components (failure FSMs) and the states that drive them. Reuses
+ *  the engine's Event primitive and the existing EventEditor wholesale — the lens is a relabel +
+ *  glyph + template over already-built authoring (thesis: the second lens is a spec file). */
+const reliabilityLens: LensSpec = {
+  id: 'reliability',
+  label: 'Reliability',
+  tagline: 'Repairable components and failure FSMs — simulate-first RAM, not static block arithmetic.',
+  palette: () => [
+    { label: 'Components', items: [{ key: 'event', label: 'Component', iconType: 'event', lensRole: 'component' }] },
+    { label: 'State', items: [{ key: 'stock', label: 'Damage state', iconType: 'accumulator', lensRole: 'state' }] },
+    {
+      label: 'Inputs',
+      items: [
+        { key: 'constant', label: 'Parameter', iconType: 'constant', lensRole: 'parameter' },
+        { key: 'stochastic', label: 'Uncertain input', iconType: 'random_variable', lensRole: 'parameter' },
+      ],
+    },
+  ],
+  invariants: reliabilityInvariants,
+  roleLabels: { component: 'Component', state: 'Damage state', parameter: 'Parameter' },
+  glyphOf: (role) => (role === 'component' || role === 'state' ? 'box' : 'default'),
+  templates: RELIABILITY_TEMPLATES,
+  // Open results on a component's status trajectory (0 = operating, 1 = failed).
+  preferredResultId: (doc, outputIds) =>
+    doc.elements.find((e) => e.lens_role === 'component' && outputIds.includes(e.id))?.id ?? null,
+}
+
+const REGISTERED: LensSpec[] = [stockFlowLens, reliabilityLens, generalLens]
 
 export const LENSES: Partial<Record<LensId, LensSpec>> = Object.fromEntries(
   REGISTERED.map((l) => [l.id, l]),

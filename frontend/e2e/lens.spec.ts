@@ -138,3 +138,47 @@ test('stock-flow templates load clean and run to a stock trajectory', async ({ p
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+/** Part D: the reliability lens reprograms the palette to components/state, reuses the Event FSM
+ *  authoring, and its template runs to a component status trajectory — proving the "second lens is
+ *  a spec file" claim over already-built primitives. */
+test('reliability lens reprograms authoring and its template runs', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.addInitScript(() => { delete (window as unknown as Record<string, unknown>).showSaveFilePicker })
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+
+  // Switch to the reliability lens → the palette shows Components, not the stock-flow vocabulary.
+  await page.getByRole('combobox', { name: 'Lens' }).selectOption('reliability')
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await expect(page.getByText('Components', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Component$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Stock$/ })).toHaveCount(0)
+
+  // Load the template → a valid, runnable reliability model.
+  await page.getByRole('button', { name: /Repairable component/ }).click()
+  await expect(page.getByText('3 elems').first()).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('● valid')).toBeVisible()
+
+  // Run → Results open on the component's status trajectory.
+  await page.getByRole('button', { name: /Run/ }).click()
+  await expect(page.getByRole('button', { name: 'Results' })).toBeVisible({ timeout: 20000 })
+  await expect(page.getByRole('button', { name: /Component/ }).first()).toBeVisible()
+
+  // Round-trip: the lens + the component role survive save.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Save', exact: true }).click(),
+  ])
+  const fs = await import('node:fs/promises')
+  const text = await fs.readFile((await download.path()), 'utf8')
+  expect(text).toContain('"lens": "reliability"')
+  expect(text).toContain('"lens_role": "component"')
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})
