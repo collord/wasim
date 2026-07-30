@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dagre from '@dagrejs/dagre'
-import { useStore, useElements, usePositions } from '../../store'
+import { useStore, useElements, usePositions, useActiveLens } from '../../store'
 import type { ElementSummary } from '../../types'
+import type { NodeShape } from '../../lenses/types'
 import { iconTypeOf, TYPE_BG, TYPE_STROKE, TypeIcon } from '../../ui/typeIcons'
 import { PALETTE, slugify } from '../../model/edits'
 import { unitLabel } from '../../display'
@@ -36,6 +37,15 @@ export function EditableCanvas() {
   const addNewElement = useStore((s) => s.addNewElement)
   const duplicate = useStore((s) => s.duplicateElement)
   const format = useStore((s) => s.format)
+  const lens = useActiveLens()
+  const docEls = useStore((s) => s.doc?.elements)
+
+  // Map each element to its lens glyph shape (via lens_role on the canonical doc; the engine
+  // summary doesn't carry the engine-ignored tag). Stock → box, auxiliary → circle, etc.
+  const shapeOf = useMemo(() => {
+    const roles = new Map((docEls ?? []).map((e) => [e.id, e.lens_role]))
+    return (id: string): NodeShape => lens.glyphOf?.(roles.get(id)) ?? 'default'
+  }, [docEls, lens])
 
   const svgRef = useRef<SVGSVGElement>(null)
   const [view, setView] = useState({ tx: 0, ty: 0, scale: 1 })
@@ -185,14 +195,20 @@ export function EditableCanvas() {
             const sel = selectedIds.includes(e.id)
             const unit = unitLabel(e)
             const x = p.x - NODE_W / 2, y = p.y - NODE_H / 2
+            // Forrester glyph per lens role: a stock is a squared, filled box (an accumulator); an
+            // auxiliary is a pill (circle-like). Others render as the default rounded node.
+            const shape = shapeOf(e.id)
+            const rx = shape === 'box' ? 3 : shape === 'circle' ? NODE_H / 2 : 7
+            const nodeStroke = sel ? 2.5 : shape === 'box' ? 2.25 : 1.5
+            const nodeFill = shape === 'box' ? '#eff6ff' : 'white'
             return (
-              <g key={e.id} transform={`translate(${x},${y})`}
+              <g key={e.id} data-shape={shape} transform={`translate(${x},${y})`}
                 onMouseDown={(ev) => onNodeMouseDown(ev, e.id)} onClick={(ev) => onNodeClick(ev, e.id)}
                 style={{ cursor: 'pointer' }}>
-                <rect x="1" y="2" width={NODE_W} height={NODE_H} rx="7" fill="rgba(0,0,0,0.06)" />
-                <rect width={NODE_W} height={NODE_H} rx="7" fill="white"
-                  stroke={sel ? '#2563eb' : color} strokeWidth={sel ? 2.5 : 1.5} />
-                <rect width="36" height={NODE_H} rx="7" fill={bg} />
+                <rect x="1" y="2" width={NODE_W} height={NODE_H} rx={rx} fill="rgba(0,0,0,0.06)" />
+                <rect width={NODE_W} height={NODE_H} rx={rx} fill={nodeFill}
+                  stroke={sel ? '#2563eb' : color} strokeWidth={nodeStroke} />
+                <rect width="36" height={NODE_H} rx={rx} fill={bg} />
                 <rect x="29" width="7" height={NODE_H} fill={bg} />
                 <line x1="36" y1="2" x2="36" y2={NODE_H - 2} stroke={color} strokeWidth="0.75" strokeOpacity="0.4" />
                 <g transform={`translate(8,${(NODE_H - 20) / 2})`} style={{ color }}><TypeIcon type={t} /></g>

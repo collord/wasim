@@ -77,6 +77,8 @@ const stockFlowLens: LensSpec = {
   ],
   invariants: stockFlowInvariants,
   roleLabels: { stock: 'Stock', flow: 'Flow', auxiliary: 'Auxiliary' },
+  glyphOf: (role) =>
+    role === 'stock' ? 'box' : role === 'auxiliary' ? 'circle' : role === 'flow' ? 'valve' : 'default',
 }
 
 const REGISTERED: LensSpec[] = [stockFlowLens, generalLens]

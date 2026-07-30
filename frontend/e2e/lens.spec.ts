@@ -32,11 +32,17 @@ test('stock-flow lens reprograms palette + validation and round-trips', async ({
   await page.getByText(/show issues/).click()
   await expect(page.getByText(/has no inflows or outflows/)).toBeVisible()
 
+  // Canvas glyph (A5): the stock renders as a Forrester box, not the default node.
+  await expect(page.locator('g[data-shape="box"]').first()).toBeAttached()
+
   // Inspector relabel (A4): add a Constant tagged as an auxiliary → the inspector header reads its
   // lens role "Auxiliary" (not its engine kind "Constant"), driven by lens_role.
   await page.getByRole('button', { name: 'Palette' }).click()
   await page.getByRole('button', { name: /^Constant$/ }).first().click()
   await expect(page.getByTestId('inspector-role')).toHaveText('Auxiliary')
+
+  // Canvas glyph (A5): the auxiliary renders as a pill (circle).
+  await expect(page.locator('g[data-shape="circle"]').first()).toBeAttached()
 
   // Round-trip: saving emits JSON carrying the lens tag and the element's lens_role.
   const [download] = await Promise.all([

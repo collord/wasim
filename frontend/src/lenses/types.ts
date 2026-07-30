@@ -14,6 +14,10 @@ import type { Issue } from '../worker/protocol'
  */
 export type LensId = 'general' | 'stock-flow' | 'reliability' | 'decision'
 
+/** Canvas glyph shape for an element, chosen by its lens role (Forrester notation: a stock is a
+ *  box, an auxiliary a circle, a flow a valve). `default` is the standard node. */
+export type NodeShape = 'box' | 'circle' | 'valve' | 'default'
+
 /** One insertable palette control, in the active lens's vocabulary. `key` selects which
  *  `PALETTE` entry's `make()` scaffolds the element; `lensRole` is stamped onto the created
  *  element's `lens_role` so the lens round-trips (re-opening reconstructs the vocabulary). */
@@ -50,7 +54,12 @@ export interface LensSpec {
    * "Expression"). Omitted by lenses without roles.
    */
   roleLabels?: Record<string, string>
-  // Phase A5 / Parts B & D will extend this: glyphOf, resultPreset, templates.
+  /**
+   * Canvas glyph shape for an element, chosen by its `lens_role` — so a stock reads as a box, an
+   * auxiliary as a circle, etc. Omitted lenses (and unmapped roles) render the default node.
+   */
+  glyphOf?: (role: string | null | undefined) => NodeShape
+  // Parts B & D will further extend this: resultPreset, templates, the draw-flow/redundancy gestures.
 }
 
 /** Group palette entries by their `group`, preserving first-appearance order — the identity
