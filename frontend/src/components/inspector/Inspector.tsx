@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useStore, useElements, useContainers } from '../../store'
+import { useStore, useElements, useContainers, useActiveLens } from '../../store'
 import type { ElementSummary } from '../../types'
 import type { FlatElement } from '../../model/schema'
 import { kindLabel } from '../../model/schema'
@@ -14,6 +14,7 @@ export function Inspector() {
   const selectedId = useStore((s) => s.selectedId)
   const summary = useStore((s) => s.modelSummary)
   const doc = useStore((s) => s.doc)
+  const lens = useActiveLens()
 
   const el = useMemo(() => summary?.elements.find((e) => e.id === selectedId) ?? null, [summary, selectedId])
   const flat = useMemo(() => doc?.elements.find((e) => e.id === selectedId) ?? null, [doc, selectedId])
@@ -33,7 +34,15 @@ export function Inspector() {
         <TypeBadge type={iconTypeOf(el)} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-slate-800">{el.name}</div>
-          <div className="truncate text-[10px] text-slate-400">{kindLabel(flat)}</div>
+          {/* Prefer the active lens's domain label for this element's role (e.g. a flow reads
+              "Flow", not "Expression"); fall back to the raw engine kind. */}
+          {flat.lens_role && lens.roleLabels?.[flat.lens_role] ? (
+            <div data-testid="inspector-role" className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+              {lens.roleLabels[flat.lens_role]}
+            </div>
+          ) : (
+            <div data-testid="inspector-role" className="truncate text-[10px] text-slate-400">{kindLabel(flat)}</div>
+          )}
         </div>
       </div>
 

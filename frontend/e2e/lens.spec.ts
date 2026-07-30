@@ -32,6 +32,12 @@ test('stock-flow lens reprograms palette + validation and round-trips', async ({
   await page.getByText(/show issues/).click()
   await expect(page.getByText(/has no inflows or outflows/)).toBeVisible()
 
+  // Inspector relabel (A4): add a Constant tagged as an auxiliary → the inspector header reads its
+  // lens role "Auxiliary" (not its engine kind "Constant"), driven by lens_role.
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await page.getByRole('button', { name: /^Constant$/ }).first().click()
+  await expect(page.getByTestId('inspector-role')).toHaveText('Auxiliary')
+
   // Round-trip: saving emits JSON carrying the lens tag and the element's lens_role.
   const [download] = await Promise.all([
     page.waitForEvent('download'),

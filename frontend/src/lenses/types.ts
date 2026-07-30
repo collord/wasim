@@ -44,7 +44,13 @@ export interface LensSpec {
    * Omitted by lenses with no domain invariants (e.g. general).
    */
   invariants?: (summary: ModelSummary, doc: ModelDoc) => Issue[]
-  // Phase A4–A5 / Parts B & D will extend this: inspectorLabels, glyphOf, resultPreset, templates.
+  /**
+   * Domain label for an element's `lens_role`, shown in the inspector header so the same engine
+   * element reads as its domain noun (e.g. an `expression` tagged `flow` reads as "Flow", not
+   * "Expression"). Omitted by lenses without roles.
+   */
+  roleLabels?: Record<string, string>
+  // Phase A5 / Parts B & D will extend this: glyphOf, resultPreset, templates.
 }
 
 /** Group palette entries by their `group`, preserving first-appearance order — the identity
