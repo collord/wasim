@@ -5,9 +5,11 @@
 document is the *how to build it*.
 
 **Scope (agreed):** the reusable **LensSpec machinery** with **stock-and-flow as the first
-concrete lens** (the thesis's beachhead), plus the engine-side **value-of-information (VOI)
-reduction** scoped as its own workplan for the **Decision/VOI follow-on lens**. The frontend
-Decision/VOI lens stays mockup-only until the VOI engine op lands.
+concrete lens** (the thesis's beachhead); the **reliability / RBD lens** as the second concrete
+lens (Part D) — which needs no new engine work and is the cleanest "a lens is a spec file, not a
+rewrite" proof; plus the engine-side **value-of-information (VOI) reduction** (Part C) scoped as
+its own workplan for the **Decision/VOI follow-on lens**. The frontend Decision/VOI lens stays
+mockup-only until the VOI engine op lands.
 
 > **Grounding note.** Every claim below — frontend *and* engine — is cited to a file read
 > directly (`engine/src/` included). Nothing in this plan is reasoned-but-unverified.
@@ -48,6 +50,9 @@ The goal of this plan: promote "which group is visible" into a first-class, **da
 | `set_variable` sets only Fixed **scalars** and **rejects Sample nodes** | `engine/src/eval_harness.rs:26,33` |
 | Engine parse ignores unknown fields (**no `deny_unknown_fields` anywhere**); `RawElement` is all `#[serde(default)]` | `engine/src/v2_parse.rs:71` + repo-wide grep |
 | **No VOI / decision / EVPI anywhere in the engine** — net-new work | repo-wide grep of `engine/src/` |
+| **Reliability FSM is native + already authorable** — `Event` + `FailureProcess` (basis: Condition/OperatingTime/Demand/CapacityDemand/Event/ExposureTime), `RepairSpec` (policy: None/Repair/Replace/PreventiveMaintenance) | `engine/src/model_v2.rs:396,440,448,463`; FE `EventEditor` per `FRONTEND_ASSESSMENT_2026-07.md` |
+| **Series / parallel / k-of-n redundancy is native** — `gate` primitive `GateNode::{And, Or, Not, NVote{threshold,children}}` (currently raw-JSON-only in the FE) | `engine/src/model_v2.rs:480`, `v2_parse.rs:535,728` |
+| **Availability / MTBF / MTTR are *derived in-model*, not native reductions** — computed via `masked_mean`/`masked_count` + `results_spec` CCDF/exceedance/CTE; the proven RAM arc does exactly this | `STAGE3_FLEET_SCOPE.md:64`, `STAGE1_RAM_DEMO.md:37`, `engine/src/results_spec.rs:142` |
 
 **Consequence:** the machinery is a *selection layer* over existing surfaces, not a rewrite.
 
@@ -193,16 +198,71 @@ explicit "compute VOI" action (never on the reconcile path).
 
 ---
 
+## Part D — Reliability / RBD lens (second concrete lens; **no new engine work**)
+
+This is the thesis's "prove the pattern round-trips, then the second lens is incremental" claim,
+made concrete. Unlike Decision/VOI, reliability needs **zero engine additions** — every semantic
+is already present:
+
+- **Failure/repair FSM** is native *and already authorable* — the `Event` primitive with
+  `FailureProcess` (`model_v2.rs:396,440`) and the FE `EventEditor` (trigger/basis/repair
+  pickers) ship today. The lens **relabels** it into RAM language (time-to-failure, repair
+  policy, redundancy role) via `inspectorLabels`.
+- **Series / parallel / k-of-n redundancy** is native via the `gate` primitive —
+  `GateNode::{And, Or, Not, NVote{threshold, children}}` (`model_v2.rs:480`). `And` = series,
+  `Or` = parallel, `NVote{threshold=k}` = k-of-n. This is a **real engine primitive**, not an
+  authored expression — the mockup's redundancy blocks map straight onto it.
+- **Availability / MTBF / MTTR** are *derived in-model* (not native reductions): availability =
+  `masked_mean` of per-component operating status; MTBF/MTTR from event timing; tail metrics like
+  *P(availability < X% for > Y days)* via `results_spec` CCDF/exceedance (`results_spec.rs:142`).
+  The proven RAM arc computes exactly these (`STAGE3_FLEET_SCOPE.md:64`, `STAGE1_RAM_DEMO.md:37`).
+
+**A `reliabilityLens: LensSpec` plus the pieces that can't be pure config:**
+
+- **Palette:** Components (Component, Series block), Reliability (Failure mode, Repair policy,
+  k-of-n / redundancy gate) — relabels of the existing `event`, `gate`, and `stock` (accumulated
+  damage) palette entries.
+- **RBD glyphs:** component blocks, parallel branches, redundancy — the gate `And`/`Or`/`NVote`
+  render as series/parallel/k-of-n topology (mockup already shows the target visual).
+- **The one real FE gap — a structured gate/redundancy editor.** The `gate` primitive is
+  engine-complete but **raw-JSON-only in the FE today** (`FRONTEND_ASSESSMENT_2026-07.md` item 1
+  lists GateLogic/Gate as lacking a structured editor). Building an And/Or/NVote redundancy
+  editor is the reliability analog of stock-flow's draw-flow gesture — the lens's one genuinely
+  new authoring surface. Everything else is relabel + glyph.
+- **Invariants (FE):** every component has a failure mode; every gate child resolves to a real
+  element; redundancy well-formed (`NVote.threshold ≤ children.len()`).
+- **Result preset:** availability / MTBF / MTTR readouts + a failure-count histogram + a tail
+  card (P(avail < X%)), all riding `results_spec` CCDF.
+- **Templates:** single repairable component; k-of-n redundant system; the **single-truck RAM
+  model** (already proven end-to-end on the current engine — `STAGE1_RAM_DEMO.md`).
+
+**Lean into the differentiator (don't fake static RBD).** WaSim reliability is **simulate-first**
+— event FSMs + damage stocks + Monte Carlo — not the static availability arithmetic of classical
+RBD tools. The fleet-availability *feedback loop* (`HAUL_FLEET_MODEL_SPEC.md:64`) is a hybrid
+SD+reliability structure the RBD incumbents structurally cannot express. The lens should present
+familiar RBD notation but compute by simulation (thesis §5–6). That is the wedge against GoldSim,
+not a reimplementation of it.
+
+**Optional, deferrable engine nicety:** native `availability`/`mtbf`/`mttr` reductions in
+`results_spec` (so a template doesn't have to wire `masked_mean` by hand). Small, additive, and
+explicitly *not required* to ship the lens — the reliability counterpart to VOI, but a
+convenience rather than a capability gap.
+
+---
+
 ## Sequencing
 
 1. **A1–A3, A8** — LensSpec + store `activeLens` + `view.lens`/`lens_role` + palette driven by
    spec. Ships as a no-op refactor (general lens = today). *Smallest safe first PR.*
 2. **A4–A7** — inspector relabel, glyph routing, lens invariants → status bar, lens picker.
 3. **Part B** — stock-and-flow lens end to end (the product-defining milestone).
-4. **Part C** — `resolve_uncertainty` primitive → `voi_v2.rs` reduction (`cargo test` against a
+4. **Part D** — reliability lens: `LensSpec` relabel + RBD glyphs + the structured gate/redundancy
+   editor + RAM templates. **No engine work**, so it can land right after the machinery proves
+   out — it's the cheapest way to prove "second lens = spec file" and open the RAM vertical.
+5. **Part C** — `resolve_uncertainty` primitive → `voi_v2.rs` reduction (`cargo test` against a
    hand-computed EVPPI) → `voi_json` bridge + `run_voi` → flip the real Decision lens on. The
    engine confirmation is already done (Part C is fully cited), so this starts at code, not a
-   spike.
+   spike. Sequenced last because it's the only part with a hard engine dependency.
 
 ---
 
@@ -213,6 +273,10 @@ explicit "compute VOI" action (never on the reconcile path).
 - **Stock-flow (e2e):** build bathtub (stock + inflow) → SFC invariant fires on an unbalanced
   flow, then clears when sourced; **save → reopen round-trips the lens** (the acceptance test);
   run → Results opens on the trajectory fan chart.
+- **Reliability (e2e):** open the proven single-truck RAM model → it enters the reliability lens
+  (tagged `view.lens`), the FSM inspector reads in RAM language, availability/MTBF readouts
+  render; build a 1-of-2 redundancy gate in the structured editor → the `NVote.threshold ≤
+  children` invariant fires when misconfigured, clears when valid; save → reopen round-trips.
 - **VOI (engine):** `cargo test` in `engine/` alongside the existing `solve_tests`
   (`optimize_v2.rs:425`) — a golden 1-decision / 1-uncertainty model (e.g. newsvendor) whose
   EVPPI is analytically known; assert `evppi ≥ 0` (a hard invariant — information never hurts)
@@ -236,5 +300,6 @@ explicit "compute VOI" action (never on the reconcile path).
 ---
 
 *Provenance: all facts — frontend and engine — verified by direct read of the cited files
-(`engine/src/optimize_v2.rs`, `eval_harness.rs`, `model.rs`, `wasm.rs`, `v2_parse.rs`, and the
-`frontend/src/` surfaces). No claim in this plan is unverified.*
+(`engine/src/optimize_v2.rs`, `eval_harness.rs`, `model.rs`, `model_v2.rs`, `wasm.rs`,
+`v2_parse.rs`, `results_spec.rs`, the RAM/fleet scope docs, and the `frontend/src/` surfaces).
+No claim in this plan is unverified.*
