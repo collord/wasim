@@ -9,10 +9,8 @@ concrete lens** (the thesis's beachhead), plus the engine-side **value-of-inform
 reduction** scoped as its own workplan for the **Decision/VOI follow-on lens**. The frontend
 Decision/VOI lens stays mockup-only until the VOI engine op lands.
 
-> **Grounding note.** Every frontend claim below is cited to a file I read directly. The
-> engine-internal specifics in Part C (exact `optimize_v2` location and signature, sweep
-> plumbing) are reasoned from the worker protocol and the optimization UI, and are flagged
-> **[confirm in `engine/src/`]** — verify them as step 0 of Part C rather than trusting this doc.
+> **Grounding note.** Every claim below — frontend *and* engine — is cited to a file read
+> directly (`engine/src/` included). Nothing in this plan is reasoned-but-unverified.
 
 ---
 
@@ -42,9 +40,14 @@ The goal of this plan: promote "which group is visible" into a first-class, **da
 | Palette renders one section per group, all at once | `components/browser/Palette.tsx:11` |
 | Inspector is section-based (Info/Definition/Output/Save), switches on element kind | `components/inspector/Inspector.tsx:41` |
 | Status bar is fed **entirely** by the engine's validation `issues` | `components/shell/StatusBar.tsx:16` |
-| Optimization already exists (`optimize_v2`, Box's complex) but the spec is **transient tab state, never persisted** | `types.ts:206`, `components/tabs/OptimizationTab.tsx:16-19`, `store.ts:496` `runOptimization` |
 | Range-sweep already exists (`SensitivitySpec` over `SweepVar[]`) | `types.ts:174` |
 | Reconcile round-trip: store → worker → summary + validation | `store.ts:419` `_scheduleReconcile`, `worker/protocol.ts:31` |
+| **Optimization is a real, persistable schema field** — `model.optimization: Option<OptimizationSpec>` (objective + bounded variables + constraints); the FE just doesn't *save* it (builds the spec transiently and injects it per run) | `engine/src/model.rs:151,204,212,246`; `engine/src/wasm.rs:182,186` `optimize_json` → `model.optimization = Some(spec)`; `types.ts:206` |
+| `optimize()` = Box's complex over `evaluate_point`; deterministic given seed | `engine/src/optimize_v2.rs:454` (`optimize`), `:233` (`solve`) |
+| `evaluate_point` exposes the objective's **per-realization `final_values` before reduction** — the primitive VOI needs | `engine/src/eval_harness.rs:66,80` |
+| `set_variable` sets only Fixed **scalars** and **rejects Sample nodes** | `engine/src/eval_harness.rs:26,33` |
+| Engine parse ignores unknown fields (**no `deny_unknown_fields` anywhere**); `RawElement` is all `#[serde(default)]` | `engine/src/v2_parse.rs:71` + repo-wide grep |
+| **No VOI / decision / EVPI anywhere in the engine** — net-new work | repo-wide grep of `engine/src/` |
 
 **Consequence:** the machinery is a *selection layer* over existing surfaces, not a rewrite.
 
@@ -107,10 +110,11 @@ Introduce a `frontend/src/lenses/` module and thread one new piece of store stat
 8. **Schema: additive `lens_role`.** Add an optional per-element `lens_role` string to
    `schema/wasim-schema-v2.json` (distinct from the existing stock-port `role` field, which is
    flow-accumulation semantics — do **not** reuse it). Document-level `view.lens` needs no schema
-   change (already inside the free-form `view` block). **[confirm]** the engine ignores unknown
-   element fields on parse — if it's strict, `lens_role` must live under `view` too. This is the
-   single acceptance-critical bit: the lens must *round-trip* (thesis §9), or the whole thesis
-   fails.
+   change (already inside the free-form `view` block). **Confirmed non-breaking:** the engine has
+   no `deny_unknown_fields` and `RawElement` is all `#[serde(default)]` (`engine/src/v2_parse.rs:71`),
+   so an unknown `lens_role` is silently ignored on parse and simply rides along in the FE's
+   canonical doc. This is the single acceptance-critical bit: the lens must *round-trip*
+   (thesis §9), or the whole thesis fails.
 
 ---
 
@@ -140,33 +144,52 @@ A `stockFlowLens: LensSpec` plus the pieces that can't be pure config:
 
 ## Part C — VOI engine reduction (workplan for the Decision/VOI follow-on)
 
-The Decision/VOI *authoring* is mostly reuse — `optimize_v2` already does the optimize half, and
-decisions/objective just need to become **persisted, authored nouns** (`lens_role: "decision"` /
-`"objective"`) instead of the transient `OptimizationSpec` (`types.ts:206`). The one genuinely
-new engine capability is **VOI itself**: the objective delta across information structures.
+The Decision/VOI *authoring* is almost entirely reuse. The engine already has everything except
+VOI itself:
+- `optimize()` (`optimize_v2.rs:454`) computes `max_d E_θ[obj(d,θ)]` — the optimal expected
+  objective — via Box's complex over `evaluate_point`.
+- `model.optimization` (`model.rs:151`) is a real, persistable field. So the Decision lens
+  authors it **directly**: decision variables become `optimization.variables` entries and the
+  objective becomes `optimization.objective`, all persisted (today the FE injects them per run
+  via `optimize_json`, `wasm.rs:186`, and discards them — the lens simply *keeps* them and tags
+  the referenced elements `lens_role: "decision" | "objective" | "chance"` for the
+  influence-diagram view).
 
-**Step 0 — [confirm in `engine/src/`]:** locate `optimize_v2` (Box's complex), its input struct
-(objective = element + statistic + direction; bounded decision variables), its WASM entry point
-(`engine/src/wasm.rs`, reached via `worker` message `run_optimization`, `protocol.ts:28`), and
-how a decision axis is swept (named-dimension array vs. an explicit sweep loop — see
-`WORKPLAN_SWEEP_COMPOSITION.md`). Confirm **no** VOI/EVPI/EVPPI exists today.
+The one genuinely new engine capability is **VOI**: the objective delta across information
+structures.
 
-**The new reduction (EVPI / EVPPI):**
-- **EVPI** (expected value of *perfect* information) `= E_θ[ max_d objective(d, θ) ] − max_d
-  E_θ[ objective(d, θ) ]` — the gain from choosing the decision *after* the uncertainty θ
-  resolves, minus the best decision *under* uncertainty. The second term is exactly what
-  `optimize_v2` computes today; the first term is an **outer expectation over θ of an inner
-  optimize**, i.e. a sweep over realizations/scenarios of the uncertainty with an inner
-  optimization each — buildable by composing the existing optimizer with the existing
-  realization/sweep machinery.
-- **EVPPI** (partial: information on one chosen uncertainty) = same shape, conditioning only on
-  the probed variable (the mockup's "VOI probe" tag marks which uncertainty).
-- **Deliverable:** a named engine op `value_of_information(spec)` returning
-  `{ evpi, per_probe: { element_id, evppi }[] }`, plus a `StudyResults` extension.
+**The new reduction (EVPI / EVPPI).** Definitions:
+- **EVPPI(X)** (partial info on one uncertainty X — what the mockup's "VOI probe" tag marks, and
+  the common case) `= E_X[ max_d E_{θ|X}[ obj(d, θ) ] ] − max_d E_θ[ obj(d, θ) ]`.
+- **EVPI** (perfect info on all uncertainties) = the same with the outer expectation over the
+  full joint θ and the inner objective deterministic.
+- The **second term is exactly `optimize()` today** (statistic = Mean). The **first term** is an
+  outer expectation over scenarios of X, each requiring an **inner `optimize()`** with X pinned.
 
-**Bridge + FE:** new worker message `run_voi` (`worker/protocol.ts`), store action `runVoi`
-mirroring `runOptimization` (`store.ts:496`), and only *then* flip the frontend Decision lens
-from mockup to real. Until then, the Decision tab in the mockup documents the target.
+**What must be built (small, composes existing pieces):**
+1. **`resolve_uncertainty(model, id, value)`** — a new sibling of `set_variable`
+   (`eval_harness.rs:26`) that pins a **Sample** node to a scenario value for the inner run
+   (temporarily treat it as fixed). `set_variable` explicitly rejects Sample nodes
+   (`eval_harness.rs:33`), which is *why* this is the one new primitive. Small and local.
+2. **Scenario draw for X** — sample K scenario values of X from its distribution using the
+   existing seeded ChaCha8 stream (reproducibility is preserved; reuse `sampling.rs`). K is a
+   bounded, logged parameter — **never silently truncate** (log the cap in results).
+3. **`value_of_information(model, probe_ids, config)`** in a new `engine/src/voi_v2.rs`:
+   baseline `= optimize(model)`; for each probe X, for each of K scenarios: `resolve_uncertainty`
+   then `optimize()` on the remaining problem, average the optimized objectives, subtract
+   baseline → `EVPPI(X)`. Returns `{ baseline_objective, per_probe: [{ element_id, evppi }] }`.
+   Reuses `optimize` and `evaluate_point` wholesale.
+4. **Schema:** additive `optimization.voi_probes: [element_id]` (optional; `#[serde(default)]`,
+   non-breaking like everything else).
+
+**Bridge + FE:** a `voi_json` WASM entry mirroring `optimize_json` (`wasm.rs:182`); a `run_voi`
+worker message (`worker/protocol.ts:28` pattern); a `runVoi` store action mirroring
+`runOptimization` (`store.ts:496`); and only *then* flip the frontend Decision lens from
+mockup to real. Until then, the Decision tab in the mockup documents the target.
+
+**Cost note.** EVPPI is `K × (optimize evaluations)` model runs — genuinely expensive. Ship it
+with an explicit K (e.g. 64) surfaced in the UI and logged in results, and gate it behind an
+explicit "compute VOI" action (never on the reconcile path).
 
 ---
 
@@ -176,8 +199,10 @@ from mockup to real. Until then, the Decision tab in the mockup documents the ta
    spec. Ships as a no-op refactor (general lens = today). *Smallest safe first PR.*
 2. **A4–A7** — inspector relabel, glyph routing, lens invariants → status bar, lens picker.
 3. **Part B** — stock-and-flow lens end to end (the product-defining milestone).
-4. **Part C step 0** — engine confirmation spike; then the VOI reduction + bridge; then the real
-   Decision lens.
+4. **Part C** — `resolve_uncertainty` primitive → `voi_v2.rs` reduction (`cargo test` against a
+   hand-computed EVPPI) → `voi_json` bridge + `run_voi` → flip the real Decision lens on. The
+   engine confirmation is already done (Part C is fully cited), so this starts at code, not a
+   spike.
 
 ---
 
@@ -188,9 +213,10 @@ from mockup to real. Until then, the Decision tab in the mockup documents the ta
 - **Stock-flow (e2e):** build bathtub (stock + inflow) → SFC invariant fires on an unbalanced
   flow, then clears when sourced; **save → reopen round-trips the lens** (the acceptance test);
   run → Results opens on the trajectory fan chart.
-- **VOI (engine):** `cargo test` in `engine/` — a golden 2-decision / 1-uncertainty model with a
-  hand-computed EVPI; assert `evpi ≥ 0` and matches to tolerance. Then a FE e2e that runs
-  `run_voi` and shows a non-negative number.
+- **VOI (engine):** `cargo test` in `engine/` alongside the existing `solve_tests`
+  (`optimize_v2.rs:425`) — a golden 1-decision / 1-uncertainty model (e.g. newsvendor) whose
+  EVPPI is analytically known; assert `evppi ≥ 0` (a hard invariant — information never hurts)
+  and matches to tolerance. Then a FE e2e that runs `run_voi` and shows a non-negative number.
 - **Non-breaking check:** load every existing `schema_examples*` model with no `view.lens` →
   opens in the general lens, unchanged; `lens_role` absent is tolerated everywhere.
 
@@ -200,15 +226,15 @@ from mockup to real. Until then, the Decision tab in the mockup documents the ta
 
 - **Lens leaks the substrate → thesis fails.** Mitigation: `lens_role` round-trip + the reopen
   test as a hard CI gate; the general lens is the only place substrate vocabulary appears.
-- **Schema strictness.** If the engine rejects unknown element fields, `lens_role` moves under
-  the `view` block (per-id map) — still round-trips, slightly less local. Resolve in A8 step 0.
 - **SFC-check cost on large models.** Run lens invariants on the same debounce as reconcile
   (`store.ts:22` `RECONCILE_DEBOUNCE_MS`), not per keystroke.
+- **VOI is genuinely expensive** (`K × optimize`). Keep it behind an explicit action, surface K,
+  and log any scenario cap — never let it near the reconcile path.
 - **VOI scope creep.** EVPI/EVPPI only; full decision-tree / sequential-information value is out
   of scope. Log any sampling/scenario caps explicitly (don't silently truncate).
 
 ---
 
-*Provenance: frontend facts verified by direct read of the cited files. Engine-internal
-specifics in Part C are reasoned from `worker/protocol.ts`, `OptimizationTab.tsx`, and
-`types.ts`; confirm against `engine/src/` before building Part C.*
+*Provenance: all facts — frontend and engine — verified by direct read of the cited files
+(`engine/src/optimize_v2.rs`, `eval_harness.rs`, `model.rs`, `wasm.rs`, `v2_parse.rs`, and the
+`frontend/src/` surfaces). No claim in this plan is unverified.*
