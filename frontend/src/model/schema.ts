@@ -77,6 +77,10 @@ export interface FlatElement {
   // bookkeeping the engine ignores but we round-trip
   inputs?: string[]
   save_results?: { time_history?: boolean; final_value?: boolean }
+  /** Lens round-trip tag (engine-ignored): which domain role this element plays in the active
+   *  lens (e.g. 'stock', 'flow', 'component', 'decision'), so re-opening reconstructs the lens
+   *  vocabulary rather than a raw graph. Distinct from the stock-port `role` field. */
+  lens_role?: string
   // catch-all so unknown fields survive edits
   [k: string]: unknown
 }
@@ -89,6 +93,9 @@ export interface ViewBlock {
   collapsed?: string[]
   /** Marks the document as authored/edited with this tool (provenance, §17.4). */
   authored?: boolean
+  /** Active authoring lens id (engine-ignored). Absent = the general lens. Drives which
+   *  vocabulary/glyphs/validation the tool projects; see `WASIM_LENS_IMPLEMENTATION_PLAN.md`. */
+  lens?: string
   [k: string]: unknown
 }
 

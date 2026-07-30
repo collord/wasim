@@ -1,14 +1,19 @@
 import { PALETTE } from '../../model/edits'
-import { useStore } from '../../store'
+import { useStore, useActiveLens } from '../../store'
 import { slugify } from '../../model/edits'
 import { TypeBadge } from '../../ui/typeIcons'
 
 /** The element palette (spec §3): each entry inserts a specific primitive with defaults.
- *  Entries the engine can't run are simply absent (no Script element, etc.). */
+ *  Entries the engine can't run are simply absent (no Script element, etc.).
+ *
+ *  The palette is projected through the active lens (`WASIM_LENS_IMPLEMENTATION_PLAN.md` Part A):
+ *  the lens chooses, groups, and orders which `PALETTE` entries show. The `general` lens returns
+ *  the full union in file order, so behavior is unchanged when no lens is selected. */
 export function Palette() {
   const addNewElement = useStore((s) => s.addNewElement)
   const format = useStore((s) => s.format)
-  const groups = [...new Set(PALETTE.map((p) => p.group))]
+  const lens = useActiveLens()
+  const groups = lens.palette(PALETTE)
 
   const insert = (key: string) => {
     const entry = PALETTE.find((p) => p.key === key)
@@ -22,10 +27,10 @@ export function Palette() {
   return (
     <div className="space-y-2 p-2">
       {groups.map((g) => (
-        <div key={g}>
-          <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{g}</div>
+        <div key={g.label}>
+          <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{g.label}</div>
           <div className="grid grid-cols-2 gap-1">
-            {PALETTE.filter((p) => p.group === g).map((p) => (
+            {g.entries.map((p) => (
               <button
                 key={p.key}
                 onClick={() => insert(p.key)}

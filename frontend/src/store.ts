@@ -14,9 +14,12 @@ import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
   addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId, replaceElement,
-  serializeModel, setContainer, setDimensions, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+  serializeModel, setContainer, setDimensions, setLens as setDocLens, setPosition, setPositions,
+  updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
+import { resolveLens } from './lenses/registry'
+import type { LensId } from './lenses/types'
 
 const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
 const RECONCILE_DEBOUNCE_MS = 250
@@ -129,6 +132,7 @@ interface Actions {
   reparent: (id: string, container: string | null) => void
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
+  setLens: (id: LensId) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
   editDimensions: (dimensions: ModelDoc['dimensions']) => void
   undo: () => void
@@ -386,6 +390,15 @@ export const useStore = create<State & Actions>((set, get) => ({
     get().applyEdit(setPositions(doc, positions), { reconcile: false })
   },
 
+  setLens(id) {
+    const doc = get().doc
+    if (!doc) return
+    // Lens is engine-ignored view state (like positions): persist it, no reconcile. The active
+    // lens is derived from `doc.view.lens` (see `useActiveLens`), so this is the single source of
+    // truth — undo/redo and load reflect it automatically.
+    get().applyEdit(setDocLens(doc, id), { reconcile: false })
+  },
+
   editSettings(patch) {
     const doc = get().doc
     if (!doc) return
@@ -627,6 +640,11 @@ const EMPTY_POSITIONS: Record<string, NodeView> = {}
 export const useElements = () => useStore((s) => s.modelSummary?.elements ?? EMPTY_ELEMENTS)
 export const useContainers = () => useStore((s) => s.doc?.containers ?? EMPTY_CONTAINERS)
 export const usePositions = () => useStore((s) => s.doc?.view?.positions ?? EMPTY_POSITIONS)
+
+// The active lens, derived from the document's `view.lens` tag (single source of truth — no
+// duplicated store state, so undo/redo/load stay in sync). `resolveLens` returns a stable
+// per-id reference, so this selector never churns.
+export const useActiveLens = () => useStore((s) => resolveLens(s.doc?.view?.lens))
 
 // Re-export so components can import the doc type location conveniently.
 export type { ModelDoc, FlatElement } from './model/schema'

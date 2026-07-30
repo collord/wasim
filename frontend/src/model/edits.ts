@@ -235,6 +235,14 @@ export function setPositions(doc: ModelDoc, positions: Record<string, NodeView>)
   return next
 }
 
+/** Set the active lens tag on the view block (engine-ignored, like positions). A pure view edit
+ *  — no reconcile needed. See `WASIM_LENS_IMPLEMENTATION_PLAN.md` Part A. */
+export function setLens(doc: ModelDoc, lens: string): ModelDoc {
+  const next = clone(doc)
+  ensureView(next).lens = lens
+  return next
+}
+
 // ── Simulation settings ──────────────────────────────────────────────────────────
 
 export function updateSettings(doc: ModelDoc, patch: Partial<ModelDoc['simulation_settings']>): ModelDoc {
