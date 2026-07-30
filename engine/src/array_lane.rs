@@ -227,6 +227,9 @@ enum Op {
     Un(UnFn),
     /// Pop 2, push a fixed-arity binary math builtin's result (atan2/mod/pv/annuity).
     Bin2(BinFn),
+    /// Pop digits then x, push `round(x, digits)` — the 2-arg `Round`. (The 1-arg
+    /// form stays `Un(Round)`.) Matches `eval_call`'s formula bit-for-bit.
+    RoundN,
     /// Pop `argc` (in emit order), push their min/max fold — variadic `min`/`max`.
     Fold(FoldFn, u32),
     /// Pop cond; if false (== 0.0) jump to the instruction index in the operand.
@@ -414,6 +417,13 @@ fn emit(
             let bad_arity = |name: &str| EngineError::InvalidModel(
                 format!("array lane: builtin '{name}' called with {} args", args.len()));
             match builtin_shape(func) {
+                // `Round` is variadic: 1 arg → round to integer (unary), 2 args →
+                // round to `digits` decimals. All other unary builtins are strictly 1-arg.
+                Some(BuiltinShape::Un(UnFn::Round)) if args.len() == 2 => {
+                    emit(&args[0], slot_of, rs_of, prog)?;
+                    emit(&args[1], slot_of, rs_of, prog)?;
+                    prog.push(Op::RoundN);
+                }
                 Some(BuiltinShape::Un(u)) => {
                     if args.len() != 1 { return Err(bad_arity("unary")); }
                     emit(&args[0], slot_of, rs_of, prog)?;
@@ -491,6 +501,13 @@ fn exec(prog: &[Op], cols: &[ColData], rstats: &[f64], r: usize, stack: &mut Vec
                 let y = stack.pop().unwrap();
                 let x = stack.pop().unwrap();
                 stack.push(apply_binary(*b, x, y));
+            }
+            Op::RoundN => {
+                // Same formula as eval_call's 2-arg Round: round x to `digits` decimals.
+                let digits = stack.pop().unwrap();
+                let x = stack.pop().unwrap();
+                let f = 10f64.powf(digits);
+                stack.push((x * f).round() / f);
             }
             Op::Fold(fk, argc) => {
                 // Fold over the top `argc` values in **emit order** (arg0 deepest), with the

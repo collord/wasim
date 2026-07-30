@@ -1,0 +1,1272 @@
+{ From user Lonnie, Model Comparing_retirement at 11-Apr-2018 12:48:16 PM, encoding="UTF-8" }
+SoftwareVersion 5.0.17
+
+
+{ System Variables with non-default values: }
+Time := 0..Years_to_retirement
+WindState Time: 2,347,256,720,350
+ValueState Time: 2,152,155,416,303,1,MIDM
+SampleSize := 1000
+TypeChecking := 1
+Checking := 1
+SaveOptions := 2
+SaveValues := 0
+AllWarnings := 0
+{!40400|Sys_PdfSmoothMethod := 1}
+{!40600|Att_PrevIndexValue AllProbabilityBands: [0,0.01,0.025,0.05,0.1,0.25,0.3333333333333333,0.5,0.6666666666666666,0.75,0.9,0.95,0.0975,0.99,1]}
+
+NodeInfo FormNode: 1,0,0,1,0,0,0,,0,0,,0,0
+
+
+AskAttribute Value,Variable,Yes
+{!40000|AskAttribute TableCellDefault,Variable,Yes}
+AskAttribute OnChange,Variable,Yes
+{!40700|AskAttribute CellFormatExpression,Variable,Yes}
+AskAttribute BalloonHelp,Text,Yes
+
+Model Comparing_retirement
+Title: Comparing retirement account types
+Description: You've decided to put away some money this year for retirement. Is it better to put it into a tax-advantaged retirement plan (i.e., IRA or 401(k)) or just a normal brokerage account? Will a Roth IRA make you more than a traditional IRA or 401(k) plan? This model helps you compare the financial return on investment between the different options for your specific situation. The best option for you is not going to be the same for everyone else, and hence a model can help.~
+~
+For most people, the long-term capital gains tax rate is much lower than the income tax rate. As your investments increase in value, you pay capital gains taxes in a brokerage account, but income tax on those gains in a traditional IRA or 401(k), so from that point of view it would seem that a standard brokerage account is better. But, you if you trade often in the brokerage account, you lose out on the compounding on the money paid in capital gains taxes. Hence, there is a trade-off, and that balance determines the relative merit for you.~
+~
+The future is uncertain. Market performance is hard to predict, tax laws could change, etc. This model is intended to help you gain insight. You should modify it to incorporate other important factors that impact you, and to change estimates to your own. ~
+~
+There are many non-financial considerations not considered by this model that may also make a particular type of retirement vehicle a better option for you. For example, the ability to access the savings before retirement without an early withdrawl penalty may be undesirable for some people who would not be able to restrain from spending it before retirement. Retirement accounts may be excluded or discounted when your children apply for college financial aid. If you are sued, a tax-advantaged retirement account may enjoy special protected status, etc. Your should consult other sources to understand those considerations and how they might apply to your situation.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Sat, Apr 7, 2018 1:37 PM
+SaveAuthor: Lonnie
+SaveDate: Wed, Apr 11, 2018 12:48 PM
+DefaultSize: 64,24
+DiagState: 2,16,15,1046,574,17
+WindState: 2,249,80,807,756
+DiagramColor: 65535,65535,65535
+FontStyle: Arial,15
+FileInfo: 0,Model Comparing_retirement,2,2,0,0,W:\Training\Blog\retirement savings comparison dev v2 saved in 5.0.ana
+
+FormNode Fo1523387663
+Title: Current tax rate
+Definition: 0
+NodeLocation: 208,280,1
+NodeSize: 168,16
+Original: Current_tax_rate
+
+FormNode Fo1523387664
+Title: Account type
+Definition: 0
+NodeLocation: 208,128,1
+NodeSize: 168,16
+NodeInfo: 1,,,,,,0,150,,,,,,0
+Original: Account_type
+
+FormNode Fo1523387665
+Title: Annual maintenance fee rate
+Definition: 0
+NodeLocation: 208,224,1
+NodeSize: 168,16
+Original: Annual_maintenance_f
+
+FormNode Fo1523387666
+Title: Annual market return
+Definition: 0
+NodeLocation: 640,64,1
+NodeSize: 184,16
+Original: Annual_market_return
+
+FormNode Fo1523387667
+Title: Initial investment
+Definition: 0
+NodeLocation: 208,64,1
+NodeSize: 168,16
+Original: Initial_investment
+
+FormNode Fo1523387722
+Title: Capital gains tax rate
+Definition: 0
+NodeLocation: 208,344,1
+NodeSize: 168,16
+Original: Capital_gains_tax_ra
+
+FormNode Fo1523387723
+Title: Trading turnover
+Definition: 0
+NodeLocation: 640,96,1
+NodeSize: 184,16
+Original: Trading_turnover
+
+FormNode Fo1523387743
+Title: Years to retirement
+Definition: 0
+NodeLocation: 208,96,1
+NodeSize: 168,16
+Original: Years_to_retirement
+
+FormNode Fo1523387744
+Title: Retirement tax rate
+Definition: 0
+NodeLocation: 208,312,1
+NodeSize: 168,16
+Original: Retirement_tax_rate
+
+FormNode Fo1523387811
+Title: Realized value at retirement
+Definition: 1
+NodeLocation: 672,208,1
+NodeSize: 216,16
+Original: Realized_value_at_re
+
+Module Model_details
+Title: Model details
+Description: The model logic, containing all the variables and computations for the model.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Details
+Date: Tue, Apr 10, 2018 3:45 PM
+NodeLocation: 720,520,1
+NodeSize: 64,24
+DiagState: 2,37,277,1122,450,17
+
+Decision Account_type
+{!40000|Att_PrevIndexValue: ['Brokerage','Roth IRA','Traditional IRA','401k']}
+Title: Account type
+Description: A brokerage account is a standard account with no special tax treatment. Post-tax wages are deposited, and gains are subject to capital gains taxes whenever investments are sold. No income tax is due on realized gains at retirement.~
+~
+A Roth IRA allows intermediate gains to compound without having to pay capital gains tax, and there is no income tax due at retirement when you withdraw the funds. You deposit post-tax wages -- i.e., you must pay income tax on the wages before depositing your initial investment.~
+~
+A traditional IRA and 401(k) work in essentially the same way as far as this analysis is concerned. Per-tax dollars are deposited, and intermediate gains compound without gain taxes, but you are responsible for income tax when funds are withdrawn during retirement. Maintenance fees charged by financial institutions are typically a bit higher for 401(k) plans.
+Definition: Choice(Self,0)
+NodeLocation: 1048,176,1
+NodeSize: 64,24
+NodeInfo: 1,1,0,1,1,1,0,,0,,0,,,
+WindState: 2,588,353,720,514
+Aliases: FormNode Fo1523387664, Alias Al1523470509, Alias Al1523470813
+Domain: ['Brokerage','Roth IRA','Traditional IRA','401k']
+{!40300|DomainExpr: Discrete('Brokerage','Roth IRA','Traditional IRA','401k',type:'text')}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+{!40200|Att_GraphSetupSlices: [3,1,Sys_LocalIndex('Probability'),5]}
+OnChange: ChangeNodeVisibility( Handle(Employer401kMatching),~
+	if SetContains(\Self,"401k") then "Visible" else "hidden",~
+	what: 'UserInputs');~
+ChangeNodeVisibility( Handle(Employer_matching_pe),~
+	if SetContains(\Self,"401k") and Employer401kMatching then 'Visible' else 'Hidden',~
+	what: 'UserInputs' )
+
+Variable Annual_maintenance_f
+Title: Annual maintenance fee rate
+Units: %
+Description: It is common for financial institutions to charge an annual maintenance fee on retirement accounts, as a percentage of account value. Fill this table in with the fees charged the financial institutions you are considering. ~
+~
+Annual maintenance fees can be significant, since they cut into your componding growth, and there are cases when they are as high as 2% for 401(k) accounts, so it is worth your time to look this up.
+Definition: DetermTable(Account_type)(0,5m,5m,0.01)
+NodeLocation: 104,80,1
+NodeSize: 56,32
+WindState: 2,451,451,720,350
+DefnState: 2,779,184,416,303,0,DFNM
+Aliases: FormNode Fo1523387665
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Decision Annual_market_return
+Title: Annual market return
+Units: %/year
+Description: Your estimates for the range of returns from the market for any given year. Low and High denote the 10% and 90% percentile estimates, and Mid is your median estimate -- the most typical percent return. A negative value means that the market loses value in a given year. The model assumes that the annual return has the same distribution for all years between now and your retirement, and that each year's return is statistically independent of the other years' returns. ~
+~
+From 1928 thru 2015, the 10-50-90 returns were -11%, 13.87% and 32.75%. The mean was 11.4%. You can adjust your estimates from these based on whether you think the average market returns have changed since then, whether your investment strategy will be more volatile or less volatile than the market as a whole, or whether you think the investments you are targeting behave differently.~
+~
+If you enter a formula that varies by time, then the distributions will vary with time, but will still be treated as statistically independent.
+Definition: Table(LMH)(-0.11,0.1387,0.3275)
+NodeLocation: 784,176,1
+NodeSize: 56,24
+WindState: 2,156,441,720,350
+DefnState: 2,1228,69,416,303,0,DFNM
+Aliases: FormNode Fo1523387666
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Index LMH
+{!40000|Att_PrevIndexValue: ['Low','Med','High']}
+Title: LMH
+Definition: ['Low','Med','High']
+NodeLocation: 1032,112,1
+NodeSize: 48,24
+
+Chance Market_return
+Title: Market return
+Units: %
+Description: The percent increase of the market (hence, of your investments) each year. Different investments will have different returns, so this represents an average return over the expected population of investments in your portfolio. This is an uncertain quantity, obviously, and hence is represented as a probability distribution.~
+~
+This assumes each year's distribution is statistically independent of other years' returns, and that all years follow the same distribution.
+Definition: Uncertain_on_LMH( 	Annual_market_return + Adjustment_to_market,~
+				pLow:10%,~
+				over: Time )
+NodeLocation: 784,272,1
+NodeSize: 48,24
+WindState: 2,63,219,720,350
+ValueState: 2,102,461,615,401,1,PDFP
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Cumulative_market_re
+Title: Cumulative market return
+Definition: CumProduct( 1+Market_return, Time ) - 1
+NodeLocation: 784,368,1
+NodeSize: 56,24
+ValueState: 2,842,33,825,531,1,CONF
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Index Gain_type
+{!40000|Att_PrevIndexValue: ['Short-term','Long-term','Dividends']}
+Title: Gain type
+Definition: ['Short-term','Long-term','Dividends']
+NodeLocation: 1040,48,1
+NodeSize: 48,24
+
+Variable Investment_total
+Title: Investment total
+Units: $
+Description: Total investment value at the beginning of each time period, including unrealized gains.~
+~
+Beware that this is NOT the true value for you (except for the Roth IRA case), since you haven't yet withdrawn the money. When you withdraw your funds, additional taxes will be due.
+Definition: Dynamic( Initial_investment_a, ~
+	Self[Time-1] + Appreciation[Time-1] - Sum( Capital_gain_tax[Time-1], Gain_type )  - Annual_fees[Time-1] + Dividends[Time-1] - Tax_on_dividends[Time-1] )
+NodeLocation: 424,168,1
+NodeSize: 64,24
+WindState: 2,119,315,947,436
+ValueState: 2,506,10,791,522,1,MEAN
+Aliases: Alias Al1523404270, FormNode Fo1523411079
+GraphSetup: Att_ContLineStyle Graph_Primary_Valdim:5
+ReformVal: [Time,Account_type]
+{!40000|Att_ResultSliceState: [Account_type,4,Time,1]}
+
+Variable Appreciation
+Title: Appreciation
+Units: $
+Description: The increase in account value during a given year due to market return, but before taxes and fees.
+Definition: Investment_total * Market_return
+NodeLocation: 600,272,1
+NodeSize: 64,24
+WindState: 2,315,468,720,350
+ValueState: 2,264,267,590,394,0,MIDM
+Aliases: Alias Al1523382761
+
+Variable Annual_fees
+Title: Annual fees
+Units: $
+Description: The total maintenance fees charged by your financial institution each year.
+Definition: Annual_maintenance_f * Investment_total
+NodeLocation: 272,80,1
+NodeSize: 64,24
+WindState: 2,246,514,720,350
+
+Module Intermediate_Capital
+Title: Intermediate Capital gains
+Description: Logic for tracking capital gains and capital gains taxes.~
+~
+A capital gain is the difference between the selling price and the purchase price of an investment. The model doesn't track individual investments. Instead, it tracks "unrealized gains", which is the increase in value in excess of the purchase price paid. Each time you sell an investment and purchase another, you "realize" the gain (hence decreasing unrealized gain).
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Tue, Apr 10, 2018 3:45 PM
+NodeLocation: 424,272,1
+NodeSize: 64,24
+DiagState: 2,56,45,842,434,17
+
+Constant Interm_profits_taxed
+Title: Intermediate profits taxed?
+Definition: DetermTable(Account_type)(Checkbox(1),Checkbox(0),Checkbox(0),Checkbox(0))
+NodeLocation: 496,320,1
+NodeSize: 56,32
+DefnState: 2,267,551,416,303,0,DFNM
+{!40000|TableCellDefault: Checkbox(0)}
+
+Decision Capital_gains_tax_ra
+Title: Capital gains tax rate
+Units: %
+Description: The tax rate you pay on capital gains in a non-tax-deferred account (i.e., a normal brokerage). Of course, there isn't a single capital gains rate. Most people have a 15% rate on long-term gains and a short-term rate equal to their income tax rate.~
+~
+This should include both state and federal capital gains rates.
+Definition: MultiTable(Gain_type)(Short_term_capital_g,Long_term_capital_ga,0)
+NodeLocation: 624,152,1
+NodeSize: 64,24
+WindState: 2,511,325,720,350
+DefnState: 2,349,533,416,303,0,DFNM
+Aliases: FormNode Fo1523387722
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Decision Trading_turnover
+Title: Trading turnover
+Units: %
+Description: The trading turnover characterizes how often you trade investments (sell one and buy another). If you intend to buy stock with your initial investment and then forget about it,  holding the same stock until retirement, then your turnover would be 0%. If you trade actively, so that you will never hold an investment for more than a year, than your turnover would be 100% (and in this case, would be 100% short-term, 0% long-term).~
+~
+More generally, you'll probably rebalance or otherwise trade some fraction of your portfolio each year. Some fraction of the investments sold will be held for less than a year (short-term), and some fraction will have been held for more than a year (long-term). So you should allocate a percentage to each time, so that the sum reflects the total turnover, and the relative amount reflects the balance between short and long term sales.~
+~
+This input impacts only the performance of a standard brokerage account, and doesn't alter the overall performance of IRAs or 401(k) accounts. So you should estimate your behavior for a standard brokerage (for example, you might be biased to hold investments long-term in a standard brokerage, but make more short-term trades in your retirement accounts -- if so, this should reflect your brokerage account behavior).
+Definition: 20%
+NodeLocation: 112,168,1
+NodeSize: 64,24
+WindState: 2,102,83,892,527
+DefnState: 2,571,257,416,244,0,DFNM
+Aliases: FormNode Fo1523387723
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Unrealized_gain
+Title: Unrealized gain
+Units: $
+Description: This is the amount of lingering gain (or profit) in investments since the time that they were purchased, at the beginning of the given time period. When you sell an investment, you realize the gain. For non-tax-advantaged accounts (i.e., a normal brokerage account), when you realize the gain you have to pay capital gains tax. For retirement accounts, the amount of unrealized gain doesn't really matter since realizing the gain isn't a tax event in those accounts.
+Definition: Dynamic(0, ~
+	Self[Time-1] - Sum( Capital_gain[Time-1], Gain_type) + Appreciation[Time-1] )
+NodeLocation: 256,152,1
+NodeSize: 64,24
+WindState: 2,254,545,720,377
+ValueState: 2,7,7,467,241,0,MIDM
+
+Variable Amount_sold
+Title: Amount sold
+Units: $
+Description: The total dollar amount of investments sold during the year.~
+~
+This estimate is based on your trading turnover -- i.e., if you have a higher trading turnover, then you'll sell a higher percentage of your investments each year, if you have a lower trading turnover, you'll sell fewer.
+Definition: Investment_total * Turnover
+NodeLocation: 272,280,1
+NodeSize: 64,24
+WindState: 2,102,83,1025,484
+ValueState: 2,211,631,860,302,,MIDM
+{!40000|Att_ResultSliceState: [Gain_type,2,Account_type,1,Time,1]}
+
+Variable Capital_gain
+Title: Capital gain
+Units: $
+Description: The profit (gain) on investments sold during this year -- i.e., the difference between the selling price and the purchase price of those investments.~
+~
+Unrealized gain tracks how much net profit (over purchase price) has accrued in your portfolio. To estimate your annual capital gains, this assumes that the ratio of this unrealized gain to your total investment value is reflected in the investments you sold this year. I.e., you were equally likely to sell investments that lost money as you were investments that have appreciated a lot, etc. This is an assumption that allows the model to estimate capital gains at a whole without having to track individual investments.
+Definition: Amount_sold * Percent_unrealized
+NodeLocation: 432,240,1
+NodeSize: 64,24
+WindState: 2,171,569,720,350
+ValueState: 2,94,503,815,303,1,MIDM
+{!40000|Att_ResultSliceState: [Gain_type,1,Account_type,1,Time,1]}
+
+Variable Capital_gain_tax
+Title: Capital gain tax
+Units: $
+Description: The capital gains tax (subdivided by Gain_type) due in a given year.
+Definition: Capital_gain * Capital_gains_tax_ra * Interm_profits_taxed
+NodeLocation: 624,240,1
+NodeSize: 64,24
+WindState: 2,182,428,720,350
+ValueState: 2,519,482,684,368,1,MIDM
+ReformVal: [Time,Gain_type]
+{!40000|Att_ResultSliceState: [Account_type,1,Gain_type,1,Time,1]}
+
+Alias Al1523382761
+Title: Appreciation
+Definition: 1
+NodeLocation: 256,56,1
+NodeSize: 64,24
+Original: Appreciation
+
+Variable Percent_unrealized
+Title: Percent unrealized
+Description: The ratio of unrealized gain to total portfolio value, at the beginning of the time period.~
+~
+It denotes what percentage of your total portfolio value is due to the gains in your investments since they were purchased.
+Definition: Unrealized_gain / Investment_total
+NodeLocation: 432,152,1
+NodeSize: 64,24
+WindState: 2,103,119,720,350
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Decision Percent_turnover_tha
+Title: Percent turnover that is short-term
+Units: %
+Description: When investments are sold, what percentage of those sales are expected to be short-term (held less than one year) at the time of sale.
+Definition: 10%
+NodeLocation: 112,232,1
+NodeSize: 64,32
+DefnState: 2,119,56,416,303,,DFNM
+ValueState: 2,606,168,416,303,,MIDM
+Aliases: FormNode Fo1523393445
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Domain: DomContinuous
+{!40300|DomainExpr: Continuous(0,1)}
+
+Variable Turnover
+Title: Turnover
+Definition: Array(Gain_type,[Percent_turnover_tha,1-Percent_turnover_tha]) * Trading_turnover
+NodeLocation: 112,320,1
+NodeSize: 64,24
+ValueState: 2,147,364,416,303,,MIDM
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Att__TotalsIndex: [Gain_type]
+
+Function Uncertain_on_LMH( quantiles : number [LMH,Run] ; pLow : optional number[Run]=0.1 ; lb,ub : optional number orNull[Run] ; over: ...optional named atom)
+Title: Uncertain on LMH
+Description: Same as the built-in UncertainLMH, except that instead of having 3 separate parameters for xLow, xMed, xHigh estimates, it accepts them as an array indexed by the LMH index.
+Definition: UncertainLMH(~
+	quantiles[LMH='Low'],~
+	quantiles[LMH='Med'],~
+	quantiles[LMH='High'],~
+	pLow:pLow,~
+	lb:lb,ub:ub )
+NodeLocation: 632,40,1
+NodeSize: 64,24
+WindState: 2,855,650,720,350
+
+Variable Short_term_capital_g
+Title: Short term capital gain rate
+Units: %
+Definition: 25%
+NodeLocation: 768,112,1
+NodeSize: 64,32
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Long_term_capital_ga
+Title: Long term capital gain rate
+Units: %
+Definition: 15%
+NodeLocation: 768,192,1
+NodeSize: 64,32
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Close Intermediate_Capital
+
+Module Worth_at_retirement
+Title: Worth at retirement
+Author: Lonnie
+Date: Tue, Apr 10, 2018 3:45 PM
+NodeLocation: 600,80,1
+NodeSize: 64,24
+DiagState: 2,529,25,742,521,17
+
+Decision Years_to_retirement
+Title: Years to retirement
+Definition: Choice(Self,15,0)
+NodeLocation: 112,72,1
+NodeSize: 64,24
+WindState: 2,63,492,720,350
+Aliases: FormNode Fo1523387743
+Domain: DomDiscreteNumeric
+{!40300|DomainExpr: Integer(1,70)}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+
+Decision Retirement_tax_rate
+Title: Retirement tax rate
+Units: %
+Description: Your estimate income tax rate at retirement. This should include both state and federal income taxes.
+Definition: 25%
+NodeLocation: 112,152,1
+NodeSize: 64,24
+Aliases: FormNode Fo1523387744
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Constant Taxed_at_withdrawl_
+Title: Taxed at withdrawl?
+Definition: DetermTable(Account_type)(Checkbox(0),Checkbox(0),Checkbox(1),Checkbox(1))
+NodeLocation: 112,240,1
+NodeSize: 56,24
+DefnState: 2,922,194,416,303,,DFNM
+{!40000|TableCellDefault: Checkbox(0)}
+
+Variable Investment_total_at_
+Title: Investment total at retirement
+Units: $
+Definition: Investment_total[ Time=Years_to_retirement]
+NodeLocation: 352,128,1
+NodeSize: 64,32
+ValueState: 2,39,571,416,303,,MIDM
+NumberFormat: 2,I,4,2,1,1,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Objective Realized_value_at_re
+Title: Realized value at retirement
+Units: $
+Description: This is how much the retirement account is worth to you when you reach retirement. This isn't the same as the investment total at retirement, because you'll need to withdraw the money to actually use it, and various taxes will be due. This adjusts for both income taxes and capital gains taxes that will have to be paid when withdrawing the funds. Hence, this is a pretty reasonable objective measure of the value of the account to you.~
+~
+Because of many subtle complexities, this measure might not be a perfect measure of the true value to you. It does model the act of withdrawing your funds could actually change your tax bracket, and how that might impact the value of other income streams you have. Also, it doesn't attribute any value to future tax-free compounding in the account after your retirement begins.
+Definition: (Investment_total_at_ -  Interm_profits_taxed * Capital_gains_tax_ra[Gain_type='Long-term'] * Unrealized_gains_at_)~
+* (1 - Taxed_at_withdrawl_ * Retirement_tax_rate )
+NodeLocation: 352,216,1
+NodeSize: 64,24
+WindState: 2,92,273,1052,546
+ValueState: 2,589,329,558,454,0,MEAN
+Aliases: FormNode Fo1523387811
+GraphSetup: {!50007|Graph_BarOutline:1}~
+Att_GraphValueRange Realized_value_at_re:|1:1,,,,,,10~
+Att_GraphIndexRange Account_type:|1:1,,,,,,10~
+Att__BarOrigin Realized_value_at_re:0~
+Flip:0~
+Att_StackedBar Graph_Primary_Valdim:0~
+BarOverlap:100~
+{!40600|BarOverlap4ValueKey:100}
+ReformVal: [Account_type,Account_type,2]
+NumberFormat: 2,I,4,4,1,1,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_OriginRole: Slice(Sys_LocalIndex('Probability'),3)}
+{!40200|Att_GraphSetupSlices: [3,1,Sys_LocalIndex('Probability'),5]}
+{!40600|Att_ClusterIndex: Sys_LocalIndex('Probability')}
+
+Variable Unrealized_gains_at_
+Title: Unrealized gains at retirement
+Units: $
+Definition: Unrealized_gain[Time=Years_to_retirement]
+NodeLocation: 504,128,1
+NodeSize: 64,32
+ValueState: 2,1323,579,416,303,,MIDM
+
+Variable Effective_value_over
+Title: Effective value over time
+Units: $
+Description: This shows how much your portfolio is effectively worth to you, as it varies over time. ~
+~
+In contrast to Investment total, which shows your projected account balance over time, this adjusts that number to account for the fact that to access your money, you will eventually need to pay taxes, so this is a measure of the realistic value to you.
+Definition: Investment_total - Future_taxes
+NodeLocation: 360,432,1
+NodeSize: 64,24
+ValueState: 2,458,120,645,445,1,MIDM
+Aliases: FormNode Fo1523406250
+GraphSetup: Att_GraphValueRange Effective_value_over:1,,,1
+
+Alias Al1523404270
+Title: Investment total
+Definition: 1
+NodeLocation: 112,328,1
+NodeSize: 64,24
+Original: Investment_total
+
+Variable Effective_value_comp
+Title: Effective value compared to 401k
+Units: $
+Description: The difference between the effective value of the selected plan and the value of a 401(k) over time. In contrast to Investment total, which shows your projected account balance over time, this adjusts that number to account for the fact that to access your money, you will eventually need to pay taxes, so this is a measure of the realistic value to you.
+Definition: Local value401k := if SetContains(\Account_type,'401k') then Effective_value_over[Account_type='401k'] else WhatIf(Effective_value_over, Account_type,'401k');~
+Effective_value_over - value401k
+NodeLocation: 536,432,1
+NodeSize: 64,32
+WindState: 2,222,478,720,349
+ValueState: 2,422,322,909,531,1,MEAN
+Aliases: FormNode Fo1523406251
+ReformVal: [Undefined,Account_type,Undefined,Undefined,1]
+{!40000|Att_ResultSliceState: [Time,16,Account_type,1,Sys_LocalIndex('Step'),1]}
+{!40000|Att_XRole: -1}
+
+Variable Future_taxes
+Title: Future taxes
+Units: $
+Definition: Interm_profits_taxed * Capital_gains_tax_ra[Gain_type='Long-term'] * Unrealized_gain~
++ Taxed_at_withdrawl_ * Retirement_tax_rate * Investment_total
+NodeLocation: 360,360,1
+NodeSize: 64,24
+ValueState: 2,266,436,552,344,1,MIDM
+
+Close Worth_at_retirement
+
+Module Sensitivity_analysis
+Title: Sensitivity analysis
+Description: This module examines the sensitivity of the main result variable, Realized value at retirement, to each of the inputs. ~
+~
+The graphs for the slightly darker variable nodes:~
+* Tornado for Realized Value at Retirement~
+* Tornado for Realized Value at Retirement compared to 401k~
+show the sensitivity in the form of a classic Tornado graph.~
+~
+The two objective nodes show the same sensitivity in an interactive panel where you can change the estimates and provide low and high ranges for the sensitivity analysis. The results of the sensitivity analysis are displayed in the same table.
+Author: Lonnie Chrisman and Max Henrion~
+Lumina Decision Systems
+Date: Tue, Apr 10, 2018 3:45 PM
+NodeLocation: 120,424,1
+NodeSize: 64,24
+NodeInfo: 1,0,0,1,1,1,0,,0,,0,,,
+DiagState: 2,437,80,899,664,17
+WindState: 2,5,519,720,350
+
+Index Tornado_inputs
+{!40000|Att_PrevIndexValue: [Current_tax_rate,Annual_maintenance_f,Short_term_capital_g,Long_term_capital_ga,Retirement_tax_rate,Trading_turnover,Percent_turnover_tha,Adjustment_to_market]}
+Title: Tornado inputs
+Description: A list of the variables that are varied during the sensitivity analysis.
+Definition: [Current_tax_rate,Annual_maintenance_f,Short_term_capital_g,Long_term_capital_ga,Retirement_tax_rate,Trading_turnover,Percent_turnover_tha,Adjustment_to_market]
+NodeLocation: 800,120,1
+NodeSize: 64,24
+WindState: 2,65,479,720,350
+{!40000|MetaOnly: 1}
+
+Index Tornado_field
+{!40000|Att_PrevIndexValue: ['Units','Low','Base','High','Resulting decrease','Resulting increase']}
+Title: Tornado field
+Description: The fields shown in the sensitivity analysis panels.
+Definition: ['Units','Low','Base','High','Resulting decrease','Resulting increase']
+IndexVals: ['item 1']
+NodeLocation: 800,168,1
+NodeSize: 64,24
+
+Objective Sensitivity_to_reali
+Title: Realized value at retirement sensitivity
+Description: A sensitivity analysis panel. Use this to explore how sensitive the forecasts are to changes in the input assumptions.~
+~
+In the panel (table), you can directly edit the Low, Base and High estimates for each input. The base estimate are what you used to compute your model, and the Low, High values are used to compute the sensitivity ranges that appear as bars in the Resulting Increase/Decrease columns.~
+~
+The resulting decrease/increase columns show how much the Realized Value at Retirement would change if the corresponding input where changed to its low or high value, all other inputs kept at their base levels. This enables you to see which input factors have the most influence on your realized value at retirement.
+Definition: MultiTable(Tornado_inputs,Tornado_field)(~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Computed_sens_to_rea[LMH=Resulting_to_LMH_map],Computed_sens_to_rea[LMH=Resulting_to_LMH_map])
+NodeLocation: 544,128,1
+NodeSize: 64,32
+WindState: 2,158,452,846,394
+DefnState: 2,59,84,1216,338,0,DFNM
+ValueState: 2,23,468,1116,286,,MIDM
+Aliases: FormNode Fo1523398082
+ReformDef: [Tornado_field,Tornado_inputs]
+ReformVal: [Tornado_field,Tornado_inputs]
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_EditSliceState: [Account_type,3,Tornado_inputs,1,Tornado_field,1]}
+{!40700|CellFormatExpression: Local x := Computed_sens_to_rea[LMH=Resulting_to_LMH_map];~
+CellFormats( ~
+	CellBar( if x>0 then x else null,color:if Is_increasing then 0x800000ff else 0xB0ff0000, gradient:false), ~
+	CellBar( if x<0 then x else null,color:if Is_increasing then 0xB0ff0000 else 0x800000ff, gradient:false),~
+	if Tornado_field='Low' then CellFill('Red',0.3)~
+	else if Tornado_field='High' then CellFill(0x600000FF)~
+);}
+{!40700|Att_CellFormat: CellFormats(CellSpan(Tornado_inputs,CellAlignment('Left'),1,8,header:1),CellSpan(Tornado_field,CellNumberFormat('Integer',thousandsSeparators:1,currency:'$-#',dateFormat:'ABBREV',fullPrecision:0,numbersAsDates:0,datesAsNumbers:0),5,6,header:0),CellSpan(Tornado_field,CellNumberFormat('Fixed Point',2,0,1,'$-#','ABBREV',0,0,0),5,6,header:1),CellSpan(Tornado_field,CellAlignment('Center'),1,6,header:1),CellSpan(Tornado_field,CellAlignment('Left'),6,header:0),CellSpan(Tornado_field,CellAlignment('Left'),5,header:0),CellSpan(Tornado_field,CellAlignment('Right'),6,header:0))}
+{!50000|CellFormatFlags: 1}
+{!50000|Att_ColumnWidths: [,Tornado_field,\([,,,,273,265])]}
+
+FormNode Fo1523398082
+Title: Sensitivity to realized value
+Definition: 0
+NodeLocation: 256,344,1
+NodeSize: 208,16
+NodeInfo: 1,,,,,,,,,,,0
+Original: Sensitivity_to_reali
+
+Variable Sensitivity_low
+Title: Sensitivity low
+Description: This table is used to hold your inputs for the Low value for sensitivity analysis. You don't need to edit the values in this table yourself -- they are shown in the sensitivity panels (the objective nodes) where you can edit the values.
+Definition: Table(Tornado_inputs)(0.2,0,0.2,0.14,0.15,0,0,-0.01)
+NodeLocation: 264,48,1
+NodeSize: 64,24
+WindState: 2,102,460,720,350
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Sensitivity_high
+Title: Sensitivity high
+Description: This table is used to hold your inputs for the Low value for sensitivity analysis. You don't need to edit the values in this table yourself -- they are shown in the sensitivity panels (the objective nodes) where you can edit the values.
+Definition: Table(Tornado_inputs)(0.28,2.5m,0.28,0.16,0.28,0.6,0.2,0.01)
+NodeLocation: 264,120,1
+NodeSize: 64,24
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Maint_fee_subtable
+Title: Maint fee subtable
+Units: %
+Description: The Low, Base and High values for the maint fee, which unlike the other sensitivity variables, varies by account type. It was separated out from the Sensitivity Low/High tables so that those tables don't need to have the Account_type index. This uses a MultiTable to merge the Low,High valus from the Maint_fee_range table with the Annual Maintenance fee rate table, which is used for the Base value.
+Definition: MultiTable(LMH)(Maint_fee_range[ Domain of Account_type = Account_type],Annual_maintenance_f[ Domain of Account_type = Account_type ],Maint_fee_range[ Domain of Account_type = Account_type] )
+NodeLocation: 544,40,1
+NodeSize: 64,24
+WindState: 2,94,516,720,350
+DefnState: 2,208,435,964,303,0,DFNM
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Maint_fee_range
+Title: Maint fee range
+Units: %
+Description: A place to hold the Low & High values for maintenance fee. This varies by Account_type, so it has its own table apart from the other sensitivity variables that don't vary by Account_type.
+Definition: DetermTable(Account_type,LMH)(~
+0,'unused',0,~
+1m,'unused',0.01,~
+1m,'unused',0.01,~
+0,'unused',0.02)
+NodeLocation: 712,40,1
+NodeSize: 64,24
+DefnState: 2,271,394,442,403,0,DFNM
+ReformDef: [LMH,Sys_LocalIndex('DomainIndex')]
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Sensitivity_ranges
+Title: Sensitivity ranges
+Description: Gathers the sensitivity ranges values together in a single variable, which makes it convenient for What-if iterationo, and for shared use in two separate sensitivity panels.
+Definition: MultiTable(Tornado_inputs,LMH)(~
+Sens_high_low,Current_tax_rate,Sens_high_low,~
+Maint_fee_subtable,Maint_fee_subtable,Maint_fee_subtable,~
+Sens_high_low,Short_term_capital_g,Sens_high_low,~
+Sens_high_low,Long_term_capital_ga,Sens_high_low,~
+Sens_high_low,Retirement_tax_rate,Sens_high_low,~
+Sens_high_low,Trading_turnover,Sens_high_low,~
+Sens_high_low,Percent_turnover_tha,Sens_high_low,~
+Sens_high_low,Adjustment_to_market,Sens_high_low)
+NodeLocation: 120,208,1
+NodeSize: 64,24
+WindState: 2,65,347,1068,512
+DefnState: 2,38,536,1244,324,0,DFNM
+ValueState: 2,72,75,1233,322,,MIDM
+ReformDef: [LMH,Tornado_inputs]
+ReformVal: [LMH,Tornado_inputs]
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_EditSliceState: [Account_type,1,Tornado_inputs,1,LMH,1]}
+{!40700|Att_CellFormat: CellSpan(Tornado_inputs,CellAlignment('Left'),1,8,header:1)}
+
+Variable Computed_sens_to_rea
+Title: Computed sens to realized value rel mean
+Units: $
+Description: The change in value of realized value at retirement compared to the mean, when each input parameter is varied from low to high.~
+~
+The graph shows the sensitivity as a classic tornado plot, where the difference from the baseline is depicted, so that the center of the tornado is centered around 0.
+Definition: Tornado_for_Realized - Mean(Realized_value_at_re);
+NodeLocation: 304,280,1
+NodeSize: 64,40
+WindState: 2,23,454,720,350
+ValueState: 2,525,279,786,521,1,MIDM
+GraphSetup: {!50000|Graph_SortBySpread:1}~
+BarOverlap:100~
+Att_StackedBar Graph_Primary_Valdim:0~
+Flip:8~
+Att__BarOrigin Computed_sens_to_rea:0~
+{!40600|BarOverlap4ValueKey:100}
+ReformVal: [Tornado_inputs,LMH]
+{!40000|Att_ResultSliceState: [Account_type,1,LMH,1,Tornado_inputs,1]}
+{!40000|Att_OriginRole: Slice(LMH,LMH,2)}
+{!40600|Att_ClusterIndex: LMH}
+
+Variable Resulting_to_LMH_map
+Title: Resulting to LMH map
+Description: A map from the result columns to the LMH index for the Realized value at retirement sensitivity result. The "Resulting increase" column will depict the High value when there is a positive-monotonic relationship, but will depict the Low value when there is an inverse-monotonic relationship. This map takes care of swapping the columns depending on which way the relationship lands.
+Definition: Table(Tornado_field)(Null,Null,Null,Null,ArgMin(Computed_sens_to_rea, LMH),ArgMax(Computed_sens_to_rea, LMH))
+NodeLocation: 544,288,1
+NodeSize: 64,24
+WindState: 2,95,422,720,350
+DefnState: 2,503,463,828,282,0,DFNM
+ValueState: 2,386,565,1322,308,,MIDM
+{!40000|Att_ResultSliceState: [Account_type,3,Tornado_field,1,Tornado_inputs,1]}
+
+Variable Is_increasing
+Description: True when the result increases when the corresponding sensitivity variable is increased, false when the result decreases or doesn't change from an increase in the input. ~
+~
+This is used to select which color bar to draw in the Resulting increase on Resulting decrease cell.
+Definition: Computed_sens_to_rea[LMH='Low'] < Computed_sens_to_rea[LMH='High']
+NodeLocation: 544,232,1
+NodeSize: 64,24
+WindState: 2,45,497,720,350
+
+Variable Tornado_for_Realized
+Title: Tornado for Realized Value at Retirement
+Units: $
+Description: This result, in graph form, is the conventional tornado chart, showing the sensitivity of the Realized value at retirement to each input.
+Definition: if LMH='Med' then Mean(Realized_value_at_re)~
+else ~
+~
+	(LocalAlias v := Tornado_inputs;~
+	 For level := LMH do ~
+		if level='Mid' then null else ~
+		  WhatIf( Mean(Realized_value_at_re), v, Sensitivity_ranges[Tornado_inputs=Handle(v),LMH=level] )) ~
+
+NodeLocation: 120,288,1
+NodeSize: 64,32
+WindState: 2,248,551,720,350
+ValueState: 2,105,438,781,410,1,MIDM
+NodeColor: 1,40960,65535
+GraphSetup: Att_GraphValueRange Tornado_for_Realized:1,,,0~
+{!50000|Graph_SortBySpread:1}~
+Att__BarOrigin Tornado_for_Realized:0~
+Flip:8~
+Att_StackedBar Graph_Primary_Valdim:0~
+BarOverlap:100
+ReformVal: [Tornado_inputs,LMH]
+{!40000|Att_ResultSliceState: [Account_type,1,LMH,1,Tornado_inputs,1]}
+{!40000|Att_OriginRole: Slice(LMH,LMH,2)}
+{!40600|Att_ClusterIndex: LMH}
+
+Variable Effective_value_at_r
+Title: Effective value at retirement compared to 401k
+Units: $
+Description: The difference in net value at retirement of the Account_type and a 401(k) plan. A positive value means that the account type outperforms a 401(k) by the dollar amount shown. A negative value means that a 401(k) plan does better.
+Definition: Effective_value_comp[Time=Years_to_retirement]
+NodeLocation: 120,528,1
+NodeSize: 80,32
+WindState: 2,88,244,997,350
+ValueState: 2,12,563,416,303,1,MIDM
+
+Variable Tornado_for_Realize1
+Title: Tornado for Realized Value at Retirement compared to 401k
+Description: How sensitive is the net benefit of a plan, compared to a 401(k) plan, to changes in the various inputs? This result graph shows a convential tornado plot showing how the benefit compared to a 401(k) varies an each input is set to its low or high value, one at a time, with all other inputs kept at there base values.
+Definition: if LMH='Med' then Mean(Effective_value_at_r)~
+else ~
+~
+	(LocalAlias v := Tornado_inputs;~
+	 For level := LMH do ~
+		if level='Mid' then null else ~
+			  WhatIf( Mean(Effective_value_at_r), v, Sensitivity_ranges[Tornado_inputs=Handle(v),LMH=level] )) ~
+
+NodeLocation: 312,528,1
+NodeSize: 88,32
+WindState: 2,94,501,720,350
+ValueState: 2,161,269,840,416,1,MIDM
+NodeColor: 1,40960,65535
+GraphSetup: {!50000|Graph_SortBySpread:1}~
+BarOverlap:100~
+Att_StackedBar Graph_Primary_Valdim:0~
+Flip:8~
+Att__BarOrigin Tornado_for_Realize1:0
+ReformVal: [Tornado_inputs,LMH]
+{!40000|Att_ResultSliceState: [Account_type,1,LMH,1,Tornado_inputs,1]}
+{!40000|Att_OriginRole: Slice(LMH,LMH,2)}
+{!40600|Att_ClusterIndex: LMH}
+
+Variable Tornado_change_for_r
+Title: Tornado change for realized value compared to 401k
+Description: The sensitivity of net benefit of a plan compared to a 401(k) plan, to changes in each input, shifted so that the nominal value is at zero.
+Definition: Tornado_for_Realize1 - mean( Effective_value_at_r)
+NodeLocation: 496,528,1
+NodeSize: 80,32
+WindState: 2,61,228,720,350
+ValueState: 2,344,403,592,423,1,MIDM
+GraphSetup: {!50000|Graph_SortBySpread:1}~
+BarOverlap:100~
+Att_StackedBar Graph_Primary_Valdim:0~
+Flip:8~
+Att__BarOrigin Tornado_change_for_r:0
+ReformVal: [Tornado_inputs,LMH]
+{!40000|Att_OriginRole: Slice(LMH,LMH,2)}
+{!40600|Att_ClusterIndex: LMH}
+
+Objective Realized_value_at_r1
+Title: Realized value at retirement ~
+rel 401k sensitivity
+Description: A sensitivity analysis panel. Use this to explore how sensitive the forecasts are to changes in the input assumptions. This explores how the different retirement options compare to a 401(k).~
+~
+In the panel (table), you can directly edit the Low, Base and High estimates for each input. The base estimate are what you used to compute your model, and the Low, High values are used to compute the sensitivity ranges that appear as bars in the Resulting Increase/Decrease columns.~
+~
+The resulting decrease/increase columns show how much the Realized Value at Retirement compared to 401(k) would change if the corresponding input where changed to its low or high value, all other inputs kept at their base levels. This enables you to see which input factors have the most influence on the relative benefit compared to a 401(k) plan.
+Definition: MultiTable(Tornado_inputs,Tornado_field)(~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],~
+units of (tornado_inputs),Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Sensitivity_ranges[LMH=F2LMH],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1],Tornado_change_for_r[LMH=Resulting_to_LMH_ma1])
+NodeLocation: 688,528,1
+NodeSize: 80,32
+WindState: 2,92,127,846,394
+DefnState: 2,90,115,1744,287,0,DFNM
+ValueState: 2,23,468,1116,286,,MIDM
+Aliases: FormNode Fo1523410856
+ReformDef: [Tornado_field,Tornado_inputs]
+ReformVal: [Tornado_field,Tornado_inputs]
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_EditSliceState: [Account_type,1,Tornado_inputs,1,Tornado_field,1]}
+{!40700|CellFormatExpression: Local x := Tornado_change_for_r[LMH=Resulting_to_LMH_ma1];~
+CellFormats( ~
+	CellBar( if x>0 then x else null,color:if Is_increasing then 0x800000ff else 0xB0ff0000, gradient:false), ~
+	CellBar( if x<0 then x else null,color:if Is_increasing then 0xB0ff0000 else 0x800000ff, gradient:false),~
+	if Tornado_field='Low' then CellFill('Red',0.3)~
+	else if Tornado_field='High' then CellFill(0x600000FF)~
+);}
+{!40700|Att_CellFormat: CellFormats(CellSpan(Tornado_inputs,CellAlignment('Left'),1,8,header:1),CellSpan(Tornado_field,CellNumberFormat('Integer',thousandsSeparators:1,currency:'$-#',dateFormat:'ABBREV',fullPrecision:0,numbersAsDates:0,datesAsNumbers:0),5,6,header:0),CellSpan(Tornado_field,CellNumberFormat('Fixed Point',2,0,1,'$-#','ABBREV',0,0,0),5,6,header:1),CellSpan(Tornado_field,CellAlignment('Center'),1,6,header:1),CellSpan(Tornado_field,CellAlignment('Left'),6,header:0),CellSpan(Tornado_field,CellAlignment('Left'),5,header:0),CellSpan(Tornado_field,CellAlignment('Right'),6,header:0))}
+{!50000|CellFormatFlags: 1}
+{!50000|Att_ColumnWidths: [,Tornado_field,\([,,,,387,342])]}
+
+Variable Resulting_to_LMH_ma1
+Title: Resulting to LMH map
+Description: A map from the result columns to the LMH index for the Realized value at retirement sensitivity rel to 401k result. The "Resulting increase" column will depict the High value when there is a positive-monotonic relationship, but will depict the Low value when there is an inverse-monotonic relationship. This map takes care of swapping the columns depending on which way the relationship lands.
+Definition: Table(Tornado_field)(Null,Null,Null,Null,ArgMin(Tornado_change_for_r, LMH),ArgMax(Tornado_change_for_r, LMH))
+NodeLocation: 496,616,1
+NodeSize: 64,24
+WindState: 2,31,389,720,350
+DefnState: 2,65,592,828,282,0,DFNM
+ValueState: 2,386,565,1322,308,,MIDM
+{!40000|Att_ResultSliceState: [Account_type,3,Tornado_field,1,Tornado_inputs,1]}
+
+Variable Is_increasing1
+Description: True when the result increases when the corresponding sensitivity variable is increased, false when the result decreases or doesn't change from an increase in the input. ~
+~
+This is used to select which color bar to draw in the Resulting increase on Resulting decrease cell.
+Definition: Tornado_change_for_r[LMH='Low'] < Tornado_change_for_r[LMH='High']
+NodeLocation: 648,616,1
+NodeSize: 64,24
+
+FormNode Fo1523410856
+Title: Realized value at retirement rel 401k sensitivity
+Definition: 0
+NodeLocation: 304,672,1
+NodeSize: 256,16
+NodeInfo: 1,,,,,,,,,,,0
+Original: Realized_value_at_r1
+
+Variable F2LMH
+Title: F2LMH
+Description: A map from the Tornado_Field index labels to the equivalent labels in the LMH index. For convenience when mapping between the two.
+Definition: Table(Tornado_field)(null,'Low','Med','High',null,null)
+NodeLocation: 304,208,1
+NodeSize: 64,24
+DefnState: 2,164,529,416,303,0,DFNM
+
+Variable Sens_high_low
+Title: Sens high-low
+Description: This combines the low and high into a single table for the sensitivity ranges that don't vary with account type.~
+~
+This step isn't necessary in release 5.1, but is included here so that the model can be viewed in 5.0.
+Definition: MultiTable(Account_type,LMH)(~
+Sensitivity_low,null,Sensitivity_high,~
+Sensitivity_low,null,Sensitivity_high,~
+Sensitivity_low,null,Sensitivity_high,~
+Sensitivity_low,null,Sensitivity_high)
+NodeLocation: 120,88,1
+NodeSize: 64,24
+WindState: 2,113,511,720,350
+DefnState: 2,392,395,628,303,,DFNM
+
+Close Sensitivity_analysis
+
+Variable Adjustment_to_market
+Title: Adjustment to market return
+Units: %
+Description: A factor to shift the market return distribution by. Useful when doing sensitivity analysis.
+Definition: 0%
+NodeLocation: 936,272,1
+NodeSize: 64,24
+WindState: 2,124,479,720,350
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Module Initial_investment1
+Title: Initial investment
+Description: Logic for determining the initial investment value.
+Author: Lonnie Chrisman, Ph.D.
+Date: Wed, Apr 11, 2018 12:04 PM
+NodeLocation: 200,192,1
+NodeSize: 64,24
+DiagState: 2,1,0,722,417,17
+
+Decision Current_tax_rate
+Title: Current income tax rate
+Units: %
+Description: Your marginal tax bracket this year, when the funds are being placed into the investment account. This should include both state and local income tax rates.
+Definition: 22%
+NodeLocation: 112,312,1
+NodeSize: 64,24
+WindState: 2,437,497,720,350
+Aliases: FormNode Fo1523387663
+NumberFormat: 2,%,3,2,0,0,3,0,$,0,"ABBREV",0,,,0,0,15
+
+Constant Taxed_up_front_
+Title: Taxed up front?
+Description: Specifies whether the money depositied in the account is pre-tax wages (not taxed up front) or post-tax wages (amount after income tax).
+Definition: DetermTable(Account_type)(Checkbox(1),Checkbox(1),Checkbox(0),Checkbox(0))
+NodeLocation: 112,240,1
+NodeSize: 56,24
+WindState: 2,556,497,720,350
+DefnState: 2,922,194,416,303,,DFNM
+{!40000|TableCellDefault: Checkbox(0)}
+
+Variable Initial_investment_a
+Title: Initial investment after pretax
+Units: $
+Description: The amount of funds that get deposited into your account this year after income taxes are applied.
+Definition: Initial_investment * (1 - Taxed_up_front_ * Current_tax_rate) * (If Account_type='401k' and Employer401kMatching then 1+Employer_matching_pe else 1)
+NodeLocation: 488,200,1
+NodeSize: 64,32
+WindState: 2,349,536,720,350
+ValueState: 2,56,84,416,303,,MIDM
+
+Decision Initial_investment
+Title: Initial pre-tax investment
+Units: $
+Description: The amount invested this year in pre-tax dollars. In other words, the amount of your wages before this year's income tax is applied to those wages.~
+~
+In a traditional IRA or 401(k), all those pre-tax wages are invested. In a standard brokerage accound or Roth, income tax is deducted before investment.
+Definition: $5000
+NodeLocation: 112,48,1
+NodeSize: 64,24
+WindState: 2,477,545,720,350
+Aliases: FormNode Fo1523387667
+
+Variable Employer401kMatching
+Title: Employer matches 401(k) contribution
+Definition: Checkbox(0)
+NodeLocation: 384,328,1
+NodeSize: 64,32
+Aliases: FormNode Fo1523466941
+OnChange: ChangeNodeVisibility( Handle(Employer_matching_pe),~
+	if SetContains(\Account_type,"401k") and Employer401kMatching then 'Visible' else 'Hidden',~
+	what: 'UserInputs' )
+
+Variable Employer_matching_pe
+Title: Employer matching percent
+Units: %
+Description: A 100% matchi percent means that your employer matches your 401k contribution dollar-for-dollar. A 50% matching percent means the employer contributes $500 for every thousand dollars you contribute to the 401k. And so on.
+Definition: 100%
+NodeLocation: 552,328,1
+NodeSize: 64,32
+Aliases: FormNode Fo1523467800
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Domain: DomContinuous
+{!40300|DomainExpr: Continuous(0,1)}
+
+Alias Al1523470509
+Title: Account type
+Definition: 1
+NodeLocation: 120,160,1
+NodeSize: 64,24
+Original: Account_type
+
+Close Initial_investment1
+
+Module Dividends1
+Title: Dividends
+Author: Lonnie
+Date: Wed, Apr 11, 2018 12:04 PM
+NodeLocation: 600,168,1
+NodeSize: 64,24
+DiagState: 2,162,119,584,256,17
+
+Decision Dividend_tax_rate
+Title: Dividend tax rate
+Units: %
+Description: Tax rate on dividends. Include both state and federal rates that apply. As of 2018, the federal rate is 15% for most people, 20% for those with over $450,000 incomoe.
+Definition: 15%
+NodeLocation: 128,128,1
+NodeSize: 64,24
+Aliases: FormNode Fo1523470390
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Decision Net_dividend_yield
+Title: Net dividend yield
+Units: %/year
+Definition: 0.3%
+NodeLocation: 128,64,1
+NodeSize: 64,24
+Aliases: FormNode Fo1523470447
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Dividends
+Title: Dividends
+Definition: Investment_total * Net_dividend_yield
+NodeLocation: 336,64,1
+NodeSize: 64,24
+
+Variable Tax_on_dividends
+Title: Tax on dividends
+Definition: if Are_dividends_taxed_ Then Dividends * Dividend_tax_rate else 0
+NodeLocation: 336,128,1
+NodeSize: 64,24
+
+Constant Are_dividends_taxed_
+Title: Are dividends taxed?
+Definition: DetermTable(Account_type)(Checkbox(1),Checkbox(0),Checkbox(0),Checkbox(0))
+NodeLocation: 296,200,1
+NodeSize: 64,24
+{!40000|TableCellDefault: Checkbox(1)}
+
+Alias Al1523470813
+Title: Account type
+Definition: 1
+NodeLocation: 136,200,1
+NodeSize: 64,24
+Original: Account_type
+
+Close Dividends1
+
+Close Model_details
+
+FormNode Fo1523393445
+Title: Percent turnover that is short-term
+Definition: 0
+NodeLocation: 640,128,1
+NodeSize: 184,16
+Original: Percent_turnover_tha
+
+FormNode Fo1523406250
+Title: Effective value over time
+Definition: 1
+NodeLocation: 672,272,1
+NodeSize: 216,16
+Original: Effective_value_over
+
+FormNode Fo1523406251
+Title: Effective value compared to 401k
+Definition: 1
+NodeLocation: 672,304,1
+NodeSize: 216,16
+Original: Effective_value_comp
+
+Button Tornado
+Title: Tornado
+Description: Show the sensitivity results for realized value as a conventional tornado plot. ~
+~
+The same tornado info appears as bars in the interactive panel if you push the [Table] button to the left of this button. These is just an alternative presentation, but without the ability to alter inputs from the same window.
+NodeLocation: 928,412,1
+NodeSize: 40,11
+NodeInfo: 1,0,0,1,1,1,0,,0,,0,,,
+WindState: 2,153,476,720,350
+NodeColor: 52427,1,34956
+OnClick: ShowWindow(Tornado_for_realized,'Graph')
+
+Button Tornado1
+Title: Tornado
+Description: Show the sensitivity results for realized value relative to a 401(k) plan as a conventional tornado plot. ~
+~
+The same tornado info appears as bars in the interactive panel if you push the [Table] button to the left of this button. These is just an alternative presentation, but without the ability to alter inputs from the same window.
+NodeLocation: 928,444,1
+NodeSize: 40,11
+NodeInfo: 1,0,0,1,1,1,0,,0,,0,,,
+NodeColor: 52427,1,34956
+OnClick: ShowWindow(Tornado_for_Realize1,'Graph')
+
+Text Te1523411040
+Title: Sensitivity analysis
+NodeLocation: 716,412,-1
+NodeSize: 276,60
+NodeInfo: 1,,,,,1
+NodeColor: 58978,52427,65535
+
+FormNode Fo1523411079
+Title: Investment total
+Definition: 1
+NodeLocation: 672,240,1
+NodeSize: 216,16
+Original: Investment_total
+
+Text Te1523411108
+Title: Projected results
+NodeLocation: 716,252,-1
+NodeSize: 276,92
+NodeInfo: 1,,,,,1
+NodeColor: 52427,58983,65535
+
+Picture Pi1523411198
+NodeLocation: 340,500,-1
+NodeSize: 292,60
+NodeInfo: 1,,,,,,0,0,,,,,,0
+Pict: (000000000000006A024300047A3B000089504E470D0A1A0A0000000D49484452000002430000006A0806000000BF05554C000000017352474200AECE1CE90000000467414D410000B18F0BFC6105000000097048597300000EC300000EC301C76FA86400003AFF49444154785EED9D79B415459EE7DFF4747555C9762D1544B6CBBE3E5EB2C3634B41F6ED82EC0826FB2A5E64179564532C8514151415534051DCAE5A55969645A56557575B4E75E7CCD4E93F7AE674E539D3FD8FFF749E3EA7FF9833FFC4DC6FBEFCDD8A972F326FDECB031EF0FB9CF33B2F3332B68CCC1BF17D11911135CC8DC3DCFF98191EA6461F374A8785A7A9C96F59970F0F1986611886615A06F9CD6BF2D9AE9DB3E1692AF4B1237558789A8ADCACA9397DDCE88A0514C3300CC3304C2A727367E7C2C38AD06AFB6BC6B20546789A0A63E93C43AF1F5191B0B18E1DB0C2C38AA9F6DE1886611886B98D30562E33B2DDBA54D4C343D82F1EB3C3C35498BB36997AFDF08AC490FDD2D315A541E813C6E95A5DAD169E320CC3300CC3C4631D3F5C55EF8B7DEA70656268E706531F332CB518CA76B92F6BEEDE52F1DC24603EBEBBAA700CC3300CC3DC86E8E3C7E8B959D32A1E52CAAF5F9EAFA4A7C77C6C5D510C0D4DED3FBF7E4545F113F92DEBF3D9AED5F576310CC3300C739B629F7ECECEB46B9B094F53A10DECA359E68ED4BD4AE68E35A63E7A486A715378E3B94278981A4CEA36F7EDE05E2186611886612A23DBB553D6DCF348C522C2B9FCB2131E96C5CC1B4531A4A5164395C44D142EBE52A854D4310CC3300CC304604234E6E984A7A9289C3D5AC876BE375518F3D155A63EAA2E9518CA4D1D9FB39E7AA4A2B94CB9199373F98D0FF39A440CC3300CC35447A65D9B4CC1B62A1A9A321F7DD8CCAF7E30950031B73F54144383538921FBA77BECDCD471A9E73165DAB6C938857315F724310CC3300CC334025F7CE5A64F4C2D42206E0A679E4A25A0CC47969BFAC8DA5462C8FBFA829769DB3AF57097B9736331DFF7F3BA420CC3300C73BB83B575727366552D0AD0C3E2FEF2BC5B891011FFFC73111E26626E5B6AE657CD2EDB8BA4F5EFA1B99FBEE486A765C976EE98753E78E5AA7A85ACE78E5B994C3B9E6BC4300CC330B702DAE041454134A36A41642C9C61584F6E4B3D5FC7397FC4C94D1E55363D73CB6213169EC6925F35276FED5F9B3EFDCB2F3AFA98F45FA945B19E3D6A698379814686611886B9A530562C368C158B2ADA2E43C6FBE61D4F1BD033954030B72E36ADBD4659F1626E595814430BCB8A21E7AD43457135329598C3BC224CE20E4F2BC63A7EA8288406B11062188661985B1163F942C358FE605582085F7D396FFF34D5D0933E6280EE7DF9A2179EC6621F5E6F9B9B17248AA14C9B3B32E24F9745A64DABB2435618CAF37EFBB697F66BB628D6334F595AED4016420CC3300C732B83CD542BDD438C702E3EE318F327A71253E27F5C14D9FBEE4E1425CE6B7B1C73E3BC4431949B342CE7BE7F2CD57C21EBF10D162C3CAD086C00ABD50E6021C4300CC330B703D82DBED27DC4803E7290EEFFE1A29FA697C6797DAF935F3E257172B47376A7636E98932886EC436B6D6BD7F2B20247EBD75DF3BFBBE467DA96CF9B0C960FB08EECB5B441FD5908310CC330CCED84B164AE615B072B1644F6D1ADB6B5E7E1F2F3818A220762273C55E2BCB2C331D7CF4E1443FED7A7FC9C3EA4EC7C21E72DD331B72E293BFF4826F852EED7EFB9D5EC77C6300CC330CC2D80B16896619F38509120CADE774F56FCCF7784D6B76B624F8A3EAC8F2EBE3B23326D7E1CDB53E39C79C431D7CD8815305A9FCE9AF86FAF16E3B823B1B7C79837C1F0BE7CC94BD36345607E91FBE545D7583CA7EA49E50CC3300CC3DC02608B0BFBB9BD15092273D37C13C360E1692CE2DB17456E626D6CAF8EF3F216C75C3B2D560C99EB669AEE85BD89F3852094FCBF7DD587200A9DCA1208A15FBEE9420C864E0CC3300CC3DCCE60AB0BFBD95DA905512040BE3EE51B73EA13C504C48E7D60496CBCCE4B1B1D73CD945831E49EDFE95AF95CE2909CB57389E5BE6BA65E903110423F3FEB1A0BA7B3106218866118E62FD8C777D8EE27A7DCB4434DE686D9A67FE5849F340C06A1E37DB037F6137BE7D43AC75C3D59298632AD7F9411BFFBA9C84D1814DBB3D4308C7656E8C3FAA69AF383C9D5EE67A75DE3C1A92C8418866118E65600DB45E813C635DBE45FFBE9EDB6FBF1F3A905915738E4D94F2E8FEDF9D18774D7C56F8F09AD5747E5FC22E785D58E69DCAF1443C68CA186F8E66991699D30E7E895471DE7957CAAB58FB29DDA67DDC20BAEB1E081661342B9B973522D04C9300CC330CC3504AB259B8FEF36B35DBB54B5D060147C2DE67E70BC288892272D0363D60843FCFE84D087F48C1564C23924F20B472B3FB1774EAE720A87172B578BB6F7E66CEFBDC7627B9582B4FFFE05A1F5E954F69378AD5F56F3BF3DEFA7D9072D0DFAF8B17A7EDBE67CB65BD766297386611886619A016CB7613DFD949569D73655AF4E12F6918DB67BF9682A4184793FEE9BDB63E7EC40F0B867D729AF3B275638B0F0B411FEA7BB7D7BCF3C65AF1386D0FC2F4C3F693E12A1F5EDA6F97FF7866F1FDD9C7A4E541CD9AE9DB3F62B96AD8FAFE74FF119866118A625022164EEDD6E9ABBB79A584C3074AE0A7C2DE65E3A585610E9437AE8E2B747457EE11865AF8BB579B225BEDA2B32AD7FD8241EE7B9A50E2C3C2DA1D775D5C5AFF70B63DA60E59096B56D96E57FFE949FED786762CF0C3EFFF7BF39E3DB87375C951042B962856A735F3E76B237C3300CC3302D087DEC08DDF9F89C632CA97E0D1D8820F7D213AEFBF681A2208A9FB7031CCB70FCCFF6F8E8B1099D4AE4EA7BE5C497BB8431656093BC786FADF59C6717351143D6A6FB2DF1ABDD22DBA15D13B1A36B591D436FA631295198687DBA68BEF3826F9B6BAA16425894D1DCBDD92C9C7FA990EDDA8987C418866118E66623BF7E79DEFDE282AB8F1952D5B00E44907B719FEB7FF58CAFF58E9F9B93BD379315BF7E5CD8BB6735111EE81112BFCC0B7BC79426D7C42F1E11CEF1054DC4907B7A85EB9D5FA79C2F8421370CA1A98417817944FEAF9FF7ED830F572D848CC5B30DF7AB4B6E6EC6FD3C499A611886616E66B0AE8EFDFC7EDBB974D2C1CEF3A1736AF035977BFE31D7FFE2505110A9BF0A03F6AE99B6F872B7D00777699286FBD252D7BFBCD60F4F4B889F6D16CED3F31A89A16C873659F18B6D45F1F4401321935F302C8F21B7FC8323622742E3537CFF57C77CFBC9155509217DB4A67B7FF781673EB6CE44CF50E8CC300CC330CCCD8E3EBA4E777F76C6C57A42F8CC3C744E452088DEDCEEFABF78D2D77ADDAB1444E801F23FDCEABB2F2F6F3259DA5A576F89CF3608ADFB5D8DC28A4FD709E7D8AC4662C898DCD7103FDB248CC9FD1A0DAB655A35C4EF5D581FFF85193EC7FFDBE322CDC4EA28FAA8C1BA73E97907A231DBF95E1E1263188661985B95FCC3F3F2FE776FFBE6D6C566457B79B5FE51C67D638BEB7FB6B728883A280591B96294895E9DFCBCBA463D37B9D1DD72E29335C25C3AA4D13C1F51308473647A233154D83FB90091946DDFA69120414F91F8FC51911BD353396C654CD70CF1F511E19E7BC44D5A9B280A84A1FDCC76DB73DEF47253EA79488C611886616E0720820AA77617FCDF9FF3CDCD0B527F21157CD2FEE92EDFFF6487AFF56CDF441005BD37EFADF6FD771FF665319369F53719F1F1C3C23D31BB51AF91F868A5700E4F6D2486FC8BCB7CEFECC246BD3F7AED7D7A30A4F64CAEC9FC2280AFCEC4952785FBFAA6A2108A9F4B248309E2E69685A6F8A70F84B96DA989D5A9C34B0CC3300CC3DC2EE823FAEBDEE7273CEFE7CF7AE5F61923B49E1D34FFE3477DFFA36DBE3EB87393F941C6E43E067A810AFB26355A4CD17D7EA62B3E5C2E208C42A71AF1C152E198934A022737B2734E7CB842D8DBC6341AE672AD9C2B3E5D2F208A42A712C6D44106E611B967D7A61642E6C67926367775CE3DE16041C6D0996118866198DB1573E35CD3FFCD491FDB5BE8437B959D648D5E21FFC32DBEF87CBB301E683CB70778AF3EE8A1D7471FD8A11497F5B06689CB8B84A1674BFEC5E585C23938B12486023FEF2F29FAE95EF2939FDD3F8FE1340C9F854E258C29030CF1C563C23DB3AA28849AAE6314C5983DDAF03E7BDAF3BF7ED137E68E4B25FE1886611886B94DC876BC2B5B78765D41FCFEA4705EDEE464EF2DB3A0618F7B347C21263EDB28D01B143A074004890F9609EFF4ECD270576EC47D39F1EE7C51D839AA246AC4BB39E13C39AE2486BC97A679E2BD0745F69E5641DA99563FC8F8E717FAE2A38744B67DEB46F931970F0FE62761C2763921A40FEDA93BA7B739E20F2F0B6BC7222BCDCADA0CC3300CC3B43032EDDA5D97061CFB8C61A779F1CD3161EF9B6F27AEE7D3E32ECDBFB4CAC7B09831A9572341E41CD41D081B7361FF604E52E68E1F64C4A5B9C27F7D7AE9137BF1CE6CE1BD3029104CD97BEEC8E2BA776A4A49401576D517C4FB8B85650CB142A7007BFB041BC366EEA9852EE62985CE4D80A0C3CEF8D8FDDE79798B93661FB3E620DBAD5BA2906418866118A60AB4C1B55A6ECECC5C7EEBFABCB16291817DB2C24BD70473F524135F8E61C2B4B96A9C19D7FBA275FF898649CFE8BD31F41E2541A40FB84717EFCE13FE1B337C081DB8B9C7C6B9E2E20CA1F7FF49307C262E4E17301CE7A767F3E2ED99C2DE5017CC17D207DC5D0C9F13FEB9393E7A88E006EC6DF53686CDFC771EF2A39FEA131070F69EB93656AAC67200C68C61D774484C1B3C50CB6FDD9037562E338C952B0C16430CC3300C738DC15E59C6F2858675F471CB7EF1989DDFF0505E1BD8B7D97B3DB0B234365215BFDA23FC0FB7F998A3135E6A84D6FD4E0DC362E8C53126762BF9B137D6D9E2ED59A2901F120C8D59CBFB5AE2FC14612DEF13F4F488B7260B71FE81400C15B6D715C485A9C218DF2908EF59933CF1CE1C613ED8AFF4B59BBD65A48D49D8FE85254521F413E5D76CE6CA7AD32FE47D71E580B0B64EB3D24EAAAE046D503F2DBF71559EF62BCBCD9ECE9FE4330CC330CC8D441BD45733776E349D0F5E710AAF3F53C8AF5994D706F46A367184FDC5B08F18B6CFF0CEADF4945F75E95903C362E8CDC9CFE811AC3394BDFBC75971615A51F04C117ABF3BF5DCD0BB73C2D6856B0E733377FC7546BC3951C0E057D8F70BF1D624A1756DA399F37B9AE831F2ACFB3D0CAFE1BABD69988D09D7BEBDC0D7B27736B9374CE4F63FD8E40713AA5F79D8C566AFE1A5AB461F3D443777AC359D0F5F759C8F5E7702F1591444E16586611886615A12D87EC35838DD28BC7AA8E07D7DDE2B9C7EA2905F35277FB59F9007BD2ECB479A98301DAC1C7D64BAA30FFACBD762C098D8D51097E608F406D91B6A83E12E33D7C384D0F17E3AAA286C8A02E8DC3821DE18278CB1ED0DF1C6D8E2F158911B72574E9C1B2FFC97EBFDECDD3FCAFAA7C7FBE83132C6DF17F412053D4C986F746E765108651ADD873EA8A3EEBDBED4C33A44FEFBEBFD7C6E48EC561D69D1470ED2CD475698CE3BCF39DE37EF78F6F3FBECDCB40939DE9E83611886616E42F491B5BAB57F8DE57EF89C8B45160B56BE905F3135AF0FEB5B55CF091653748ECE70B08862B026D09691367DFD058C099D0DEA0DB2D7F5B72180FC97C6F81040E6DC2EA6777CA8275E1F2D6CA3872D5E1B2582E3D53D6DF1FA1851D8DAAF50D8DABF20DE9C20DC43C383DEA360F8ECE20CE1BF3ECDD7BAB52B09217D607BDD393CC5C1FC21F1C95A613FAADB4993A993D087F7D3B1F8A4F3E64147FCD387C22D582EC490D6BF27F7FE300CC330CCAD44F6BE7BB2C6DCF146E1C4B682F8E36B427C774638671E71CCB5D34C7C45167A4B456E64979C7766AE87B583F0C9BCF9605F9386B4D0A3130C7B15458DBDBAB70D1104D1235E1B299C9DFD1C7176B8F04F6ABE78759880794FD77AE2EC0851D8D2A7005144BD45184EC3D099FFEAA4A2106A1B08134CC6B6370FB3313F09F387B0AAB53EE8DED479C7561D584BC95C3FD3745E7DCC11FFF0BAF0BF39EDDB8737D8C6BC8946255B94300CC3300C7393939B5897B3F2F32DEFA3031E363815BF3D261C6BB5633E3CD14C33E7065F79990B0798E2D23C81CFE4FDB3937DCCF7C135636C0703BD411037E8050A04CFAB4385784513E24C5D6383DB2B4302610451E43E59EBBA4FD5B9183AC39CA2DCD07B72E8253217F43631A93AF8CAECCD797E7E56DFB2436298409D1BD72F676D9B6161DF327C668FB594DC0B7B5DAC39A4F5E9C2BD3F0CC3300CC3E0CBB13BB3F945F5F9C291A50571E509812D2EC497BB84F3EC42C75C31D2544D9A26D06BE31C18E5E06B30F4E4607E10C490517F8F81DE20881CFF64AD2FCE0C16E2F420215E1E18DA80BF1C9FAE0D855151149D1D2E1A86D0EA05E2317359D37F45F7834FF1311F69D3109B7AA1A260A80C9BB95A1B750B13A9C5AFF70BEC5BE6FF6CBF5F38B6A260CC1C6E643BFE843F7D6718866118269EA037A5BE77CEDE39DDF6ECD59EF8F956114C9CFE648D700E4F73CCC583CDDC884E3979FD1F80E131FFF4383FE8D1290A190C8979C76ABDA0E7076207A2E7A5FE42BCD8AF687D252B9EC31DD721984241E4ECECEF78C7877B186E0B44D6C9F19EDEFFAE46A20C7B9D61C8CE5A33D2725F98EF8A9F6D1258995AFC322FBC0BEB3D6BF3644BAFEB56D11020C3300CC3304C23B41E776BF9B983F20D13A75705737582393BEFCE17EE33135DEBA1FE566E58FB60280B662DE96E89D74637F4F09484D08006D173AA8F102FF42A5A4FC98AE7707FA9789D04D1AB104423826136FFC5D13E7A8790177CAE6F4CE862582B0759EEF1C92EF632C344EE6022F5A76B45E1F16985FCBCBA7CB6435BEEFD6118866118A6F9414F0C569AB6370FB7FD73B3FC600ECFC519C1D7639834ED1E1CEA5A4BB29639A793E91EE8EF06C2A6248420827A0861658349D2E2EB43427CB953043D4910458120EA5F144F104475C1F01AE60F9973BB9AF6DABEB6F77CBD170CC5BD3D53E0537BF1DE02E19D9EE559C6502B37AA0B2F7CC8300CC33077D4FC556640CD8FF44AED9E9ABFE65E842AC17C2173412FD33D3CD20D16510C264DCBBD42831A04CEA9DE451154144227BB0AF10F6F88267CB9AB411061D82C1044B5E1705943EF502098F0855A5174617E527E7A8FBCFCA93DC3300CC3304556D5DC69BD5BD34D546A336ADA5EF5427D4C4D0D86C8B098223E91F74FD6354C980E7A858A020742E7643721BED811AA1F05D8D203A209C365105110534551E51D1FE2D96B7ADB58C11A6984C9310CC3300C13E5C99A0E8E4AEC94B35BB96748EBD75DD3470CD4F51103742C2EA80FEFABEBC3FAE8FAD0DE45EB55B49EBA3EA487AE6BDD8B96D58D69830D6CCC8A3DBECC87469BF892CC5C36BC68434D73A96662F2B4B96890894FEAB16F98BD61B0EDEC1FE138FB8638CE9EC18EB37B908389D3CE63BD9D400CBD541443C13CA11E429CE822C4FFF97DA87C14FCE39B61EF10CD1DAA0BD62372760D688877AFE638FB8739CEE3231DE7897A07F386CC45C57C2CAE35CD2575C5FC0D29E67398692E1F51CCF7A862FEC714EF63AC69AE1A6F62B9007C621FDCEB90E23D07F75E2C0394C5B062990465D3BFA19C505E2307E9D94EEDB9C790611886B9B9C030D9F09A3B729B6AEEB255A247B673355DFC8935AD8D962E84B05BBD3E7EACAE8FAFD7F57163F4FCE6357973EF76D3DCB3CD34776F31ED170ED9C19E59EF9F769CF74E39CEA593457BDE712E1E779C0BC71CE7ADC38E631F749C734F38CE1BFB1DEF67C73DF1C7B342FCE1B410DF9E12E2F72704AD31845DDE1B3EABDFD7306CF5CB7CC39759C1161C6B1B262963B232262D631F32CCDB797B9608569C7E6B52B0C8A278A33E585C31585308435DC11059510C59DDCB8BA17FFDFBBF0C95856228587B08C36E98638461B8F30F043BDDD37A43D8AF2CE851FA6865317FAB8BF95C2FB03507F651C33E65E257BB45F079FD6F9E12E2EBC3427CF3B4A0B586C4B72F09F1DD2B225880D2B5857BF9A8EBBCF964B1CC4CC7397FA458864F3BCEDB3F2D96E709C779F705C7B9FC52B19CCF38CE87AF39CEC76F38F6A9A3B6B9E711D3DCFBA869EEDB611A2B161BC1739A507C5E13C6EBBC7B3DC3300C734359589331552288AC5BCDDFF07C9314643BB4C9628D21EC0186959EF5811D8AD65ED707DC53B4BB757CEAAEF7FF898E8D58F57E19DDA86F6F344C9EEEE72AC5D0FFFE22543E0A30A15A2186D0338449D418260BD2417A4817E9231FC80FF285FC219FC86F6D27BDDAED3918866118E6960013A355220876BCA6A31B7A639A096CB09A9FD2298FFDC5820513D133A49A3384AFC154FCDFFF68F08FCFEC69982C9C33849E217C5E6FAFED67632D239E37C4300CC33029481243985B147A63AE02F4CC582B075ADEC9099E786B72C3301686B330ACF5EA30E11DE9EF05A226F8AC1E5F93756FF89A0C435BFFF1AFA10A2A82E1317C9E8F7945A5CFEB1BBE26739F18E846BF26835FF7E989AEB9B0BF19DDC59E6118866198101643CD4FB67DEBAC717F4FA3B07B5C017B83057376C27586B05D0626389BF3BA9AB9213FC961A82CF834BEB4E0227A877A8582A85BC390190CE208EB0E0542A82898A4C9D3C1361E2F0CF3F3533AE6310467E6BA9BCEFEE18EBCCE10167FF4CF2FF4ED6D63EDDCA86E39AC83146697611886616E6F580C350F5A8F7B346BDD58CB7D61812B3E592D8215A83F5826FC37737E61E7E8427E06D6FB69D8511E60B7F9600B8D60A8AC28664ED4FAA5B58620882078306406F153B2E2397A84022154144E61AF906F0DF51B76B11F279C3D758ED6B575291DF44AE18B36E7E0FD4E30A9FBE3871B26797FB65138CFE49C7C6E485EEBD99E7B8D18866198DB1716434DC1A471940BD655C25F18BEC00B2F07605F327C5E6FEF9A69FB1F6EF3C5E78F0AF1F32DE2FFBDBB46FCF3FE59FEC7B347B8DBB35D2C8495BFC4C3361985ED830BC2D68538374EF8A746F8D6E2AE56C32AD4750DEB0641E8600DA1401415C50F19CE2196D0231408A186B94258AF28D8DA431A22B356F4B7549BB462F2343EFF779E9EEBD0DE64F822CE7B7BB3F7F2AAFBEDFAD6991CBE1EC4D786AAFBBE1A500E549E98B84FC7CD9D0EC3300CC354041A22951082552B86D0B0EDACB9A780F0498646370CD20495FFA8C57DE996266D34C6A1F700E4196E2FD674F2546501C352048F2F1E6FBAE7B6BAC23185B87240F885BC5F38982B7C9C1BE77ED1A356190E86340F4EE869F9671FF069D77A6B594F0B13AADDA76A5DAC20FD6F9B06892BBD7B16AD8764DD43FB8B9BFF38264D0F09D6160A3ECF7FBD5EBCBDB44FE1DCDDDDBC2BFDFA892BFDFB176D80F8A85B6F3F7ADF1039E12D07CC1CDC35F78795D3FDCF3A0C50E61B86FBAE56ACE019217C52B992C10FFC46F3C8300CC330D7946B2186207254F1452D2EFEB4E1A38206549336C2603D2595BFA87DD4BAB7F8D5B1954E7EE198BCD6EB5E0D8D3DBEBA53F955D9BFED182FEC0DB5367A889036F628A3C9D45F74E9A90C13B53FACEAEB052B4E3FA379F9073AE6D1C3F4EDD87831239B5C66E8F94A7BDFB8C799C307A41629281794B12AAE34867CA99E2FC3300CC3343BD7420C21CE340D615CFC69C3AB1A4B34C2E81952F9978DD2AE666B120A8B7CA6151364F04FBD2CF6BA017630ACF5E604618CED605C1CD2DDFDA24B2F6538D99E1DD3D9F64F0DF7D1238475858CB1F71A7F5E37427CD1B58FD2BF6C54666916DC8CDAB773E709FF7767FDC2A99D0523A71B712B4F4364A9C2E3DE51DE109FB0347980BF305A86611886B9365C0B3144A0D14F6AF0CAC58F392649BD2EE57A0EE21A6518D24EBA5ECE2AE94D8A1AF28DED39B02235BE2EC38467187A78D04BB4A8EF4F8C245174796EEF607145CC11F25F1EEB077B9D8DBFCFC08AD3FFEFB5E9E24AFF81CA70B0BF9D3BDEDFD7EABEB26231CEA6F4EB99CBAF9C992FBCB8A7E07FF78EEF7EF2A26B1DD868E9A3EB749479DCF38640550DB541BCAAFC935DED3BC8300CC33065B996628850C50D4B137F5263996618256EAE4A54C8202F280B8449DB33251BF202F18639387FDE314F7CD42A5ECC7CD1AD5FF0A9BDFFDA94A2106A13CC7BC29E6598545DD836B0A0756DA5FD79CD106558D8F77B460A84F19E1B13AC5B64CEEF19948331A1B3814FE9FFF3C599CA70B0CFDAF76B740E9142F79DA6570D02127E09AD7F0F2DBF7A7EDEFEE91EFBDB852B94611067E85D09CA4E150E86E7147A63188661986BC3F5104371BD3B69E3578585A5114369440D7A3342EF25D08B9166D22F0C659869FDC38CBD73BA2D7EB943F8EF6FF09F9D5C973804E4BF31D3A74FEDB16D062655FB6726FAC10AD5533BE7BFDF3B4A190EF6FDBE31A2615B8F3B8BE1A605EB1765EFB92318B232267635B01F9A2A5CD4FEBC6B91C0E6ACF8320E6189244114276C30E959E5FFA3760345FDA08181D88A03225215962CF4C654C003ED6B1E10F36BC4F181C59FDF0DE2ABB1355FFDFBEC9A7FBFF3073577864E2D9A61999A612833D91675AA59145EBEE6B4846776BD5095F5DE3E357BC3CB25D2BC4308073F88037FA3CF0C69211E4A07C770BF1EEFE7F57CA7D296697370B5EF6A8BAC1BAE87188A1324D7520C65BB76C91ACB1719E7BA0E4F1434103C619026A41946431EF20F8ECAFB9FECF0C5AFF6087BE7343BDBA16D204C9286F8B46CBBD29770DE0B933C2C90682EE815DC4F617B5DE1FB7DF5CA70B0EFF78F2BF50615760C2B8877660B7BD39092A033F46CD949E4FB5A772A38CF2F73C4AF0F08EFD2A35E6E5CFFD2E4E84ADF0908C7B821C387BBF6358D650B0CEBE9A72C73FF63A6B162899169D7AEC97059D29063E8E5A6A447AB9A1ED10A2ACEFE656ACDBF3457E5C562A87AA8EC90F7D0E9BA703B892102EF3BBDFFF8AD84CE25CABD43B88EDF0D098CB3436ACECAFEE18EB8DF1F59F33ECEE9F78832BE9EEFE7F57CA7CA956973C062A84AAEA718D2278CD38D87961AB9D9D37399766D33716993257DC69D5436307C59F6BFDED8E689DF1C14CEC9879C6C87768D2614274DCE0EBD34F4E45C9A27BC17269744193EBFFFFEF109CA70B0EF0F4C14CE815141D9A14708BD4C58651A9BB10611145185938DE6EFE875DD74F7F5CDAEF8ED51E1BCB8DEC976BC33B807551898EA99C50D7341E044E70965BB1545EA43CB0C63E50A43AB1B5C128449CF29F47253834A1995365552A80CC24B01A8B4E0866B7FBCBFE68F379B80B895A08A3EFA8C98E607EF39BDF3A1536AA841951B7CFA8DE1F746CF110229BC5C120AD5A477355CCF77EA6ACAF4B6E656ED1922921AD9A45E21504E0CFDE3A239C23DB7CDD5B5AC7218284E24C0703DD3EA0719EFE5995E8390B93B8843EBD64EC37CA2EF9FB85F190EF6FD1393826D36E01F60856971799170CC49A5F2548523530D0B1A33861ADE07FB3CF1FB13C25C37C3BCD0BAB7B2A746F5CCE27A75CACD1592497A4EA1979B1EFC778A4A0A862EEDD0B9042A3154EEB87E3BF50EB434A8C16CAE5EBAE680DE9D6B21926978E546BC73D47353695953B8689E21002088504E388EF63E6CC8D66CB811CF36E99D6AEE675B6D99DEF6DCCE62083D37A1B75854E1C8B60C1990987E3931642EAE35C5074B4561F7D89268087A8ADECD892F570E8F1D62FBFEC90782FDC6E49E20F7B9E92EB6DBC00AD3385785234BEA0D33D74D37FDAF7EEA5F193A5E1936FACCE2E60AC1A293AD93487A4EA1979B1E54CEA8A492FE634BE387B9B6500FDDB51A62A80634EAD7EA9DA0861A8D68E874DD40AF4D35658DB2481A6689134B378AA477AAB99F6DB5657ADBD3D2C5108659546161572B86D2AC74AC0A47167A89656DEBF6B1C364D828D5BFB8D4F72F2CF6B3ED5B9586D7EC2D236DEC56BF7F448FD8B06767D616B0F1AAB96850E9FEF5811D74EC3BE69D5D14F476A9C2914587AEA264DAFC3873A24D36D5A4F724C187772BF45696A4E7147AB9E9A15E9FA4FFD8A89B9FC5D08D03CF09CF213CBDE15CEBDE0CDC2BEE393CBDAE20DD4A878EA8278BE601A9A0DE16550FEC8D20EE9DBA16CFB69A32658AB474319494BFAB1543F8943CF4168B2A1CAC5CDE8DA9B5C69F56C67FE26E6F9F6063435773A9D6E81EBC33F33C6CF09A74DFCBB31DF3E2C3E5A2B06742A361287BFB785B7CBA4E1893FBC44EA0C63C27AD5787B2F79DF6995D6DF91249F1845E6E6A68CE000CC7A17323E4AF417898ECC670A3865192B896FFE9234EC42DCFABB95E50EF0DCA3C744A459A9E2C088296F20F45D23BD5DCCFB6DA32658ADCCE6228F4128B31FFFE585191341FC6985E6760DFB23FAD9AAD0C0BC3AEF1D8E13E0C12906DDF3A8BDDEE0B7BF560ED1F553818AE79AF2EF0FCB797375A8327E86D7A77B5EF5F5E1BFB65D695BA51C2FF6CAFAFF5EA982854D23EB3AB295F195578B2D0CB4D0D55E071FF81A33244E50D3FFC5FDD8D831AA738C17A23408FC2B56AD8A9A1BE514364F83D543A5706BF8FB8DF11A07F3C5A8AA04D7AA79AFBD9565BA64C91962E8692E6A45C2B318485049D8B4F3BCEF923B161E3D2C64464E11C12EE6B1BDCB5AD3BC40E75899F6F157AED7D8D86918C49BD0DF1C91A81BFE5C450432FD05AA175BFAB91A8C9CFABCB8BCFB72BC3C14EB4EEE6BA6F6C71FDCF9FF4B5DEF7C50AA2B872BB326A8A289C79AA90ED7C6F30B49754BEC867105919CAAD421D7ABBA9A1390351A1834A0BBD40B8864A4C5581CB428A2A39D98DFEABC45F1A1E8856B0F00FBFB8460D1FFCC7E58B801FAACC293DFAAF13D7688885F28074E006BFD1FF4EAF571ECA21E7239A26E28285A74AE47BC4314C55DE94D76A9E19BD132A43D9513EA3F78CB8E09ED418E29A2A5E989C07F45452DEE85AB5A209E1E839C3707FC827E20FBD9490CB979E339DAB0CEF0689BA38A37252C51D057E54EF07CA83EE41956F940FE20E4F4BC04D762FF76C436F65A9A44C81EC1FFE544388F23DA20CE4FCC4BDAB04DEAB687EC24B01E5CA3EEDFB263F1FBA8EBC51DAF81B788C8034291CE26E72FF2D5D0C25CD49B91A31843580422F25326D5B67AC27365BDED717BCDC036382F944AAB03055DA1017E29B6784736AAD83850C93F26EEF98D2E48B2EFB51DD169FAD17D9F66DB2E5C4506E743687DEA5FCBCC14D2629BBA71F4ADCC2047973DFDCEEFA5F1E2E0AA24E4A4194F4CC8C07A71ADE37973C33BFDA8CF3074B2B86CAADE7147ABB69C10F957EE071A6AA1CA872C1351203F801A332C05F542CD4B0A25240454269C15D8E0361100FA545951EAE530585E320E110C40977B9E22037FCA57030E40FE9C39DF28A3411E67AE621081403CA06F1204D9C533E91179C538F42523C084B79A6FB421E284E72439C143FF25DC93393415CB846E502BF54A1C3A88C094A13FE42A758E87EA38D1640BCB886FC229FB25BA5BD66D4C0515E712FF4DCA8EC89B877884019C21DFE42A726507AF4BE10E5E24E7A3F60708F7B5688571567D23B157DB69550499902F8939F258EA365083FB82FF8A1FB843F5C831BFCC7DD3F40D951DA24F8287FE5CA1EE7941EE591DCE87DA3DF16DC910EAEE12F9E33DCE5328896293D3FB8C390FF26F7D0D2C5D0D5EC4D06D2A66D2C9A6978BF7BDF33164E6FB431A82A2C2C9A364485FFABA3BEFDF8E292C849124358B13AF456C23BB7CA735F5C1C88B47262087ED0BB5478626693E13A7D7097D8B094EF4CEB1F67DCF33B5DFFABE37EB6E35D8DD64702E5CA0DC2D1DCB1C6FC68C0B8D821B9B45F93955BE93BF476D3423F5CF9874DD00F19D7E8C71A5E0A2A103AA71F392A02551CD4A0510542952F556038A68A08FEE58A109502557A04FCC02FDCA3150B2A3D84811F545CF007A37428AF747EBDF2807B0F2F3701E9231EB951A270549E547654A147C1F391F30C900F390CAE5FED3323100FEE1169844E411EE01FF78330380F2F05E05AB41CE3A0068B1A1F82DE57A44DCF8D40DCD13493805F7A4EA15300DC60E16900F243E951D945D32FF78C00E28D9641B9B8710C77D5FB81B4902EDCA86CA26540EF63F43D8DCBAFEAD9A6A5923205F44E50DE70AFF047F704503E7093CB0479435A69DE552A170A4FFE5086E5CA9EC246D307F04F655D6D3D02A2CF16FE9A94FD8D1443E5D6F929B74D437388A16C97FBB28573CF15CCC7D69968E0834012AAB030396DAD4F670D9FA3DB4F2C6FD4DB932486422F25B06AB5F8FC51616D98107CEE9F460C159E9C5DF03FDCA2DCBB4B150E26E71B5F8DB917F7B9EEDB07DC4C9B3B1ADD7BB972239236E24DB3CE1036BC5585952DF47AD3423F5CD58F9490FD442B049C53652157602AF003A74A22742A411505D2A28A118D34FCCB1505A0FCA8D2431CB8166DE001352051D1405C8F3C44413AF00F0B9D94E03AF2179E36027951355CF0AF0AD31CCF8C1A090A8F7B95CB48955FF88D96631CAAF0D448C7953BE5959E5D12F4FCA24280CA262E9F49EF10F28C6BD1DF0841655649DC69DF0F808619E1E57B2A975FD5FB117DB669A9B44CE9B7853CE21CEF18F2248B39E4216D5ECABDAB71BF7B1057F6D5BC6F0883FBC0FDD2B5B87A04D07350D58B259A5B0CA171C3FA3D1032A1536CC30A0BBD28496A68615723864EB4EBED9ABBB798F6A9C3360451E8BD09AAB0304A5BEBDB45F37F73D2B79F5AD564D8AB1231644C1D64882F760AF4EAE03C8D18CACF1F96175FEE125ACFF64D86BA54E160D1320B04D1A5275DF7D2C1468228AD182A2766923EE3C7B534FBBF85DE9B80770CBD4F30F97D6B69D08F3DAE820672A510AD50A8A22957595365A0AA90280E18558C007EE116151571951ECE299E6818408D85AAD2B95E7988420D4852654F8D89DC4810946F39CF80DC55CFB5399E1995655CC34FE5265F875B9A32A174A379A786312EDFF48E461BA728AA868FA0345046A15323E2DEA1A46744D0B38E2B0355DC69DE0F40E947CB86DED3E8FB9194DF72CF564535658ABC227F4887DE17393CDC4958844EB124BDAB72FD45BD485154655FCDFB46BF2D589A7A04204F944E6C992735BAE57A6EA2A071A3D588E54637490CC5ADF59334719AEC6AC4D0B9AE43BD6C974E651B50555818D2D6FA76D5FCDFBEECDBE6EA264208542286ECDDB36CFFE3474BBD3C69C410B6FF105FED13F9074734198E528583A9CA0C22C87DEF90EB5E3E5A124469C550D23A50B0A46794B421AC6CA1F7464084E1FDC45F188653F137BCDC62A00A041657F913F4C3C7DFD029206D654D9541B411015411C915195560AA8A88E28A561C140F2AD8D0A9048914556509AE471EA2509E904652034E9572B48C11067953A545F95355BE57FBCCA85C92EE91F24CE9234C9A3201D438441B70DC6B5CBEE95D8EBE9F2A900FD57D01A4111747D23B448D605299561A77DAF7035079CB8D3DE5499526F98FE637CDB355516999D23326C379F4B744EF9F7C4F71C4BDAB849C5EF4BD8A7BAED5BC6F95D62380AE235C6CB92735BAB0720BF4C9C88D9BDC0826F5F0A0118BA6012194B471275952434BC4CD39524DA08E92F495D3917E7505FF77AFF9F6E1754A210492C450740D1EEF9D6D5EE1D0C2D2B052921894056410EEF0E246C351490225A9CCEC231B6DF783678B82A855A692722BD783171529C89FFCAEE059C7A5070B8395407808219403FE9228C2DF96D643448D222CF63F9210FAB1467FFC54D12555D671950D40BA14AF9C87B8CA1AC01FD295E3A3CA1095892A2F745D55595EAF3C44A1F247051A3A29A10A56CE1B88CB1F95775CC57AB5CF2C4DC34F7E4864C36F927F19CA5F785A026E885325F0A8EC55F995A1464C55E6D4BB11F73C280DD53B44CF52750DD03B16973F55DC69DF0F10152378B62847B8219EC09344DC3B95E6D946A9A64C296FAA6709A8BC92FC1049EFAA0C9551342F71CFB5D2F78DF25C493D4250B9C7A557F6BFF3349360D138451B44B9D14543255F8B1A1A310CAD214C522F52D4102E4C4249B94FB6CB359C4962E6CA8849C2DAB32A763B0F6AB055616172B966EFCD6485630A63BA56120D49CF05D7426F35D6D6E996FFB3FD8DE60D25E5BB9C08B48F6DB59D638FC50A1358B4DC705E4EBCE2FD40BEF09CA37E511649CF9D7AC2089C233EFA8BB078C71077D4EF8D862A24FC0D9D9450850653FDF8CB554254A947FF2303545144FFFBA38A2B5A590384A1CA9C0CE771950DE5334E1C5C8F3CA8A0F22FF79F2F2A57F919210D5498947EB4122777555E9AE39951FC498D143550940784092E940171229CCA3F354E5111476995CB13407EE02F2A1064F140020E6545F92FF70E216CD2EF88D2A5B865E2E24EFB7ED0FDCBE9E3FEE8FD559549B977AA5C39CA5453A67083C50972591CC4F92192DE5519A48DFB86854E89CFB5D2F78DEEAB927A4486EE03F1844E0D3D0FE584101935642AC3355543886B6152813048D3D313358429D773450DA1DCD382C619E9974B1362050D71B49706E7B82F5518D9286DDC5F183400659BD4D3418634E077CB8CE179EC1A0F5184F3348290D25E3FBE362FBE3926B4DE1DB54AF31D1535B80FB87FD4A69F321C19CA352A3C104EE5B79C21BF085FEE9EE18FF28B74F1EED25F9435EEBDA58921B9424A6A18F103A60A0D9583FC83A60A4B55C1CB205C522382EB728543958DDC20E2187E906FC455AE8294A17B8DAB2CAF471E5450651BAD3C51C6942E2A5BD90FD2A6630A2FE703D7E979D1B3827FAAB49BE399E11A2C3C0DF28B770865163A050D21D2813BD22FD75011F4ACF037740AF28F7394897C5F043536542E49C00FFC461B6EE4331ABFFCBBA07CA9EE839E51344E99B8BC83B8B8D3BC1F205A66F80B43B9C8CF09F120AFE5DEA972CF364AA5654ABF2D391D02D7510E744FB0E8EF0CE9C9EF2FE251BDAB94B69C77F84BFB5CE39E59DCFB56493D82F4E02EE785DC4AF98550503538CD69B21802953696681C4964A8AEAB8C26D2AAAE95334A0B8DAAEA7A9221AF080BD020ABFC24D995216304D6FD49236454E67F61FA1F2F9E56567C454DCE374823E0A2263FE74A9F31CA2A0C5A560CC120C242EFC14EF978DE481F7F218A206EA3C2F446810A003F5AFCF060F811477FF038A74A0E06FFD10A033F6A558526438D2FD2C439E24438C41FAD9409AAA0E08E8A812A505CA334A36192A04A0AC7B807C447F9B95E7950813891062A57AA40912EE297CFE107F986BB5C7992E8A186017EE14F6E04D140C9CF8DF21E9E2A49F3CC9036AEC18F9C2719A4038BBBAE02E9D03D213D84A5FC53DA141F9E07354C49424486EE0DF94219230EBA37C48B6B70477C700B8325BE43281F8443FE701E05F1212CD2099D1A111737E527E9FD00943EAEE1FEE8BD449C1416715139C21FFCE31C71E11ADC2B79B632D59429BDBB5466880379C55F9C230E5C87211FE48678C90FA0B4C98FFCAE521A9426FC228F699F6B25EF1BF9A5B227A8ACE18EF0880B7F29DF140FCA07F96E146F358D5EA586062A4CAE041ACB34BD35E81D098304A8FCA90C4208E9AAAE25993CDC568D509405413565FBA7B58B85B9766AD99E2C954104148EAF2E5C193A56793DC9643102547ECA59B47709CF2ECD338EF6E0A4EDD10ABD07A215658D7B80214EB885976F18F443AEC4F003C50F59AE7C01CE518994AB2C51F1C01FE242FA54D100FCF0E12E574E802A0A18FCC869CBD7C8288F54D947A17460384665145EBA6E7950411520C5112D1F40952CCA307A0D69C9E9D33D500384BF72BE9BE399210E6A64700D65115E6A02AE231E390FE5A0C603162D7780F4287D18EEBB9232077299238DD0B9549EB81E4D97DE130A23BF437283AA82DE97E8F323E2E2461ECABD1F401631F2F3807FB8E379CBEF77DC3B55C9B38D526999223F943F58348F00E9D37B48F146FD24BDABB826E70BC7D1F071654FA47DDF281ED53DC8F1CB6520BFEBD167118046038DD1B5B2A44689040B1A36D9D0184645109126BF94267A0654D7934C6ED0711CBD5EDFF6EEDC3FBF76C25F3E60503E7A0D26F746C879FDC3A16DDEB3732607735BE2ACBECD9D39F1ED2981451BE3EEF3CB4797B8CFCE1CA78C07691BB34619FF59381ACCAD49B2CB9B963A97372D77E83CDA8B22FB257B7661CEFEF2E05E57752DEE39235E085F08B5B4CF38CD738B0A2F40D7A2F7C25C1DA890E44A52B668A57BAD68097968E9A01C2A69506F46A2BD072A500EF0136D6819866926326DDB64DC2F2EB858A13A744A853E62808EAFCDA28B1946C94DACCBF9BF7E5EB97022E19C79C431D7CD6834EC288315A4C577AF08AD4F97C49E11AD6F374DFCE95D91ED744F13519184B16896615B0763BF9A636E1DD0B0A26189FEF7854606BD32F41F5CB99E8FABA125E4E166002201FF0987A7B72CD42310D73B85F704D7D16B113A310CD3DC14DE3C51C84D9FA8ECCD48C2FBF2B467CC9B585640598F2DB6EC830F270A0DE795BC63AE9F152B8600164E34E6D4974F6FAF61E18BB1F03435C692B90616A80C4F995B107421436824F5B8E01A7A6B60A153B3D212F27033803280600C4F6F69F09CF14E84A74DA0A1902643200CC3340FD6913D9636B06FC5F3508CF9930CE7ADC38D2627C7E1BE6B1645CCD84411E39CDDE9981BE6248A216BD732CB3EB4B6AC58C11A42FE77EFF8FAC8DA8ABFBA3296E60CFBA5A75910DD82A0D7050D4A9A9E06344CD7A257A625E4E16641D5737633434361D1672F0B1DDC338451F4BEF12E2489258661AE02EBE8E39636A85FC54228D3B655C6FBCD394FEBD7BD6C580CA189FF7E41941B4A735EDBE3981BE7258A217D787FDDFBA5956AC5F0DC03A373CEC5E3A9C45A1463D90223BF7975AA0D58999B076A8CCAF53660984AD52035072D210F2D0D9A1C2AF77A4030DC6AF78E678AFB94052EEE11CF19EF037AC2701D26CF0BA22134BC3BA113C3DCBA681DFF4AD3BBFF573D6A700FBD04647EF45F322A7FB0A85F003763E80F0C18FC84CE35F6E34BECFCDCDA3C85CDDEF957A5393638A73014A79CAEB561BCE59C5CE5C02D081002BFB9017F9D93C3E5260DCFB9EF3FE35258B2204008FC169E9851B01FD5ED689C04C52D3E5D2772756D83213D5559049E8BE0D8FB60AF674CEE53EA91825BBEFE6FF271F7259B7DA0583EF30607E583B2895E27A37253B94551F9A1F4A3F962AE0D6874A8418A36B6F49F39E665C88D5173D312F2D092209180461F82E0561442807A80A86708CF17CF194643A6E8FD914530958D2C1419E696C6597787238EB5116438F79F6CEDE3187FCDC93F0C7A4DD05892BBCA82C88AC09FB7AB950737FC75B7B572718CB085A3CB0A748D0C42438E1BD7294F68ACA3E9E2186190161A76F28B70E40F6EF6C1D5767EE5AC3CA54F66CDFA61E99377396C5448402CC87977F7740B8E511E81380AE383C15F348C77669E27E71DEEF27D1556FCB840E1E30C69C9F72E1BE2429A7279E2186E328883AE53D921FDB87C85C1986B00090E3432B2419C5CAF46A725E4A1A5002180461F76ABDF3BEE8F9E35444FF47E2182E4F702C7B78B28669812D458C242A71AFBC11FD9E4869E03B8C9228044120400FCE2586EFCD1D8C30D203CDCF47E7706BD13140785A3C638F01336C868A4111F8EE5065D4E97D2226120BB8997070A0CA7C902858CC414C0B9B964709361B2689A98AB24DE9E29D093A2BA1E042A82B4705FE68E35A678636C294DD57D11AAFBD7060FD2727366E554E9E09E48D441C4D175183D2BD0A83CA4F0E5CA9B611886616E3BA86184854E8D1A5934947093858C2C0008B9B743EE69D1278CD375AD5BD0E8AAE2901B67A485461CEE844A10400C909B2C6E6477120672FC300804CA5FE06F5CC72693ACE534E15FEFDB56C77CA5F07223A181BF38477A1477A66DEB8C67F62CF5DA200FD1FB2254E204687583357B75EF9228559539A0EB30B97748BE07188597D3C3338BCB17C3300CC3DC36C80D66E814107597850C1A5D34AA30121D51FF2A5462086E242C603896054EE191DA92C85235E8B2F042CF8DCA2F195D2381876359801088531E820AEC178F886CE70EA5B464B10111867C539A40EE4983213E555A72BEA2D7E53454650E704D8E03E922FF3896CB95F296365F0CC3300C73DB20378CA15340D41D0D269DA3F145E30AA39E85A87F15721CB270C0100D048A1C071A7CBD7EB8EEBFB73A71A847164308A3F20B833F591C502F529C10C07D45E7F6D0F014C0F5A8888BF6B238AFEF73FC677B97FCC064A107E47B491243AA3207B826DF37FC61A80EF9917BCAA83C00CA3B2AF6A2F96218866198DB06B9410C9D02C82DED30992C0C648122532E0E79AE12E2B34F1DB5ADF9773769D0E30404AE933BCDEF815F188EA3BD22B0383144C8420326DF9B2C3664A14464BB74CA62FD20F9BE2042C2CB0171F702E4FB519517A070721AE4BF5C78390C3D6786611886B9EDA0C610163A35120D3424132764200E60490D2FE2436F862A0E8808B95782AEC372331F504E2256F50001EA5D927B69643104640103538921C44F620AC4091655DE08A403BFE6DEED66B66BE746139D432F01D588212A731C5338F4F6905FBA7F5578CA178E811C26746218866198DB0B6A0C61100010263484829E83D05B233104D1017F100D3846438BC697C40885853B1A7B6A68E5C6197ED1A0E33AD2437CB250210123F75EC8137EC91D7123AC3C5F88041CE589D2821B90F319152000F9A47865E1254EF516D92EF795E29187D1901FCA1B40FE914E4EBB33E7597A69484A2ED36899916021A2E585BC223FC81BAED133A17024ACE85C5576942F8495AFA3EC1186611886616E3BD008CA0D320C0D26090A82848BCA64BF38861BC585B8E1869E0B55388818397D1C7BE71EF2B21DDA6555612050C2A482B4282C0495FFFA741F61C2CBA5BCC0701C3A97EE055F7CE9B59D9A882108055CA73C216E0887FCB24979EC2526FB914DCE1B04897C5FDE818E1EDC64C124E78F4C166DAA34C890967C8EFB26FF4823AEECA2F9C231892786611886615A009976ED32F9ADEBABDA96A2D20D4FCD9D1B4C7DCCB02662288E4CBB3619FBD4918AD220CCC777B3E06018866118A63CC643CB0C08A2F0B422AC237B2B1AEA31776D32F1C55A789A8A6A3754CD76EB9AC5428AE129C3300CC3308C1A6D706D552B21EB6347E998701D9EA6223763524EAF1F519118CA6F32F299766DAB126B5848313C641886611886695ECCBD8F563C0CA58F1DA9C3C2D35468B503B4DCACA9DCC3C3300CC3304CCB22BF796DC5F38CD09B040B4F5393DFB2AEAA394D0CC3300CC330D78C6A265DEBE346EB5803283C4D4DB513BC198661188661AE09FAF8B17AB65B978A458D3E6E4CC5BD4220376766AEDA49DE0CC3300CC330CD4EB55F69E9E3EBAB124320377736CF1B6218866118E6E6063D4AE121C3300CC330CCED873E611C8B218661188669366A6AFE3FF2796A85E1B126300000000049454E44AE426082)
+
+Module Historic_returns
+Title: Historic returns
+Description: This module contains data on the historic returns from the S&P 500 from 1928 to 2015.~
+~
+The data comes from <a href="https://seekingalpha.com/instablog/605212-robert-allan-schwartz/4831186-annual-returns-s-and-p-500-1928-2015">Robert Allan Schwartz's Blog</a> article on this topic.
+Author: Lonnie
+Date: Wed, Apr 11, 2018 12:04 PM
+NodeLocation: 920,64,1
+NodeSize: 72,16
+DiagState: 2,169,248,944,511,17
+
+Index Prev_year
+{!40000|Att_PrevIndexValue: [1928,1929,1930,1931,1932,1933,1934,1935,1936,1937,1938,1939,1940,1941,1942,1943,1944,1945,1946,1947,1948,1949,1950,1951,1952,1953,1954,1955,1956,1957,1958,1959,1960,1961,1962,1963,1964,1965,1966,1967,1968,1969,1970,1971,1972,1973,1974,1975,1976,1977,1978,1979,1980,1981,1982,1983,1984,1985,1986,1987,1988,1989,1990,1991,1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015]}
+Title: Prev year
+Definition: [1928,1929,1930,1931,1932,1933,1934,1935,1936,1937,1938,1939,1940,1941,1942,1943,1944,1945,1946,1947,1948,1949,1950,1951,1952,1953,1954,1955,1956,1957,1958,1959,1960,1961,1962,1963,1964,1965,1966,1967,1968,1969,1970,1971,1972,1973,1974,1975,1976,1977,1978,1979,1980,1981,1982,1983,1984,1985,1986,1987,1988,1989,1990,1991,1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015]
+NodeLocation: 160,88,1
+NodeSize: 64,24
+
+Variable S_P_500_Historic_ret
+Title: S&P 500 Historic returns
+Definition: Table(Prev_year)(0.4381,-0.083,-0.2512,-0.4384,-0.0864,0.4998,-0.0119,0.4674,0.3194,-0.3534,0.2928,-0.011,-0.1067,-0.1277,0.1917,0.2506,0.1903,0.3582,-0.0843,0.052,0.057,0.183,0.3081,0.2368,0.1815,-0.0121,0.5256,0.326,0.0744,-0.1046,0.4372,0.1206,3.4m,0.2664,-0.0881,0.2261,0.1642,0.124,-0.0997,0.238,0.1081,-0.0824,0.0356,0.1422,0.1876,-0.1431,-0.259,0.37,0.2383,-0.0698,0.0651,0.1852,0.3174,-0.047,0.2042,0.2234,0.0615,0.3124,0.1849,0.0581,0.1654,0.3148,-0.0306,0.3023,0.0749,0.0997,0.0133,0.372,0.2268,0.331,0.2834,0.2089,-0.0903,-0.1185,-0.2197,0.2836,0.1074,0.0483,0.1561,0.0548,-0.3655,0.2594,0.1482,0.021,0.1589,0.3215,0.1352,0.0136)
+NodeLocation: 160,152,1
+NodeSize: 64,24
+ValueState: 2,472,475,992,389,1,MIDM
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Cum_dist_of_historic
+Title: Cum dist of historic returns
+Definition: Cdf(S_P_500_Historic_ret, Prev_year)
+NodeLocation: 160,216,1
+NodeSize: 64,24
+ValueState: 2,1051,360,710,516,1,MIDM
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_CoordinateIndex: DensityIndex}
+
+Variable Historic_mean
+Title: Historic mean
+Definition: Mean(S_P_500_Historic_ret, Prev_year)
+NodeLocation: 312,216,1
+NodeSize: 64,24
+ValueState: 2,1413,573,416,303,,MIDM
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Historic_percentiles
+Title: Historic percentiles
+Definition: ProbBands( S_P_500_Historic_ret,Prev_year)
+NodeLocation: 160,280,1
+NodeSize: 64,24
+WindState: 2,768,356,713,350
+ValueState: 2,1195,494,416,402,,MIDM
+GraphSetup: ProbIndex:[0,0.01,0.025,0.05,0.1,0.25,0.5,0.75,0.9,0.95,0.975,0.99,1]
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40700|Att_CellFormat: CellSpan((Self.Probability),CellNumberFormat('Percentage',4,0,0,dateFormat:'ABBREV',fullPrecision:0,numbersAsDates:0,datesAsNumbers:0),1,13,header:1)}
+
+Close Historic_returns
+
+FormNode Fo1523466941
+Title: Does you employer match your 401(k) contribution?
+Definition: 0
+NodeLocation: 208,160,1
+NodeSize: 168,16
+NodeInfo: 1,,,,,,,,,,,1
+Original: Employer401kMatching
+
+FormNode Fo1523467800
+Title: Employer matching percent
+Definition: 0
+NodeLocation: 208,192,1
+NodeSize: 168,16
+NodeInfo: 1,,,,,,,,,,,1
+Original: Employer_matching_pe
+
+Text Benefit_sensitivity
+Description: Realized value at retirement sensitivity
+NodeLocation: 672,416,-1
+NodeSize: 216,16
+BalloonHelp: A sensitivity analysis panel. Use this to explore how sensitive the forecasts are to changes in the input assumptions.~
+~
+In the panel (table), you can directly edit the Low, Base and High estimates for each input. The base estimate are what you used to compute your model, and the Low, High values are used to compute the sensitivity ranges that appear as bars in the Resulting Increase/Decrease columns.~
+~
+The resulting decrease/increase columns show how much the Realized Value at Retirement would change if the corresponding input where changed to its low or high value, all other inputs kept at their base levels. This enables you to see which input factors have the most influence on your realized value at retirement.
+
+Button Panel
+Title: Panel
+Description: A sensitivity analysis panel. Use this to explore how sensitive the forecasts are to changes in the input assumptions.~
+~
+In the panel (table), you can directly edit the Low, Base and High estimates for each input. The base estimate are what you used to compute your model, and the Low, High values are used to compute the sensitivity ranges that appear as bars in the Resulting Increase/Decrease columns.~
+~
+The resulting decrease/increase columns show how much the Realized Value at Retirement would change if the corresponding input where changed to its low or high value, all other inputs kept at their base levels. This enables you to see which input factors have the most influence on your realized value at retirement.
+NodeLocation: 842,412,1
+NodeSize: 40,11
+NodeInfo: 1,0,0,1,1,1,0,,0,,0,0,,
+NodeColor: 52427,1,34956
+OnClick: ShowWindow( Handle(Sensitivity_to_reali), 'EditTable' )
+
+Button Panel1
+Title: Panel
+Description: A sensitivity analysis panel. Use this to explore how sensitive the forecasts are to changes in the input assumptions. This explores how the different retirement options compare to a 401(k).~
+~
+In the panel (table), you can directly edit the Low, Base and High estimates for each input. The base estimate are what you used to compute your model, and the Low, High values are used to compute the sensitivity ranges that appear as bars in the Resulting Increase/Decrease columns.~
+~
+The resulting decrease/increase columns show how much the Realized Value at Retirement compared to 401(k) would change if the corresponding input where changed to its low or high value, all other inputs kept at their base levels. This enables you to see which input factors have the most influence on the relative benefit compared to a 401(k) plan.
+NodeLocation: 842,443,1
+NodeSize: 40,11
+NodeInfo: 1,0,0,1,1,1,0,,0,,0,0,,
+NodeColor: 52427,1,34956
+OnClick: ShowWindow( Handle(Realized_value_at_r1), 'EditTable' )
+
+Text Benefit_se1523469238
+Description: Realized value at retirement rel 401k sensitivity
+NodeLocation: 672,448,-1
+NodeSize: 216,16
+BalloonHelp: A sensitivity analysis panel. Use this to explore how sensitive the forecasts are to changes in the input assumptions. This explores how the different retirement options compare to a 401(k).~
+~
+In the panel (table), you can directly edit the Low, Base and High estimates for each input. The base estimate are what you used to compute your model, and the Low, High values are used to compute the sensitivity ranges that appear as bars in the Resulting Increase/Decrease columns.~
+~
+The resulting decrease/increase columns show how much the Realized Value at Retirement compared to 401(k) would change if the corresponding input where changed to its low or high value, all other inputs kept at their base levels. This enables you to see which input factors have the most influence on the relative benefit compared to a 401(k) plan.
+
+FormNode Fo1523470390
+Title: Dividend tax rate
+Definition: 0
+NodeLocation: 208,376,1
+NodeSize: 168,16
+Original: Dividend_tax_rate
+
+FormNode Fo1523470447
+Title: Net dividend yield
+Definition: 0
+NodeLocation: 208,408,1
+NodeSize: 168,16
+Original: Net_dividend_yield
+
+Close Comparing_retirement
+

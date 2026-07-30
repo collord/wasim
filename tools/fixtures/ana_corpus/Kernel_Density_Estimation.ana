@@ -1,0 +1,22 @@
+{ From user Drice, Model Kernel_density_estim at 20-Aug-2010 1:02:09 PM }Softwareversion 4.2.3{ System Variables with non-default values: }Samplesize := 1000Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0{!40000|Att_contlinestyle Graph_primary_valdim: 1}{!40000|Att_contlinestyle Graph_pdf_valdim: 6}Model Kernel_density_estimDescription: This example demonstrates a very simple fixed-width kernel density estimator to estimate a "smooth" probability density.   The built-in PDF function in Analytica often has a choppy appearance due to the nature of histogramming -- it sets up a set of bins and counts how many points land in each bin.  A kernel density estimator smooths this out, producing a less choppy PDF plot.~
+~
+The algorithm also sets up a set of bins, but it blurs each point using a bell-shaped burring function.  So a fraction of each point lands in each bin.  The net result is a smoother plot.   (Blurring each point is a bit better than smoothing the PDF's histogram, since it blurs from the location of each original point within the bin -- however it is more computationally intensive than just blurring the histogram.Author: Dale Rice~
+Lumina Decision SystemsDate: Fri, Aug 20, 2010 12:37 PMSaveauthor: DriceSavedate: Fri, Aug 20, 2010 1:02 PMDefaultsize: 48,24Diagstate: 2,-3,0,591,286,17Windstate: 2,213,487,476,559Fontstyle: Arial, 15Fileinfo: 0,Model Kernel_density_estim,2,2,0,0,W:\TestModels\Kernel Density Estimation.anaChance Ch1Definition: normal(0,1)Nodelocation: 120,64,1Nodesize: 48,24Chance Ch2Definition: normal(0,1)^2Nodelocation: 120,152,1Nodesize: 48,24Chance Ch3Definition: if Bernoulli(0.5) then uniform(0,ch1) else uniform(2*ch1,3*ch1)Nodelocation: 280,64,1Nodesize: 48,24Valuestate: 2,100,107,416,303,1,PDFPVariable Analytica_s_pdf_plotTitle: Analytica's PDF plotDefinition: max([ch2,ch3]) + max([ch3-ch2,ch3])Nodelocation: 360,153,1Nodesize: 48,31Valuestate: 2,526,129,580,787,1,PDFPFunction Kernel_dens_est(z : ContextSamp[I] ; width : optional positive atom ; I : Index=Run ;~
+ nBins : positive = 100 )Title: Kernel Dens EstDescription: A kernel density estimator.  Returns a smooth PDF plot of x, optionally using a given kernel width.~
+~
+Typical usage:~
+~
+Kernel_Dens_Est( X )~
+~
+Or, to select your own kernel width (in units of X):~
+~
+Kernel_Dens_Est( X, width: 1.0 )~
+~
+To apply to a data set (other than a Monte-Carlo dervied set),  where the data is indexed by J:~
+~
+Kernel_Dens_est( data, I : J )~
+~
+You can also specify nBins to increase or decrease the number of bins in the resulting plot for more detail in the graph (with increased or decreased computational expense).Definition: var range := max(Z,I) - min(Z,I);~
+if IsNotSpecified(width) then width:=range/50;~
+index X := Sequence(min(Z,I),max(Z,I),range/nBins);~
+Normalize(Sum( exp( -((Z-X)/width)^2 ), I), X)Nodelocation: 448,64,1Nodesize: 48,24Windstate: 2,489,171,547,842Paramnames: z,width,I,nBinsVariable A_kernel_density_estTitle: A kernel density estimatorDefinition: Kernel_dens_est(Analytica_s_pdf_plot)Nodelocation: 480,152,1Nodesize: 48,31Valuestate: 2,71,440,525,443,1,MIDMReformval: [Sys_localindex('X'),Undefined]{!40000|Att_resultslicestate: [Run,10,Sys_localindex('X'),1]}Close Kernel_density_estim

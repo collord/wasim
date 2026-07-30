@@ -57,3 +57,20 @@ the schema's `call` node with the engine's builtins:
 `tools/test_ana_corpus.py` keeps an `EXPECTED_INVALID` set (now empty) as a live
 regression tracker: if any fixture converts to schema-invalid output again, the
 test fails and names it.
+
+## Findings surfaced by *executing* the corpus (fixed)
+
+Schema validation is static — it never runs the converted model. The Rust
+integration test `engine/tests/ana_corpus_runs_v2.rs` closes that gap: it
+converts every fixture and runs it through `wasim_engine::simulate_json`,
+asserting each executes without error. That executable-fidelity check caught a
+defect schema validation could not:
+
+1. **`drunk_driving_cost_benefit.ana`** → uses Analytica's two-arg
+   `Round(x, digits)` (round to `digits` decimal places). The engine's `round`
+   builtin was 1-arg-only, so the run failed with
+   `function 'round' expects 1–1 args, got 2`. `round` now accepts 1 arg (round
+   to integer) or 2 args (round to `digits` decimals, negative for tens/…), on
+   both the scalar lane (`eval.rs`) and the fused array lane
+   (`array_lane.rs`'s `Op::RoundN`). Pinned by `round_two_arg_*` in
+   `engine/tests/array_lane_v2.rs`.

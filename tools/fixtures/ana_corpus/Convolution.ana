@@ -1,0 +1,146 @@
+{ From user Lonnie, Model Convolution_example at Fri, Sep 29, 2006 2:00 PM~~
+}
+Softwareversion 3.1.1
+
+
+{ System Variables with non-default values: }
+Windows := 2
+Usetable := 0
+Typechecking := 1
+Checking := 1
+Graphwindows := 9
+Saveoptions := 2
+Savevalues := 0
+Webhelper := -1
+Allwarnings := 0
+
+
+{ Non-default Time SysVar value: }
+Time := [0,1,2]
+Title Time: Time
+Description Time: Dynamic simulation periods are specified in Time's ~~
+definition. This is usually a list of numbers or labels, typically in~~
+ some unit of time (days, weeks, months, etc.).  Use the ÒDynamic()Ó ~~
+function in your variables to perform dynamic simulation.
+
+Model Convolution_example
+Title: Convolution example
+Description: This example model contains a convolution function, that~~
+ convolves two curves over time, along with some examples of its use.~~
+
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Fri, Sep 29, 2006 12:07 PM
+Saveauthor: Lonnie
+Savedate: Fri, Sep 29, 2006 2:00 PM
+Defaultsize: 48,24
+Diagstate: 1,1,0,550,414,17
+Fontstyle: Arial, 15
+Fileinfo: 0,Model Convolution_example,2,2,0,0,W:\TestModels\Convoluti~~
+on.ANA
+
+Function Convolve(Y,Z : Numeric[I] ; T : Numeric ascending[I] ; I  :I~~
+ndexType )
+Title: Convolve (Y,Z, X, I )
+Description: Computes the convolution of Y and Z.  T contains the X-a~~
+xis values, which need not be spaced equally, but which do need to be~~
+ increasing.  I is the dimension over which the convolution occurs.  ~~
+Assumes both functions Y and Z are 0-valued outside the limits of I, ~~
+and linearly interpolates between the values contained in Y and Z.
+Definition: var t0 := min(T,I);~
+var tn := max(T,I);~
+var incU := (tn-t0) / (size(I)-1);~
+~
+var t_ [] := T do (~
+  { range bounds for integration }~
+  var u0 := max([t0,t_-tn]);~
+  var uN := min([tn,t_-t0]);~
+  { integration dimension }~
+  index U := Sequence(u0,uN,incU);~
+  { Do the integration }~
+  area2( LinearInterp( T, Y, u, I ) * LinearInterp( T, Z, T_-u, I), U~~
+, U )~
+)
+Nodelocation: 88,64,1
+Nodesize: 48,24
+Windstate: 2,175,96,650,531
+Paramnames: Y,Z,T,I
+
+Index T
+Title: T
+Definition: Sequence( -5, 5, 0.1 )
+Nodelocation: 96,232,1
+Nodesize: 48,24
+
+Variable X1
+Title: X1
+Definition: if abs(t)>2 then 0 ~
+else 1-abs(T/2)
+Nodelocation: 232,224,1
+Nodesize: 48,24
+Valuestate: 2,24,5,416,303,1,MIDM
+
+Variable X2
+Title: X2
+Definition: exp(-T^2)
+Nodelocation: 344,224,1
+Nodesize: 48,24
+Valuestate: 2,450,13,416,303,1,MIDM
+
+Variable X1____x2
+Title: X1 ** X2
+Definition: Convolve(X1,X2,T,T)
+Nodelocation: 232,288,1
+Nodesize: 48,24
+Valuestate: 2,149,58,793,549,1,MIDM
+Reformval: [, T ]
+
+Variable X1____x1
+Title: X1 ** X1
+Definition: Convolve(X1,X1,T,T)
+Nodelocation: 344,288,1
+Nodesize: 48,24
+Valuestate: 2,80,313,416,303,1,MIDM
+
+Variable X3
+Title: X3
+Definition: T=-1 or T=1
+Nodelocation: 456,224,1
+Nodesize: 48,24
+Valuestate: 2,40,50,416,303,1,MIDM
+
+Variable X2____x3
+Title: X2 ** X3
+Definition: Convolve(X2,X3,T,T)
+Nodelocation: 456,288,1
+Nodesize: 48,24
+Valuestate: 2,56,66,812,303,1,MIDM
+Reformval: [, T ]
+
+Function Area2(Y : Numeric[I] ; X : ascending numeric[I]; I : IndexTy~~
+pe)
+Title: Area2 (Y,X,I)
+Description: Computes the area under a curve given by the points in (~~
+X,Y), using the trapezoidal rule.  Like the built-in Area function, e~~
+xcept the bulit-in one has a problem with local indexes, and also thi~~
+s one allows X to be separate from I.  This does only indefinite inte~~
+gration -- it doesn't have the bounds of a definite integral that the~~
+ built-in Area function has.~
+(Note: the built-in function can be used for both these purposes in A~~
+nalytica 4.0 or later)
+Definition: var pos := cumulate(1,I);~
+var prevY := Slice(Y,I,if pos>1 then pos-1 else 1);~
+var prevX := Slice(X,I,if pos>1 then pos-1 else 1);~
+sum( (X-prevX) * (Y+prevY)/2, I )
+Nodelocation: 200,64,1
+Nodesize: 48,24
+Windstate: 2,102,5,476,309
+Paramnames: Y,X,I
+
+Text Te1
+Description: Some Examples:
+Nodelocation: 128,176,-1
+Nodesize: 72,16
+
+Close Convolution_example
+

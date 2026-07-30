@@ -1,0 +1,25 @@
+{ From user Lonnie, Model Control_of_so2_emiss at Thu, Jan 03, 2008 9:38 AM~~
+}Softwareversion 4.0.1{ System Variables with non-default values: }Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0Allwarnings := 0Model Control_of_so2_emissTitle: Control of SO2 EmissionsDescription: Acid rain in eastern US and Canada caused by sulfur dioxi~~
+de is emitted primarily by coal-burning electric-generating plants in~~
+ the Midwestern U.S.  This model demonstrates a marginal analysis a.k~~
+.a. benefit/cost analysis to determine the policy alternative that le~~
+ads us to the most economically efficient level of cleanup~
+Author: SuryaDate: Tue, Dec 11, 2007 10:16 AMSaveauthor: LonnieSavedate: Thu, Jan 03, 2008 9:38 AMDefaultsize: 48,24Diagstate: 1,77,10,583,300,17Windstate: 2,123,675,507,334Fontstyle: Arial, 15Fileinfo: 0,Model Control_of_so2_emiss,2,2,0,0,W:\Analytica\ExecDebug\~~
+Example Models\Decision Analysis\Marginal Analysis for Control of SO2~~
+ Emissions.anaDecision Emissions_reductionTitle: Emissions ReductionUnits: %Description: The percentage by which SO2 emissions are reduced. In thi~~
+s model, we consider the hypothetical costs/benefits associated with ~~
+each incremental 10% reduction in emissions with the objective of det~~
+ermining the economically efficient, optimal cleanup levelDefinition: Sequence( 0, 1, 0.1 )Nodelocation: 64,152,1Nodesize: 48,24Windstate: 2,63,392,476,224Valuestate: 2,390,138,416,303,0,MIDMNumberformat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0Displayoutputs: ,{!40000|Att_previndexvalue: [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]}~~
+Variable Total_cost1Title: Total CostUnits: $MDescription: Cost (in $ Millions) associated with the incremental 10% ~~
+reduction in SO2 emissionsDefinition: Table(Emissions_reduction)(~
+0,30,80,160,310,560,920,1400,2010,2760,3670)Nodelocation: 192,72,1Nodesize: 52,24Defnstate: 2,340,195,416,303,0,MIDMValuestate: 2,151,223,416,303,0,MIDMVariable Marginal_costTitle: Marginal CostUnits: $MDescription: The additional cost imposed for each 10% increment in SO2~~
+ emissions reduction.Definition: Uncumulate(Total_cost1, Emissions_reduction)Nodelocation: 336,72,1Nodesize: 48,24Windstate: 2,334,125,476,224Valuestate: 2,180,46,500,338,0,MIDMReformval: [Undefined,Sys_localindex('X')]Variable Total_benefitTitle: Total BenefitUnits: $MDescription: Benefits (in $ Millions) associated with the incremental ~~
+10% reduction in SO2 emissionsDefinition: Table(Emissions_reduction)(~
+0,500,970,1370,1700,1950,2100,2175,2205,2220,2225)Nodelocation: 192,224,1Nodesize: 52,24Valuestate: 2,136,146,416,303,0,MIDMVariable Marginal_benefitTitle: Marginal BenefitUnits: $MDescription: The additional benefits received for each 10% increment i~~
+n SO2 emissions reduction.Definition: Uncumulate(Total_benefit, Emissions_reduction,500)Nodelocation: 344,224,1Nodesize: 48,24Windstate: 2,38,109,476,224Valuestate: 2,306,238,416,303,0,MIDMReformval: [Sys_localindex('X'),Emissions_reduction]Numberformat: 2,D,4,2,0,0,4,0,$,0,"ABBREV",0Objective Marginal_net_benefitTitle: Marginal Net BenefitUnits: $MDescription: The efficient level of SO2 pollution control is found whe~~
+re total net benefits are maximized i.e. when marginal benefit is equ~~
+al to marginal cost, which in this example occurs at the 50 percent c~~
+ontrol levelDefinition: Marginal_benefit-Marginal_costNodelocation: 480,192,1Nodesize: 44,28Valuestate: 2,166,169,456,292,1,MIDMReformval: [Sys_localindex('X'),Sys_localindex('X')]Objective Optimal_cleanup_leveTitle: Optimal cleanup levelUnits: $M~
+Description: Economically efficient level of pollution control occurs ~~
+where Marginal Cost = Marginal Benefit. In this example, the optimal ~~
+cleanup level is 50%Definition: [MARGINAL_COST,MARGINAL_BENEFIT]Indexvals: ['Marginal Cost','Marginal Benefit']Nodelocation: 480,120,1Nodesize: 40,28Nodeinfo: 1,1,1,1,1,1,0,0,0,0Valuestate: 2,313,204,556,373,1,MIDMReformval: [Emissions_reduction,Self]{!40000|Att_previndexvalue: [Marginal_cost,Marginal_benefit]}Close Control_of_so2_emiss

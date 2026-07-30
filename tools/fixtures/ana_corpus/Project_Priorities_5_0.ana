@@ -1,0 +1,451 @@
+{ From user Fred, Model Project_planner at Thu, Jul 19, 2007 10:33 AM~~
+}Softwareversion 4.0.0{ System Variables with non-default values: }Description Time: Dynamic simulation periods are specified in Time's d~~
+efinition. This is usually a list of numbers or labels, typically in ~~
+some unit of time (days, weeks, months, etc.).  Use the “Dynamic()” f~~
+unction in your variables to perform dynamic simulation.Samplesize := 2000Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0Distresol := 100Diststeps := 1Attribute ReferenceAttribute Date_boughAttribute TheAttribute Prev_attributeAskattribute Recursive,Function,YesAskattribute Prev_attribute,Function,YesAskattribute Prev_attribute,Module,YesAskattribute Value,Variable,YesAskattribute Check,Variable,YesAskattribute Prev_attribute,Variable,YesModel Project_plannerTitle: Project plannerDescription: Demonstration model to show:~
+   * Economic evaluation of a set of R&D projects~
+   * Multiattribute evaluation of those projects with hard attribute ~~
+(economic) and soft attributes (strategic fit, staff development, and~~
+ public good will) ~
+   * Portfolio analysis to compare cost and NPV of alternative portfo~~
+lios~
+   * Automated portfolio analysis to generate best portfolio (ratio o~~
+f merit to cost) subject to fixed R&D budget.Author: Max Henrion~
+Risk Reward plot by Jac GoordenDate: Thu, May 27, 2004 6:16 PMSaveauthor: FredSavedate: Thu, Jul 19, 2007 10:33 AMDefaultsize: 48,24Diagstate: 1,0,0,1024,657,17Windstate: 2,379,32,566,472Fontstyle: Arial, 15Fileinfo: 0,Model Project_planner,2,2,0,0,C:\a temp\Project_Priorities~~
+_5_0.anaModule Model_detailsTitle: Model detailsAuthor: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 328,420,1Nodesize: 64,28Diagstate: 1,0,-23,1024,657,17Decision R_d_budgetTitle: R&D budgetDescription: Annual budget available for R&DDefinition: Choice(Self,2)Nodelocation: 80,224,1Nodesize: 48,24Aliases: Alias R_d_budget1, Formnode R_d_budget2Domain: [2M,3M,4M,5M,6M]{!40000|Att_previndexvalue: [2M,3M,4M,5M,6M]}Variable Project_inputsTitle: Project inputsDescription: Input table to characterize proposed R&D projects.Definition: Table(Projects,Lmd,Project_inputs1)(~
+1M,0,2005,2,2M,3M,~
+1.2M,0.6,2006,4,2.5M,4.5M,~
+1.4M,1,2007,6,3M,6M,~
+400K,0,2005,4,1M,2M,~
+500K,0.3,2006,5,1.3M,5M,~
+700K,1,2006.5,6,2M,8M,~
+1M,0,2004.5,3,500K,2M,~
+1.2M,0.9,2005,4,700K,3M,~
+1.4M,1,2006,5,1.2M,5M,~
+400K,0,2005,2,1M,4M,~
+500K,0.5,2005,3,1.3M,6M,~
+700K,1,2006,4,2M,9M,~
+500K,0,2005,2,500K,1M,~
+1M,0.8,2006,4,700K,1.5M,~
+2M,1,2007,5,1.2M,3M,~
+400K,0,2005.5,2,500K,2M,~
+500K,0.8,2005.5,4,700K,3M,~
+700K,1,2007,5,1.2M,4M,~
+500K,0,2004.5,2,1M,2M,~
+1M,0.7,2005,3,1.3M,3M,~
+2M,1,2006,4,2M,5M~
+)Nodelocation: 80,128,1Nodesize: 52,32Windstate: 2,102,90,476,224Defnstate: 2,684,9,420,257,0,MIDMValuestate: 2,40,50,600,601,1,MIDMAliases: Formnode Project_inputs3Nodecolor: 19661,65535,54062Reformdef: [Lmd,Projects]Reformval: [Project_inputs1,Projects]Module Multiattribute_projeTitle: Multiattribute project evaluationDescription: To evaluate projects according to multiple attributes, in~~
+cluding net revenues, strategy fit, staff development, and public goo~~
+d will to the company.Author: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 368,128,1Nodesize: 60,36Diagstate: 1,428,9,525,363,19Objective Multi_attribute_scorTitle: Multi attribute scoreDescription: A score for each project, based on the weighted sum of sc~~
+ores on each attribute.Definition: Sum(Score_by_attribute * Normalized_weights, Attributes)Nodelocation: 440,224,1Nodesize: 48,32Valuestate: 2,54,125,460,315,1,MEANAliases: Formnode Project_score1Graphsetup: {!40000|Att_stackedbar Graph_primary_valdim:0}~
+{!40000|Att_graphvaluerange Multi_attribute_scor:1,,,,,,10}~
+{!40000|Att_graphindexrange Projects:1,,,,,,10}~
+{!40000|Flip:8}~
+Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Includezzero:0~
+Includeyzero:1~
+Includexzero:0~
+Yintervals:0~
+Xintervals:0~
+Zmaximum:1~
+Zminimum:1~
+Ymaximum:140~
+Yminimum:0~
+Xmaximum:43~
+Xminimum:1~
+Showkey:1~
+Frameauto:1~
+Depth:70~
+Tilt:0~
+Rotation:45~
+Scales:1~
+Mesh:1~
+Ticks:1~
+Grid:3~
+Frame:1~
+Linestyle:10~
+Baroverlap:0~
+Symbolsize:6~
+Cdfsteps:1~
+Cdfresol:5~
+Diststeps:1~
+Distresol:50~
+Graphtool:0~
+{!40000|Att_catlinestyle Graph_primary_valdim:9}Fontstyle: Arial, 5Reformval: [Projects,Projects,2]Numberformat: 1,%,4,0,0,0{!40000|Att_originrole: Slice(Probability,Probability,3)}Variable Normalized_weightsTitle: Normalized weightsDescription: Attribute weights normalized to sum to 100%Definition: Attribute_weights / Sum(Attribute_weights, Attributes)Nodelocation: 440,136,1Nodesize: 52,24Defnstate: 2,9,267,416,303,0,MIDMValuestate: 2,280,290,416,303,0,MIDMNumberformat: 1,%,4,0,0,0Att__totalsindex: Index AttributesIndex AttributesTitle: AttributesDefinition: ['Strategy fit','Staff development','Public good will','Ne~~
+t revenues']Nodelocation: 312,136,1Nodesize: 48,24Nodeinfo: 1,1,0,1,1,1,0,,0,{!40000|Att_previndexvalue: ['Strategy fit','Staff development','Publi~~
+c good will','Net revenues']}Variable Score_by_attributeTitle: Score by attributeDescription: Score as percent on each attribute for each project.Definition: IF Attributes = 'Net revenues' THEN Net_revenue_score~
+ELSE Score_number_by_attr[Soft_attributes = Attributes]Nodelocation: 320,224,1Nodesize: 48,24Defnstate: 2,216,226,416,303,0,MIDMValuestate: 2,119,148,392,393,1,MIDMAliases: Formnode Attribute_scores1Graphsetup: {!30200|Graph_barshape:1}~
+{!30200|Att_stackedbar Graph_primary_valdim:0}~
+{!30200|Att_graphvaluerange Score_by_attribute:1,,,,,,10}~
+{!30200|Att_graphindexrange Attributes:1,,,,,,10}~
+Flip:0~
+Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Includezzero:0~
+Includeyzero:0~
+Includexzero:1~
+Yintervals:0~
+Xintervals:0~
+Zmaximum:4~
+Zminimum:1~
+Ymaximum:0.8~
+Yminimum:0~
+Xmaximum:8~
+Xminimum:0~
+Showkey:1~
+Frameauto:1~
+Depth:70~
+Tilt:0~
+Rotation:45~
+Scales:1~
+Mesh:1~
+Ticks:1~
+Grid:3~
+Frame:1~
+Linestyle:9~
+Baroverlap:0~
+Symbolsize:6~
+Cdfsteps:1~
+Cdfresol:5~
+Diststeps:1~
+Distresol:100~
+Graphtool:0~
+{!30200|Att_graphindexrange Projects:1,,,,,,10}~
+{!30200|Graph_3deffects:0}~
+{!30200|Att_catlinestyle Graph_primary_valdim:9}~
+{!30200|Graph_hlabelrotation:45}Fontstyle: Arial, 8Reformval: [Projects,Attributes]Variable Net_revenue_scoreTitle: Net revenue scoreDefinition: (Npv_revenue - Worst_revenue)/(Best_revenue - Worst_revenu~~
+e)Nodelocation: 184,96,1Nodesize: 52,28Valuestate: 2,59,375,706,299,0,STATReformval: [Undefined,Projects,1]{!40000|Att_resultslicestate: [Projects,7,Sys_localindex('STATISTICS')~~
+,0]}Variable Worst_revenueTitle: Worst revenueDefinition: Min(Min(sample(Npv_revenue), Run), Projects)Nodelocation: 64,160,1Nodesize: 48,24Variable Best_revenueTitle: Best revenueDefinition: Max(Max(sample(Npv_revenue), Run), Projects)Nodelocation: 64,32,1Nodesize: 48,24Valuestate: 2,104,114,416,303,0,MIDMAlias Net_revenue1Title: Net revenueDefinition: 1Nodelocation: 64,96,1Nodesize: 48,28Original: Npv_revenueVariable Attribute_weightsTitle: Attribute weightsDescription: Relative weights for attributes, as a percentage, to spec~~
+ify the relative importance of each attribute range from worst (0) to~~
+ best (1).Definition: Table(Attributes)(~
+0.3,0.7,0.4,0.9)Nodelocation: 440,56,1Nodesize: 52,24Defnstate: 2,683,9,416,303,0,MIDMAliases: Formnode Attribute_weights1Nodecolor: 19661,65535,42597Numberformat: 1,%,4,0,0,0Index Score_levelsTitle: Score levelsDefinition: ['Worst','Poor','Fair','Good','Excellent','Best']Nodelocation: 200,304,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Worst','Poor','Fair','Good','Excellent',~~
+'Best']}Variable Score_number_by_leveTitle: Score number by levelDefinition: Table(Score_levels)(~
+0,0.2,0.4,0.6,0.8,1)Nodelocation: 64,304,1Nodesize: 48,31Defnstate: 2,621,182,416,303,0,MIDMIndex Soft_attributesTitle: Soft attributesDefinition: CopyIndex(Slice(Attributes, 1..3))Nodelocation: 320,304,1Nodesize: 48,24Valuestate: 2,200,210,416,303,0,MIDM{!40000|Att_previndexvalue: ['Strategy fit','Staff development','Publi~~
+c good will']}Variable Soft_attribute_levelTitle: Soft attribute levelsDescription: Input score on soft attributes for each project, between ~~
+0 (worst) and 1.0 (best).Definition: Table(Projects,Soft_attributes)(~
+Choice(Score_levels,5,0),Choice(Score_levels,4,0),Choice(Score_levels~~
+,2,0),~
+Choice(Score_levels,3,0),Choice(Score_levels,4,0),Choice(Score_levels~~
+,1,0),~
+Choice(Score_levels,3,0),Choice(Score_levels,4,0),Choice(Score_levels~~
+,4,0),~
+Choice(Score_levels,4,0),Choice(Score_levels,3,0),Choice(Score_levels~~
+,6,0),~
+Choice(Score_levels,3,0),Choice(Score_levels,5,0),Choice(Score_levels~~
+,5,0),~
+Choice(Score_levels,6,0),Choice(Score_levels,2,0),Choice(Score_levels~~
+,6,0),~
+Choice(Score_levels,4,0),Choice(Score_levels,5,0),Choice(Score_levels~~
+,4,0)~
+)Nodelocation: 64,224,1Nodesize: 48,28Defnstate: 2,86,197,656,272,0,MIDMValuestate: 2,56,66,631,605,0,MIDMAliases: Formnode Soft_attribute_leve1Nodecolor: 19661,65535,54062Graphsetup: {!30200|Att_graphindexrange Attributes:1,1,,,,0}~
+Baroverlap:0~
+Flip:8~
+Att__barorigin Attribute_scores_by_:0~
+{!30200|Att_stackedbar Graph_primary_valdim:0}~
+{!30200|Att_graphvaluerange Attribute_scores_by_:1,1,,,,0}Reformdef: [Soft_attributes,Projects]Reformval: [Projects,Soft_attributes]Variable Score_number_by_attrTitle: Score number by attributeDefinition: Score_number_by_leve[Score_levels = Soft_attribute_level]Nodelocation: 200,224,1Nodesize: 48,31Valuestate: 2,59,99,548,523,1,MIDMGraphsetup: {!30200|Att_graphvaluerange Score_number_by_attr:1,,,,,,10~~
+}~
+{!30200|Att_graphindexrange Projects:1,,,,,,10}~
+Flip:8Reformval: [Projects,Soft_attributes]Close Multiattribute_projeModule Index_libraryTitle: Index libraryAuthor: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 80,336,1Nodesize: 56,32Nodeinfo: 1,1,0,1,1,1,0,,0,Diagstate: 1,0,-23,1025,658,17Index ProjectsTitle: ProjectsDefinition: ['Integrated Subsystems','Dharmic Messaging','XYZ Acronymi~~
+cs','Microgravity Aerobics','Quantum Recycling','Open Source Genomics~~
+','Hyperspace Storage']Nodelocation: 80,40,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Integrated Subsystems','Dharmic Messagin~~
+g','XYZ Acronymics','Microgravity Aerobics','Quantum Recycling','Open~~
+ Source Genomics','Hyperspace Storage']}Index LmdTitle: LmdDefinition: ['Low','Mid','High']Nodelocation: 80,96,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Low','Mid','High']}Index Project_inputs1Title: Project inputsDefinition: ['R&D cost','R&D success prob','Release date','Product lif~~
+e','Production cost','Annual revenue']Nodelocation: 176,40,1Nodesize: 48,24Windstate: 2,102,90,483,330{!40000|Att_previndexvalue: ['R&D cost','R&D success prob','Release da~~
+te','Product life','Production cost','Annual revenue']}Function Triangular2(n)Title: Triangular2(n)Description: Creates a triangular distribution for input with name n, ~~
+from the Project inputs, using the low, mid, and high values.Definition: VAR v := Project_inputs[Project_inputs1 = n];~
+Triangular(v[Lmd = 'Low'], v[Lmd = 'Mid'], v[Lmd = 'High'])Nodelocation: 432,32,1Nodesize: 84,20Paramnames: nFunction Prob_from_inputs(n)Title: Prob_from_inputs(n)Description: Returns a Bernoulli distribution (true with specified pro~~
+bability) for input n from the Project InputsDefinition: Bernoulli(Project_inputs[Project_inputs1 = n, Lmd = 'Mid']~~
+)Nodelocation: 432,80,1Nodesize: 84,20Windstate: 2,102,90,473,334Paramnames: nIndex YearTitle: YearUnits: YearDefinition: Sequence(Base_year, Horizon_year, Time_incremement)Nodelocation: 216,200,1Nodesize: 48,24Windstate: 2,102,90,494,363Valuestate: 2,120,130,416,303,0,MIDMNumberformat: 1,F,4,1,0,0Displayoutputs: Variable Project_r_d_by_time{!40000|Att_previndexvalue: [2004,2005,2006,2007,2008,2009,2010,2011,2012~~
+,2013,2014]}Constant Time_incremementTitle: Time incremementUnits: YearsDescription: Increment in time for simulation.Definition: 1Nodelocation: 80,200,1Nodesize: 52,24Nodeinfo: 1,1,1,1,1,1,0,0,0,0Constant Base_yearTitle: Base yearDefinition: 2004Nodelocation: 80,152,1Nodesize: 48,24Constant Horizon_yearTitle: Horizon yearDefinition: 2014Nodelocation: 80,256,1Nodesize: 48,24Close Index_libraryModule Project_revenue_analTitle: Project revenue analysisDescription: Influence diagram to evaluate NPV revenue for an R&D proj~~
+ect.~
+First Decision: Whether to start R&D.~
+Second Decisiont: Whether to releaes product, based on outcome of R&D~~
+ and evaluation of NPV revenue.Author: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 224,128,1Nodesize: 60,36Diagstate: 1,0,0,1024,387,17Decision R_d_startTitle: R&D startDescription: True (1) if we start R&D on this projectDefinition: 1Nodelocation: 64,144,1Nodesize: 48,28Decision Product_releasedTitle: Product releasedDescription: Decision variable: Do we launch the product? (if we start~~
+ R&D and R&D is successful)Definition: R_d_start AND R_d_successNodelocation: 216,144,1Nodesize: 48,28Valuestate: 2,15,7,958,344,1,MEANAliases: Formnode Product_release1Chance R_d_costTitle: R&D costDescription: Cost of R&D by projectDefinition: IF R_d_start THEN Triangular2( 'R&D cost' ) ELSE 0Nodelocation: 208,248,1Nodesize: 48,28Valuestate: 2,477,46,490,433,0,MEANAliases: Alias R_d_cost1, Formnode R_d_cost2Graphsetup: Graphtool:0~
+Distresol:50~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:400K~
+Xmaximum:2.2M~
+Yminimum:0~
+Ymaximum:7u~
+Zminimum:1~
+Zmaximum:7~
+Xintervals:0~
+Yintervals:0~
+Includexzero:1~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0]~
+Probindex:[5%, 25%, 50%, 75%, 95%]~
+Fontstyle: Arial, 8Numberformat: 1,I,4,2,1,1Chance R_d_successTitle: R&D successDescription: Chance variable: True (1) if R&D is successful, otherwise~~
+ false (0)Definition: IF R_d_start THEN Prob_from_inputs( 'R&D success prob' ) E~~
+LSE 0Nodelocation: 152,48,1Nodesize: 48,28Valuestate: 2,294,398,416,303,1,MEANChance Production_costTitle: Production costDescription: Uncertain production cost of the product, if we release i~~
+t.Definition: Triangular2( 'Production cost' )Nodelocation: 304,48,1Nodesize: 48,28Chance Annual_revenueTitle: Annual revenueDescription: Annual revenue during commercial life of product.Definition: Triangular2( 'Annual revenue' )Nodelocation: 432,48,1Nodesize: 48,28Chance Product_lifeTitle: Product lifeDescription: Commercial life of the product.Definition: Triangular2( 'Product life' )Nodelocation: 512,104,1Nodesize: 48,28Variable RevenueTitle: RevenueDescription: Total revenue by year from product during product lifetim~~
+e.Definition: IF Product_released AND Year >= Release_date1 ~
+       AND  Year <= (Release_date1 + Product_life) ~
+       THEN (Annual_revenue - Production_cost) ~
+ELSE 0Nodelocation: 384,144,1Nodesize: 48,31Windstate: 2,102,90,476,224Valuestate: 2,1,371,952,309,0,MEANGraphsetup: Graphtool:0~
+Distresol:100~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:0~
+Xmaximum:2012~
+Yminimum:0~
+Ymaximum:2.5M~
+Zminimum:1~
+Zmaximum:7~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Fontstyle: Arial, 6Reformval: [Year,Projects]Att__totalsindex: Index YearVariable Discount_rateTitle: Discount rateUnits: %/yearDescription: Annual percentage rate for discounting future cash flows ~~
+to produce net present value.Definition: Choice(Self,2)Nodelocation: 496,176,1Nodesize: 48,24Aliases: Formnode Discount_rate1Nodecolor: 1,65535,49152Numberformat: 1,%,4,0,0,0Domain: [0.04,0.08,0.12]{!40000|Att_previndexvalue: [0.04,0.08,0.12]}Objective Npv_revenueTitle: NPV revenueUnits: $Description: Net present value of revenues less costs in current yearDefinition: Sum(Revenue * (1 + Discount_rate)^-(Year - 2004), Year)~
+ - R_d_costNodelocation: 496,248,1Nodesize: 48,28Valuestate: 2,80,179,670,367,1,CDFPAliases: Alias Net_revenue1, Alias Npv_revenue1, Formnode Npv_revenue2~~
+Graphsetup: Graphtool:0~
+Distresol:50~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:0~
+Showkey:1~
+Xminimum:-5M~
+Xmaximum:25M~
+Yminimum:0~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:7~
+Xintervals:6~
+Yintervals:0~
+Includexzero:1~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Fontstyle: Arial, 3Reformval: [Undefined,Projects,Undefined,Undefined,1]Numberformat: 1,D,4,2,0,1{!40000|Att_resultslicestate: [Discount_rate,1,Projects,0,Sys_localind~~
+ex('STEP'),0]}Chance Release_date1Title: Release dateDescription: Year in which we release the product.Definition: Triangular2( 'Release date' )Nodelocation: 296,200,1Nodesize: 48,28Valuestate: 2,168,178,577,403,1,PDFPIndex Npv_revenue_inputsTitle: NPV revenue InputsDescription: List of uncertain input variables to NPV.Definition: Table(Self)( R_d_cost, R_d_success, Production_cost, Annua~~
+l_revenue, Product_life, Release_date1)Indexvals: ['R&D cost','R&D success','Production cost','Annual revenue~~
+','Product life','Release date']Nodelocation: 280,320,0Nodesize: 48,31Nodeinfo: 1,1,1,1,1,1,0,0,0,0{!40000|Att_previndexvalue: ['R&D cost','R&D success','Production cost~~
+','Annual revenue','Product life','Release date']}Variable Npv_revenue_importanTitle: NPV revenue ImportanceDescription: The importance of each uncertain input to the NPV revenue~~
+ by project.Definition: Abs( RankCorrel( Npv_revenue_inputs, Npv_revenue ) )Nodelocation: 384,320,0Nodesize: 48,31Nodeinfo: 1,1,1,1,1,1,0,0,0,0Valuestate: 2,94,96,826,413,1,MIDMReformval: [Npv_revenue_inputs,Undefined]Objective Risk_rewardTitle: Risk RewardDescription: Groups reward, risk, and costs for a bubble chartDefinition: Table(Self)(Mean(Npv_revenue),SDeviation(Npv_revenue),Mean~~
+(R_d_cost))Indexvals: ['Reward','Risk','Cost']Nodelocation: 496,320,1Nodesize: 48,28Windstate: 2,67,91,476,224Valuestate: 2,32,36,1025,658,1,MIDMAliases: Formnode Risk_reward1Graphsetup: {!40000|Att_graphvaluerange Risk_reward:1,,,1}~
+{!40000|Graph_symbolkey:1}~
+{!40000|Graph_symbolsizekey:1}~
+{!40000|Graph_3deffects:1}~
+{!40000|Att_catlinestyle Graph_primary_valdim:4}~
+{!40000|Att_contlinestyle Graph_primary_valdim:4}Reformval: [Projects,Undefined]{!40000|Att_previndexvalue: ['Reward','Risk','Cost']}{!40000|Att_xrole: -2}{!40000|Att_yrole: -1}{!40000|Att_colorrole: Projects}{!40000|Att_symbolrole: 0}{!40000|Att_symbolsizerole: -3}{!40000|Att_coordinateindex: Self}Close Project_revenue_analModule Portfolio_optimizatiTitle: Portfolio optimizationDescription: To evaluate and generate a portfolio of R&D projects to m~~
+aximize expected net present value (or multiattribute score), subject~~
+ to budget constraint on R&D.Author: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 224,224,1Nodesize: 60,36Diagstate: 1,8,430,550,383,19Index Projects_by_roiTitle: Projects by ROIDefinition: SortIndex(-Ratio_of_merit_to_co)Nodelocation: 304,192,1Nodesize: 48,31Windstate: 2,732,26,470,565Valuestate: 2,168,178,416,303,0,MIDMReformval: [Discount_rate,Projects]{!40000|Att_previndexvalue: ['Microgravity Aerobics','Open Source Geno~~
+mics','Dharmic Messaging','XYZ Acronymics','Integrated Subsystems','H~~
+yperspace Storage','Quantum Recycling']}Variable Cumulative_e_net_revTitle: Cumulative E net revenueDescription: Cumulative expected net revenue.Definition: Cumulate(Merit[Projects = Projects_by_roi], Projects_by_ro~~
+i)Nodelocation: 432,192,1Nodesize: 48,31Windstate: 2,102,90,476,224Valuestate: 2,73,72,423,416,1,MEANAliases: Formnode Cumulative_e_net_re1Graphsetup: {!30200|Att_contlinestyle Graph_primary_valdim:5}~
+{!30200|Graph_symbolsizekey:0}~
+{!30200|Graph_symbolkey:1}~
+Symbolsize:12Reformval: [Projects_by_roi,Projects_by_roi,1]Numberformat: 1,D,4,2,0,1Xyexpr: Cumulative__e_cost{!40000|Att_resultslicestate: [Projects_by_roi,5,Sys_localindex('PROB~~
+ABILITY'),0]}{!40000|Att_xrole: 1}{!40000|Att_colorrole: Projects_by_roi}{!40000|Att_symbolrole: Projects_by_roi}Variable Ratio_of_merit_to_coTitle: Ratio of merit to costDescription: Ratio of expected NPV revenue to expected R&D cost.~
+Used as criterion for recommending projects in portfolioDefinition: Mean(Merit)/ Mean(R_d_cost)Nodelocation: 200,129,1Nodesize: 48,31Valuestate: 2,406,288,513,325,1,MIDMAliases: Formnode Return_on_investmen1Graphsetup: {!30200|Att_graphvaluerange Ratio_of_merit_to_co:1,,,,,,10~~
+}~
+{!30200|Att_graphindexrange Projects:1,,,,,,10}~
+Flip:8~
+Graphtool:0~
+Distresol:50~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:9~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:1~
+Xmaximum:7~
+Yminimum:0~
+Ymaximum:8~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+{!30200|Att_stackedbar Graph_primary_valdim:1}Fontstyle: Arial, 8Variable Cumulative__e_costTitle: Cumulative  E costDefinition: Cumulate(R_d_cost[Projects = Projects_by_roi], Projects_by~~
+_roi)Nodelocation: 88,192,1Nodesize: 48,28Valuestate: 2,153,220,571,422,1,MIDMNumberformat: 1,D,4,2,0,1Variable Recommended_projectsTitle: Recommended projects by ROIDefinition: Cumulative__e_cost <= R_d_budgetNodelocation: 232,304,1Nodesize: 60,32Valuestate: 2,248,258,624,312,0,MIDMReformval: [R_d_budget,Projects_by_roi]Decision Automated__portfolioTitle: Automated  portfolioDescription: Portfolio recommended by ROI analysis, subject to R&D bud~~
+getDefinition: Recommended_projects[Projects_by_roi = Projects]Nodelocation: 432,304,1Nodesize: 60,32Valuestate: 2,206,189,640,414,1,MIDMAliases: Alias Automated__portfoli1, Formnode Recommended_project1Graphsetup: {!30200|Att_graphvaluerange Automated__portfolio:1,,,,,,10~~
+}~
+Flip:8~
+{!30200|Att_catlinestyle Graph_primary_valdim:9}~
+{!30200|Att_graphindexrange R_d_budget:1,0,,,,,10}~
+{!30200|Att_contlinestyle Graph_primary_valdim:4}Reformval: [Projects,Undefined]{!40000|Att_resultslicestate: [R_d_budget,2,Projects,0]}Alias R_d_cost1Title: R&D costDefinition: 1Nodelocation: 88,64,1Nodesize: 48,28Original: R_d_costAlias Npv_revenue1Title: NPV revenueDefinition: 1Nodelocation: 320,64,1Nodesize: 48,28Original: Npv_revenueAlias R_d_budget1Title: R&D budgetDefinition: 1Nodelocation: 80,304,1Nodesize: 56,32Original: R_d_budgetDecision Selection_criterionTitle: Selection criterionDefinition: Choice(Self, 1, 0)Nodelocation: 448,56,1Nodesize: 48,24Domain: ['Net present value','Multiattribute score']Variable MeritTitle: MeritDefinition: IF Selection_criterion = 'Net present value' THEN Npv_rev~~
+enue ELSE Multi_attribute_scorNodelocation: 440,120,1Nodesize: 48,24Reformval: [Selection_criterion, Projects ]Close Portfolio_optimizatiModule Interproject_relatioTitle: Interproject relationshipsAuthor: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 224,336,1Nodesize: 60,32Diagstate: 1,0,-23,1025,658,17Variable Project_synergy_matrTitle: Project synergy matrixDefinition: Table(Projects,Prerequisite_project)(~
+1,0.5,0,0,-0.4,0,0,~
+0,1,0,0.5,0,0.3,0,~
+0,0,1,0,0.3,0,0,~
+0,0,0,1,0,0,0,~
+0,0,0,0,1,0,0.3,~
+0,0,0,0,0,1,0,~
+0,0,0,0,0,0,1~
+)Nodelocation: 288,48,1Nodesize: 48,31Defnstate: 2,92,194,999,213,0,MIDMValuestate: 2,104,114,416,303,1,MIDMReformdef: [Projects,Prerequisite_project]Reformval: [Projects,Prerequisite_project]Variable Interproject_constraTitle: Interproject constraint matrixDescription: For each project, specifies 1 for each project that is a ~~
+prerequisite.Definition: Table(Projects,Prerequisite_project)(~
+0,1,0,0,0,0,0,~
+0,0,0,1,0,0,0,~
+0,0,0,0,0,0,0,~
+0,0,0,0,0,0,0,~
+0,0,0,0,0,0,1,~
+0,0,0,0,0,0,0,~
+0,0,0,0,0,0,0~
+)Nodelocation: 176,48,1Nodesize: 48,31Defnstate: 2,21,374,803,179,0,MIDMReformdef: [Projects,Prerequisite_project]Index Prerequisite_projectTitle: Prerequisite projectDefinition: CopyIndex(Projects)Nodelocation: 64,48,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Integrated Subsystems','Dharmic Messagin~~
+g','XYZ Acronymics','Microgravity Aerobics','Quantum Recycling','Open~~
+ Source Genomics','Hyperspace Storage']}Close Interproject_relatioModule Portfolio_analysisTitle: Portfolio analysisDescription: Evaluation of selected portfolios, manual or automated, a~~
+ccording to cost and NPV.Author: Max HenrionDate: Fri, May 28, 2004 2:01 AMDefaultsize: 48,24Nodelocation: 368,224,1Nodesize: 60,36Diagstate: 1,565,431,474,259,17Decision Manual_portfolioTitle: Manual portfolioDefinition: Table(Projects)(~
+1,1,1,0,1,0,1)Nodelocation: 80,88,1Nodesize: 60,28Defnstate: 2,340,248,336,228,0,MIDMAliases: Formnode Manual_portfolio1Numberformat: 1,I,4,2,0,0Decision Selection_methodTitle: Selection methodDefinition: Choice(Self,2)Nodelocation: 248,80,1Nodesize: 48,24Aliases: Formnode Selection_method1Domain: ['Manual','Automated']{!40000|Att_previndexvalue: ['Manual','Automated']}Variable Selected_portfolioTitle: Selected portfolioDefinition: IFOnly Selection_method = 'Manual' THEN Manual_portfolio E~~
+LSE Automated__portfolioNodelocation: 248,168,1Nodesize: 48,32Valuestate: 2,540,312,599,271,0,MIDMReformval: [Selection_method,Projects]Objective Npv_for_selected_porTitle: NPV for selected portfolioDefinition: Sum(Npv_revenue * Selected_portfolio, Projects)Nodelocation: 392,168,1Nodesize: 48,31Valuestate: 2,486,14,535,346,1,PDFPAliases: Formnode Npv_for_selected_po1Graphsetup: {!30200|Att_graphvaluerange Npv_for_selected_por:1,0}~
+{!30200|Att_areafill Graph_cdf_valdim:1}~
+{!30200|Graph_filltransparen:0}~
+{!30200|Att_areafill Graph_pdf_valdim:1}~
+Graphtool:0~
+Distresol:100~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:6~
+Frame:1~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:-10M~
+Xmaximum:60M~
+Yminimum:0~
+Ymaximum:70n~
+Zminimum:1~
+Zmaximum:2~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+{!30200|Att_catlinestyle Graph_pdf_valdim:9}Fontstyle: Arial, 8Reformval: [Selection_method,Selection_method,Undefined,Undefined,1]Numberformat: 1,D,4,2,0,1{!40000|Att_resultslicestate: [R_d_budget,3,Selection_method,2,Sys_loc~~
+alindex('STEP'),0]}Variable Cost_for_selected_poTitle: Cost for selected portfolioDefinition: Sum(R_d_cost * Selected_portfolio, Projects)Nodelocation: 392,88,1Nodesize: 48,31Valuestate: 2,430,264,485,372,1,PDFPAliases: Formnode Cost_for_selected_p1Graphsetup: Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Includezzero:0~
+Includeyzero:0~
+Includexzero:1~
+Yintervals:0~
+Xintervals:0~
+Zmaximum:2~
+Zminimum:1~
+Ymaximum:1.6u~
+Yminimum:0~
+Xmaximum:8M~
+Xminimum:0~
+Showkey:1~
+Frameauto:1~
+Depth:70~
+Tilt:0~
+Rotation:45~
+Scales:1~
+Mesh:1~
+Ticks:1~
+Grid:3~
+Linestyle:6~
+Baroverlap:0~
+Symbolsize:6~
+Cdfsteps:1~
+Cdfresol:5~
+Diststeps:1~
+Distresol:100~
+Graphtool:0Fontstyle: Arial, 4Reformval: [Undefined,Selection_method,Undefined,Undefined,1]Numberformat: 1,D,4,2,0,1Alias Automated__portfoli1Title: Automated  portfolioDefinition: 1Nodelocation: 80,168,1Nodesize: 60,28Original: Automated__portfolioClose Portfolio_analysisModule Project_schedulingTitle: Project schedulingAuthor: Max HenrionDate: Oct 04, 2004 4:37 PMDefaultsize: 48,24Nodelocation: 368,336,1Nodesize: 60,36Nodeinfo: 1,0,1,1,1,1,0,,0,Diagstate: 1,0,-23,1025,658,17Variable R_d_cost_by_timeTitle: R&D cost by timeDefinition: IF R_d_start AND Year <= Release_date1 THEN R_d_cost * Tim~~
+e_incremement/ (Release_date1 - Base_year) ELSE 0Nodelocation: 224,64,1Nodesize: 48,24Valuestate: 2,65,350,936,348,0,MEANGraphsetup: Graphtool:0~
+Distresol:100~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:6~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:0~
+Showkey:1~
+Xminimum:2004~
+Xmaximum:2008~
+Yminimum:0~
+Ymaximum:1.2M~
+Zminimum:1~
+Zmaximum:7~
+Xintervals:8~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Fontstyle: Arial, 5Reformval: [Year,Projects]Att__totalsindex: Index YearVariable Project_r_d_by_timeTitle: Project R&D by timeNodelocation: 96,64,1Nodesize: 48,31Displayinputs: Index YearClose Project_schedulingClose Model_detailsFormnode Manual_portfolio1Title: Manual portfolioDefinition: 0Nodelocation: 200,288,1Nodesize: 116,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Manual_portfolioFormnode Selection_method1Title: Selection methodDefinition: 0Nodelocation: 192,256,1Nodesize: 124,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Selection_methodFormnode Recommended_project1Title: Recommended project portfolioDefinition: 1Nodelocation: 484,356,1Nodesize: 148,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Automated__portfolioFormnode Cumulative_e_net_re1Title: Cumulative E net revenueDefinition: 1Nodelocation: 484,292,1Nodesize: 148,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Cumulative_e_net_revFormnode Return_on_investmen1Title: Return on investment ratioDefinition: 1Nodelocation: 484,256,1Nodesize: 148,16Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Ratio_of_merit_to_coFormnode Npv_for_selected_po1Title: NPV for selected portfolioDefinition: 1Nodelocation: 168,352,1Nodesize: 148,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Npv_for_selected_porFormnode Cost_for_selected_p1Title: Cost for selected portfolioDefinition: 1Nodelocation: 168,320,1Nodesize: 148,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Cost_for_selected_poText Te5Description: Project AnalysisNodelocation: 164,106,-1Nodesize: 156,94Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 13Text Te2Description: Multiattribute evaluationNodelocation: 484,106,-1Nodesize: 156,94Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 13Text Te3Description: Portfolio analysisNodelocation: 164,296,-1Nodesize: 156,88Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 13Formnode Discount_rate1Title: Discount rateDefinition: 0Nodelocation: 184,127,1Nodesize: 132,8Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Discount_rateFormnode Project_inputs3Title: Project inputsDefinition: 0Nodelocation: 204,44,1Nodesize: 112,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Project_inputsFormnode Product_release1Title: Product releaseDefinition: 1Nodelocation: 196,100,1Nodesize: 120,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Product_releasedFormnode R_d_cost2Title: R&D costDefinition: 1Nodelocation: 212,72,1Nodesize: 104,16Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: R_d_costFormnode Npv_revenue2Title: NPV revenueDefinition: 1Nodelocation: 200,156,1Nodesize: 116,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Npv_revenueFormnode Project_score1Title: Project scoreDefinition: 1Nodelocation: 504,172,1Nodesize: 128,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Multi_attribute_scorFormnode Attribute_scores1Title: Attribute scoresDefinition: 1Nodelocation: 504,144,1Nodesize: 128,16Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Score_by_attributeText Te4Description: Automated portfolio recommendationNodelocation: 484,296,-1Nodesize: 156,88Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 13Formnode R_d_budget2Title: R&D budgetDefinition: 0Nodelocation: 524,324,1Nodesize: 108,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: R_d_budgetFormnode Attribute_weights1Title: Attribute weightsDefinition: 0Nodelocation: 504,80,1Nodesize: 128,16Nodeinfo: 1,0,0,1,0,0,0,72,0,1Nodecolor: 19661,65535,42597Original: Attribute_weightsFormnode Soft_attribute_leve1Title: Soft attribute levelsDefinition: 0Nodelocation: 504,48,1Nodesize: 128,16Nodeinfo: 1,0,0,1,0,0,0,72,0,1Nodecolor: 19661,65535,54062Original: Soft_attribute_levelFormnode Risk_reward1Title: Risk RewardDefinition: 1Nodelocation: 208,184,1Nodesize: 108,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Risk_rewardClose Project_planner

@@ -1,0 +1,636 @@
+{ From user robertbr, Model Vector_Math at 30-Mar-2016 3:28:41 PM, encoding="UTF-8" }
+SoftwareVersion 4.6.1
+
+
+AskAttribute Value,Variable,Yes
+AskAttribute Script,Variable,Yes
+AskAttribute Script,Button,Yes
+AskAttribute Script,Picture,Yes
+
+LinkLibrary Vector_Math
+Title: Vector Math
+Author: Robert D. Brown III~
+Incite Decision Technologies, LLC~
+678-947-5997~
+rdbrown@incitedecisiontech.com
+Date: Fri, Feb 5, 2016 4:57 PM
+SaveAuthor: robertbr
+SaveDate: Wed, Mar 30, 2016 3:28 PM
+DiagState: 2,35,21,625,402,17
+WindState: 2,102,82,574,343
+FontStyle: Arial,15
+FileInfo: 0,LinkLibrary Vector_Math,2,2,0,0,\\Mac\AllFiles\Applications\Analytica\My Library\Vector_Math2.ana
+
+Function Great_Circle_Dist2(Lat1, Lon1, Lat2, Lon2, radius)
+Title: Great Circle Distance 2
+Description: Gives the spherical great circle distance between two points indicated by their latittude and longitude coordinates using a spherical trigonometric method. Does not correct for Earth's oblateness when finding distances on the earth.
+Definition: radius * Pi * ArcCos(~
+Max([-1, Min([1, ~
+Cos(90-Lat1)*Cos(90-Lat2) + Sin(90-Lat1)*Sin(90-Lat2)*Cos(Lon2 - Lon1)~
+])])~
+)/180
+NodeLocation: 344,160,1
+NodeSize: 48,40
+NodeInfo: 1,1,1,1,1,1,0,,0,,0
+WindState: 2,164,64,705,433
+
+Module Examples
+Title: Examples
+Author: robertbr
+Date: Fri, Mar 18, 2016 2:19 PM
+SaveAuthor: robertbr
+SaveDate: Sat, Mar 19, 2016 1:46 AM
+NodeLocation: 208,288,1
+NodeSize: 48,24
+NodeInfo: 1,0,0,1,1,1,0,0,0,,0
+DiagState: 2,131,4,1137,648,17
+
+Constant Radius_of_Earth
+Title: Radius of Earth
+Units: km
+Definition: 6371
+NodeLocation: 904,192,1
+NodeSize: 48,24
+
+Variable Pt1_N_vector
+Title: Pt1 N vector
+Description: The N vector at a given point on sphere.
+Definition: Coord_to_N_Vect(~
+	Point_Coordinates[Points=1, Coords='Latitude'],~
+	Point_Coordinates[Points=1, Coords='Longitude'], ~
+	Principal_Axes~
+)
+NodeLocation: 512,80,1
+NodeSize: 48,24
+WindState: 2,102,82,499,315
+ValueState: 2,345,17,496,413,0,MIDM
+
+Variable Pt2_N_vector
+Title: Pt2 N vector
+Description: The N vector at a given point on sphere.
+Definition: Coord_to_N_Vect(~
+	Point_Coordinates[Points=2, Coords='Latitude'],~
+	Point_Coordinates[Points=2, Coords='Longitude'], ~
+	Principal_Axes~
+)
+NodeLocation: 512,160,1
+NodeSize: 48,24
+ValueState: 2,345,17,496,413,0,MIDM
+
+Variable Pts_1_2_Arc_Coordina
+Title: Pts 1-2 Arc Coordinates
+Units: deg
+Description: Points along the great circle arc connecting two points on the surface of a sphere.~
+~
+The midpoint on the great circle arc between two terminal points is found by the sum of the end points' N vectors. Any other point between the end points can be found as a fraction f of the distance between the end points by N1*(1-f) + N2*f. The actual coordinates are found by converting the final N vector back to latitude and longitude values. 
+Definition: var c := Pt1_N_vector*(1-fraction_of_distance) + Pt2_N_vector*fraction_of_distance;~
+~
+N_Vect_to_Coord(~
+c[Principal_Axes='x'],~
+c[Principal_Axes='y'],~
+c[Principal_Axes='z'],~
+Coords)
+NodeLocation: 512,240,1
+NodeSize: 56,24
+WindState: 2,102,82,666,401
+ValueState: 2,243,63,625,467,1,MIDM
+GraphSetup: {!40000|Att_ContLineStyle Graph_Primary_Valdim:5}
+ReformVal: [fraction_of_distance,Null]
+{!40000|Att_XRole: -2}
+{!40000|Att_YRole: -1}
+{!40000|Att_CoordinateIndex: Coords}
+
+Index fraction_of_distance
+Title: fraction of distance
+Definition: Sequence(0, 1, .1)
+NodeLocation: 512,304,1
+NodeSize: 48,24
+
+Variable Pt3_N_vector
+Title: Pt3 N vector
+Description: The N vector at a given point on sphere.
+Definition: Coord_to_N_Vect(~
+	Point_Coordinates[Points=3, Coords='Latitude'],~
+	Point_Coordinates[Points=3, Coords='Longitude'], ~
+	Principal_Axes~
+)
+NodeLocation: 776,72,1
+NodeSize: 48,24
+WindState: 2,102,82,499,315
+ValueState: 2,345,17,496,413,0,MIDM
+
+Variable Pt4_N_vector
+Title: Pt4 N vector
+Description: The N vector at a given point on sphere.
+Definition: Coord_to_N_Vect(~
+	Point_Coordinates[Points=4, Coords='Latitude'],~
+	Point_Coordinates[Points=4, Coords='Longitude'], ~
+	Principal_Axes~
+)
+NodeLocation: 776,160,1
+NodeSize: 48,24
+ValueState: 2,345,17,496,413,0,MIDM
+
+Variable Pts_3_4_Arc_Coordina
+Title: Pts 3-4 Arc Coordinates
+Units: deg
+Description: See explanation for Pts 1-2 Arc Coordinates.
+Definition: var c := Pt3_N_vector*(1-fraction_of_distance) + Pt4_N_vector*fraction_of_distance;~
+~
+N_Vect_to_Coord( c[Principal_Axes='x'],~
+c[Principal_Axes='y'],~
+c[Principal_Axes='z'],~
+Coords)
+NodeLocation: 776,240,1
+NodeSize: 56,24
+WindState: 2,102,82,666,401
+ValueState: 2,243,63,625,467,1,MIDM
+GraphSetup: {!40000|Att_ContLineStyle Graph_Primary_Valdim:5}
+ReformVal: [fraction_of_distance,Null]
+{!40000|Att_XRole: -2}
+{!40000|Att_YRole: -1}
+{!40000|Att_CoordinateIndex: Coords}
+
+Index Points
+Title: Points
+Description: The index indicator for 5 points on a sphere.
+Definition: 1..5
+NodeLocation: 640,48,1
+NodeSize: 48,24
+{!40000|Att_PrevIndexValue: [1,2,3,4,5]}
+
+Variable Point_Coordinates
+Title: Point Coordinates
+Units: deg
+Description: The latitude and longitude coordinates for 5 points on a sphere. 
+Definition: Table(Points,Coords)(~
+50.06638888888889,-5.714722222222222,~
+58.64388888888889,-3.07,~
+54,-4,~
+51,-3.25,~
+55,-5.5)
+NodeLocation: 640,120,1
+NodeSize: 56,24
+DefnState: 2,630,61,416,303,0,MIDM
+ValueState: 2,43,106,296,303,0,MIDM
+NodeColor: 19664,65535,19661
+ReformDef: [Coords,Points]
+ReformVal: [Coords,Points]
+
+Variable Great_Circle_Arcs
+Title: Great Circle Arcs
+Units: deg
+Description: A map of three arcs connecting the five points. 
+Definition: [Pts_1_2_Arc_Coordina,Pts_3_4_Arc_Coordina,Pts_4_5_Arc_Coordina]
+NodeLocation: 640,240,0
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,0,0,0,
+ValueState: 2,74,38,623,538,1,MIDM
+GraphSetup: {!40000|Att_ContLineStyle Graph_Primary_Valdim:5}
+ReformVal: [fraction_of_distance,Self]
+{!40000|Att_ResultSliceState: [Self,1,fraction_of_distance,1]}
+{!40000|Att_XRole: -2}
+{!40000|Att_YRole: -1}
+{!40000|Att_ColorRole: Great_Circle_Arcs}
+{!40000|Att_CoordinateIndex: Coords}
+
+Index Principal_Axes
+{!40000|Att_PrevIndexValue: ['x','y','z']}
+Title: Principal Axes
+Definition: ['x','y','z']
+NodeLocation: 80,40,1
+NodeSize: 56,24
+
+Index Coords
+Title: Spherical Coordinates
+Definition: ['Latitude','Longitude']
+NodeLocation: 200,40,1
+NodeSize: 56,24
+WindState: 2,102,82,688,584
+{!40000|Att_PrevIndexValue: ['Latitude','Longitude']}
+
+Variable Vector1
+Title: Vector1
+Definition: Table(Principal_Axes)(1,2,3)
+NodeLocation: 72,144,1
+NodeSize: 48,24
+NodeColor: 19664,65535,19661
+DisplayOutputs: SysVar Time
+
+Variable Vector2
+Title: Vector2
+Definition: Table(Principal_Axes)(4,5,6)
+NodeLocation: 72,224,1
+NodeSize: 48,24
+NodeColor: 19664,65535,19661
+
+Variable Vector1_x_Vector2
+Title: Vector1 <x> Vector2
+Definition: Cross_Product( Vector1, Vector2, Principal_Axes )
+NodeLocation: 216,256,1
+NodeSize: 64,24
+
+Variable Vector1_____Vector2
+Title: Vector1 <*> Vector2
+Definition: Dot_Product( Vector1, Vector2, Principal_Axes )
+NodeLocation: 216,112,1
+NodeSize: 64,24
+
+Variable Angle_Between_Vector
+Title: Angle Between Vector1 Vector2
+Definition: AngleSeparation( Vector1, Vector2, Principal_Axes )
+NodeLocation: 216,184,1
+NodeSize: 64,32
+
+Variable Great_Circle_Distan1
+Title: Great Circle Distance
+Units: km
+Description: The shortest distance on a sphere connecting pts 3 & 4. Uses the vector method function.
+Definition: Great_Circle_Distanc(~
+Point_Coordinates[Points=3, Coords='Latitude'],~
+Point_Coordinates[Points=3, Coords='Longitude'],~
+Point_Coordinates[Points=4, Coords='Latitude'],~
+Point_Coordinates[Points=4, Coords='Longitude'],~
+Radius_of_Earth,~
+Principal_Axes)
+NodeLocation: 904,64,1
+NodeSize: 48,32
+WindState: 2,102,82,506,362
+
+Variable Lat_Lon_to_Cartesian
+Title: Lat/Lon to Cartesian
+Description: Converts the latittude/longitude values of the point coordinates to x, y, z, Cartesian coordinates on the sphere.
+Definition: Spherical_to_Cartesi(~
+Point_Coordinates[Coords='Latitude'],~
+Point_Coordinates[Coords='Longitude'],~
+Radius_of_Earth,~
+Principal_Axes) 
+NodeLocation: 904,264,1
+NodeSize: 56,24
+ReformVal: [Principal_Axes,Points]
+
+Variable Cartesian_Back_to_La
+Title: Cartesian Back to Lat/Lon
+Units: deg
+Description: Converts the x, y, z, Cartesian coordinates of the points back to latittude/longitude values on the sphere.
+Definition: Cartesian_to_Spheric(~
+Lat_Lon_to_Cartesian[Principal_Axes='x'],~
+Lat_Lon_to_Cartesian[Principal_Axes='y'],~
+Lat_Lon_to_Cartesian[Principal_Axes='z'],~
+Coords)
+NodeLocation: 904,328,1
+NodeSize: 56,24
+WindState: 2,102,82,476,318
+ValueState: 2,761,59,302,303,0,MIDM
+ReformVal: [Coords,Points]
+
+Variable Great_Circle_Distan2
+Title: Great Circle Distance 2
+Units: km
+Description: The shortest distance on a sphere connecting pts 3 & 4. Uses the spherical trigonometric method function.
+Definition: Great_Circle_Dist2(~
+Point_Coordinates[Points=3, Coords='Latitude'],~
+Point_Coordinates[Points=3, Coords='Longitude'],~
+Point_Coordinates[Points=4, Coords='Latitude'],~
+Point_Coordinates[Points=4, Coords='Longitude'],~
+Radius_of_Earth)
+NodeLocation: 1000,120,1
+NodeSize: 48,32
+WindState: 2,102,82,506,362
+
+Variable Initial_Bearing_at_P
+Title: Initial Bearing at Pt 1
+Units: deg
+Description: The angular displacement of the arc at pt 1 away from the line through pt 1 to the northern pole of the sphere. 
+Definition: Initial_Bearing(~
+Point_Coordinates[Points=1, Coords='Latitude'],~
+Point_Coordinates[Points=1, Coords='Longitude'],~
+Point_Coordinates[Points=2, Coords='Latitude'],~
+Point_Coordinates[Points=2, Coords='Longitude'],~
+Principal_Axes)
+NodeLocation: 384,80,1
+NodeSize: 48,32
+WindState: 2,102,82,506,362
+
+Variable Final_Bearing_at_Pt_
+Title: Final Bearing at Pt 2
+Units: deg
+Description: The angular displacement of the arc at pt 2 away from the line through pt 2 to the northern pole of the sphere.
+Definition: Final_Bearing(~
+Point_Coordinates[Points=1, Coords='Latitude'],~
+Point_Coordinates[Points=1, Coords='Longitude'],~
+Point_Coordinates[Points=2, Coords='Latitude'],~
+Point_Coordinates[Points=2, Coords='Longitude'],~
+Principal_Axes)
+NodeLocation: 384,160,1
+NodeSize: 48,32
+WindState: 2,102,82,506,362
+
+Variable Pt5_N_vector
+Title: Pt5 N vector
+Description: The N vector at a given point on sphere.
+Definition: Coord_to_N_Vect(~
+Point_Coordinates[Points=5, Coords='Latitude'],~
+Point_Coordinates[Points=5, Coords='Longitude'], ~
+Principal_Axes~
+)
+NodeLocation: 776,312,1
+NodeSize: 48,24
+ValueState: 2,345,17,496,413,0,MIDM
+
+Variable Pts_4_5_Arc_Coordina
+Title: Pts 4-5 Arc Coordinates
+Units: deg
+Description: See explanation for Pts 1-2 Arc Coordinates.
+Definition: var c := Pt4_N_vector*(1-fraction_of_distance) + Pt5_N_vector*fraction_of_distance;~
+~
+N_Vect_to_Coord( c[Principal_Axes='x'],~
+c[Principal_Axes='y'],~
+c[Principal_Axes='z'],~
+Coords)
+NodeLocation: 776,392,1
+NodeSize: 56,24
+WindState: 2,102,82,666,401
+ValueState: 2,243,63,625,467,1,MIDM
+GraphSetup: {!40000|Att_ContLineStyle Graph_Primary_Valdim:5}
+ReformVal: [fraction_of_distance,Null]
+{!40000|Att_XRole: -2}
+{!40000|Att_YRole: -1}
+{!40000|Att_CoordinateIndex: Coords}
+
+Module Location_of_Intersec
+Title: Location of Intersection of Arcs 1-2 and 4-5
+Author: robertbr
+Date: Wed, Mar 30, 2016 3:24 PM
+NodeLocation: 640,448,1
+NodeSize: 72,40
+DiagState: 2,218,74,863,370,17
+
+Variable C12
+Title: C12
+Description: Find the cross product of the pt 1 & 2 N vectors.
+Definition: Cross_Product(Pt1_N_vector, Pt2_N_vector, Principal_Axes)
+NodeLocation: 72,96,1
+NodeSize: 48,24
+
+Variable C45
+Title: C45
+Description: Find the cross product of the pt 4 & 5 N vectors.
+Definition: Cross_Product(Pt4_N_vector, Pt5_N_vector, Principal_Axes)
+NodeLocation: 72,192,1
+NodeSize: 48,24
+
+Variable C12__x__C45
+Title: C12 <x> C45
+Description: Find the cross product of the prior cross products from 12-45.
+Definition: Cross_Product(C12, C45, Principal_Axes)
+NodeLocation: 216,96,1
+NodeSize: 64,24
+
+Variable Intersection_1
+Title: Intersection 1
+Description: The two arcs will intersect at antipodes from each other. This is the first intersection point.
+Definition: N_Vect_to_Coord( C12__x__C45[Principal_Axes='x'], C12__x__C45[Principal_Axes='y'], C12__x__C45[Principal_Axes='z'], Coords)
+NodeLocation: 360,96,1
+NodeSize: 56,24
+WindState: 2,199,159,476,224
+ValueState: 2,988,65,416,303,0,MIDM
+
+Variable C45__x__C12
+Title: C45 <x> C12
+Description: Find the cross product of the prior cross products from 45-12.
+Definition: Cross_Product(C45, C12, Principal_Axes)
+NodeLocation: 216,192,1
+NodeSize: 64,24
+
+Variable Intersection_2
+Title: Intersection 2
+Description: The two arcs will intersect at antipodes from each other. This is the second intersection point.
+Definition: N_Vect_to_Coord( C45__x__C12[Principal_Axes='x'], C45__x__C12[Principal_Axes='y'], C45__x__C12[Principal_Axes='z'], Coords)
+NodeLocation: 360,192,1
+NodeSize: 56,24
+WindState: 2,199,159,476,224
+ValueState: 2,984,377,416,303,0,MIDM
+
+Variable Intersection_1_Betwe
+Title: Intersection 1 Between Point Boundaries
+Description: Determines if the first intersection point falls within the local boundary prescribed by the point coordinates. 1=True; 0=False. 
+Definition: var minlatarc12 := Min([Point_Coordinates[Points=1, Coords='Latitude'], Point_Coordinates[Points=2, Coords='Latitude']]);~
+var maxlatarc12 := Max([Point_Coordinates[Points=1, Coords='Latitude'], Point_Coordinates[Points=2, Coords='Latitude']]);~
+var minlonarc12 := Min([Point_Coordinates[Points=1, Coords='Longitude'], Point_Coordinates[Points=2, Coords='Longitude']]);~
+var maxlonarc12 := Max([Point_Coordinates[Points=1, Coords='Longitude'], Point_Coordinates[Points=2, Coords='Longitude']]);~
+var minlatarc45 := Min([Point_Coordinates[Points=4, Coords='Latitude'], Point_Coordinates[Points=5, Coords='Latitude']]);~
+var maxlatarc45 := Max([Point_Coordinates[Points=4, Coords='Latitude'], Point_Coordinates[Points=5, Coords='Latitude']]);~
+var minlonarc45 := Min([Point_Coordinates[Points=4, Coords='Longitude'], Point_Coordinates[Points=5, Coords='Longitude']]);~
+var maxlonarc45 := Max([Point_Coordinates[Points=4, Coords='Longitude'], Point_Coordinates[Points=5, Coords='Longitude']]);~
+~
+maxlatarc12>=Intersection_1[Coords='Latitude'] And Intersection_1[Coords='Latitude']>=minlatarc12 And~
+maxlonarc12>=Intersection_1[Coords='Longitude'] And Intersection_1[Coords='Longitude']>=minlonarc12 And~
+maxlatarc45>=Intersection_1[Coords='Latitude'] And Intersection_1[Coords='Latitude']>=minlatarc45 And~
+maxlonarc45>=Intersection_1[Coords='Longitude'] And Intersection_1[Coords='Longitude']>=minlonarc45~
+
+NodeLocation: 512,96,1
+NodeSize: 64,40
+WindState: 2,102,82,1077,638
+
+Variable Intersection_2_Betwe
+Title: Intersection 2 Between Point Boundaries
+Description: Determines if the second intersection point falls within the local boundary prescribed by the point coordinates. 1=True; 0=False.
+Definition: var minlatarc12 := Min([Point_Coordinates[Points=1, Coords='Latitude'], Point_Coordinates[Points=2, Coords='Latitude']]);~
+var maxlatarc12 := Max([Point_Coordinates[Points=1, Coords='Latitude'], Point_Coordinates[Points=2, Coords='Latitude']]);~
+var minlonarc12 := Min([Point_Coordinates[Points=1, Coords='Longitude'], Point_Coordinates[Points=2, Coords='Longitude']]);~
+var maxlonarc12 := Max([Point_Coordinates[Points=1, Coords='Longitude'], Point_Coordinates[Points=2, Coords='Longitude']]);~
+var minlatarc45 := Min([Point_Coordinates[Points=4, Coords='Latitude'], Point_Coordinates[Points=5, Coords='Latitude']]);~
+var maxlatarc45 := Max([Point_Coordinates[Points=4, Coords='Latitude'], Point_Coordinates[Points=5, Coords='Latitude']]);~
+var minlonarc45 := Min([Point_Coordinates[Points=4, Coords='Longitude'], Point_Coordinates[Points=5, Coords='Longitude']]);~
+var maxlonarc45 := Max([Point_Coordinates[Points=4, Coords='Longitude'], Point_Coordinates[Points=5, Coords='Longitude']]);~
+~
+maxlatarc12>=Intersection_2[Coords='Latitude'] And Intersection_2[Coords='Latitude']>=minlatarc12 And~
+maxlonarc12>=Intersection_2[Coords='Longitude'] And Intersection_2[Coords='Longitude']>=minlonarc12 And~
+maxlatarc45>=Intersection_2[Coords='Latitude'] And Intersection_2[Coords='Latitude']>=minlatarc45 And~
+maxlonarc45>=Intersection_2[Coords='Longitude'] And Intersection_2[Coords='Longitude']>=minlonarc45~
+
+NodeLocation: 512,192,1
+NodeSize: 64,40
+WindState: 2,102,82,1077,638
+
+Variable Point_of_Intersecti1
+Title: Point of Intersection
+Description: Selects the coordinates that fall within the local boundary prescribed by the point coordinates. If neither intersection points are found within the local boundaries of the arcs, then the arcs do not actually intersect. In this case, returns Null.
+Definition: If Intersection_1_Betwe=0 And Intersection_2_Betwe=0 Then~
+	Null~
+Else~
+	Intersection_1 * Intersection_1_Betwe + Intersection_2 * Intersection_2_Betwe
+NodeLocation: 672,136,1
+NodeSize: 56,24
+WindState: 2,168,158,648,344
+
+Close Location_of_Intersec
+
+Close Examples
+
+Function Coord_to_N_Vect(Lat, Lon; P:Index)
+Title: Coordinates to N Vector
+Description: Provides the unit vector scalars for a given point on a sphere indicated with latitude and longitude values. The vector is normal to the surface of the sphere at the given point. The P index is a list of the names of the principal axes, x, y, z.~
+~
+See <https://en.wikipedia.org/wiki/N-vector> for more information.
+Definition: var x:= Cos(Lat) * Cos(Lon);~
+var y := Cos(Lat) * Sin(Lon);~
+var z := Sin(Lat);~
+~
+Array(P, [x, y, z])
+NodeLocation: 216,48,1
+NodeSize: 56,24
+WindState: 2,297,128,605,451
+
+Function N_Vect_to_Coord(x, y, z; C:Index)
+Title: N Vector to Coordinates
+Units: deg
+Description: Gives the latitude and longitude coordinates of a point on a sphere indicated by the vector normal to the surface of the sphere at the point. The result is in degrees. The vector X is indexed by P, a list of the names of the principal axes, x, y, z. C is a list containing the names of the spherical coordinates, usually ['Latitude', 'Longitude'].~
+~
+See <https://en.wikipedia.org/wiki/N-vector> for more information.
+Definition: var lat := Arctan2(z, Sqrt(Sqr(x) + Sqr(y)));~
+var lon := ArcTan2(y, x);~
+Array(C, [lat, lon])
+NodeLocation: 216,104,1
+NodeSize: 56,24
+WindState: 2,102,82,735,514
+
+Function Great_Circle_Distanc(Lat1, Lon1, Lat2, Lon2, radius; P:Index)
+Title: Great Circle Distance 1
+Description: Gives the spherical great circle distance between two points indicated by their latittude and longitude coordinates using a vector method. Does not correct for Earth's oblateness when finding distances on the earth. The P index is a list of the names of the principal axes, x, y, z.
+Definition: var a := Coord_to_N_Vect( Lat1, Lon1, P );~
+var b := Coord_to_N_Vect( Lat2, Lon2, P );~
+var cp := Cross_Product( a, b, P );~
+var mcp := Sqrt(Sum(Sqr(cp), P));~
+var dp := Dot_Product( a, b, P );~
+~
+radius * Pi * ArcTan2(mcp, dp) / 180
+NodeLocation: 344,64,1
+NodeSize: 48,40
+WindState: 2,102,82,744,470
+
+Function Initial_Bearing(Lat1, Lon1, Lat2, Lon2; P:Index)
+Title: Initial Bearing
+Units: deg
+Description: Gives the angular displacement from a true North bearing at a starting point on a great circle arc heading to the end point on the arc. The result is given in degrees. The P index is a list of the names of the principal axes, x, y, z.
+Definition: var N := Array(P, [0, 0, 1]);~
+var a := Coord_to_N_Vect( Lat1, Lon1, P );~
+var b := Coord_to_N_Vect( Lat2, Lon2, P );~
+var c1 := Cross_Product( a, b, P );~
+var c2 := Cross_Product( a, N, P );~
+~
+var sinQ :=Sqrt(Sum(Sqr(Cross_Product( c1, c2, P )), P))*(-1)^(1-(Dot_Product( Cross_Product( c1, c2, P ), a, P )>0));~
+~
+var cosQ := Dot_Product( c1, c2, P );~
+~
+ArcTan2(sinQ, cosQ)
+NodeLocation: 456,48,1
+NodeSize: 48,24
+WindState: 2,102,82,801,459
+
+Function Final_Bearing(Lat1, Lon1, Lat2, Lon2; P:Index)
+Title: Final Bearing
+Units: deg
+Description: Gives the angular displacement from a true North bearing at an end point on a great circle arc heading from the start point on the arc. The result is given in degrees. The P index is a list of the names of the principal axes, x, y, z.
+Definition: var N := Array(P, [0, 0, 1]);~
+var b := Coord_to_N_Vect( Lat1, Lon1, P );~
+var a := Coord_to_N_Vect( Lat2, Lon2, P );~
+var c1 := Cross_Product( a, b, P );~
+var c2 := Cross_Product( a, N, P );~
+~
+var sinQ :=Sqrt(Sum(Sqr(Cross_Product( c1, c2, P )), P))*(-1)^(1-(Dot_Product( Cross_Product( c1, c2, P ), a, P )>0));~
+~
+var cosQ := Dot_Product( c1, c2, P );~
+~
+Mod(ArcTan2(sinQ, cosQ) +180, 360)
+NodeLocation: 456,104,1
+NodeSize: 48,24
+WindState: 2,102,82,801,459
+
+Function Cross_Product(X1, X2: Array[P]; P:Index )
+Title: Cross Product
+Description: Finds the cross product of vectors X1 and X2. Both vectors are indexed by P, which is the vector of orthogonal spatial principal directions. P:=['i', 'j', 'k'].~
+~
+If X1['i', 'j', 'k'] := (a, b, c) and X2['i', 'j', 'k'] := (d, e, f), then X1 <x> X2 gives a vector that is orthogonal to both X1 and X2 and is likewise indexed by P.
+Definition: /*The corner points of the determinants used in the cross product process*/~
+index ind1 := 1..2;~
+index ind2 := 1..2;~
+~
+/*The index that holds each vector in the cross product array*/~
+index vect_row := 1..3;~
+~
+/*Creates an array of signed directions for the determinants*/~
+var cross_dir := (-1)^abs(@P - vect_row);~
+~
+/*The row and columns points of the determinants used for each principal direction*/~
+var det_rows := vect_row[vect_row=Ind1+1];~
+var det_cols :=~
+	(If Ind1=Ind2 Then~
+		ceil((4-@P)/2)~
+	Else ceil((4-@P)/1.5)+1); ~
+~
+/*Creates a sequential string of the values used to create the cross product array. The first three values are the identity values of the principal direction, followed by the values from X1 then X2*/~
+var A_str := Concat([1,1,1], Concat(X1, X2));~
+~
+/*Wraps the A_str string into a 3x3 array*/~
+var A := A_str[@A_str=(vect_row-1)*3 + @P];~
+~
+Sum(Product((cross_dir*A)[@P=det_cols, vect_row=det_rows], Ind1)*(-1)^(Ind2+1), Ind2)
+NodeLocation: 80,160,1
+NodeSize: 64,24
+WindState: 2,227,24,761,619
+
+Function Dot_Product(X1, X2: Array[P]; P:Index )
+Title: Dot Product
+Description: Finds the dot product (or inner product) of vectors X1 and X2. Both vectors are indexed by P, which is the vector of orthogonal principal directions, P:=['i', 'j' ,..., 'k'].~
+~
+If X1['i', 'j', 'k'] := (a, b, c) and X2['i', 'j', 'k'] := (d, e, f), then X1 <o> X2 gives a scalar value that is the sum of the pairwise products of the vectors.~
+X1 <*> X2 = a*d + b*e + c*f
+Definition: Sum(X1 * X2, P)
+NodeLocation: 72,48,1
+NodeSize: 56,24
+WindState: 2,102,82,757,343
+
+Function AngleSeparation(X1, X2: Array[P]; P:Index )
+Title: Angle of Separation
+Units: deg
+Description: Finds the angle of separation in degrees between vectors X1 and X2. Both vectors are indexed by P, which is the vector of orthogonal principal directions, P:=['i', 'j' ,..., 'k'].~
+~
+If X1['i', 'j', 'k'] := (a, b, c) and X2['i', 'j', 'k'] := (d, e, f), the angle of separation (theta) between the vectors is related by X1 <*> X2 = ||X1|| * ||X2|| * cos(theta), where~
+X1 <*> X2 is the dot product of the vectors, and ||X1|| * ||X2|| is the product of the Pythagorean lengths of each vector.
+Definition: var cross_product := Sum(X1 * X2, P);~
+var lenX1 := Sqrt(Sum(Sqr(X1), P));~
+var lenX2 := Sqrt(Sum(Sqr(X2), P));~
+var cos_theta := cross_product/(lenX1 * lenX2);~
+ArcCos(cos_theta)
+NodeLocation: 80,104,1
+NodeSize: 64,24
+WindState: 2,191,98,770,450
+
+Function Spherical_to_Cartesi(Lat, Lon, radius; P:Index)
+Title: Spherical to Cartesian
+Description: Provides the Cartesian (x, y, z) coordinate values for a point on a sphere indicated with latitude and longitude coordinate values. The P index is a list of the names of the principal axes, x, y, z.
+Definition: var x:= radius * Cos(Lon) * Sin(90-Lat);~
+var y := radius * Sin(Lon) * Sin(90-Lat);~
+var z := radius * Cos(90-Lat);~
+~
+Array(P, [x, y, z])
+NodeLocation: 216,160,1
+NodeSize: 56,24
+WindState: 2,56,78,605,451
+
+Function Cartesian_to_Spheric(x, y, z; C:Index)
+Title: Cartesian to Spherical
+Description: Provides the latitude and longitude coordinate values for a point on a sphere indicated with Cartesian (x, y, z) coordinate values. C is a list containing the names of the spherical coordinates, usually ['Latitude', 'Longitude'].
+Definition: var r := Sqrt(x^2 + y^2 + z^2);~
+var lon := ArcTan(y/x);~
+var lat := 90 - ArcCos(z/r);~
+~
+Array(C, [lat, lon])
+NodeLocation: 216,216,1
+NodeSize: 56,24
+WindState: 2,56,78,605,451
+
+Close Vector_Math
+

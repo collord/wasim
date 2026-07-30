@@ -1,0 +1,93 @@
+{ From user Lonnie, Model Electrical_transmiss at Tue, Jul 22, 2008 3:34 PM~~
+}Softwareversion 4.1.1{ System Variables with non-default values: }Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0{!40000|Att_contlinestyle Graph_primary_valdim: 1}{!40000|Att_catlinestyle Graph_primary_valdim: 9}Askattribute Check,Variable,YesModel Electrical_transmissTitle: Electrical TransmissionDescription: This model of an electrical transmission network computes~~
+ how much energy should be produced by each generator on the grid giv~~
+en constraints on branch capacity, generation capability, demand leve~~
+l at each node, and cost per kWh of generation for each generator.   ~~
+The network is solved using a linear program that minimized generatio~~
+n cost.~
+~
+The model assumes the impedance for each branch is purely imaginary (~~
+i.e., no resistive real-part), and that all nodes are at the same AC ~~
+voltage (only the phase varies).Author: Lonnie Chrisman, Ph.D.~
+Lumina Decison SystemsDate: Tue, Jul 22, 2008 9:35 AMSaveauthor: LonnieSavedate: Tue, Jul 22, 2008 3:34 PMDefaultsize: 48,24Diagstate: 1,1,7,1052,484,17Windstate: 2,442,422,476,361Fontstyle: Arial, 15Fileinfo: 0,Model Electrical_transmiss,2,2,0,0,W:\TestModels\Electrica~~
+l Transmission.ANAVariable YTitle: Admittance matrixUnits: imaginary mhosDescription: The admittance matrix for all transmission lines (a squar~~
+e matrix on Node x Node2).Definition: var adm := Branch_definition[Branch_info='Admittance'];~
+var y1 := sum(if to_node=Node and from_node=Node2 then adm else 0,Bra~~
+nch);~
+var y2 := transpose(y1,node,node2) + y1;~
+-y2 + sum(y2,Node2) * (node=node2)Nodelocation: 280,264,1Nodesize: 52,24Windstate: 2,493,319,476,224Defnstate: 2,49,437,677,272,0,MIDMValuestate: 2,52,71,652,284,0,MIDMReformdef: [Node2,Node]Reformval: [Node2,Node]Decision Branch_definitionTitle: Branch DefinitionDescription: Defines the branches (i.e., transmission lines) that exis~~
+t in the network.  Each branch connects two nodes and has an impedanc~~
+e and a maximum power capacity.~
+~
+The direction of the branch determines the sign of the branch flow in~~
+ the results.  A postive branch flow means that power flows from the ~~
+"From" node to the "To" node.  A negative flow indicates power transf~~
+er in the opposite direction.Definition: Table(Branch_info,Branch)(~
+1,1,1,2,2,2,3,3,3,4,4,6,7,~
+2,5,7,3,5,6,4,6,8,5,7,8,8,~
+20,20,14,15,25,18,40,21,10,20,30,35,45,~
+1M,500K,500K,300K,1.5M,500K,2M,100K,300K,1.5M,400K,1M,2M~
+)Nodelocation: 88,264,1Nodesize: 56,24Windstate: 2,227,340,476,224Defnstate: 2,464,80,416,461,0,MIDMAliases: Formnode Transmission_lines1Reformdef: [Branch_info,Branch]Reformval: [Branch_info,Branch]Variable ZTitle: Reactance matrixUnits: imaginary ohmsDescription: Square Reactance matrix (Node x Node2) for all branches. ~~
+ Assumed that the resistive (real part) of the impedance is zero for ~~
+all branches.Definition: var nonRef[node] := node<>Reference_node;~
+index n := subset( nonRef );~
+index n2 := n;~
+var yy := y[node=n,node2=n2];~
+var zz := Invert(yy,n,n2);~
+if node=Reference_node or node2=Reference_node then 0 else zz[n=node,~~
+n2=node2]~
+Nodelocation: 424,264,1Nodesize: 48,24Valuestate: 2,30,58,517,281,0,MIDMReformval: [Node2,Node]Numberformat: 2,F,2,2,0,0,2,0,$,0,"ABBREV",0Variable Shift_factorsTitle: Shift FactorsDefinition: var ybr := if Branch_definition[Branch_info='To']=Node the~~
+n Branch_definition[Branch_info='Admittance']~
+         else if Branch_definition[Branch_info='From']=Node then -Bra~~
+nch_definition[Branch_info='Admittance']~
+         else 0;~
+sum(ybr[node=node2] * Z,node2)Nodelocation: 552,264,1Nodesize: 48,24Valuestate: 2,395,23,600,328,0,MIDMReformval: [Node,Branch]Numberformat: 2,F,2,2,0,0,2,0,$,0,"ABBREV",0{!40000|Att_resultslicestate: [Voltage,1,Branch,1,Node,1]}Variable From_nodeTitle: From nodeDefinition: Branch_definition[Branch_info='From']Nodelocation: 64,296,2Nodesize: 36,8Nodeinfo: 1,1,1,1,1,1,1,,0,Nodefont: Arial, 10Variable To_nodeTitle: To nodeDefinition: Branch_definition[Branch_info='To']Nodelocation: 120,296,1Nodesize: 36,8Nodeinfo: 1,1,1,1,1,1,1,,0,Nodefont: Arial, 10Chance DemandTitle: DemandUnits: WattsDescription: Consumer power demand to be met at each node.  ~
+This does not include generation capacity at the node.Definition: Table(Node)(~
+2M,500K,1.8M,0,1M,0,0,4M)Nodelocation: 424,424,1Nodesize: 48,24Windstate: 2,490,354,476,224Defnstate: 2,357,302,202,303,0,MIDMAliases: Formnode Demand1Variable Branch_capacityTitle: Branch CapacityDefinition: Branch_definition[Branch_info='Capacity (Watts)']Nodelocation: 91,312,1Nodesize: 48,8Nodeinfo: 1,1,1,1,1,1,1,,0,Aliases: Alias Branch_capacity1Nodefont: Arial, 10Module Network_optimizationTitle: Network OptimizationDefaultsize: 48,24Nodelocation: 424,336,1Nodesize: 56,24Diagstate: 1,123,67,686,317,17Decision Generation_capacityTitle: Generation capacityDescription: Defines the available generation capacity.   Each power g~~
+enerator exists at a node of the network, and it is assumed that ther~~
+e is only one price per kWh at any given node (if you have two plants~~
+ at the same "node" having different prices, then create another node~~
+ for the second plant with a high-capacity transmission line between ~~
+them).Definition: Table(Node,Generator_info)(~
+0,1.5M,0.05,~
+1M,5M,0.04,~
+0,0,0.1,~
+300K,4M,0.03,~
+0,3M,0.06,~
+0,700K,0.08,~
+0,2.5M,0.06,~
+0,1.2M,0.07000000000000001~
+)Nodelocation: 64,120,1Nodesize: 48,24Defnstate: 2,16,336,416,303,0,MIDMValuestate: 2,573,27,416,303,0,MIDMAliases: Formnode Generation_capacity1, Alias Generation_capacity2Reformdef: [Generator_info,Node]Reformval: [Generator_info,Node]Index ConstraintsTitle: ConstraintsDefinition: Concat(Concat("Branch_"&Branch&"_Min", "Branch_" & Branch ~~
+& "_Max"), ["Net Zero"])Nodelocation: 592,72,1Nodesize: 48,24Valuestate: 2,542,36,411,507,0,MIDMVariable LhsTitle: LhsDefinition: var tmp := Concat(Shift_factors,Shift_factors,branch,branc~~
+h);~
+Concat(tmp,1,tmp.K,One,Constraints)Nodelocation: 232,48,1Nodesize: 48,24Valuestate: 2,139,67,636,449,0,MIDMReformval: [Node,Constraints]Numberformat: 2,F,4,3,0,0,4,0,$,0,"ABBREV",0Att__totalsindex: Index Branch{!40000|Att_resultslicestate: [Node2,4,Branch,1,Node,1]}Variable SenseTitle: SenseDefinition: var tmp := Concat(">","<",Branch,Branch);~
+Concat(tmp,"=",tmp.K,One,Constraints)Nodelocation: 344,48,1Nodesize: 48,24Variable RhsTitle: RhsDefinition: var tmp := concat(-Branch_capacity,Branch_capacity,branch,~~
+branch);~
+Concat(tmp,0,tmp.K,One,constraints)Nodelocation: 464,48,1Nodesize: 48,24Constant OneTitle: OneDefinition: [1]Nodelocation: 592,128,1Nodesize: 48,24Nodeinfo: 1,1,0,1,1,1,0,,0,Variable LbTitle: LbDefinition: Demand - Generation_capacity[Generator_info="Max Watts"]Nodelocation: 224,176,1Nodesize: 48,24Variable UbTitle: UbDefinition: Demand - Generation_capacity[Generator_info="Min Watts"]Nodelocation: 224,232,1Nodesize: 48,24Variable The_lpTitle: The LPDefinition: LpDefine( Node, Constraints, ~
+objCoef: -Gen_cost, ~
+lhs:lhs, sense:sense, rhs:rhs, lb:lb, ub:ub)Nodelocation: 344,120,1Nodesize: 48,24Aliases: Alias The_lp1Variable Gen_costTitle: Gen costDefinition: Generation_capacity[Generator_info='Cost per kWh']Nodelocation: 192,120,1Nodesize: 48,24Module ResultsTitle: ResultsDefaultsize: 48,24Nodelocation: 416,208,1Nodesize: 48,24Diagstate: 1,28,138,566,344,17Aliases: Alias Results1Nodecolor: 65535,19661,38773Constant VoltageTitle: VoltageUnits: VDescription: The AC voltage that power is transmitted at, assumed to b~~
+e the same through the whole system.Definition: 10KNodelocation: 96,191,1Nodesize: 48,24Aliases: Formnode Voltage1Objective Node_power_usedTitle: Node Power UsedUnits: WattsDescription: Total net power consumed at node (or net produced if nega~~
+tive).Definition: if LpStatusNum(The_lp)<>0 then Error(LpStatusText(The_lp))~~
+;~
+LpSolution(The_lp)~
+Nodelocation: 248,55,1Nodesize: 48,31Valuestate: 2,533,60,416,303,0,MIDMAliases: Formnode Node_power_used1Numberformat: 2,D,4,3,0,0,4,0,$,0,"ABBREV",0Objective Power_generationTitle: Power generationUnits: WattsDescription: Amount of power generated at each node.Definition: Demand - Node_power_usedNodelocation: 248,127,1Nodesize: 48,24Windstate: 2,266,550,476,224Valuestate: 2,410,106,549,435,1,MIDMAliases: Formnode Power_generation1Graphsetup: {!40000|Att_forcecategorical Graph_primary_valdim:1}Reformval: [Node]Objective Branch_flows1Title: Branch flowsUnits: WattsDescription: Power flowing on each branch, in the direction of "from" ~~
+to "to"Definition: sum(Shift_factors * Node_power_used,node)Nodelocation: 384,191,1Nodesize: 48,24Valuestate: 2,155,82,546,318,1,MIDMAliases: Formnode Branch_flowsReformval: [Branch]Objective Voltage_phase1Title: Voltage PhaseUnits: DegreesDefinition: Mod(360+180 + Degrees( sum(Z * Node_power_used / Voltage,n~~
+ode)[node2=node] ), 360) - 180Nodelocation: 248,191,1Nodesize: 48,24Valuestate: 2,505,114,416,303,1,MIDMGraphsetup: {!40000|Att_forcecategorical Graph_primary_valdim:1}Objective Cost_of_productionTitle: Cost of ProductionUnits: $ / hrDescription: Cost of power production, per hour, broken down by the no~~
+de where the power is generated.~
+~
+The 1K conversion is due to the fact that Gen_cost is in kWh, while P~~
+ower_generation is in Watts.Definition: Gen_cost * Power_generation / 1KNodelocation: 368,55,1Nodesize: 48,24Windstate: 2,412,241,476,224Valuestate: 2,555,227,449,320,1,MIDMAliases: Formnode Cost_of_production1Graphsetup: {!40000|Att_forcecategorical Graph_primary_valdim:1}Numberformat: 2,D,4,2,0,1,4,0,$,0,"ABBREV",0Att__totalsindex: Index NodeAlias The_lp1Title: The LPDefinition: 1Nodelocation: 96,56,1Nodesize: 48,24Original: The_lpAlias Branch_capacity1Title: Branch CapacityDefinition: 1Nodelocation: 104,248,1Nodesize: 48,24Nodeinfo: 1,1,1,1,1,1,0,,0,Nodefont: Arial, 10Original: Branch_capacityObjective Branch_utilizationTitle: Branch utilizationUnits: %Description: Utilization of each branch.  100% indicates that the bran~~
+ch is operating at its maximum capacity.  Branches that are operating~~
+ near capacity are good candidates for upgrades, or may highlight wer~~
+e additional branches would be most cost effective.Definition: abs(Branch_flows1) / Branch_capacityNodelocation: 248,248,1Nodesize: 48,24Valuestate: 2,204,153,620,414,1,MIDMAliases: Formnode Branch_utilization1Reformval: [Branch,Undefined]Numberformat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0{!40000|Att_resultslicestate: [Branch,1]}Objective Plant_utilizationTitle: Plant utilizationUnits: %Description: Utilization of each power generator, relative to their ma~~
+ximum generation capability.  100% indicates that the generator is be~~
+ing used at capacity.~
+~
+When some plants are producing at 100%, yet others with a lower gener~~
+ation cost are producing at less than 100%, this indicates that trans~~
+mission bottlenecks exist in the system.  Branch upgrades could there~~
+fore reduce total cost.Definition: Power_generation / Generation_capacity[Generator_info="Max~~
+ Watts"]Nodelocation: 384,248,1Nodesize: 48,24Valuestate: 2,88,98,416,303,1,MIDMAliases: Formnode Plant_utilization1Graphsetup: {!40000|Att_forcecategorical Graph_primary_valdim:1}Reformval: [Node,Undefined]Numberformat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0{!40000|Att_resultslicestate: [Node,1]}Close ResultsClose Network_optimizationFormnode Transmission_lines1Title: Transmission LinesDefinition: 0Nodelocation: 176,64,1Nodesize: 128,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Branch_definitionFormnode Demand1Title: DemandDefinition: 0Nodelocation: 176,132,1Nodesize: 128,13Nodeinfo: 0,0,0,0,0,0,0,72Original: DemandFormnode Generation_capacity1Title: Generation capacityDefinition: 0Nodelocation: 176,168,1Nodesize: 128,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Generation_capacityModule IndexesTitle: IndexesDefaultsize: 48,24Nodelocation: 88,432,1Nodesize: 48,24Nodeinfo: 1,0,0,1,1,1,0,,0,Nodecolor: 39321,39325,65535Index NodeTitle: NodeDefinition: 1..8Nodelocation: 96,48,1Nodesize: 48,24Aliases: Formnode Node1{!40000|Att_previndexvalue: [1,2,3,4,5,6,7,8]}Index Node2Title: Node2Definition: CopyIndex(Node)Nodelocation: 184,48,1Nodesize: 48,24Index Branch_infoTitle: Branch InfoDefinition: ['To','From','Admittance','Capacity (Watts)']Nodelocation: 184,104,1Nodesize: 48,24{!40000|Att_previndexvalue: ['To','From','Admittance','Capacity (Watts~~
+)']}Index BranchTitle: BranchDefinition: ['1-2','1-5','1-7','2-3','2-5','2-6','3-4','3-6','3-8','4-~~
+5','4-7','6-8','7-8']Nodelocation: 96,104,1Nodesize: 48,24{!40000|Att_previndexvalue: ['1-2','1-5','1-7','2-3','2-5','2-6','3-4'~~
+,'3-6','3-8','4-5','4-7','6-8','7-8']}Constant Reference_nodeTitle: Reference nodeDefinition: Choice(Self,8)Nodelocation: 312,48,1Nodesize: 48,24Valuestate: 2,435,264,416,303,0,MIDMDomain: NodeIndex Generator_infoTitle: Generator infoDefinition: ['Min Watts','Max Watts','Cost per kWh']Nodelocation: 96,168,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Min Watts','Max Watts','Cost per kWh']}Formnode Node1Title: NodeDefinition: 0Nodelocation: 152,240,1Nodesize: 80,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: NodeClose IndexesFormnode Voltage1Title: VoltageDefinition: 0Nodelocation: 176,98,1Nodesize: 128,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: VoltageText Te1Description: ConfigurationNodelocation: 184,118,-1Nodesize: 160,98Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Formnode Node_power_used1Title: Node Power UsedDefinition: 1Nodelocation: 520,64,1Nodesize: 144,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Node_power_usedFormnode Power_generation1Title: Power generationDefinition: 1Nodelocation: 520,96,1Nodesize: 144,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Power_generationFormnode Branch_flowsTitle: Branch flowsDefinition: 1Nodelocation: 520,160,1Nodesize: 144,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Branch_flows1Formnode Cost_of_production1Title: Cost of ProductionDefinition: 1Nodelocation: 520,128,1Nodesize: 144,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Cost_of_productionText Te2Description: Operating PointNodelocation: 528,118,-1Nodesize: 160,98Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Alias Results1Title: ResultsDefinition: 1Nodelocation: 568,336,1Nodesize: 48,24Nodecolor: 65535,19661,38773Original: ResultsAlias Generation_capacity2Title: Generation capacityDefinition: 1Nodelocation: 88,360,1Nodesize: 48,24Original: Generation_capacityText Te3Description: UtilizationNodelocation: 864,118,-1Nodesize: 160,98Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Formnode Branch_utilization1Title: Branch utilizationDefinition: 1Nodelocation: 848,109,1Nodesize: 128,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Branch_utilizationFormnode Plant_utilization1Title: Plant utilizationDefinition: 1Nodelocation: 848,77,1Nodesize: 128,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Plant_utilizationClose Electrical_transmiss

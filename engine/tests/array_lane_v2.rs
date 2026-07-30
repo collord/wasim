@@ -72,6 +72,44 @@ fn array_lane_arithmetic_matches_scalar() {
     assert_bit_identical(&run(ARITH, false), &run(ARITH, true));
 }
 
+// Analytica `Round(x, digits)` — the two-arg form the `.ana` corpus surfaced
+// (drunk_driving_cost_benefit) and the engine used to reject as 1-arg-only. Covers
+// the 1-arg form (Un(Round)), positive digits, and negative digits (round to tens),
+// on BOTH lanes: the scalar path (`eval_call`) and the fused array path (`Op::RoundN`)
+// must agree bit-for-bit and match a hand-computed value.
+const ROUND2: &str = r#"{
+  "wasim_version": "0.9.7",
+  "simulation_settings": {"duration": {"value": 1, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 400, "seed": 11},
+  "containers": [{"id": "M", "name": "M", "elements": ["M/x","M/r0","M/r1","M/rneg"]}],
+  "elements": [
+    {"id":"M/x","name":"x","primitive":"node","value_rule":"sample","container":"M","distribution":{"family":"uniform","parameters":{"min":{"value":0,"unit":"1"},"max":{"value":100,"unit":"1"}}},"save_results":{"final_value":true}},
+    {"id":"M/r0","name":"r0","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x"],
+     "expression":{"ast":{"op":"call","fn":"round","args":[{"op":"ref","element_id":"M/x"}]}},"save_results":{"final_value":true}},
+    {"id":"M/r1","name":"r1","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x"],
+     "expression":{"ast":{"op":"call","fn":"round","args":[{"op":"ref","element_id":"M/x"},{"op":"literal","value":1}]}},"save_results":{"final_value":true}},
+    {"id":"M/rneg","name":"rneg","primitive":"node","value_rule":"expression","container":"M","inputs":["M/x"],
+     "expression":{"ast":{"op":"call","fn":"round","args":[{"op":"ref","element_id":"M/x"},{"op":"literal","value":-1}]}},"save_results":{"final_value":true}}
+  ]
+}"#;
+
+#[test]
+fn round_two_arg_matches_scalar_and_computes_decimals() {
+    let scalar = run(ROUND2, false);
+    let array = run(ROUND2, true);
+    assert_bit_identical(&scalar, &array);
+
+    // Value check against the scalar lane: r1 rounds to 1 decimal, rneg to tens, r0 to integer.
+    let x = scalar.elements["M/x"].final_values[0];
+    let r0 = scalar.elements["M/r0"].final_values[0];
+    let r1 = scalar.elements["M/r1"].final_values[0];
+    let rneg = scalar.elements["M/rneg"].final_values[0];
+    assert_eq!(r0, x.round(), "1-arg round = round to integer");
+    assert_eq!(r1, (x * 10.0).round() / 10.0, "round(x, 1) = 1 decimal place");
+    assert_eq!(rneg, (x / 10.0).round() * 10.0, "round(x, -1) = nearest ten");
+    // r1 must carry a genuine fractional part sometimes (not silently = r0).
+    assert!((r1 - r0).abs() < 1.0);
+}
+
 // Phase C single-pass ordering: `run_stat` targets an **expression** (`M/z`), and its
 // consumer (`M/d`) is declared *before* the target in element order. The augmented
 // topo order must still evaluate `M/z` before reducing it, so a single inline pass

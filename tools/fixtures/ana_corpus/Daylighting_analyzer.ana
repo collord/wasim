@@ -1,0 +1,283 @@
+{ From user Lonnie, Model Daylighting_analyzer at Thu, Jan 03, 2008 9:44 AM~~
+}Softwareversion 4.0.1{ System Variables with non-default values: }Description Time: Dynamic simulation periods are specified in Time's d~~
+efinition. This is usually a list of numbers or labels, typically in ~~
+some unit of time (days, weeks, months, etc.).  Use the “Dynamic()” f~~
+unction in your variables to perform dynamic simulation.Samplesize := 1000Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0Allwarnings := 0Model Daylighting_analyzerTitle: Daylighting analyzerDescription: A demonstration showing how to analyze lifecycle costs an~~
+d savings from daylighting options in building design.~
+~
+Analysis based on Nomograph Cost/Benefit Tool for Daylighting. adapte~~
+d from S.E. Selkowitz and M. Gabel. 1984. "LBL Daylighting Nomographs~~
+," LBL-13534, Lawrence Berkeley Laboratory, Berkeley CA, 94704. (510)~~
+ 486-6845.Author: Max HenrionDate: Thu, Jan 18, 2007 7:54 PMSaveauthor: LonnieSavedate: Thu, Jan 03, 2008 9:44 AMDefaultsize: 48,24Diagstate: 1,6,10,708,574,17Windstate: 2,102,90,556,323Fontstyle: Arial, 15Fileinfo: 0,Model Daylighting_analyzer,2,2,0,0,W:\Analytica\ExecDebug\~~
+Example Models\Engineering\Daylighting analyzer demo.anaModule Cost_and_savingsTitle: Cost and savingsAuthor: Max HenrionDate: Thu, Apr 19, 2007 10:00 AMDefaultsize: 48,24Nodelocation: 246,530,1Nodesize: 58,22Diagstate: 1,323,91,685,461,19Chance Electricity_costTitle: Electricity costUnits: $/kwhDescription: Price of electrical powerDefinition: Triangular( .10, .15, .25 )Nodelocation: 64,400,1Nodesize: 48,28Aliases: Formnode Electricity_cost1Variable Annual_savings_per_sTitle: Annual savings per sq ftUnits: $/yearDefinition: Daylighting_energy_s * Electricity_costNodelocation: 192,400,1Nodesize: 48,32Valuestate: 2,40,50,416,303,0,MIDMVariable Annual_energy_cost_sTitle: Annual energy cost savingsUnits: $/yearDefinition: Annual_savings_per_s * Total_floor_areaNodelocation: 320,320,1Nodesize: 48,32Valuestate: 2,56,66,416,303,0,MIDMVariable Annual_cost_w_out_daTitle: Annual cost w/out daylightingUnits: $/yearDefinition: Electricity_cost * Non_daylit_lighting_ * Floor_areaNodelocation: 64,320,1Nodesize: 48,32Valuestate: 2,40,50,416,303,0,MIDMNumberformat: 1,I,4,2,0,1Decision Unit_electric_load__Title: Unit electric load, nonlightingUnits: w/ft^2Description: Estimate the electric load (W/ft2) of all non-lighting ac~~
+tivities like mechanical heating and cooling,~
+ventilation, office equipment use, etc.~
+* Mechanical engineer can provide this information.~
+* Or, assume 3.5 W/ft2.Definition: 3.5Nodelocation: 64,48,1Nodesize: 48,32Windstate: 2,597,10,476,224Decision Peak_demand_rateTitle: Peak demand rateUnits: $/kw-monthDescription: Find the peak demand rate for local utility. Call the uti~~
+lity for current rate, or use one of these values:~
+San Diego Gas & Electric $19~
+Los Angeles Dept of Water & Power 9~
+Pacific Gas & Electric 13~
+Southern California Edison 17Definition: Triangular(10,13, 20)Nodelocation: 192,48,1Nodesize: 48,32Windstate: 2,459,337,648,474Aliases: Formnode Peak_demand_rate1Variable Daylit_peak_demand_rTitle: Daylit peak demand reductionUnits: KWDefinition: Selected_lighting_lo * Daylit_area_pc * Dimming_factor * F~~
+loor_area/1000Nodelocation: 64,240,1Nodesize: 48,32Valuestate: 2,574,25,416,303,0,MIDMDecision Discount_rateTitle: Discount rateUnits: %/yearDefinition: 8%Nodelocation: 592,168,1Nodesize: 48,24Aliases: Formnode Discount_rate1Numberformat: 1,%,4,0,0,0Chance Energy_cost_escalatiTitle: Energy cost escalation rateUnits: /yearDescription: Annual compound percent increase in price of electricity.~~
+Definition: Triangular( 0.03, 0.08, 0.15 )Nodelocation: 448,328,1Nodesize: 48,32Aliases: Formnode Energy_cost_escalat1Variable Non_daylit_peak_demaTitle: Non daylit peak demandUnits: KWDefinition: (Unit_electric_load__ + Selected_lighting_lo)*Total_floor_~~
+area/1000Nodelocation: 64,152,1Nodesize: 48,32Valuestate: 2,376,386,416,303,0,MIDMVariable Non_daylit_peak_dem1Title: Non daylit peak demand chargeUnits: $/yearDefinition: Non_daylit_peak_dema * Peak_demand_rate * 12Nodelocation: 192,152,1Nodesize: 48,40Valuestate: 2,392,402,416,303,0,MIDMNumberformat: 1,I,4,2,1,1Variable Daylit_peak_demand_1Title: Daylit peak demand savingsUnits: $/yearDefinition: Daylit_peak_demand_r * Peak_demand_rate * 12Nodelocation: 192,240,1Nodesize: 48,32Valuestate: 2,440,450,416,303,0,MIDMNumberformat: 1,I,4,2,1,1Decision Payback_horizonTitle: Payback horizonUnits: YearsDefinition: 12Nodelocation: 448,96,1Nodesize: 48,24Windstate: 2,102,90,476,224Aliases: Formnode Payback_horizon1Variable Total_savingsTitle: Total savingsDefinition: (Annual_energy_cost_s + Daylit_peak_demand_1) * Savings_mu~~
+ltiplier_fNodelocation: 320,240,1Nodesize: 48,24Variable Savings_by_yearTitle: Savings by yearDefinition: Total_savings * (1 + Energy_cost_escalati)^(Year - 2007)Nodelocation: 448,240,1Nodesize: 48,24Valuestate: 2,12,49,757,576,1,MIDMReformval: [Year,Lighting_control_typ]Numberformat: 2,I,4,2,1,1,4,0,$,0,"ABBREV",0Index YearTitle: YearDefinition: 2007 + (0 .. Payback_horizon)Nodelocation: 448,168,1Nodesize: 48,24Valuestate: 2,40,50,416,303,0,MIDM{!40000|Att_previndexvalue: [2007,2008,2009,2010,2011,2012,2013,2014,2015~~
+,2016,2017,2018,2019]}Objective Npv_savingsTitle: NPV savingsUnits: $Definition: Npv( Discount_rate, Savings_by_year, Year )Nodelocation: 592,240,1Nodesize: 48,24Valuestate: 2,442,496,830,386,1,CDFPAliases: Formnode Npv_savings1Graphsetup: {!40000|Graph_framecolor:44800,44800,44800}~
+{!40000|Graph_gridcolor:52992,52992,52992}~
+{!40000|Att_contlinestyle Graph_cdf_valdim:1}~
+Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Includezzero:0~
+Includeyzero:0~
+Includexzero:0~
+Yintervals:0~
+Xintervals:5~
+Zmaximum:1~
+Zminimum:1~
+Ymaximum:20u~
+Yminimum:0~
+Xmaximum:240K~
+Xminimum:40K~
+Showkey:1~
+Frameauto:1~
+Depth:70~
+Tilt:0~
+Rotation:45~
+Scales:1~
+Mesh:1~
+Ticks:1~
+Grid:3~
+Frame:1~
+Linestyle:6~
+Baroverlap:0~
+Symbolsize:6~
+Cdfsteps:1~
+Cdfresol:5~
+Diststeps:0~
+Distresol:40~
+Graphtool:0~
+{!40000|Graph_linethickness:2}Fontstyle: Arial, 8Reformval: [Undefined,Illumination_level1,Undefined,1,1]Numberformat: 1,I,4,2,1,1{!40000|Att_resultslicestate: [Cities,4,Illumination_level1,1,Lighting~~
+_control_typ,1,Sys_localindex('STEP'),1]}Variable Savings_by_typeTitle: Savings by typeUnits: $/yearDefinition: Table(Self)(~
+Annual_energy_cost_s,Daylit_peak_demand_1)Indexvals: ['Annual energy cost savings','Daylit peak demand savings']~~
+Nodelocation: 192,320,1Nodesize: 48,24Nodeinfo: 1,1,1,1,1,1,0,0,0,0Valuestate: 2,722,236,464,152,0,MIDMAliases: Formnode Savings_by_type1Reformval: [Self,Lighting_control_typ]Numberformat: 2,I,4,2,1,1,4,0,$,0,"ABBREV",0Att__totalsindex: Variable Self{!40000|Att_resultslicestate: [Lighting_control_typ,1,Illumination_lev~~
+el1,1,Self,1]}Chance SeerTitle: SEERUnits: Btu/whDescription: Seasonal energy efficiency ratio (British thermal unit pe~~
+r watt-hour) during cooling season.Definition: Triangular(9, 11, 14)Nodelocation: 320,32,1Nodesize: 48,24Windstate: 2,399,764,476,224Variable CopTitle: COPDescription: Coefficient of performance: Ratio of heat energy moved to~~
+ electrical energy used to run the air conditioning. (Kwh/Kwh).~
+~
+Computed for ratio to SEER in California.Definition: Seer / 3.792~
+Nodelocation: 320,96,1Nodesize: 48,24Windstate: 2,357,492,476,224Valuestate: 2,376,386,416,303,0,MIDMVariable Savings_multiplier_fTitle: Savings multiplier for a/cDefinition: 1 + 1/CopNodelocation: 320,168,1Nodesize: 48,31Valuestate: 2,392,402,416,303,0,MIDMVariable Npv_savings_importanTitle: NPV savings ImportanceDefinition: Abs( RankCorrel( Npv_savings_inputs, Npv_savings ) )Nodelocation: 592,315,1Nodesize: 48,31Nodeinfo: 1,1,1,1,1,1,0,0,0,0Valuestate: 2,541,19,642,689,1,MIDMAliases: Formnode Npv_savings_importa1Graphsetup: Flip:8Reformval: [Npv_savings_inputs,Illumination_level1]Index Npv_savings_inputsTitle: NPV savings InputsDefinition: [ Electricity_cost, Energy_cost_escalati, Seer, Useful_win~~
+dow_ratio, Custom_lighting_load, Glazing_transmittanc, Annual_occupan~~
+cy_hou ]Nodelocation: 592,400,1Nodesize: 48,31Nodeinfo: 1,1,1,1,1,1,0,0,0,0Windstate: 2,468,21,658,454Valuestate: 2,768,471,344,245,0,MIDM{!40000|Att_previndexvalue: ['Electricity cost','Energy cost escalatio~~
+n rate','SEER','Useful window ratio','Custom lighting load','Glazing ~~
+transmittance','Annual occupancy hours']}{!40000|Metaonly: 1}Close Cost_and_savingsModule Daylight_availabilitTitle: Daylight availabilityAuthor: Max HenrionDate: Thu, Apr 19, 2007 10:00 AMDefaultsize: 48,24Nodelocation: 86,470,1Nodesize: 58,22Diagstate: 1,721,7,296,360,17Variable Latitude_by_cityTitle: Latitude by cityDefinition: Table(Cities)(~
+32,33,34,35,35,36,37,37,38,38,39,40,41,Custom_latitude)Nodelocation: 200,88,1Nodesize: 48,24Defnstate: 2,72,82,416,303,0,MIDMValuestate: 2,40,50,361,423,0,MIDMIndex CitiesTitle: CitiesDefinition: ['San Diego','Santa Ana','Los Angeles','Bakersfield','San ~~
+Luis Obispo','Fresno','Modesto','San Francisco','Stockton','Sacrament~~
+o','Chico','Redding','Eureka','Custom latitude']Nodelocation: 80,32,1Nodesize: 48,24{!40000|Att_previndexvalue: ['San Diego','Santa Ana','Los Angeles','B~~
+akersfield','San Luis Obispo','Fresno','Modesto','San Francisco','Sto~~
+ckton','Sacramento','Chico','Redding','Eureka','Custom latitude']}Decision Nearest_cityTitle: Nearest cityDefinition: Choice(Cities,8)Nodelocation: 80,152,1Nodesize: 48,24Aliases: Formnode Nearest_city1Variable Latitude_of_siteTitle: Latitude of siteUnits: degreesDefinition: Latitude_by_city[Cities=Nearest_city]Nodelocation: 200,152,1Nodesize: 48,24Windstate: 2,102,90,476,224Valuestate: 2,88,98,416,303,0,MIDMAliases: Alias Latitude_of_site1Decision Custom_latitudeTitle: Custom latitudeUnits: degreesDefinition: 60Nodelocation: 80,88,1Nodesize: 48,24Aliases: Formnode Custom_latitude1Module Daylight_by_latitudeTitle: Daylight by latitudeAuthor: Max HenrionDate: Thu, Apr 19, 2007 10:00 AMDefaultsize: 48,24Nodelocation: 200,224,1Nodesize: 48,24Diagstate: 1,4,447,704,464,23Index Day_of_yearTitle: Day of yearDescription: Number of day in year.Definition: Sequence( 1, 366, 5 )Nodelocation: 368,32,1Nodesize: 48,24{!40000|Att_previndexvalue: [1,6,11,16,21,26,31,36,41,46,51,56,61,66,71~~
+,76,81,86,91,96,101,106,111,116,121,126,131,136,141,146,151,156,161,166~~
+,171,176,181,186,191,196,201,206,211,216,221,226,231,236,241,246,251~~
+,256,261,266,271,276,281,286,291,296,301,306,311,316,321,326,331,336,~~
+341,346,351,356,361]}Index LatitudeTitle: LatitudeUnits: degreesDescription: Degrees from the equator (North or South)Definition: Sequence(0, 65, 5)Nodelocation: 368,176,1Nodesize: 48,24Windstate: 2,102,90,476,224Valuestate: 2,88,98,416,303,0,MIDM{!40000|Att_previndexvalue: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16~~
+,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39~~
+,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62~~
+,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85~~
+,86,87,88,89,90]}Constant Degrees_per_radianTitle: Degrees per radianDefinition: 180/PiNodelocation: 144,32,1Nodesize: 48,24Valuestate: 2,72,82,416,303,0,MIDMVariable Start_timeTitle: Start timeDefinition: Evaluate(SelectText(Occupancy_times, 1, 2))Nodelocation: 512,192,1Nodesize: 48,24Valuestate: 2,40,50,416,303,0,MIDMVariable End_timeTitle: End timeDefinition: VAR L := TextLength(Occupancy_times);~
+Evaluate(SelectText(Occupancy_times, L-1, L))+12Nodelocation: 512,248,1Nodesize: 48,24Valuestate: 2,56,66,416,303,0,MIDMIndex Occupancy_timesTitle: Occupancy timesDefinition: ['8 to 4','9 to 5','8 to 5','7 to 4','7 to 3','8 to 6','9 ~~
+to 6','9 to 7','8 to 8','9 to 9']Nodelocation: 632,192,1Nodesize: 48,24Variable Twilight_percentTitle: Twilight percentDefinition: 9%Nodelocation: 512,360,1Nodesize: 48,24Valuestate: 2,136,146,416,303,0,MIDMVariable Zenith_timeTitle: Zenith timeDefinition: 12.5Nodelocation: 512,304,1Nodesize: 48,24Variable Average_daylight__Title: Average daylight %Definition: Daylight_year_av( Occupancy_start_time, Occupancy_end_time~~
+, Latitude_of_site, Zenith_time, Twilight_percent )Nodelocation: 368,360,1Nodesize: 48,32Valuestate: 2,40,50,703,670,0,MIDMAliases: Alias Average_daylight__1Graphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:1~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:3~
+Showkey:1~
+Xminimum:20~
+Xmaximum:65~
+Yminimum:0.7~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:10~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0]~
+Probindex:[5%, 25%, 50%, 75%, 95%]~
+Fontstyle: Arial, 5Reformval: [Latitude,Occupancy_times]Numberformat: 1,%,4,2,0,0Att__totalsindex: Index CitiesAlias Occupancy_start_tim1Title: Occupancy start timeDefinition: 1Nodelocation: 136,360,1Nodesize: 48,24Original: Occupancy_start_timeAlias Occupancy_end_time1Title: Occupancy end timeDefinition: 1Nodelocation: 136,416,1Nodesize: 48,24Original: Occupancy_end_timeAlias Latitude_of_site1Title: Latitude of siteDefinition: 1Nodelocation: 136,304,1Nodesize: 48,24Original: Latitude_of_siteFunction Day_length(day_of_year, latitude)Title: Day_length(day_of_year, latitude)Description: Returns the length of day as a function of the day_of_yea~~
+r (1 to 365) and the latitude in degrees (from 0 to 68)Definition: VAR p := Arcsin(0.39795 * ~
+                           Cos((Degrees_per_radian*0.2163108 ~
+                                    + 2*Arctan(0.9671396 * Tan(0.0086~~
+0*(day_of_year - 186) ~
+                                                      *Degrees_per_ra~~
+dian)))));~
+24 - (24/pi) * Arccos((Sin(0.8333) + Sin(latitude)*Sin(P)) ~
+                                   / (Cos(latitude)*Cos(P)) ) ~
+                    / Degrees_per_radian~
+Nodelocation: 144,104,1Nodesize: 136,20Windstate: 2,325,227,623,548Paramnames: day_of_year,latitudeVariable Hours_of_daylight_peTitle: Hours of daylight per dayUnits: hoursDescription: Hours of daylight by day of year and latitude.Definition: Day_length( Day_of_year, Latitude )Nodelocation: 368,105,1Nodesize: 48,31Valuestate: 2,12,49,932,613,1,MIDMReformval: [Day_of_year,Latitude]Att__totalsindex: Index Day_of_year, Index LatitudeFunction Daylight_fraction(start_time, end_time, day, latitude, zenith~~
+_time, twilight_percent)Title: Daylight_fraction(start, end, day, lat, zenith, twilight)Description: Returns the fraction of the working day during which ther~~
+e is daylight, given a working day from start_time to end_time (24 ho~~
+ur clock), of day number (1 to 365), latitude in degrees, zenith_time~~
+ is the time of the Sun's zenith at the selected location (might be s~~
+hifted for daylight savings), and twilight_percent is the percentage ~~
+of twilight that provides acceptable daylight.Definition: VAR half_day := Day_length( day, latitude)/2*(1 - twilight~~
+_percent);~
+(Min([end_time, zenith_time + half_day]) - Max([start_time, zenith_ti~~
+me - half_day]))~
+    /(end_time - start_time)Nodelocation: 144,176,1Nodesize: 132,20Windstate: 2,357,492,471,337Paramnames: start_time,end_time,day,latitude,zenith_time,twilight_perc~~
+entFunction Daylight_year_av(start_time, end_time, latitude, zenith_time,~~
+ twilight_percent)Title: Daylight_year_av(start, end, lat, zenith, twilight)Description: Returns the fraction of the working day during which ther~~
+e is daylight averaged over a year, given a working day from start_ti~~
+me to end_time (24 hour clock), latitude in degrees, zenith_time is t~~
+he time in hours of the Sun's zenith, and twilight_percent is the per~~
+centage of twilight that provides acceptable daylight.Definition: INDEX day := Sequence(1, 365, 5);~
+Average(Daylight_fraction( start_time, end_time, day, latitude, zenit~~
+h_time, twilight_percent ), day)Nodelocation: 144,248,1Nodesize: 132,20Windstate: 2,496,44,540,351Paramnames: start_time,end_time,latitude,zenith_time,twilight_percent~~
+Variable Average_daylight___1Title: Average daylight %~
+tableDefinition: Daylight_year_av( Start_time, End_time, Latitude, Zenith_t~~
+ime, Twilight_percent )Nodelocation: 368,248,1Nodesize: 48,32Valuestate: 2,124,35,713,870,1,MIDMGraphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:1~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:3~
+Showkey:1~
+Xminimum:20~
+Xmaximum:65~
+Yminimum:0.7~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:10~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0 ]~
+Probindex:[0.05, 0.25, 0.5, 0.75, 0.95 ]~
+{!40000|Att_contlinestyle Graph_primary_valdim:1}~
+{!40000|Att_graphvaluerange Average_daylight___1:1,,0,,,,15,0.7000000~~
+000000001}Fontstyle: Arial, 5Reformval: [Latitude,Occupancy_times]Numberformat: 2,%,4,0,1,0,4,1,$,0,"ABBREV",0Module OldTitle: oldAuthor: Max HenrionDate: Tue, Jun 12, 2007 6:49 PMDefaultsize: 48,24Nodelocation: 136,496,1Nodesize: 48,24Nodeinfo: 1,0,1,1,1,1,0,,0,Variable Day_length_oldTitle: Day length oldDefinition: VAR L := Latitude; ~
+24 - (24/pi) * Arccos((Sin(0.8333) + Sin(L)*Sin(P)) / (Cos(L)*Cos(P))~~
+ ) / Degrees_per_radianNodelocation: 232,88,1Nodesize: 48,24Valuestate: 2,192,54,1007,702,0,MIDMReformval: [Day_of_year,Latitude]Att__totalsindex: Index Day_of_year, Index LatitudeVariable PTitle: PDefinition: Arcsin(0.39795 * Cos((Degrees_per_radian*0.2163108 + 2*Arc~~
+tan(0.9671396 * Tan(0.00860*(Day_of_year - 186)*Degrees_per_radian)))~~
+))Nodelocation: 120,96,1Nodesize: 48,24Close OldClose Daylight_by_latitudeDecision Occupancy_start_timeTitle: Occupancy start timeUnits: HoursDescription: Time of day at which occupancy of building starts (24 hr ~~
+clock)Definition: 8Nodelocation: 80,224,1Nodesize: 48,24Aliases: Alias Occupancy_start_tim1, Formnode Occupancy_start_tim2Decision Occupancy_end_timeTitle: Occupancy end timeUnits: HoursDescription: Time of day at which occupancy of building starts (24 hr ~~
+clock)Definition: 18Nodelocation: 80,296,1Nodesize: 48,24Windstate: 2,102,90,476,224Aliases: Alias Occupancy_end_time1, Formnode Occupancy_end_time2Alias Average_daylight__1Title: Average daylight %Definition: 1Nodelocation: 200,296,1Nodesize: 48,28Original: Average_daylight__Close Daylight_availabilitModule Building_formTitle: Building formAuthor: Max HenrionDate: Thu, Apr 19, 2007 10:00 AMDefaultsize: 48,24Nodelocation: 246,470,1Nodesize: 58,22Diagstate: 1,722,10,455,341,17Decision Floor_areaTitle: Gross area per floorUnits: ft^2Description: Gross floor area (including walls, stairs, and everything~~
+)Definition: 25KNodelocation: 88,128,1Nodesize: 48,28Windstate: 2,597,10,489,206Aliases: Formnode Gross_area_per_floorDecision Floor_length_to_widtTitle: Floor length to width ratioDefinition: 2Nodelocation: 88,56,1Nodesize: 48,28Windstate: 2,536,354,514,221Aliases: Formnode Floor_width_to_leng1Decision Daylight_zone_depthTitle: Daylight zone depthUnits: ftDescription: ¥ If small private offices will predominate along the per~~
+imeter walls, or if window head height is 7 feet or lower, assume a 1~~
+0-foot zone.~
+¥ If office layout is unknown, assume a 15-foot zone. This is a typic~~
+al daylighted zone depth.~
+¥ If layout is to be open-plan with low partitions, or if ceiling is ~~
+higher than 9 feet with a correspondingly high window head, assume a ~~
+20-foot zone.Definition: 15Nodelocation: 352,272,1Nodesize: 48,24Windstate: 2,102,90,476,224Aliases: Formnode Daylight_zone_depth1Chance Useful_window_ratioTitle: Useful window ratioDescription: Ratio of Net glazed window area above the workplane (e.g.~~
+ above 30" from floor) to Total interior window wall area from floor ~~
+to ceilingDefinition: Triangular(.6,.65, .7)Nodelocation: 88,264,1Nodesize: 48,28Aliases: Formnode Useful_window_ratio1, Alias Useful_window_ratio2Variable Perimeter_lengthTitle: Perimeter lengthDefinition: 2 * (Length + Width)Nodelocation: 352,128,1Nodesize: 48,24Windstate: 2,585,64,514,221Variable LengthTitle: LengthDefinition: Sqrt(Floor_area * Floor_length_to_widt)Nodelocation: 232,56,1Nodesize: 48,24Windstate: 2,102,90,476,224Valuestate: 2,56,66,416,303,0,MIDMVariable WidthTitle: WidthDefinition: Sqrt(Floor_area / Floor_length_to_widt)Nodelocation: 232,128,1Nodesize: 48,24Valuestate: 2,88,98,416,303,0,MIDMVariable Daylit_area_pcTitle: Daylit area %Definition: Daylight_zone_depth*(Perimeter_length - 2*Daylight_zone_de~~
+pth)/Floor_areaNodelocation: 352,192,1Nodesize: 48,24Windstate: 2,585,64,540,351Valuestate: 2,168,178,294,204,0,MIDMAliases: Alias Daylit_area__Numberformat: 1,%,4,2,0,0Decision Number_of_floorsTitle: Number of floorsDefinition: 3Nodelocation: 88,200,1Nodesize: 48,28Variable Total_floor_areaTitle: Total floor areaUnits: ft^2Definition: Floor_area * Number_of_floorsNodelocation: 232,200,1Nodesize: 48,24Close Building_formText Te1Description: Daylight time and occupancyNodelocation: 168,112,-1Nodesize: 160,104Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Formnode Nearest_city1Title: Nearest cityDefinition: 0Nodelocation: 168,55,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,152Original: Nearest_cityFormnode Custom_latitude1Title: Custom latitudeDefinition: 0Nodelocation: 168,88,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,72Original: Custom_latitudeFormnode Occupancy_start_tim2Title: Occupancy start timeDefinition: 0Nodelocation: 168,121,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,72Original: Occupancy_start_timeFormnode Occupancy_end_time2Title: Occupancy end timeDefinition: 0Nodelocation: 168,154,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,72Original: Occupancy_end_timeFormnode Installed_lighting_2Title: Installed lighting loadDefinition: 0Nodelocation: 176,260,1Nodesize: 160,12Nodeinfo: 1,0,0,1,0,0,0,166,0,1Original: Lighting_load_typeFormnode Custom_lighting_loa1Title: Custom lighting loadDefinition: 0Nodelocation: 168,290,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,72Original: Custom_lighting_loadFormnode Dimming_factor1Title: Dimming factorDefinition: 0Nodelocation: 168,350,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,72Original: Dimming_factorFormnode Gross_area_per_floorTitle: Gross area per floorDefinition: 0Nodelocation: 512,56,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Floor_areaFormnode Floor_width_to_leng1Title: Floor width to length ratioDefinition: 0Nodelocation: 512,89,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Floor_length_to_widtFormnode Daylight_zone_depth1Title: Daylight zone depthDefinition: 0Nodelocation: 512,122,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Daylight_zone_depthFormnode Useful_window_ratio1Title: Useful window ratioDefinition: 0Nodelocation: 512,155,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Useful_window_ratioModule Lighting_calculationTitle: Lighting calculationsAuthor: Max HenrionDate: Thu, Apr 19, 2007 10:00 AMDefaultsize: 48,24Nodelocation: 86,530,1Nodesize: 58,22Diagstate: 1,69,7,483,503,17Decision Lighting_load_typeTitle: Lighting load typeDefinition: Choice(Self,11)Nodelocation: 72,120,1Nodesize: 52,24Windstate: 2,576,104,528,489Aliases: Formnode Installed_lighting_2Domain: ['Office','Medical','Grocery','Industrial (work)','Industrial~~
+ (storage)','Religious','auditorium','restaurant','retail','school','~~
+custom lighting']{!40000|Att_previndexvalue: ['Office','Medical','Grocery','Industrial ~~
+(work)','Industrial (storage)','Religious','auditorium','restaurant',~~
+'retail','school','custom lighting']}Variable Installed_lighting_1Title: Installed lighting load by usageUnits: watts/ft^2Definition: Table(Lighting_load_type)(~
+1.5,1.5,1.8,1.2,0.8,2,2,1.5,2,1.8,Custom_lighting_load)Nodelocation: 200,48,1Nodesize: 48,32Defnstate: 2,120,130,416,303,0,MIDMValuestate: 2,293,17,416,303,0,MIDMChance Custom_lighting_loadTitle: Custom lighting loadUnits: w/ft^2Definition: Triangular(1.2, 1.5, 2)Nodelocation: 72,48,1Nodesize: 52,24Aliases: Formnode Custom_lighting_loa1Variable Selected_lighting_loTitle: Selected lighting loadUnits: w/ft^2Description: The lighting load for the selected building type (or cust~~
+om level)Definition: Installed_lighting_1[Lighting_load_type = Lighting_load_ty~~
+pe]Nodelocation: 200,120,1Nodesize: 48,24Valuestate: 2,500,209,260,290,0,MIDMAliases: Formnode Installed_lighting_3Decision Lighting_control_typTitle: Lighting control typeDefinition: Choice(Self,1)Nodelocation: 72,352,1Nodesize: 52,24Aliases: Formnode Lighting_control_ty1Domain: ['One-step','Continuous dimming']{!40000|Att_previndexvalue: ['One-step','Continuous dimming']}Decision Illumination_levelTitle: Illumination levelUnits: fcDescription: ¥ 30 footcandles (fc) is a good ambient light level. Choo~~
+se this for spaces with lower lighting needs,~
+such as computer VDT environments.~
+¥ 50 fc is appropriate for typical desk work.~
+¥ 70 fc is a higher light level appropriate for close, detailed tasks~~
+.Definition: Choice(Illumination_level1,2)Nodelocation: 72,288,1Nodesize: 52,24Windstate: 2,102,90,620,436Aliases: Formnode Illumination_level2Chance Glazing_transmittancTitle: Glazing transmittanceUnits: VTDescription: Percent of visible light transmitted through windows.Definition: Triangular( .5, .7, .9 )Nodelocation: 72,232,1Nodesize: 56,24Windstate: 2,102,90,468,295Valuestate: 2,204,-14,935,707,1,PDFPAliases: Formnode Glazing_visible_tranGraphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:1~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:0.45~
+Xmaximum:0.95~
+Yminimum:0~
+Ymaximum:5~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Chance Annual_occupancy_houTitle: Annual occupancy hoursDefinition: Normal(2500, 100)Nodelocation: 392,232,1Nodesize: 48,32Windstate: 2,576,104,476,224Aliases: Formnode Annual_occupancy_ho1Variable Non_daylit_lighting_Title: Non daylit lighting energy consumptionUnits: kwh/ft^2-yDescription: Lighting energy consumption kilowatt-hours per square foo~~
+t per year, with no daylighting.Definition: Annual_occupancy_hou * Selected_lighting_lo/1000Nodelocation: 392,120,1Nodesize: 56,36Windstate: 2,102,90,476,224Variable Daylighting_energy_sTitle: Daylighting energy savingsUnits: kwh/ft^2-yDescription: Lighting energy consumption kilowatt-hours per square foo~~
+t per year, with no daylighting.Definition: Annual_occupancy_hou * Selected_lighting_lo/1000 * Daylit_~~
+area_pc * Average_daylight__ * Control_effectivene3Nodelocation: 392,352,1Nodesize: 56,36Valuestate: 2,40,50,416,303,0,MIDMReformval: [Lighting_control_typ,Lighting_load_type]Decision Dimming_factorTitle: Dimming factorDefinition: 80%Nodelocation: 72,432,1Nodesize: 52,24Aliases: Formnode Dimming_factor1Module Control_effectivene1Title: Control effectivenessAuthor: Max HenrionDate: Thu, Apr 19, 2007 10:00 AMDefaultsize: 48,24Nodelocation: 200,432,1Nodesize: 68,32Diagstate: 1,142,606,550,300,17Index Illumination_level1Title: Illumination levelUnits: FCDefinition: [30,50,70]Nodelocation: 96,80,1Nodesize: 48,24Windstate: 2,102,90,476,224{!40000|Att_previndexvalue: [30,50,70]}Index Vt_useful_window_ratTitle: VT useful window ratioDefinition: Sequence(.10, .5, .05)Nodelocation: 96,153,1Nodesize: 48,31Valuestate: 2,40,50,416,303,0,MIDMNumberformat: 1,F,4,2,0,0{!40000|Att_previndexvalue: [0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5]}~~
+Variable Control_effectivene2Title: Control effectiveness tableUnits: %Description: Percent annual control effectiveness Nomograph, giving th~~
+e percent effectiveness of lighting control for on-off or dimming con~~
+trol, as a function of illumniatino level and lighting ratio (Visual ~~
+transmittance times useful window ratio).Definition: Table(Illumination_level1,Vt_useful_window_rat,Control_typ~~
+e)(~
+13,48,~
+38,58,~
+51,63,~
+58,66,~
+63,68,~
+67,69,~
+69,71,~
+71,72,~
+73,73,~
+0,28,~
+9,42,~
+21,52,~
+35,58,~
+45,61,~
+52,63,~
+57,64,~
+60,66,~
+62,67,~
+0,22,~
+0,31,~
+0,40,~
+15,47,~
+25,52,~
+35,56,~
+43,59,~
+47,62,~
+51,64~
+)Nodelocation: 256,152,1Nodesize: 56,32Defnstate: 2,94,162,714,428,0,MIDMValuestate: 2,179,0,594,725,1,MIDMReformdef: [Vt_useful_window_rat,Illumination_level1]Reformval: [Vt_useful_window_rat,Illumination_level1]{!40000|Att_resultslicestate: [Control_type,1,Illumination_level1,1,Vt~~
+_useful_window_rat,1]}Index Control_typeTitle: Control typeDefinition: ['One-step','Continuous dimming']Nodelocation: 96,224,1Nodesize: 48,24{!40000|Att_previndexvalue: ['One-step','Continuous dimming']}Alias Control_effectivene4Title: Control effectivenessDefinition: 1Nodelocation: 384,152,1Nodesize: 56,24Original: Control_effectivene3Close Control_effectivene1Variable Control_effectivene3Title: Control effectivenessDefinition: CubicInterp(Illumination_level1, CubicInterp(Vt_useful_win~~
+dow_rat, Control_effectivene2[Control_type = Lighting_control_typ], L~~
+ight_ratio)/100, Illumination_level)Nodelocation: 200,352,1Nodesize: 56,24Valuestate: 2,264,274,481,232,0,MIDMAliases: Alias Control_effectivene4Reformval: [Illumination_level1,Lighting_control_typ]Variable Light_ratioTitle: Light ratioDefinition: Useful_window_ratio * Glazing_transmittancNodelocation: 200,232,1Nodesize: 48,24Valuestate: 2,40,50,416,303,0,MIDMAlias Useful_window_ratio2Title: Useful window ratioDefinition: 1Nodelocation: 72,176,1Nodesize: 52,20Original: Useful_window_ratioAlias Daylit_area__Title: Daylit area %Definition: 1Nodelocation: 392,440,1Nodesize: 56,24Original: Daylit_area_pcClose Lighting_calculationText Te2Description: Building form and glazingNodelocation: 512,112,-1Nodesize: 176,104Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Formnode Lighting_control_ty1Title: Lighting control typeDefinition: 0Nodelocation: 168,411,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,126Original: Lighting_control_typFormnode Illumination_level2Title: Illumination levelDefinition: 0Nodelocation: 168,380,1Nodesize: 152,11Nodeinfo: 0,0,0,0,0,0,0,126Original: Illumination_levelFormnode Glazing_visible_tranTitle: Glazing visible transmittanceDefinition: 0Nodelocation: 512,188,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Glazing_transmittancFormnode Annual_occupancy_ho1Title: Annual occupancy hoursDefinition: 0Nodelocation: 168,187,1Nodesize: 152,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Annual_occupancy_houText Te3Description: Cost-benefit resultsNodelocation: 512,388,-1Nodesize: 176,164Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Text Te4Description: LightingNodelocation: 168,328,-1Nodesize: 160,104Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Formnode Installed_lighting_3Title: Installed lighting loadDefinition: 1Nodelocation: 168,320,1Nodesize: 152,12Nodeinfo: 0,0,0,0,0,0,0,72Original: Selected_lighting_loFormnode Electricity_cost1Title: Electricity costDefinition: 0Nodelocation: 512,260,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Electricity_costFormnode Peak_demand_rate1Title: Peak demand rateDefinition: 0Nodelocation: 512,292,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Peak_demand_rateFormnode Discount_rate1Title: Discount rateDefinition: 0Nodelocation: 512,453,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Discount_rateFormnode Energy_cost_escalat1Title: Energy cost escalation rateDefinition: 0Nodelocation: 512,356,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Energy_cost_escalatiFormnode Payback_horizon1Title: Payback horizonDefinition: 0Nodelocation: 512,421,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Payback_horizonFormnode Npv_savings1Title: NPV savingsDefinition: 1Nodelocation: 512,485,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Npv_savingsFormnode Savings_by_type1Title: Savings by typeDefinition: 1Nodelocation: 512,324,1Nodesize: 168,13Nodeinfo: 0,0,0,0,0,0,0,72Original: Savings_by_typeFormnode Npv_savings_importa1Title: NPV savings ImportanceDefinition: 1Nodelocation: 512,518,1Nodesize: 168,14Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Npv_savings_importanClose Daylighting_analyzer

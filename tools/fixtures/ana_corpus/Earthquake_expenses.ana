@@ -1,0 +1,215 @@
+{ From user Lonnie, Model Earthquake_expense at Tue, Oct 30, 2007 2:31 PM~~
+}Softwareversion 4.0.0{ System Variables with non-default values: }Description Time: Dynamic simulation periods are specified in Time's d~~
+efinition. This is usually a list of numbers or labels, typically in ~~
+some unit of time (days, weeks, months, etc.).  Use the “Dynamic()” f~~
+unction in your variables to perform dynamic simulation.Samplesize := 1000Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0Allwarnings := 0Model Earthquake_expenseTitle: Earthquake expense riskDescription: An example of risk analysis with time-dependence and cost~~
+s of events shifted over time.   ~
+~
+Assume (for example):~
+* Earthquakes are Poisson events with a mean rate of once every 10 ye~~
+ars.~
+* Damage caused by such a quake is lognormally distributed with a mea~~
+n of $10M and a standard deviation of $6M.~
+* Cost of damage gets incurred over the period of a year from the dat~~
+e of the quake as equipment is replaced, adn building are repaired ov~~
+er time:~
+   - 20% in the 1st quarter following quake~
+   - 50% in 2nd quarter~
+   - 20% in 3rd quarter~
+   - 10% in 4th quarter~
+~
+Answer questions like:~
+* What is the likelihood of more than one quake in a specific 10 year~~
+ period.~
+* For any number of seleted time windows (say quarter 3 of year 21):~
+  - Distribution of expected costs (mean, std.dev, etc)~
+  - Probability that in that time window my costs exceed $X?~
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision SystemsDate: Thu, May 12, 2005 9:08 AMSaveauthor: LonnieSavedate: Tue, Oct 30, 2007 2:31 PMDefaultsize: 48,24Diagstate: 1,4,9,599,453,19Windstate: 2,398,34,476,450Fontstyle: Arial, 15Fileinfo: 0,Model Earthquake_expense,2,2,0,0,W:\Analytica\ExecDebug\Ex~~
+ample Models\Risk Analysis\Earthquake expenses.anaFunction Shiftarray(x, n; i: IndexType)Title: ShiftArray(x, n, i)Description: Returns an array containing the values of array x, with e~~
+ach element shifted n steps forward along index i (or back if n is ne~~
+gative). Leaves zero in first (or last) n elements, since there is no~~
+ preceding (following) value to shift into them.Definition: VAR r := Slice(x, i, Cumulate(1, i) - n);~
+IF r = NULL THEN 0 ELSE rNodelocation: 88,488,1Nodesize: 76,20Windstate: 2,102,90,476,278Paramnames: x,n,iVariable Earthquake_rateTitle: Earthquake rateUnits: Years / quakeDescription: Mean number of years between earthquakesDefinition: 10Nodelocation: 72,48,1Nodesize: 48,24Windstate: 2,50,540,476,224Chance Number_of_quakesTitle: Number of quakesUnits: quakes / quarterDescription: The number of quakes that occur in each time period (quar~~
+ter).~
+~
+(The Year0 makes sure the distribution is resampled as independent f~~
+or each time period.)Definition: Poisson(1/(Earthquake_rate*4) + Year0)Nodelocation: 192,48,1Nodesize: 48,31Windstate: 2,399,355,476,224Valuestate: 2,75,382,753,384,0,SAMPGraphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:6~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:1~
+Xmaximum:122~
+Yminimum:0~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Fontstyle: Arial, 8Reformval: [Year,Run]Numberformat: 1,D,4,5,0,0Att__totalsindex: Index Year, Sysvar RunVariable Mean_damageTitle: Mean damageUnits: $Description: Mean damage incurred when a quake occurs.Definition: 10MNodelocation: 72,128,1Nodesize: 48,24Variable Std_dev_damageTitle: Std dev damageUnits: $Description: Standard deviation on the damage incurred when an earthqu~~
+ake occurs.Definition: 6MNodelocation: 72,184,1Nodesize: 48,24Chance Damage_incurredTitle: Damage incurredUnits: $Description: This is the damage incurred in a given time interval.Definition: Number_of_quakes * Lognormal(mean:Mean_damage + Year0, std~~
+dev:Std_dev_damage)Nodelocation: 192,128,1Nodesize: 48,32Valuestate: 2,516,35,570,256,0,STATGraphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:6~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:2005~
+Xmaximum:2030~
+Yminimum:-1u~
+Ymaximum:1u~
+Zminimum:0.05~
+Zmaximum:0.95~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.01,0.05,0.25,0.5,0.75,0.95,0.99]~
+Reformval: [Year, Statistics1 ]Numberformat: 1,D,4,2,0,1Variable Payout_scheduleTitle: Payout ScheduleUnits: % / quarterDescription: For each quarter following the earthquake, this encodes t~~
+he proportion of damages paid in that quarter.Definition: Table(Payout_offset)(~
+0.2,0.5,0.2,0.1)Indexvals: [0,1,2,3,4,5,6,7,8,9,10,11]Nodelocation: 320,208,1Nodesize: 48,24Defnstate: 2,34,66,416,303,0,MIDMValuestate: 2,67,15,416,303,0,MIDMNumberformat: 1,%,4,0,0,0Att__totalsindex: Variable SelfVariable Costs_by_timeTitle: Costs by timeUnits: $ / quarterDescription: Payout incurred each time interval.  The payout is delaye~~
+d relative to when the earthquake occurs according to the payout_sche~~
+dule.Definition: Sum(Shiftarray( Damage_incurred, Payout_offset, Year )*Pay~~
+out_schedule, Payout_offset)Nodelocation: 320,128,1Nodesize: 48,24Windstate: 2,102,90,533,443Valuestate: 2,8,15,1050,663,1,MEANGraphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:6~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:2005~
+Xmaximum:2030~
+Yminimum:25K~
+Ymaximum:275K~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Reformval: [Year,Undefined,2]Numberformat: 1,D,4,2,0,1Index Payout_offsetTitle: Payout offsetUnits: quartersDefinition: [0,1,2,3]Nodelocation: 184,208,1Nodesize: 48,24{!40000|Att_previndexvalue: [0,1,2,3]}Formnode Time_window_start1Title: Time window startDefinition: 0Nodelocation: 340,306,1Nodesize: 180,14Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Time_window_startFormnode Time_window_duratio1Title: Time window durationDefinition: 0Nodelocation: 340,338,1Nodesize: 180,14Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Time_window_durationObjective Number_of_quakes_in_Title: Number of quakes in windowUnits: quakesDescription: The number of quakes that occur in the selected time wind~~
+ow.Definition: sum(Number_of_quakes[Year=Time_window],Time_window)Nodelocation: 456,48,1Nodesize: 48,31Windstate: 2,586,268,476,224Valuestate: 2,336,18,538,389,1,PDFPAliases: Formnode Number_of_quakes_in1Graphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:9~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:1~
+Xmaximum:4~
+Yminimum:0~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Numberformat: 1,%,4,2,0,0Objective Costs_in_windowTitle: Costs in windowUnits: $Description: Total cost incurred in time window.~
+Costs are incurred quarter by quarter during the time following an ea~~
+rthquake.Definition: Sum(Costs_by_time[Year=Time_window],Time_window)Nodelocation: 456,128,1Nodesize: 48,32Windstate: 2,598,376,476,224Valuestate: 2,351,125,499,474,1,CDFPAliases: Formnode Payout_in_window1Graphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:1~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:3~
+Showkey:1~
+Xminimum:0~
+Xmaximum:5M~
+Yminimum:0~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Fontstyle: Arial, 6Reformval: [M_step_1001, Std_dev_damage ]Numberformat: 1,D,4,2,0,1Formnode Number_of_quakes_in1Title: Number of quakes in windowDefinition: 1Nodelocation: 340,372,1Nodesize: 180,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Number_of_quakes_in_Formnode Payout_in_window1Title: Payout in windowDefinition: 1Nodelocation: 340,403,1Nodesize: 180,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Costs_in_windowText Te1Description: Statistics for a selected time window:Nodelocation: 340,340,-1Nodesize: 188,84Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Module Time_and_windowTitle: Time and windowAuthor: Max HenrionDate: Thu, May 12, 2005 1:47 PMDefaultsize: 48,24Nodelocation: 72,280,1Nodesize: 48,24Nodeinfo: 1,1,0,1,1,1,0,,0,Diagstate: 1,129,358,539,213,3Index YearTitle: YearDescription: Year index, by month.Definition: Sequence(Start_year, Start_year + Years_to_horizon, 1/4)Nodelocation: 184,72,1Nodesize: 48,24Nodeinfo: 1,1,1,1,1,1,0,,0,Numberformat: 1,F,4,2,0,0{!40000|Att_previndexvalue: [2005,2005.25,2005.5,2005.75,2006,2006.25,~~
+2006.5,2006.75,2007,2007.25,2007.5,2007.75,2008,2008.25,2008.5,2008.75~~
+,2009,2009.25,2009.5,2009.75,2010,2010.25,2010.5,2010.75,2011,2011.25~~
+,2011.5,2011.75,2012,2012.25,2012.5,2012.75,2013,2013.25,2013.5,2013.75~~
+,2014,2014.25,2014.5,2014.75,2015,2015.25,2015.5,2015.75,2016,2016.25~~
+,2016.5,2016.75,2017,2017.25,2017.5,2017.75,2018,2018.25,2018.5,2018.75~~
+,2019,2019.25,2019.5,2019.75,2020,2020.25,2020.5,2020.75,2021,2021.25~~
+,2021.5,2021.75,2022,2022.25,2022.5,2022.75,2023,2023.25,2023.5,2023.75~~
+,2024,2024.25,2024.5,2024.75,2025,2025.25,2025.5,2025.75,2026,2026.25~~
+,2026.5,2026.75,2027,2027.25,2027.5,2027.75,2028,2028.25,2028.5,2028.75~~
+,2029,2029.25,2029.5,2029.75,2030]}Variable Time_window_startTitle: Time window startUnits: YearDescription: The starting year of a time window that we are examining ~~
+in more detailDefinition: 2008Nodelocation: 296,40,1Nodesize: 48,28Aliases: Formnode Time_window_start1Variable Time_window_durationTitle: Time window durationUnits: quartersDescription: Number of quarters in time window being examined.Definition: 40Nodelocation: 296,104,1Nodesize: 48,28Aliases: Formnode Time_window_duratio1Index Time_windowTitle: Time windowDefinition: Time_window_start + Sequence(0,  (Time_window_duration - 1~~
+)/4, 1/4)Nodelocation: 424,72,1Nodesize: 48,24Windstate: 2,102,90,581,266Numberformat: 1,F,4,2,0,0{!40000|Att_previndexvalue: [2021,2021.25,2021.5,2021.75]}Variable Start_yearTitle: Start yearDefinition: 2005Nodelocation: 64,104,1Nodesize: 48,28Variable Years_to_horizonTitle: Years to horizonDefinition: 25Nodelocation: 64,40,1Nodesize: 48,28Variable Year0Title: Year0Description: Array of zeroes indexed by Year, useful for creating inde~~
+pendent distributions over time.Definition: 0*YearNodelocation: 184,160,1Nodesize: 48,24Close Time_and_windowClose Earthquake_expense

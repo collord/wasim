@@ -1,0 +1,32 @@
+{ From user Lonnie, Model California_power_pla at Mon, Jul 16, 2007 4:06 PM~~
+}Softwareversion 4.0.0{ System Variables with non-default values: }Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0Model California_power_plaTitle: California Power PlantsDescription: Demonstration of the use of Choice controls within edit t~~
+ables.Author: LonnieDate: Mon, Jul 16, 2007 1:54 PMSaveauthor: LonnieSavedate: Mon, Jul 16, 2007 4:06 PMDefaultsize: 48,24Diagstate: 1,21,5,548,315,17Windstate: 2,24,38,476,224Fontstyle: Arial, 15Fileinfo: 0,Model California_power_pla,2,2,0,0,W:\TestModels\Californi~~
+a Power Plants.ANAIndex CountyTitle: CountyDefinition: ['Fresno','Los Angeles','Monterey','San Diego','San Joaqui~~
+n','San Luis Obispo','Sonoma','Ventura']Nodelocation: 208,64,1Nodesize: 48,24Index BooleanTitle: BooleanDefinition: [False,True]Nodelocation: 320,64,1Nodesize: 48,24Index Plant_typeTitle: Plant TypeDefinition: ['Natural Gas','Hydroelectric','Geothermal','Nuclear','Sol~~
+ar','Petroleum','Coal','Wind']Nodelocation: 96,64,1Nodesize: 48,24Index Plant_idTitle: Plant IDDefinition: ['G0640','G0372','N0002','N0001','G0011','C0023','H0229','~~
+W0336','T0008','H0027']Nodelocation: 96,128,1Nodesize: 48,24Aliases: Formnode Plant_id1{!40000|Att_previndexvalue: ['G0640','G0372','N0002','N0001','G0011',~~
+'C0023','H0229','W0336','T0008','H0027']}Index Plant_fieldsTitle: Plant FieldsDefinition: ['Plant Name','Plant Type','County','Cogen','MegaWatts']Nodelocation: 208,128,1Nodesize: 48,24{!40000|Att_previndexvalue: ['Plant Name','Plant Type','County','Cogen~~
+','MegaWatts']}Variable Power_plant_dataTitle: Power Plant DataDefinition: Table(Plant_id,Plant_fields)(~
+'UCSD',Choice(Plant_type,1,False),Choice(County,4,False),Choice(Boole~~
+an,2,False),28.3K,~
+'Moss Landing',Choice(Plant_type,1,False),Choice(County,3,False),Choi~~
+ce(Boolean,1,False),2530.03,~
+'San Onofre',Choice(Plant_type,4,False),Choice(County,4,False),Choice~~
+(Boolean,1,False),2254,~
+'Diablo Canyon',Choice(Plant_type,4,False),Choice(County,6,False),Cho~~
+ice(Boolean,1,False),2218,~
+'Alamitos #1-6',Choice(Plant_type,1,False),Choice(County,2,False),Cho~~
+ice(Boolean,1,False),2010.38,~
+'Intermountain 1&2',Choice(Plant_type,7,False),Choice(County,2,False)~~
+,Choice(Boolean,2,False),1640,~
+'Kings River',Choice(Plant_type,2,False),Choice(County,1,False),Choic~~
+e(Boolean,1,False),1218,~
+'Ridge Service LLC',Choice(Plant_type,8,False),Choice(County,5,False)~~
+,Choice(Boolean,1,False),367,~
+'Coldwate R. Creek',Choice(Plant_type,3,False),Choice(County,7,False)~~
+,Choice(Boolean,1,False),130,~
+'Big Creek 1',Choice(Plant_type,2,False),Choice(County,1,False),Choic~~
+e(Boolean,1,False),90.2~
+)Nodelocation: 96,192,1Nodesize: 48,24Defnstate: 2,11,9,620,305,0,MIDMAliases: Formnode Power_plant_data1Reformdef: [Plant_fields,Plant_id]{!40000|Tablecelldefault: Default_plant_data}Formnode Power_plant_data1Title: Power Plant DataDefinition: 0Nodelocation: 296,192,1Nodesize: 120,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Power_plant_dataFormnode Plant_id1Title: Plant IDDefinition: 0Nodelocation: 368,136,1Nodesize: 92,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Plant_idConstant Default_plant_dataTitle: Default Plant DataDefinition: Table(Plant_fields)(~
+'',Choice(Plant_type,1,False),Choice(County,1,False),Choice(Boolean,1~~
+,False),0)Nodelocation: 96,256,1Nodesize: 48,24Defnstate: 2,55,166,662,143,0,MIDMReformdef: [Plant_fields,Undefined]Close California_power_pla

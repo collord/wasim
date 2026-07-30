@@ -1,0 +1,167 @@
+{ From user Lonnie, Model World_cup at 16-Jul-2018 2:15:27 PM, encoding="UTF-8" }
+SoftwareVersion 5.0.17
+
+
+{ System Variables with non-default values: }
+SampleSize := 10K
+TypeChecking := 1
+Checking := 1
+SaveOptions := 2
+SaveValues := 0
+
+NodeInfo FormNode: 1,0,0,1,0,0,0,,0,0,,0,0
+
+
+
+Model World_cup
+Description: How random are the outcomes of soccer (futbol or football) matches? Given that games are usually won by a single goal, it seems plausible that the inferior team may often win by chance. ~
+~
+This model explores this question using Poisson distributions to model the scoring of each team against the other. Inspired by the 2018 World Cup final match between France and Croatia on July 15, 2018, in which France beat Croatia 4-2 to win the World Cup.~
+~
+This can also serve as an introduction to the Poisson distribution, which is used here to model the actual number of goals scored by each team. The Poisson model assumes that the same goal scoring rates apply the same to every minute of play. In other words, a given team is equally likely to score in the 1st minute as in the 95th minute or in any overtime minute.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Mon, Jul 16, 2018 12:20 PM
+SaveAuthor: Lonnie
+SaveDate: Mon, Jul 16, 2018 2:15 PM
+DiagState: 2,1,0,852,545,17
+WindState: 2,486,408,720,350
+FontStyle: Arial,15
+FileInfo: 0,Model World_cup,2,2,0,0,C:\Users\Lonnie\Documents\Analytica\Blog models\World cup.ana
+
+Decision Expected___goals
+Title: Expected # goals
+Description: The estimated(mean) number of scores made by the given team during the primary match (the 1st 95 minutes in a World Cup game), not counting any overtime.
+Definition: Table(Team)(4,2)
+NodeLocation: 232,64,1
+NodeSize: 48,24
+DefnState: 2,104,107,415,303,,DFNM
+ValueState: 2,1140,34,416,303,,MIDM
+Aliases: FormNode Fo1531770226
+
+Index Team
+Title: Team
+Definition: ['France','Croatia']
+NodeLocation: 104,64,1
+NodeSize: 48,24
+ValueState: 2,1113,24,416,303,,MIDM
+{!40000|Att_PrevIndexValue: ['France','Croatia']}
+
+Chance Scores_in_main_match
+Title: Scores in main match
+Definition: Poisson( Expected___goals )
+NodeLocation: 232,136,1
+NodeSize: 56,24
+ValueState: 2,219,419,618,418,1,PDFP
+ReformVal: [Undefined,Team,Undefined,Undefined,1]
+{!40000|ProbabilityNumberFmt: 2,%,2,0,0,0,2,0,$,0,"ABBREV",0,,,0,0,15}
+{!40600|Att_ClusterIndex: Team}
+
+Function score_to_outcome(score : [Team] )
+Title: score to outcome
+Description: Converts the score to the name of the winning team, or to "Tie".
+Definition: if score[@Team=1] = score[@Team=2] then "Tie"~
+else argMax(score,Team)
+NodeLocation: 104,136,1
+NodeSize: 48,24
+WindState: 2,254,498,720,350
+
+Variable Pre_overtime_outcome
+Title: Pre-overtime outcome
+Definition: score_to_outcome( Scores_in_main_match )
+NodeLocation: 368,136,1
+NodeSize: 48,32
+ValueState: 2,1087,215,403,214,0,PDFP,0
+{!40000|ProbabilityNumberFmt: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15}
+
+Constant Overtime_length
+Title: Overtime length
+Units: minutes
+Description: The number of minutes of overtime when a single-elimination game goes into overtime as a result of a tied score at the end of the main match.
+Definition: 30
+NodeLocation: 504,64,1
+NodeSize: 48,24
+
+Constant Main_play_length
+Title: Main play length
+Units: minutes
+Description: The number of minutes in the main match when there is no overtime.
+Definition: 95
+NodeLocation: 616,64,1
+NodeSize: 48,24
+
+Chance Scores_during_overti
+Title: Scores during overtime
+Description: Models the goals scored during overtime, in the event that the game goes into overtime.
+Definition: Poisson( Expected___goals * Overtime_length/Main_play_length )
+NodeLocation: 504,136,1
+NodeSize: 64,24
+ValueState: 2,1041,486,535,360,,PDFP
+ReformVal: [Undefined,Team,Undefined,Undefined,1]
+{!40600|Att_ClusterIndex: Team}
+
+Variable Score_after_overtime
+Title: Score after overtime
+Description: The total score of each time at the end of overtime.~
+This is the game score in the case where the match does not go into overtime.
+Definition: if Pre_overtime_outcome="Tie" ~
+Then Scores_in_main_match+Scores_during_overti ~
+Else Scores_in_main_match
+NodeLocation: 504,224,1
+NodeSize: 56,24
+ValueState: 2,903,22,719,411,,PDFP
+ReformVal: [Undefined,Team,Undefined,Undefined,1]
+{!40600|Att_ClusterIndex: Team}
+
+Variable Goal_differential
+Title: Goal differential
+Description: The goal differential at the end of overtime. When non-zero, this is the final goal differential. When zero, then the winner will be determined via penalty kicks.
+Definition: Score_after_overtime[ @Team=1 ] - Score_after_overtime[ @Team=2 ]
+NodeLocation: 648,224,1
+NodeSize: 48,24
+ValueState: 2,799,86,806,579,1,CDFP
+{!40000|ProbabilityNumberFmt: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15}
+
+Variable Outcome_after_overti
+Title: Outcome after overtime
+Description: The outcome at the completion of overtime. The team name if one team has won, or "Tie" if they are still tied after overtime.
+Definition: score_to_outcome( Score_after_overtime )
+NodeLocation: 504,312,1
+NodeSize: 64,24
+ValueState: 2,941,490,464,318,0,PDFP,0
+{!40000|ProbabilityNumberFmt: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15}
+
+Chance Final_outcome
+Title: Final outcome
+Description: Name of the winning team at the end of the game.
+Definition: if Outcome_after_overti="Tie" then ChanceDist( Prob_of_winning_PKs, Team ) else Outcome_after_overti
+NodeLocation: 504,384,1
+NodeSize: 48,24
+ValueState: 2,915,58,416,303,0,PDFP,0
+{!40000|ProbabilityNumberFmt: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15}
+
+Decision Prob_of_winning_PKs
+Title: Prob of winning PKs
+Description: If it goes into final penalty kicks to determine the outcome of the game, this encodes the probability of each time winning during the PKs.
+Definition: Table(Team)(0.6,0.4)
+NodeLocation: 328,384,1
+NodeSize: 48,32
+Aliases: FormNode Fo1531770227
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+FormNode Fo1531770226
+Title: Expected # goals
+Definition: 0
+NodeLocation: 168,232,1
+NodeSize: 120,16
+Original: Expected___goals
+
+FormNode Fo1531770227
+Title: Prob of winning PKs
+Definition: 0
+NodeLocation: 168,272,1
+NodeSize: 120,16
+Original: Prob_of_winning_PKs
+
+Close World_cup
+

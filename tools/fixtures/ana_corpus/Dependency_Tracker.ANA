@@ -1,0 +1,335 @@
+{ From user Lonnie, Model Renewable_energy_mar at 14-Feb-2013 8:14:15 AM }
+SoftwareVersion 4.5.0
+
+Attribute Dependencymark
+
+
+LinkModule Dependency_tracker
+Title: Dependency Tracker
+Description: This module is useful when you need to track dependencies that span  modules.  It changes the bevel style of nodes that depend on an ancestor node and influence a descendant node.  This makes it possible to visually track the path of dependency throughout the model.~
+~
+As variations on this, it is also possible to bevel all nodes that are ancestors of a given node, or all nodes that are descendants of a given node.  Thus, there are three types of dependency displays possible.~
+~
+To use, fill in the identifiers for greatest_ancestor and greatest_descendant.
+Author: Lonnie Chrisman
+Date: Tue, Aug 21, 2007 10:54 AM
+SaveAuthor: Lonnie
+SaveDate: Thu, Feb 14, 2013 8:14 AM
+DefaultSize: 48,24
+NodeSize: 72,24
+NodeInfo: 1,1,1,1,1,1,0,0,0,0,
+DiagState: 2,1161,442,613,486,17
+WindState: 2,48,33,474,284
+FontStyle: Arial, 10
+FileInfo: 0,LinkModule Dependency_tracker,2,2,0,0,W:\Testmodels\Dependency Tracker.ANA
+{!40400|Att_clearTypeFonts: 0}
+
+Button Bevel_all_from_ances
+Title: Bevel all from Ancestor to Descendant
+NodeLocation: 184,152,1
+NodeSize: 48,25
+WindState: 2,102,83,688,263
+Script: Clear_all_bevels( Top_level_model( ) );~
+(Descendant_mark_value := Descendant_mark_value + 1);~
+(if Ancestor_handle<>null then Mark_descendants_of(ancestor_handle,Descendant_mark_valu));~
+Bevel_marked_ancesto(Descendant_handle,Descendant_mark_valu)
+
+Module Dependency_tracker_i
+Title: Dependency tracker internals
+Author: Lonnie
+Date: Tue, Aug 21, 2007 10:54 AM
+DefaultSize: 48,24
+NodeLocation: 456,56,1
+NodeSize: 48,24
+DiagState: 2,1061,25,676,345,17
+
+Variable Greatest_ancestor
+Title: Greatest Ancestor
+Definition: Dp_ex_1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,0,
+Aliases: FormNode Greatest_ancestor1
+Dependencymark: 35
+
+Variable Greatest_descendant
+Title: Greatest Descendant
+Definition: Dp_ex_7
+NodeLocation: 224,48,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,0,0,0
+Aliases: FormNode Greatest_descendant1
+Dependencymark: 35
+
+Variable Ancestor_handle
+Title: Ancestor Handle
+Definition: var et[ ] := TypeOf(fixeddef of greatest_ancestor,shallow:true);~
+if et="Object" then ~
+   fixeddef of greatest_ancestor~
+else~
+   Error("Greatest_Ancestor must be set to the identifier of a variable in your model")
+NodeLocation: 96,104,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,0,
+ValueState: 2,657,437,416,303,0,MIDM
+ReformVal: [Time,Revenue_to_sales]
+Dependencymark: 35
+
+Variable Descendant_handle
+Title: Descendant Handle
+Definition: var et[ ] := TypeOf(fixeddef of Greatest_descendant,shallow:true);~
+if et="Object" then ~
+   fixeddef of Greatest_descendant~
+else~
+   Error("Greatest_descendant must be set to the identifier of a variable in your model")
+NodeLocation: 224,104,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,0,
+Dependencymark: 35
+
+Function Clear_all_bevels(m : atomic handle)
+Title: Clear All Bevels
+Description: Clears the bevel on object m, and on any objects recursively contained within m.
+Definition: Set_node_bevel(handle(m),0);~
+if IsNull(contains of m) then 1~
+else Clear_all_bevels(contains of m);~
+0
+NodeLocation: 96,176,1
+NodeSize: 48,24
+WindState: 2,102,90,476,328
+Recursive: 1
+
+Function Set_node_bevel(node : variable ; on : atomic boolean)
+Title: Set Node Bevel
+Description: Sets the node bevel style to either on or off.
+Definition: if IsNull(nodeinfo of node) then (~
+    if on then ~
+        nodeinfo of node := "1,1,1,1,1,1,0,,1,"~
+    else ''~
+) else (~
+  var nv := split(nodeinfo of node,",");~
+  index ni := 1..max([9,size(nv)]);~
+  var v := if ni=9 then ""&on~
+               else if ni>size(nv) then ''~
+               else Slice(nv,ni);~
+  nodeinfo of node := join(v,ni,",")~
+)
+NodeLocation: 216,176,1
+NodeSize: 48,24
+WindState: 2,143,74,476,314
+
+Function Top_level_model( )
+Title: Top level model
+Description: Returns a handle to the top-level model object.
+Definition: var v := isin of self;~
+while not IsNull(isin of handle(v)) do v := isin of handle(v);~
+v
+NodeLocation: 344,48,1
+NodeSize: 48,24
+
+Variable The_model
+Title: the model
+Definition: top_level_model( )
+NodeLocation: 344,104,1
+NodeSize: 48,24
+
+Function Has_bevel(node : variable)
+Title: Has bevel
+Description: returns true if the bevel is set for node.
+Definition: if IsNull(nodeinfo of node) then false~
+else (~
+  var ni := Split(nodeinfo of node,',');~
+  if size(ni)>9 then Slice(ni,9)='1' else false~
+)
+NodeLocation: 320,176,1
+NodeSize: 48,24
+WindState: 2,148,107,476,224
+
+Function Isatomicundef(x)
+Title: IsAtomicUndef
+Description: Returns true if x is an atomic undef or null.  If x is a list or array, returns false, or if it is atomic with anything other than null or undefined, returns false.
+Definition: IsNotSpecified(if x=null then undefined else x)
+NodeLocation: 432,176,1
+NodeSize: 48,24
+
+Variable Descendant_mark_valu
+Title: Descendant Mark Value
+Definition: 35
+NodeLocation: 96,240,1
+NodeSize: 48,24
+
+Function Mark_descendants_of(node : atomic handle orNull; mark : atomic coerce text)
+Title: Mark Descendants Of
+Description: Sets the DependencyMark attribute to mark for all outputs of node, or outputs of those, etc.
+Definition: if node=null then 0~
+else if DependencyMark of node=mark then 0~
+else (~
+  DependencyMark of node := mark;~
+  Mark_descendants_of(outputs of node,mark);~
+  Mark_descendants_of(dynoutputs of node,mark)~
+);~
+0
+NodeLocation: 208,240,1
+NodeSize: 48,26
+WindState: 2,80,235,476,276
+Recursive: 1
+
+Function Bevel_marked_ancesto(node : atomic handle orNull; mark : coerce atomic text )
+Title: Bevel Marked Ancestors Of
+Description: Sets the bevel on node or any ancestor of node for which DependencyMark is mark.
+Definition: if node=null then 0~
+else if Has_bevel(Handle(node)) then 0~
+else (~
+  if DependencyMark of node = mark then  Set_Node_Bevel(Handle(node),1);~
+  Bevel_marked_ancesto(inputs of node,mark);~
+  Bevel_marked_ancesto(dyninputs of node,mark)~
+);~
+0
+NodeLocation: 432,240,1
+NodeSize: 48,24
+WindState: 2,109,240,476,314
+Recursive: 1
+
+Function Bevel_all_descendant(node : atomic handle OrNull)
+Title: Bevel All descendants of
+Description: Bevels node and all its output descendants
+Definition: MsgBox(node);~
+if node=null then 0~
+else if Has_bevel(node) then 0~
+else (~
+  Set_Node_Bevel(node,1);~
+  Bevel_all_descendant(outputs of node);~
+  Bevel_all_descendant(dynoutputs of node);~
+);~
+0
+NodeLocation: 320,240,1
+NodeSize: 48,24
+WindState: 2,87,245,574,305
+Recursive: 1
+
+Function Bevel_all_ancestors_(node : atomic handle orNull)
+Title: Bevel all ancestors of
+Description: Sets the bevel on node and all of its ancestors.
+Definition: if node=null then 0~
+else if Has_bevel(Handle(node)) then 0~
+else (~
+  Set_Node_Bevel(Handle(node),1);~
+  Bevel_all_ancestors_of_(inputs of node);~
+  Bevel_all_ancestors_of_(dyninputs of node)~
+);~
+0
+NodeLocation: 536,240,1
+NodeSize: 48,24
+WindState: 2,102,45,476,269
+Recursive: 1
+
+Close Dependency_tracker_i
+
+FormNode Greatest_ancestor1
+Title: Greatest Ancestor
+Definition: 0
+NodeLocation: 184,72,1
+NodeSize: 164,12
+NodeInfo: 1,0,0,1,0,0,0,162,0
+Original: Greatest_ancestor
+
+FormNode Greatest_descendant1
+Title: Greatest Descendant
+Definition: 0
+NodeLocation: 184,96,1
+NodeSize: 164,12
+NodeInfo: 0,0,0,0,0,0,0,162,0
+Original: Greatest_descendant
+
+Text Te1
+Description: Fill in identifiers that exist in your model here:
+NodeLocation: 152,40,-1
+NodeSize: 128,24
+
+Button Clear_all_bevels1
+Title: Clear All Bevels
+NodeLocation: 72,152,1
+NodeSize: 48,24
+Script: Clear_All_bevels(Top_level_model())
+
+Button Bevel_ancestors_only
+Title: Bevel Ancestors Only
+NodeLocation: 296,152,1
+NodeSize: 48,24
+Script: Clear_all_bevels( Top_level_model( ) );Bevel_all_ancestors_(descendant_handle)
+
+Button Bevel_descendants_on
+Title: Bevel Descendants Only
+NodeLocation: 408,152,1
+NodeSize: 48,25
+Script: Clear_all_bevels( Top_level_model( ) );~
+Bevel_all_descendant(ancestor_handle)
+
+Text Te2
+Description: An example
+NodeLocation: 280,312,-1
+NodeSize: 264,116
+NodeInfo: 1,0,0,1,1,1,0,,0,
+
+Variable Dp_ex_1
+Title: dp_ex_1
+Definition: 1
+NodeLocation: 80,248,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,1,
+Dependencymark: 35
+
+Variable Dp_ex_2
+Title: dp_ex_2
+Definition: Dp_ex_1
+NodeLocation: 136,312,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,1,
+Dependencymark: 35
+
+Variable Dp_ex_3
+Title: dp_ex_3
+Definition: 2
+NodeLocation: 200,248,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,0,
+
+Variable Dp_ex_4
+Title: dp_ex_4
+Definition: Dp_ex_5
+NodeLocation: 352,248,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,1,
+Dependencymark: 35
+
+Variable Dp_ex_5
+Title: dp_ex_5
+Definition: Dp_ex_2+Dp_ex_3
+NodeLocation: 280,312,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,1,
+Dependencymark: 35
+
+Variable Dp_ex_6
+Title: dp_ex_6
+Definition: Dp_ex_5
+NodeLocation: 416,312,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,0,
+Dependencymark: 35
+
+Variable Dp_ex_7
+Title: dp_ex_7
+Definition: Dp_ex_4
+NodeLocation: 480,248,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,1,1,0,,1,
+Dependencymark: 35
+
+Text Te3
+Description: Try using dp_ex_2 as Greatest Ancestor and dp_ex_4 as Greatest Descendant
+NodeLocation: 256,384,-1
+NodeSize: 236,24
+
+Close Dependency_tracker
+

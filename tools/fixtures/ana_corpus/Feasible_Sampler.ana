@@ -1,0 +1,183 @@
+{ From user Lonnie, Model Feasible_sampler at Thu, May 04, 2006 1:46 PM~~
+}
+Softwareversion 3.1.1
+
+Attribute Samplerdefn
+
+Askattribute Samplerdefn,Function,Yes
+Askattribute Samplerdefn,Module,Yes
+Askattribute Samplerdefn,Variable,Yes
+Linkmodule Feasible_sampler
+Title: Feasible Sampler
+Description: Suppose you have several chance variables in your model,~~
+ and some combinations of points are incompatible, so that you want t~~
+hem eliminated from your sample.  This feasible sampler basically eva~~
+luates the chance variables, eliminates the infeasible points, then r~~
+esets the sample size to something smaller and uses only the feasible~~
+ points.
+Author: Lonnie Chrisman
+Date: Thu, May 04, 2006 11:45 AM
+Saveauthor: Lonnie
+Savedate: Thu, May 04, 2006 1:46 PM
+Defaultsize: 48,24
+Diagstate: 1,114,7,837,300,17
+Windstate: 2,96,129,476,224
+Fontstyle: Arial, 15
+Fileinfo: 0,Linkmodule Feasible_sampler,2,2,0,0,W:\TestModels\feasibl~~
+e sampler.ANA
+
+Chance Sample_chance_variab
+Title: Sample Chance Variable
+Definition: Feasible_sample("Ch1",normal(0,1))
+Nodelocation: 72,73,1
+Nodesize: 48,31
+Windstate: 2,108,310,476,224
+Valuestate: 2,17,104,173,497,0,SAMP
+Att__discretenessinf: [0, 0, 0, 0 ]
+Samplerdefn: Normal(0,1)
+
+Chance Sample_chance_varia1
+Title: Sample Chance Variable
+Definition: Feasible_Sample("Ch2",Uniform( 0, 3 ))
+Nodelocation: 72,152,1
+Nodesize: 48,31
+Valuestate: 2,136,146,416,303,0,SAMP
+Att__discretenessinf: [0, 0, 1, 0 ]
+Samplerdefn: Uniform(0,3)
+
+Variable Isfeasible
+Title: IsFeasible
+Description: Define this node to identify which samples are feasible ~~
+(i.e., should be included in the sample).
+Definition: Sample_chance_variab<Sample_chance_varia1 and Sample_chan~~
+ce_variab<1
+Nodelocation: 232,184,1
+Nodesize: 48,24
+Valuestate: 2,323,7,281,394,0,SAMP
+Att__discretenessinf: [0, 0, 0, 1 ]
+
+Function Feasible_sample(UniqueId  ; theDistribution )
+Title: Feasible Sample
+Description: returns the feasible sample obtained from the larger sam~~
+ple size.
+Definition: if Give_Unique_ID then  uniqueID ~
+else if use_feasible and isProb ~
+then Slice(#feasible_Samples[Chance_Variables=uniqueId],~
+                  Reduced_run_dim,Run)~
+else theDistribution
+Nodelocation: 352,72,1
+Nodesize: 48,24
+Windstate: 2,470,274,467,334
+Paramnames: UniqueId,theDistribution
+
+Button Constrain_to_feasibl
+Title: Constrain to Feasible Samples
+Nodelocation: 472,72,1
+Nodesize: 48,31
+Script: Compute_feasible( IsFeasible )
+
+Module Feasible_sampler_det
+Title: Feasible Sampler Details
+Author: Lonnie
+Date: Thu, May 04, 2006 1:45 PM
+Defaultsize: 48,24
+Nodelocation: 208,72,1
+Nodesize: 48,32
+Diagstate: 1,84,36,550,284,17
+
+Variable Use_feasible
+Title: Use Feasible
+Definition: 0
+Nodelocation: 184,104,1
+Nodesize: 48,24
+Att__discretenessinf: [0, 0, 0, 1 ]
+
+Variable Full_sample_size
+Title: Full Sample Size
+Description: This the number of samples used in the full sample gener~~
+ation.  The actual number of samples (size of Run dimension) will be ~~
+the subset of these that are feasible.
+Definition: 200
+Nodelocation: 184,216,1
+Nodesize: 48,24
+Aliases: Formnode Full_sample_size1
+
+Index Chance_variables
+Title: Chance Variables
+Definition: ["Ch1","Ch2"]
+Nodelocation: 64,160,1
+Nodesize: 48,24
+
+Variable Feasible_samples
+Title: Feasible Samples
+Definition: Table(Chance_variables)(~
+       \{1} Array(Reduced_run_dim,[0]),\{1} Array(Reduced_run_dim,[1.~~
+5])~
+)
+Nodelocation: 64,216,1
+Nodesize: 48,24
+Defnstate: 2,59,241,831,303,0,MIDM
+Valuestate: 2,532,335,416,355,0,MIDM
+Att__discretenessinf: [0, 0, 1, 0 ]
+
+Index Reduced_run_dim
+Title: Reduced Run Dim
+Definition: [1]
+Nodelocation: 64,104,1
+Nodesize: 48,24
+
+Constant Isprob
+Title: IsProb
+Definition: size(uniform(0,1))>1
+Nodelocation: 72,40,1
+Nodesize: 48,24
+Valuestate: 2,152,162,416,303,0,MIDM
+Att__discretenessinf: [0, 0, 0, 1 ]
+
+Function Compute_feasible(feasiblePts : Variable)
+Title: Compute feasible
+Description: This must be called from a button script.  It constraint~~
+s samples to those points that are feasible.
+Definition: Use_Feasible := false;~
+if SampleSize<>Full_Sample_Size then SampleSize := Full_Sample_Size;~
+~
+{ First, identify the samples that need to be filtered}~
+index vs0 := outputs of feasible_sample;~
+index vs := subset (for v:=vs0 do (class of v = "Chance"));~
+var Ids := for v:=vs do Mid(WhatIf(v,Give_Unique_Id,true));~
+ids := if IsText(ids) then '"' & ids & '"' else Ids;~
+definition of chance_variables := '[' & join(ids,vs,",") & ']';~
+~
+{ Collect the full samples }~
+var fullSamples = Array(chance_variables,for v:=vs do \Sample(v));~
+var feas := Sample(feasiblePts);~
+Reduced_run_dim := subset(feas);~
+var theSamples := for a[]:=fullSamples do \Slice(#a,Run,Reduced_run_d~~
+im);~
+~
+Feasible_Samples := theSamples;~
+SampleSize := size(reduced_run_dim);~
+Use_Feasible := true
+Nodelocation: 184,40,1
+Nodesize: 48,24
+Windstate: 2,156,292,476,322
+Paramnames: feasiblePts
+
+Variable Give_unique_id
+Title: Give Unique ID
+Definition: 0
+Nodelocation: 184,160,1
+Nodesize: 48,24
+
+Close Feasible_sampler_det
+
+Formnode Full_sample_size1
+Title: Full Sample Size
+Definition: 0
+Nodelocation: 328,128,1
+Nodesize: 120,13
+Nodeinfo: 1,0,0,1,0,0,0,72,0,1
+Original: Full_sample_size
+
+Close Feasible_sampler
+

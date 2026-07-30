@@ -1,0 +1,210 @@
+{ From user Lonnie, Model Loan_policy_analysis at Thu, Sep 18, 2008 8:51 AM~~
+}Softwareversion 4.1.2{ System Variables with non-default values: }Time := sequence(start_year, horizon_year, 1)Description Time: Dynamic simulation periods are specified in Time's d~~
+efinition. This is usually a list of numbers or labels, typically in ~~
+some unit of time (days, weeks, months, etc.).  Use the “Dynamic()” f~~
+unction in your variables to perform dynamic simulation.Typechecking := 1Checking := 1Showhier := 1Saveoptions := 2Savevalues := 0Attribute ReferenceAttribute Date_boughAttribute TheAskattribute Check,Variable,YesModel Loan_policy_analysisTitle: Loan policy analysisDescription: A financial institution that grants loans would like to s~~
+elect the interest rate it charges and the credit score approval thre~~
+shold for granting the loans so as to maximize net present value to t~~
+he institution.~
+~
+The interest rate selected influences the market demand, since there ~~
+is a certain price elasticity in the market.  (I.e., if they set it t~~
+oo high, customers will go elsewhere).  If they are too lenient with ~~
+the approval threshold, their profits may suffer from a higher defaul~~
+t rate down the road.~
+~
+In addition, the default rate is influenced by the economy -- hence t~~
+here is a simplified economic model.  As times get worse, greater def~~
+ault rates can be expected.  (Note: I have left it optimizing over th~~
+e Mid of Net_present_value, rather than the mean, but you can change ~~
+that easily enough, just be ready for increased computation time).~
+~
+I set up two versions of the optimization.  The parametric optimizati~~
+on is a brute-force optimization over all possible values, and takes ~~
+quite a while to complete.  Also, since it is just searching a discre~~
+te space, it is only approximate.   The full-optimization uses the Fr~~
+ontline solver, but requires Analytica Optimizer.  It gets a slightly~~
+ better solution and is very fast in comparison.Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision SystemsDate: Mon, Nov 14, 2005 10:51 AMSaveauthor: LonnieSavedate: Thu, Sep 18, 2008 8:51 AMDefaultsize: 48,24Diagstate: 1,20,14,844,456,17Windstate: 2,102,90,539,451Diagramcolor: 55705,55705,55705Fontstyle: Arial, 15Fileinfo: 0,Model Loan_policy_analysis,2,2,0,0,W:\Training\Webinar\loa~~
+d interest rate selection.ANAFormnode Approval_threshold2Title: Approval thresholdDefinition: 0Nodelocation: 203,132,1Nodesize: 160,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Approval_thresholdFormnode Available_to_loan1Title: Available to loanDefinition: 0Nodelocation: 203,98,1Nodesize: 159,14Nodeinfo: 1,0,0,1,0,0,0,72,0,1Nodecolor: 19661,65535,54062Original: Available_to_loanFormnode Interest_rate_above1Title: Interest rate above primeDefinition: 0Nodelocation: 204,174,1Nodesize: 161,14Nodeinfo: 1,0,0,1,0,0,0,64,0,1Original: Rel_interest_rateFormnode Loan_length1Title: Loan LengthDefinition: 0Nodelocation: 203,62,1Nodesize: 159,14Nodeinfo: 1,0,0,1,0,0,0,72,0,1Nodecolor: 19661,65535,54062Original: Loan_lengthFormnode Net_present_value2Title: Net present valueDefinition: 1Nodelocation: 203,222,1Nodesize: 160,15Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Net_present_valueModule Model1Title: ModelAuthor: MayleneDate: Mon, Nov 14, 2005 4:17 PMDefaultsize: 48,24Nodelocation: 122,314,1Nodesize: 48,24Diagstate: 1,518,172,630,515,17Index Credit_ratingTitle: Credit RatingDefinition: 0..100Nodelocation: 88,64,1Nodesize: 48,24Aliases: Alias Credit_rating1Decision Approval_thresholdTitle: Approval thresholdDescription: Loan applications with a credit score below this rating a~~
+re rejected.Definition: 50Nodelocation: 216,64,1Nodesize: 48,24Windstate: 2,102,90,484,290Aliases: Formnode Approval_threshold2, Alias Approval_threshold1Decision Available_to_loanTitle: Available to loanUnits: $Description: Funds available to loan out.Definition: 150MNodelocation: 216,208,1Nodesize: 48,24Aliases: Formnode Available_to_loan1Displayoutputs: Variable Market_coverageVariable Market_coverageTitle: Market coverageUnits: %Description: Fraction of  possible loans that we are able to grant wit~~
+h available funds.Definition: min([100%,Available_to_loan / total_approved_marke])Nodelocation: 352,144,1Nodesize: 48,24Windstate: 2,155,290,476,224Valuestate: 2,425,236,416,303,0,MIDMNumberformat: 1,%,4,2,0,0Module Market_sizeTitle: Market SizeAuthor: MayleneDate: Mon, Nov 14, 2005 12:16 PMDefaultsize: 48,24Nodelocation: 352,64,1Nodesize: 48,24Diagstate: 1,289,192,599,370,17Variable Approved_Title: Approved?Units: 0,1Description: Whether a given credit rating is approved for loan.Definition: Credit_rating>=Approval_thresholdNodelocation: 368,40,1Nodesize: 48,24Windstate: 2,102,90,473,298Reformval: [Credit_rating,Approval_threshold]Variable Prime_rateTitle: Prime rateDefinition: 4%Nodelocation: 328,256,1Nodesize: 48,24Variable Approved_market_sizeTitle: Approved Market sizeUnits: $Description: The market that we can grant loans to at the interest rat~~
+e and approval threshold.Definition: if Approved_ then Adjusted_market_size else 0Nodelocation: 520,96,1Nodesize: 48,24Windstate: 2,102,90,548,426Valuestate: 2,120,15,573,463,1,MIDMReformval: [Credit_rating,Approval_threshold]Variable Adjusted_market_sizeTitle: Adjusted Market sizeDefinition: Base_market_size * exp(-Elasticity1 * Rel_interest_rate/Pr~~
+ime_rate)Nodelocation: 344,144,1Nodesize: 48,24Valuestate: 2,44,12,761,511,1,MIDMReformval: [Credit_rating,Rel_interest_rate]Decision Rel_interest_rateTitle: Rel.Interest rateUnits: % above primeDescription: Rate to charge above prime.Definition: 2%Nodelocation: 208,256,1Nodesize: 48,24Aliases: Formnode Interest_rate_above1, Alias Interest_rate1Numberformat: 1,%,4,2,0,0Variable Elasticity1Title: ElasticityDefinition: 3Nodelocation: 208,184,1Nodesize: 48,24Variable Base_market_sizeTitle: Base Market sizeDescription: Total market size, in dollars, as a function of credit ra~~
+ting, for loans granted at prime rate.Definition: Linearinterp( Credit_rating_waypoi, Base_market_size_tab, ~~
+credit_rating, Credit_rating_waypoi )Nodelocation: 208,104,1Nodesize: 48,24Valuestate: 2,54,35,416,303,1,MIDMIndex Credit_rating_waypoiTitle: Credit Rating WaypointsDefinition: [0,20,40,60,80,100]Nodelocation: 72,49,1Nodesize: 48,31{!40000|Att_previndexvalue: [0,20,40,60,80,100]}Variable Base_market_size_tabTitle: Base Market size tableUnits: $Description: Defines the base market size at prime rate and how it var~~
+ies with credit ratingDefinition: Table(Credit_rating_waypoi)(~
+1.6M,4M,7M,6M,4M,4M)Nodelocation: 72,121,1Nodesize: 48,31Valuestate: 2,40,50,416,303,0,MIDMAtt__totalsindex: Index Credit_rating_waypoiVariable Total_approved_markeTitle: Total approved marketDefinition: sum(Approved_market_size,Credit_rating)Nodelocation: 520,185,1Nodesize: 48,31Valuestate: 2,271,206,416,303,0,MIDMNumberformat: 1,D,4,2,0,1Alias Approval_threshold1Title: Approval thresholdDefinition: 1Nodelocation: 208,40,1Nodesize: 48,24Original: Approval_thresholdClose Market_sizeAlias Interest_rate1Title: interest rateDefinition: 1Nodelocation: 216,136,1Nodesize: 48,28Original: Rel_interest_rateModule Economic__environmenTitle: Economic  environmentDescription: This model projects the annual growth rate in GDP for the~~
+ US economy -- or other local, national, or multinational economic re~~
+gion that forms the primary economic environment for this enterprise.~~
+~
+~
+It includes:~
+1. an annual long-run average growth rate, ~
+2. a cyclic adjustment due to position in the economic cycle between ~~
+boom and bust (top and bottom of economic growth rates), and~
+3. a normally distributed year-to-year variability to represent unexp~~
+lained variation around around the adjusted average.Author: Max HenrionDate: Tue, Feb 03, 2004 11:15 AMDefaultsize: 48,24Nodelocation: 88,384,1Nodesize: 56,28Diagstate: 1,530,57,398,352,17Windstate: 2,102,90,481,314Formnode Average_growth_rate1Title: Average growth rate of economyDefinition: 0Nodelocation: 184,44,1Nodesize: 177,11Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Average_growth_rate_Formnode Economy_cycle_time1Title: Economy cycle timeDefinition: 0Nodelocation: 208,68,1Nodesize: 152,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Period_of_economic_cFormnode Cycle_standard_devi1Title: Cycle standard deviation from averageDefinition: 0Nodelocation: 208,116,1Nodesize: 152,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Amplitude_of_cycleFormnode Starting_cycle_posi1Title: Starting cycle positionDefinition: 0Nodelocation: 236,92,1Nodesize: 124,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Starting_cycle_positFormnode Variability_in_econ1Title: Variability in economic growth from modelDefinition: 0Nodelocation: 184,140,1Nodesize: 176,11Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Variability_in_growtFormnode Growth_rate_of_econ1Title: Growth rate of economyDefinition: 1Nodelocation: 187,229,1Nodesize: 165,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Growth_rate_of_econoFormnode Position_in_economi1Title: Position in economic cycleDefinition: 1Nodelocation: 214,204,1Nodesize: 138,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Cyclic_adjustmentText Te19Description: Inputs for cyclic model of economyNodelocation: 184,84,-1Nodesize: 176,76Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Text Te20Title: Te19Description: OutputsNodelocation: 184,208,-1Nodesize: 176,40Nodeinfo: 1,0,0,1,1,1,1,,0,Nodefont: Arial Black, 15Module Cyclic_economic_growTitle: Cyclic economic growth modelAuthor: MaxDate: Tue, Feb 03, 2004 11:15 AMDefaultsize: 48,24Nodelocation: 200,280,1Nodesize: 72,28Diagstate: 1,440,259,442,321,17Variable Growth_rate_of_econoTitle: Growth rate of economyUnits: %/yearDescription: The annual growth rate of the economy in real dollars (ex~~
+cluding inflation)Definition: Average_growth_rate_ + Cyclic_adjustment ~
++ IF Time=Start_year THEN 0 ELSE Annual_variabilityNodelocation: 360,128,1Nodesize: 48,24Windstate: 2,435,6,482,253Valuestate: 2,33,131,600,480,1,CONFAliases: Formnode Growth_rate_of_econ1, Alias Growth_rate_of_econ2Graphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:2003~
+Xmaximum:2012~
+Yminimum:-0.02~
+Ymaximum:0.1~
+Zminimum:0.05~
+Zmaximum:0.95~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:1~
+Includezzero:0~
+Statsselect:[1,1,1,1,1,0,0,0]~
+Probindex:[0.05,0.25,0.5,0.75,0.95]~
+Fontstyle: Arial, 5Numberformat: 1,%,4,2,0,0Chance Average_growth_rate_Title: Average growth rate of economyUnits: %/yearDescription: Annual growth rate of economy over analysis period (avera~~
+ged over cycles).Definition: Triangular( 0.02, 0.03, 0.05 )Nodelocation: 328,32,1Nodesize: 48,28Windstate: 2,102,90,476,224Valuestate: 2,40,50,416,303,1,PDFPAliases: Formnode Average_growth_rate1Graphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:0.015~
+Xmaximum:0.055~
+Yminimum:0~
+Ymaximum:70~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0]~
+Probindex:[5%, 25%, 50%, 75%, 95%]~
+Fontstyle: Arial, 8Numberformat: 1,%,4,2,0,0Chance Period_of_economic_cTitle: Period of economic cycleUnits: YearsDescription: Period of economic cycles from peak to peakDefinition: Triangular( 3, 4.5, 7 )Nodelocation: 152,128,1Nodesize: 48,29Windstate: 2,102,90,476,224Valuestate: 2,72,82,416,303,0,MIDMAliases: Formnode Economy_cycle_time1Numberformat: 1,F,4,2,0,0Chance Amplitude_of_cycleTitle: Amplitude of cycleUnits: %/yearDescription: Average range in annual economic growth rate between low ~~
+(bottom of recession) and high (peak of boom).Definition: Triangular( 0.02, 0.03, 0.045 )Nodelocation: 104,192,1Nodesize: 56,28Aliases: Formnode Cycle_standard_devi1Numberformat: 1,%,4,2,0,0Chance Annual_variabilityTitle: Annual variabilityUnits: %/yearDescription: The year to year deviation of the annual economic growth ~~
+rate from that predicted by average plus deviation due to economic cy~~
+cle, i.e. variability in economic growth that is unexplained by a sim~~
+ple cyclic model.Definition: Normal(0*T1, Variability_in_growt)Nodelocation: 232,64,1Nodesize: 48,28Windstate: 2,111,430,476,224Valuestate: 2,424,434,416,303,1,CONFNumberformat: 1,%,4,2,0,0Chance Starting_cycle_positTitle: Starting cycle positionDescription: Position in economic cycle in start year, being a number ~~
+between 0 and 4 where~
+ 0 means half way up from bottom to top~
+ 1 means top of boom~
+ 2 means half way down from top to bottom~
+ 3 means bottom of recession~
+ 4 same as 0.Definition: 2.5Nodelocation: 168,256,1Nodesize: 48,28Windstate: 2,102,90,476,380Aliases: Formnode Starting_cycle_posi1Numberformat: 1,F,4,1,0,0Variable Cyclic_adjustmentTitle: Cyclic adjustmentUnits: %/yearDescription: Adjustment to projected annual growth rate of economy due~~
+ to a cycle with a period of "Economic cycle time" and with specified~~
+ Range (trough to peak) of "RanDefinition: Amplitude_of_cycle /2~
+* Sin(360 * (Starting_cycle_posit/4 + Years_from_base/Period_of_econo~~
+mic_c))Nodelocation: 256,192,1Nodesize: 48,28Windstate: 2,434,5,476,224Valuestate: 2,414,262,578,352,1,MEANAliases: Formnode Position_in_economi1Graphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:1~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:5~
+Frame:3~
+Grid:3~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:2003~
+Xmaximum:2012~
+Yminimum:-0.02~
+Ymaximum:0.025~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0]~
+Probindex:[5%, 25%, 50%, 75%, 95%]~
+Fontstyle: Arial, 5Reformval: [Time,Starting_cycle_posit]Numberformat: 1,F,4,2,0,0Variable Variability_in_growtTitle: Variability in growth from modelUnits: %/yearDescription: Standard deviation of year-t0-year variability in annual ~~
+economic growth from rate predicted by fixed growth and economic cycl~~
+e.~
+I.e. unexplained variability.Definition: 1.5%Nodelocation: 96,64,1Nodesize: 56,28Windstate: 2,102,90,476,224Aliases: Formnode Variability_in_econ1Numberformat: 1,%,4,2,0,0Close Cyclic_economic_growModule IndexesTitle: IndexesAuthor: Jennifer HillDate: Fri, Oct 31, 1997 7:42 AMDefaultsize: 48,24Nodelocation: 64,288,1Nodesize: 52,20Nodeinfo: 1,1,0,1,1,1,0,,0,Diagstate: 1,9,276,316,216,17Windstate: 2,102,90,476,224Module LabelsTitle: LabelsDescription: Labels used within formatting.Author: zacDate: Wed, Oct 29, 1997 12:54 PMDefaultsize: 48,24Nodelocation: 208,152,0Nodesize: 52,20Diagstate: 1,529,42,231,300,17Nodecolor: 39321,47314,65535Index Years_with_total2Title: Years with totalDefinition: Concat(Time,Total_index1)Nodelocation: 80,176,0Nodesize: 52,20Windstate: 2,102,90,477,249Valuestate: 1,424,434,416,303,0,MIDMNumberformat: 1,F,4,0,0,0Index Total_index1Title: Total indexDescription: Label used to appendDefinition: ['Total']Nodelocation: 80,224,0Nodesize: 52,20Windstate: 1,421,171Constant A_Title:  Description: .Definition: '  'Nodelocation: 80,96,1Nodesize: 48,24Nodeinfo: 1,0,0,1,1,1,0,,0,Windstate: 2,102,90,514,371Valuestate: 1,344,354,416,303,0,MIDMConstant BarTitle: _______Definition: '_______'Nodelocation: 80,48,0Nodesize: 52,20Nodeinfo: 1,0,0,1,1,1,0,,0,Windstate: 2,102,90,476,224Displayoutputs: Constant A4Close LabelsDecision Start_yearTitle: Start YearUnits: CEDescription: Base year for analysis. ~
+Base year input data should be specified for this year.Definition: 2005Nodelocation: 88,40,0Nodesize: 44,20Windstate: 2,102,90,476,224Decision Horizon_yearTitle: Horizon YearUnits: CEDescription: Last year for analysisDefinition: 2017Nodelocation: 88,88,0Nodesize: 44,20Variable Years_from_baseTitle: Years from baseUnits: yearsDescription: Number of years into the future from base yearDefinition: Time - Start_yearNodelocation: 208,40,1Nodesize: 48,24Nodeinfo: 1,1,1,1,1,1,0,0,0,0Windstate: 2,102,90,476,224Valuestate: 2,232,242,416,303,0,MIDMIndex ProductsTitle: ProductsDefinition: ['Widgets','Superwidgets']Nodelocation: 80,152,1Nodesize: 44,20Variable T1Title: T1Description: A vector of 1s, indexed by Time, useful for generating ar~~
+rays indexed by Time, especially for generating probability distribut~~
+ions with an independent random drawing for each year.Definition: Time > 0Nodelocation: 208,96,1Nodesize: 48,20Windstate: 2,102,90,477,299Valuestate: 2,248,258,233,278,0,MIDMClose IndexesClose Economic__environmenModule Loan_default_predictTitle: Loan Default PredictionAuthor: MayleneDate: Mon, Nov 14, 2005 1:29 PMDefaultsize: 48,24Nodelocation: 88,296,1Nodesize: 48,32Diagstate: 1,51,69,566,371,17Variable Prob_of_defaultTitle: Prob of DefaultDefinition: Default_prob_by_cred * (1+Economic_factor_in_d)Nodelocation: 352,80,1Nodesize: 48,24Windstate: 2,328,190,599,391Valuestate: 2,150,84,649,496,1,MEANReformval: [Credit_rating,Time]Numberformat: 1,%,4,2,0,0Att__totalsindex: Index Credit_ratingAlias Credit_rating1Title: Credit RatingDefinition: 1Nodelocation: 72,200,1Nodesize: 48,24Original: Credit_ratingAlias Growth_rate_of_econ2Title: Growth rate of economyDefinition: 1Nodelocation: 72,48,1Nodesize: 48,24Original: Growth_rate_of_econoVariable Default_prob_by_credTitle: Default Prob by Credit RatingUnits: %/yrDescription: The probabilty of default in a given year.Definition: 6%-5.8%*credit_rating/100Nodelocation: 200,40,1Nodesize: 48,40Windstate: 2,102,90,476,224Valuestate: 2,446,233,416,303,1,MIDMGraphsetup: Graphtool:0~
+Distresol:10~
+Diststeps:0~
+Cdfresol:5~
+Cdfsteps:1~
+Symbolsize:6~
+Baroverlap:0~
+Linestyle:10~
+Frame:1~
+Grid:1~
+Ticks:1~
+Mesh:1~
+Scales:1~
+Rotation:45~
+Tilt:0~
+Depth:70~
+Frameauto:1~
+Showkey:1~
+Xminimum:0~
+Xmaximum:100~
+Yminimum:0~
+Ymaximum:1~
+Zminimum:1~
+Zmaximum:1~
+Xintervals:0~
+Yintervals:0~
+Includexzero:0~
+Includeyzero:0~
+Includezzero:0~
+Statsselect:[1, 1, 1, 1, 1, 0, 0, 0]~
+Probindex:[5%, 25%, 50%, 75%, 95%]~
+Fontstyle: Arial, 6Numberformat: 1,%,4,0,0,0Constant Growth_rate_effect_oTitle: Growth rate effect on defaultDescription: The impact (in %) that 1% growth rate difference has on t~~
+he probability of default.Definition: 10Nodelocation: 72,128,1Nodesize: 48,31Variable Economic_factor_in_dTitle: Economic factor in defaultDefinition: 1-exp(-Growth_rate_effect_o*Growth_rate_of_econo)Nodelocation: 200,128,1Nodesize: 48,31Windstate: 2,389,152,476,224Valuestate: 2,255,294,416,303,1,MIDMXyexpr: Growth_rate_of_econoVariable Prob_default_on_or_bTitle: Prob default on or before TDefinition: 1-cumproduct(1-Prob_of_default,time)Nodelocation: 472,80,1Nodesize: 52,28Valuestate: 2,57,1,797,527,1,MIDMAliases: Alias Prob_default_on_or_1Reformval: [Credit_rating,Time]Numberformat: 1,%,4,2,0,0Close Loan_default_predictDecision Loan_lengthTitle: Loan LengthUnits: YearsDescription: Duration of loanDefinition: 10Nodelocation: 88,232,1Nodesize: 48,24Aliases: Formnode Loan_length1Module Cash_flowTitle: Cash FlowAuthor: MayleneDate: Mon, Nov 14, 2005 1:29 PMDefaultsize: 48,24Nodelocation: 352,296,1Nodesize: 48,24Diagstate: 1,401,107,618,466,17Variable Total_amount_to_loanTitle: total amount to loan by CRDefinition: approved_market_size * Market_coverageNodelocation: 96,57,1Nodesize: 48,31Windstate: 2,49,352,476,224Valuestate: 2,122,121,416,303,1,MIDMReformval: [Credit_rating,Rel_interest_rate]Numberformat: 1,D,4,2,0,1Displayoutputs: ,Variable Total_unloanedTitle: Total unloanedDefinition: Available_to_loan-sum(Total_amount_to_loan,Credit_rating)Nodelocation: 96,368,1Nodesize: 48,24Valuestate: 2,539,283,416,303,0,MIDMNumberformat: 1,F,4,2,0,1Variable Undefaulted_balance_Title: Undefaulted balance by CRDefinition: dynamic(Total_amount_to_loan,self[Time-1]*(1-Prob_of_defau~~
+lt))Nodelocation: 256,56,1Nodesize: 52,28Valuestate: 2,136,146,416,303,1,MIDMReformval: [Time,Rel_interest_rate]Att__totalsindex: Index Credit_ratingVariable Outstanding_by_crTitle: outstanding by CRDefinition: dynamic(Total_amount_to_loan,self[time-1] * (1-prob_of_def~~
+ault) )Nodelocation: 248,168,1Nodesize: 48,24Valuestate: 2,152,162,416,303,1,MIDMReformval: [Time,Rel_interest_rate]Att__totalsindex: Index Credit_ratingVariable Total_outstandingTitle: Total outstandingDefinition: sum(Outstanding_by_cr,credit_rating)Nodelocation: 368,168,1Nodesize: 48,24Valuestate: 2,532,268,416,303,1,MIDMReformval: [Time,Rel_interest_rate]Variable Interest_rateTitle: interest rateDefinition: prime_rate + Rel_interest_rateNodelocation: 480,160,1Nodesize: 48,24Numberformat: 1,%,4,2,0,0Alias Prob_default_on_or_1Title: Prob default on or before TDefinition: 1Nodelocation: 248,232,1Nodesize: 52,28Original: Prob_default_on_or_bVariable Payments_by_crTitle: Payments by CRDefinition: -Pmt( interest_rate, loan_length, Total_amount_to_loan ) *~~
+ (1-Prob_default_on_or_b) * (Time-start_year<Loan_length)Nodelocation: 368,232,1Nodesize: 48,24Valuestate: 2,136,259,416,303,1,MIDMReformval: [Time,Rel_interest_rate]Att__totalsindex: Index Credit_ratingVariable PaymentsTitle: PaymentsDefinition: sum(Payments_by_cr,credit_rating)Nodelocation: 368,296,1Nodesize: 48,24Valuestate: 2,40,50,926,303,1,MIDMReformval: [Time,Undefined]Att__totalsindex: Sysvar TimeVariable Cash_flow1Title: cash_flowDefinition: (if time=start_year then -Total_loaned else 0) + PaymentsNodelocation: 488,232,1Nodesize: 48,24Valuestate: 2,212,193,416,303,0,MIDMReformval: [Time,Rel_interest_rate]Att__totalsindex: Sysvar TimeVariable Total_loanedTitle: Total loanedDefinition: sum(Total_amount_to_loan,credit_rating)Nodelocation: 96,216,1Nodesize: 48,24Variable Discount_factorTitle: discount factorDefinition: prime_rateNodelocation: 368,368,1Nodesize: 48,24Numberformat: 1,%,4,2,0,0Objective Net_present_valueTitle: Net present valueUnits: $Definition: sum( Payments / (1+Discount_factor)^(time-start_year), Tim~~
+e ) + Total_unloanedNodelocation: 480,368,1Nodesize: 48,24Valuestate: 2,294,282,434,285,0,MIDMAliases: Formnode Net_present_value2, Alias Net_present_value1, Alias~~
+ Net_present_value3Reformval: [Approval_threshold,Undefined]Numberformat: 1,D,4,2,0,1Variable A__funds_loanedTitle: % funds loanedDefinition: total_loaned / Available_to_loanNodelocation: 192,296,1Nodesize: 48,24Valuestate: 2,103,29,835,561,1,MIDMReformval: [Rel_interest_rate,Approval_threshold]Numberformat: 1,%,4,2,0,0Close Cash_flowAlias Net_present_value1Title: Net present valueDefinition: 1Nodelocation: 352,384,1Nodesize: 48,24Original: Net_present_valueModule Parametric_optimizatTitle: Parametric OptimizationAuthor: MayleneDate: Mon, Nov 14, 2005 4:17 PMDefaultsize: 48,24Nodelocation: 496,352,1Nodesize: 56,24Nodeinfo: 1,0,0,1,1,1,0,,0,Diagstate: 1,49,324,625,425,17Variable Npv_opt_over_rateTitle: npv opt over rateDefinition: max(Npv_range,Interest_rate_range)Nodelocation: 320,176,1Nodesize: 48,24Valuestate: 2,382,93,416,303,1,MIDMVariable Npv_opt_over_threshoTitle: npv opt over thresholdDefinition: max(Npv_range,Approval_threshold_r)Nodelocation: 320,112,1Nodesize: 48,24Valuestate: 2,539,24,416,303,1,MIDMAlias Net_present_value3Title: Net present valueDefinition: 1Nodelocation: 80,176,1Nodesize: 48,24Original: Net_present_valueVariable Best_thresholdTitle: Best ThresholdDefinition: argmax(Npv_opt_over_rate,Approval_threshold_r)Nodelocation: 448,176,1Nodesize: 48,24Aliases: Formnode Best_threshold1Variable Best_interest_rate_mTitle: Best Interest Rate marginDefinition: argmax(Npv_opt_over_thresho,Interest_rate_range)Nodelocation: 448,112,1Nodesize: 48,31Valuestate: 2,120,130,416,303,0,MIDMAliases: Formnode Best_interest_rate_1Numberformat: 1,%,4,2,0,0Variable Opt_profitTitle: Opt profitDefinition: max(Npv_opt_over_thresho,Interest_rate_range) - available_~~
+to_loanNodelocation: 320,40,1Nodesize: 48,24Windstate: 2,356,238,476,224Aliases: Formnode Best_npv1Numberformat: 1,D,5,0,1,1Index Approval_threshold_rTitle: Approval Threshold RangeDefinition: sequence(0,100,1)Nodelocation: 80,49,1Nodesize: 48,31Index Interest_rate_rangeTitle: Interest Rate RangeDefinition: sequence(0%,8%,0.1%)Nodelocation: 80,112,1Nodesize: 48,24Objective Npv_rangeTitle: NPV rangeDefinition: WhatIf( WhatIf( Net_present_value, Approval_Threshold, App~~
+roval_threshold_r), Rel_interest_rate, Interest_rate_range)Nodelocation: 200,176,1Nodesize: 48,24Valuestate: 2,699,455,416,303,0,MIDMReformval: [Approval_threshold_r,Interest_rate_range]Close Parametric_optimizatModule Nlp_optimizationTitle: NLP OptimizationAuthor: MayleneDate: Mon, Nov 14, 2005 4:17 PMDefaultsize: 48,24Nodelocation: 496,408,1Nodesize: 56,24Diagstate: 1,137,38,549,353,17Decision DecisionsTitle: DecisionsDefinition: Table(Self)(~
+0.02,60)Indexvals: ['Interest Rate above prime','Approval threshold']Nodelocation: 80,56,1Nodesize: 48,24Defnstate: 2,33,526,416,303,0,MIDMValuestate: 2,95,513,416,303,0,MIDM{!40000|Att_previndexvalue: ['Interest Rate above prime','Approval thr~~
+eshold']}Variable NlpTitle: NLPDefinition: Nlpdefine( ~
+  Vars:decisions, X:Decisions, ~
+  Obj:objective1, maximize:true,~
+  lb:0,ub:Upper_bounds)Nodelocation: 208,128,1Nodesize: 48,24Index ConstraintsTitle: ConstraintsDefinition: [1]Nodelocation: 352,56,1Nodesize: 48,24Variable Upper_boundsTitle: upper boundsDefinition: Table(Decisions)(~
+1,100)Nodelocation: 352,128,1Nodesize: 48,24Variable SolutionTitle: SolutionDefinition: lpsolution(Nlp)Nodelocation: 208,208,1Nodesize: 48,24Variable Best_threshold2Title: Best thresholdDefinition: slice(Solution,Decisions,2)Nodelocation: 352,208,1Nodesize: 48,24Aliases: Formnode Best_threshold3Variable Best_rateTitle: Best RateDefinition: slice(Solution,Decisions,1)Nodelocation: 352,264,1Nodesize: 48,24Valuestate: 2,133,56,416,303,0,MIDMAliases: Formnode Best_rate1Numberformat: 1,%,4,2,0,0Variable Opt_profit1Title: opt profitDefinition: lpopt(nlp) - available_to_loanNodelocation: 208,280,1Nodesize: 48,24Aliases: Formnode Opt1Numberformat: 1,D,5,0,1,1Objective Objective1Title: objectiveDefinition: whatif(whatif(net_present_value,~
+approval_threshold,Decisions[Decisions='Approval threshold']),~
+Rel_interest_rate,Decisions[Decisions='Interest Rate above prime'])Nodelocation: 80,128,1Nodesize: 48,24Close Nlp_optimizationClose Model1Text Te1Description: Basic Inputs & OutputsNodelocation: 200,141,-1Nodesize: 180,128Nodeinfo: 1,0,0,1,0,1,1,,0,Nodefont: Arial Black, 15Formnode Best_threshold1Title: Best ThresholdDefinition: 1Nodelocation: 555,102,1Nodesize: 147,12Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Best_thresholdFormnode Best_interest_rate_1Title: Best Interest Rate -primeDefinition: 1Nodelocation: 556,64,1Nodesize: 148,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Best_interest_rate_mText Te2Description: Parametric OptimizationNodelocation: 576,92,-1Nodesize: 178,73Nodeinfo: 1,0,0,1,0,1,1,,0,Nodefont: Arial Black, 15Formnode Best_threshold3Title: Best thresholdDefinition: 1Nodelocation: 531,244,1Nodesize: 112,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Best_threshold2Formnode Best_rate1Title: Best RateDefinition: 1Nodelocation: 532,284,1Nodesize: 113,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Best_rateText Te3Description: Full non-linear optimizationNodelocation: 577,281,-1Nodesize: 180,108Nodeinfo: 1,0,0,1,0,1,1,,0,Nodefont: Arial Black, 15Formnode Opt1Title: optDefinition: 1Nodelocation: 532,324,1Nodesize: 113,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Opt_profit1Formnode Best_npv1Title: Best NPVDefinition: 1Nodelocation: 556,138,1Nodesize: 147,13Nodeinfo: 1,0,0,1,0,0,0,72,0,1Original: Opt_profitText Te4Description: (Requires Analytica Optimizer)Nodelocation: 584,212,2Nodesize: 163,15Close Loan_policy_analysis

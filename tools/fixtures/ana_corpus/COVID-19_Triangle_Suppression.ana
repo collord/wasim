@@ -1,0 +1,1790 @@
+{ Analytica Model Triangle_suppression, encoding="UTF-8" }
+SoftwareVersion 5.3.3
+
+
+{ System Variables with non-default values: }
+Time := 29-Feb-2020 .. 1-jan-2021
+{!40300|Att_SlicerPopupSize Time: 232,1001}
+SampleSize := 10000
+SampleType := 5
+{!40300|Att_SlicerPopupSize Run: 227,1001}
+TypeChecking := 1
+Checking := 1
+SaveOptions := 2
+SaveValues := 0
+CdfSteps := 1
+{!40400|Sys_PdfSmoothMethod := 1}
+{!40400|Sys_PdfSmoothFactor := -0.5}
+
+{!-50299|DiagramColor Model: 65535,65535,65535}
+{!-50299|DiagramColor Module: 65535,65535,65535}
+{!-50299|DiagramColor LinkModule: 65535,65535,65535}
+{!-50299|DiagramColor Library: 65535,65535,65535}
+{!-50299|DiagramColor LinkLibrary: 65535,65535,65535}
+{!-50299|DiagramColor Form: 65535,65535,65535}
+NodeInfo FormNode: 1,0,0,,0,0,,,,0,,,0
+{!-50299|NodeColor Text: 62258,62258,62258}
+
+
+AskAttribute BalloonHelp,Variable,Yes
+AskAttribute Domain,Variable,Yes
+AskAttribute TableCellDefault,Variable,Yes
+AskAttribute OnChange,Variable,Yes
+{!40700|AskAttribute CellFormatExpression,Variable,Yes}
+{!50103|AskAttribute OnGraphDraw,Variable,Yes}
+AskAttribute BalloonHelp,Text,Yes
+AskAttribute BalloonHelp,Picture,Yes
+
+Model Triangle_suppression
+Title: COVID-19 Triangle suppression model
+Description: This model is a novel approach to modeling the progression of the COVID-19 pandemic in the US and forecasting the outcome and durations of a suppression strategy over the course of the year 2020.~
+~
+The core idea behind the model is the assuption that a suppression strategy is the only viable option. This realization comes out of the <a href="https://doi.org/10.25561/77482">Imperial College COVID-19 Task Force report</a> that was released on 16-Mar-2020.  So as the only viable option, model assumes that a suppression stratety will have to be adopted eventually, the question is just when and how strictly it will be implemented.~
+~
+The ideas behind the model are described in depth in my article <a href="https://analytica.com/forecast-update-us-deaths-from-covid-19-coronavirus-in-2020/">Suppression strategy and update forecast for US deaths from COVID-19 Coronavirus in 2020</a>, published on the Analytica blog on 23-Mar-2020.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Sun, Mar 15, 2020 11:37 AM
+DiagState: 2,75,13,962,498,17
+WindState: 2,108,255,720,500
+DiagramColor: 52427,56425,65535
+FontStyle: Arial,15
+FileInfo: 0,Model Triangle_suppression,2,2,0,0,D:\Documents\Lumina\Blogs\COVID forecast 2\COVID-19 Triangle Suppression.ana
+
+Module Model_details
+Title: Model details
+NodeLocation: 1080,752,1
+NodeSize: 48,24
+DiagState: 2,0,0,1076,430,17
+
+Module Deaths_US_data
+Title: Deaths US data
+Author: Lonnie
+Date: Fri, Mar 20, 2020 3:24 PM
+NodeLocation: 152,48,1
+NodeSize: 48,24
+DiagState: 2,253,33,669,482,17
+
+Constant Daily_deaths_US
+Title: Daily deaths US
+Description: Current reported numbers for the number of deaths in the US from COVID-19 on each given date, along with an extrapolation line.
+Definition: Table(Time)(1,0,5,3,2,1,3,4,3,4,4,8,3,8,8,11,18,23,41,57,49,46,117,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,)
+NodeLocation: 104,56,1
+NodeSize: 48,24
+WindState: 2,1,471,857,350
+DefnState: 2,351,59,416,670,0,DFNM
+ValueState: 2,57,66,568,534,1,MIDM
+Aliases: FormNode Fo1672884029
+GraphSetup: Graph_HLabelRotation:45~
+{!50007|Graph_BarOutline:0}~
+Att_ForceCategorical Graph_Primary_Valdim:1~
+Att_GraphValueRange Daily_deaths_US:1,,,,1~
+Graph_ColorSeq:[49344,49344,49344,21074,21845,40092,31611,44718,25443,65535,46774,19018,34952,29298,56540,29298,53713,56540,56540,29298,55769,53456,44975,25186,65535,0,0,0,0,65535,65535,46003,65535,0,65535,65535,0,32896,0,65535,42405,0,0,0,35723,42405,10794,10794,65535,49344,52171,65535,65535,0,0,65535,0,32896,0,0,28784,32896,37008,0,32896,32896,32896,0,32896,37008,61166,37008,0,0,0]~
+Grid:0
+TableCellDefault: ''
+{!50103|OnGraphDraw: Local (x,y) := GraphToCanvasCoord(info,roles,Time,Extrapolated_daily_d);~
+CanvasDrawLine(canv, x,y,x[@Time=@Time-1],y[@Time=@Time-1],~
+			color:'cyan', dash:'Dash', width:2)}
+
+Variable Cumulative_deaths_US
+Title: Cumulative deaths US
+Description: Actual reported numbers for the total reported deaths in the US from COVID-19 reported up to the indicated date.
+Definition: Cumulate(Daily_deaths_US,Time, passNull:true)
+NodeLocation: 104,120,1
+NodeSize: 56,24
+ValueState: 2,266,141,488,539,1,MIDM
+Aliases: FormNode Fo800468797
+GraphSetup: Graph_HLabelRotation:45~
+Att_GraphValueRange Cumulative_deaths_US:1,,0,,1,,,5.3728361954819075,499.99999999999994,0~
+Att_GraphIndexRange Time:1,,0,,,,,42429.07553136349,42450,0
+Att__TotalsIndex: []
+
+Variable Cur_Growth_rate
+Title: Current Growth rate
+Definition: Local (m,b) := Regression( if Time>=4-Mar-2020 then ln(Cumulative_deaths_US) else null, Time, Time);~
+Log_intercept := b;~
+m
+NodeLocation: 248,120,1
+NodeSize: 56,24
+ValueState: 2,198,143,360,191,,MIDM
+{!50000|Att_ColumnWidths: [137]}
+
+Variable Log_intercept
+Title: Log intercept
+Definition: ComputedBy(Cur_Growth_rate)
+NodeLocation: 248,48,1
+NodeSize: 48,24
+
+Variable Extrapolated_Cum_dea
+Title: Extrapolated Cum deaths
+Definition: Exp( Log_intercept + Cur_Growth_rate * Time )
+NodeLocation: 400,48,1
+NodeSize: 56,24
+ValueState: 2,45,141,702,570,1,MIDM
+GraphSetup: Att_GraphValueRange Extrapolated_Cum_dea:1,,,,1~
+Graph_HLabelRotation:45
+
+Variable Extrapolated_daily_d
+Title: Extrapolated daily deaths
+Definition: Extrapolated_Cum_dea * Cur_Growth_rate
+NodeLocation: 400,120,1
+NodeSize: 56,24
+ValueState: 2,94,236,667,430,1,MIDM
+GraphSetup: Graph_HLabelRotation:45~
+Att_GraphValueRange Extrapolated_daily_d:1,,,,1
+NumberFormat: 2,D,6,2,0,0,6,0,$,0,"ABBREV",0,,,0,0,15
+
+Constant US_Daily_cases
+Title: US Daily cases
+Definition: Table(Time)(0,7,25,24,34,63,98,116,106,163,290,307,396,550,696,737,983,1748,2848,4530,5594,4824,9339,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,)
+NodeLocation: 104,216,1
+NodeSize: 48,24
+DefnState: 2,276,65,416,520,0,DFNM
+ValueState: 2,244,250,617,491,1,MIDM
+GraphSetup: Att_GraphValueRange US_Daily_cases:1,,,,1~
+Graph_HLabelRotation:45~
+Att_ForceCategorical Graph_Primary_Valdim:1~
+{!50007|Graph_BarOutline:0}
+TableCellDefault: ''
+
+Variable Cumulative_US_cases
+Title: Cumulative US cases
+Description: Total number of confirmed cases is US.~
+~
+(38 cases preceed the daily numbers entered. I did not include those early cases that were tagged as US cases before the trend started here. )
+Definition: Cumulate(US_Daily_cases, Time, passNull:true) + 18+20
+NodeLocation: 104,280,1
+NodeSize: 56,24
+ValueState: 2,308,314,511,431,1,MIDM
+GraphSetup: Graph_HLabelRotation:45
+
+Variable Cum_log_intercept
+Title: Cum log intercept
+Definition: ComputedBy(Cum_growth_rate)
+NodeLocation: 248,216,1
+NodeSize: 48,24
+
+Variable Cum_growth_rate
+Title: Cum growth rate
+Definition: Local (m,b) := Regression( ln(Cumulative_US_cases), Time, Time );~
+Cum_log_intercept := b;~
+m
+NodeLocation: 248,280,1
+NodeSize: 56,24
+
+Variable Extrapolated_Cum_cas
+Title: Extrapolated Cum cases
+Definition: exp( Cum_growth_rate * Time + Cum_log_intercept )
+NodeLocation: 248,352,1
+NodeSize: 56,24
+ValueState: 2,178,310,743,424,1,MIDM
+GraphSetup: Att_GraphValueRange Extrapolated_Cum_cas:1,,,,1~
+Graph_HLabelRotation:45
+
+Variable Compare1
+Definition: [Cumulative_US_cases,Extrapolated_Cum_cas]
+NodeLocation: 104,352,1
+NodeSize: 48,24
+ValueState: 2,240,174,744,603,1,MIDM
+GraphSetup: Att_GraphIndexRange Time:1,,0,,,,,42414,42446.63945746422,0~
+Att_GraphValueRange Compare1:1,,,,1~
+Graph_HLabelRotation:45
+
+Variable Extrapolated_daily_c
+Title: Extrapolated daily cases
+Definition: Extrapolated_Cum_cas * Cum_growth_rate
+NodeLocation: 408,216,1
+NodeSize: 56,24
+ValueState: 2,238,205,661,576,1,MIDM
+GraphSetup: Graph_HLabelRotation:45~
+Att_GraphValueRange Extrapolated_daily_c:1,,,,1
+
+Variable Compare2
+Definition: [US_Daily_cases,Extrapolated_daily_c]
+NodeLocation: 408,352,1
+NodeSize: 48,24
+ValueState: 2,246,169,725,623,1,MIDM
+GraphSetup: Graph_HLabelRotation:45~
+Att_ContLineStyle Graph_Primary_Valdim:5~
+Att_GraphValueRange Compare2:1,,,,1
+{!50200|Att_KeyVisState: [Compare2:[1: 1,2: 2]]}
+
+Variable Compare3
+Title: Total number of deaths, US
+Description: A graph of the actual numbers for total deaths in the US (as reported by <a href="https://www.worldometers.info/coronavirus/country/us/">Worldometers.info</a>), along with an simple extrapolation of the current exponential trend.
+Definition: [Cumulative_deaths_US,Extrapolated_Cum_dea]
+NodeLocation: 544,120,1
+NodeSize: 48,32
+ValueState: 2,43,121,787,505,1,MIDM
+Aliases: FormNode Fo701902653
+GraphSetup: Att_GraphIndexRange Time:1,,0,,,,,42428.59457293153,42519.85141414404,0~
+Att_ContLineStyle Graph_Primary_Valdim:5~
+Att_GraphValueRange Compare3:1,,1,,1,,20,11527658.658716327,499999999.99999994,0~
+Graph_HLabelRotation:45
+NumberFormat: 2,I,4,2,1,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!50200|Att_KeyVisState: [Compare3:[1: 1,2: 2]]}
+
+Variable Number_that_will_die
+Title: Number that will eventually die, US
+Description: The current numbers for total deaths in the US lifted left by 14 days to approximate the number of people who already have COVID-19 and have either already died from it or will eventually die from it.  This is based only on the current trend, but is perhaps a better depiction of the actual current situation on a given date.
+Definition: LocalIndex T / "Time1" := CopyIndex(Time) - 14;~
+Compare3[Time=T+14]
+NodeLocation: 544,208,1
+NodeSize: 48,40
+ValueState: 2,629,132,670,525,1,MIDM
+Aliases: FormNode Fo64368445
+GraphSetup: Graph_HLabelRotation:45~
+Att_GraphValueRange Number_that_will_die:1,,1,,1,,20,11527658.658716327,499999999.99999994,0~
+Att_ContLineStyle Graph_Primary_Valdim:5~
+Att_GraphIndexRange Time:1,,0,,,,,42424.390441417694,42473.64042472839,0~
+Att_GraphIndexRange .Time1:1,,0,,,,20,42414.3544588685,42474,0
+NumberFormat: 2,I,4,2,1,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!50200|Att_KeyVisState: Table(«Nullindex»,«Nullindex»)(~
+1,2)}
+
+Close Deaths_US_data
+
+Module Reported_parameters
+Title: Reported parameters
+Author: Lonnie
+Date: Fri, Mar 20, 2020 3:24 PM
+NodeLocation: 336,48,1
+NodeSize: 56,24
+DiagState: 2,1319,110,658,332,17
+
+Index R0_report_No
+Title: R0 report #
+Definition: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]
+NodeLocation: 104,64,1
+NodeSize: 48,24
+{!40300|Att_SlicerPopupSize: 232,406}
+Att_PrevIndexValue: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]
+
+Index Val_L_H
+Title: Val L H
+Definition: ['Value','Low','High']
+IndexVals: ['item 1']
+NodeLocation: 104,128,1
+NodeSize: 48,24
+{!40300|Att_SlicerPopupSize: 232,80}
+Att_PrevIndexValue: ['Value','Low','High']
+
+Variable R0_reports
+Title: R0 reports
+Definition: Table(R0_report_No,Val_L_H)(~
+2.24,1.96,2.55,~
+0.3,0.17,0.44,~
+3.6,3.2,4.2,~
+3.58,1.29,8.46,~
+1.27,1.19,1.36,~
+1.59,1.42,1.78,~
+4.8,3.36,6.67,~
+4.6,3.56,5.65,~
+5.14,4.25,6.03,~
+6.09,5.02,7.16,~
+7.09,5.84,8.35,~
+3.25,2.37,4.14,~
+3.13,2.5,3.76,~
+3.42,2.91,3.93,~
+3.96,3.36,4.57,~
+4.58,3.81,5.35,~
+2.2,2.1,2.4,~
+1.44,1.4,1.47,~
+2.1,2,2.2,~
+3.2,2.7,3.7,~
+7.05,6.11,8.18,~
+2.4,2.2,2.6,~
+2.45,2.4,2.5,~
+1.48,1.48,1.48,~
+2.5,2,3.1,~
+2.6,1.5,3.5,~
+2.2,1.4,3.8)
+NodeLocation: 232,64,1
+NodeSize: 48,24
+DefnState: 2,259,39,416,303,0,DFNM
+ValueState: 2,195,81,619,487,1,MIDM
+GraphSetup: Graph_SymbolKey:1~
+Att_ContLineStyle Graph_Primary_Valdim:5~
+Att_GraphIndexRange R0_report_No:1,0~
+BarOverlap:100~
+Att__BarOrigin R0_reports:0~
+Att_StackedBar Graph_Primary_Valdim:0~
+Flip:8
+ReformVal: [Date_type,R0_report_No]
+Att__TotalsIndex: [R0_report_No]
+Att_ResultSliceState: [Val_L_H,1,R0_report_No,-1,R0_report_No,-1,Date_type,2]
+Att_XRole: 2
+Att_ColorRole: 1
+Att_SymbolRole: Date_type
+Att_OriginRole: Slice(Val_L_H,Val_L_H,1)
+Att_ExogenousValues: [R0_Country,R0_Report_Dates]
+{!40600|Att_ClusterIndex: Val_L_H}
+
+Variable R0_Report_Dates
+Title: R0 Report Dates
+Definition: Table(R0_report_No,Date_type)(~
+10-Jan-2020,24-Jan-2020,27-Jan-2020,~
+9-Jan-2020,11-Jan-2020,22-Jan-2020,~
+19-Feb-2020,29-Feb-2020,10-Mar-2020,~
+19-Feb-2020,29-Feb-2020,10-Mar-2020,~
+31-Dec-2019,26-Feb-2020,8-Mar-2020,~
+31-Dec-2019,27-Feb-2020,8-Mar-2020,~
+11-Jan-2020,16-Jan-2020,3-Mar-2020,~
+11-Jan-2020,17-Jan-2020,3-Mar-2020,~
+11-Jan-2020,18-Jan-2020,3-Mar-2020,~
+11-Jan-2020,19-Jan-2020,3-Mar-2020,~
+11-Jan-2020,20-Jan-2020,3-Mar-2020,~
+11-Jan-2020,16-Jan-2020,3-Mar-2020,~
+11-Jan-2020,17-Jan-2020,3-Mar-2020,~
+11-Jan-2020,18-Jan-2020,3-Mar-2020,~
+11-Jan-2020,19-Jan-2020,3-Mar-2020,~
+11-Jan-2020,20-Jan-2020,3-Mar-2020,~
+20-Jan-2020,20-Feb-2020,2-Mar-2020,~
+22-Jan-2020,12-Feb-2020,18-Feb-2020,~
+8-Dec-2019,24-Jan-2020,17-Feb-2020,~
+8-Dec-2019,24-Jan-2020,17-Feb-2020,~
+31-Dec-2019,23-Jan-2020,13-Feb-2020,~
+1-Dec-2019,23-Jan-2020,11-Feb-2020,~
+17-Dec-2019,6-Feb-2020,8-Feb-2020,~
+17-Dec-2019,6-Feb-2020,8-Feb-2020,~
+8-Dec-2019,26-Jan-2020,27-Jan-2020,~
+31-Dec-2019,18-Jan-2020,24-Jan-2020,~
+27-Nov-2019,18-Jan-2020,23-Jan-2020)
+NodeLocation: 232,128,1
+NodeSize: 48,24
+
+Index Date_type
+Title: Date type
+Definition: ['Start date','End date','Published date']
+NodeLocation: 104,192,1
+NodeSize: 48,24
+Att_PrevIndexValue: ['Start date','End date','Published date']
+
+Variable R0_report_location
+Title: R0 report location
+Definition: Table(R0_report_No)('Wuhan City','Wuhan City','NA','NA','NA','Tianjin','Mainland China','Mainland China','Mainland China','Mainland China','Mainland China','Mainland China','Mainland China','Mainland China','Mainland China','Mainland China','Diamond Princess Cruise Ship','Wuhan','NA','NA','Wuhan','China','Mainland China','Mainland China','Wuhan City','Wuhan City','Wuhan City')
+NodeLocation: 232,192,1
+NodeSize: 48,24
+
+Index Reported_fields
+Att_PrevIndexValue: ['Value','Low','High','Country','Location','Start date','End date','Published date']
+Title: Reported fields
+Definition: Concat(Val_L_H, Concat(Concat('Country','Location'),Date_type))
+NodeLocation: 368,64,1
+NodeSize: 48,24
+
+Variable R0_Edit_table
+Title: R0 Edit table
+Definition: MultiTable(Reported_fields)(R0_reports[Val_L_H=Reported_fields],R0_reports[Val_L_H=Reported_fields],R0_reports[Val_L_H=Reported_fields],R0_country,R0_report_location,R0_Report_dates[Date_type=Reported_fields],R0_Report_dates[Date_type=Reported_fields],R0_Report_dates[Date_type=Reported_fields])
+NodeLocation: 368,128,1
+NodeSize: 48,24
+DefnState: 2,192,103,960,681,0,DFNM
+ReformDef: [Reported_fields,R0_report_No]
+{!50000|Att_ColumnWidths: [,Reported_fields,\([,,66])]}
+
+Variable R0_ranges
+Title: R0 ranges
+Definition: R0_reports
+NodeLocation: 512,112,1
+NodeSize: 48,24
+ValueState: 2,281,13,611,689,1,MIDM
+Aliases: FormNode Fo795750205
+GraphSetup: BarOverlap:100~
+Att_StackedBar Graph_Primary_Valdim:0~
+Att__BarOrigin R0_ranges:0~
+{!50000|Graph_SortBySpread:1}~
+Att_GraphValueRange R0_ranges:1,,,,,,10~
+Att_GraphIndexRange R0_report_No:1,,,,,,10~
+Flip:8~
+Att_ForceCategorical Graph_Primary_Valdim:1
+ReformVal: [R0_report_No,Val_L_H]
+Att_OriginRole: Slice(Val_L_H,Val_L_H,1)
+{!40600|Att_ClusterIndex: Val_L_H}
+
+Variable R0_Country
+Title: R0 Country
+Definition: Table(R0_report_No)('China','China','Iran','Iran','Singapore','China','China','China','China','China','China','China','China','China','China','China','Diamond Princess','China','China','China','China','China','China','China','China','China','China')
+NodeLocation: 232,248,1
+NodeSize: 48,24
+DefnState: 2,372,94,416,587,0,DFNM
+
+Variable Is_end_date
+Title: Is end date
+NodeLocation: 376,224,1
+NodeSize: 48,24
+
+Variable R0_report_with_date_
+Title: R0 report with date collected
+Definition: R0_reports
+NodeLocation: 512,40,1
+NodeSize: 48,32
+DefnState: 2,259,39,416,303,0,DFNM
+ValueState: 2,195,81,619,487,1,MIDM
+Aliases: FormNode Fo1131294525
+GraphSetup: Graph_SymbolKey:1~
+Att_ContLineStyle Graph_Primary_Valdim:5~
+Att_GraphIndexRange R0_report_No:1,0~
+BarOverlap:100~
+Att__BarOrigin R0_report_with_date_:0~
+Att_StackedBar Graph_Primary_Valdim:0~
+Flip:8
+ReformVal: [Date_type,R0_report_No]
+Att__TotalsIndex: [R0_report_No]
+Att_ResultSliceState: [Val_L_H,1,R0_report_No,-1,R0_report_No,-1,Date_type,2]
+Att_XRole: 2
+Att_ColorRole: 1
+Att_SymbolRole: Date_type
+Att_OriginRole: Slice(Val_L_H,Val_L_H,1)
+Att_ExogenousValues: [R0_Country,R0_Report_Dates]
+{!40600|Att_ClusterIndex: Val_L_H}
+
+Close Reported_parameters
+
+Module China
+Title: China
+Author: Lonnie
+Date: Fri, Mar 20, 2020 3:24 PM
+NodeLocation: 488,48,1
+NodeSize: 48,24
+DiagState: 2,71,33,664,382,17
+
+Index Decline_date
+Title: Date
+Definition: [18-Feb-2020,19-Feb-2020,20-Feb-2020,21-Feb-2020,22-Feb-2020,23-Feb-2020,24-Feb-2020,25-Feb-2020,26-Feb-2020,27-Feb-2020,28-Feb-2020,29-Feb-2020,1-Mar-2020,2-Mar-2020,3-Mar-2020,4-Mar-2020,5-Mar-2020,6-Mar-2020,7-Mar-2020,8-Mar-2020,9-Mar-2020,10-Mar-2020,11-Mar-2020,12-Mar-2020,13-Mar-2020,14-Mar-2020,15-Mar-2020,16-Mar-2020,17-Mar-2020,18-Mar-2020,19-Mar-2020,20-Mar-2020,21-Mar-2020,22-Mar-2020]
+NodeLocation: 120,72,1
+NodeSize: 48,24
+Att_PrevIndexValue: [18-Feb-2020,19-Feb-2020,20-Feb-2020,21-Feb-2020,22-Feb-2020,23-Feb-2020,24-Feb-2020,25-Feb-2020,26-Feb-2020,27-Feb-2020,28-Feb-2020,29-Feb-2020,1-Mar-2020,2-Mar-2020,3-Mar-2020,4-Mar-2020,5-Mar-2020,6-Mar-2020,7-Mar-2020,8-Mar-2020,9-Mar-2020,10-Mar-2020,11-Mar-2020,12-Mar-2020,13-Mar-2020,14-Mar-2020,15-Mar-2020,16-Mar-2020,17-Mar-2020,18-Mar-2020,19-Mar-2020,20-Mar-2020,21-Mar-2020,22-Mar-2020]
+
+Variable Daily_deaths_in_Chin
+Title: Daily deaths in China during suppression phase
+Description: The actual numbers of reported deaths in China from COVID-19 during decay phase resulting from China's suppression strategy's strict lock down measures.
+Definition: Table(Decline_date)(136,114,118,109,97,150,71,52,29,44,47,35,42,31,38,31,30,28,27,22,17,22,11,7,13,10,14,13,11,8,3,7,6,9)
+NodeLocation: 128,160,1
+NodeSize: 64,40
+WindState: 2,80,386,860,356
+DefnState: 2,67,5,397,765,0,DFNM
+ValueState: 2,390,55,587,464,1,MIDM
+Aliases: FormNode Fo460730173
+GraphSetup: Att_GraphValueRange Daily_deaths_in_Chin:1,,,,1~
+Graph_ColorSeq:[49344,49344,49344,21074,21845,40092,31611,44718,25443,65535,46774,19018,34952,29298,56540,29298,53713,56540,56540,29298,55769,53456,44975,25186,65535,0,0,0,0,65535,65535,46003,65535,0,65535,65535,0,32896,0,65535,42405,0,0,0,35723,42405,10794,10794,65535,49344,52171,65535,65535,0,0,65535,0,32896,0,0,28784,32896,37008,0,32896,32896,32896,0,32896,37008,61166,37008,0,0,0]~
+Att_ForceCategorical Graph_Primary_Valdim:1~
+{!50007|Graph_BarOutline:0}~
+Graph_HLabelRotation:45~
+Grid:0
+ReformDef: [Undefined,Decline_date]
+{!50103|OnGraphDraw: Local (x,y) := GraphToCanvasCoord(info, roles, Decline_date, China_decline_fit );~
+CanvasDrawLine(canv, x,y, x[@Decline_date=@Decline_date-1], y[@Decline_date=@Decline_date-1], color:'cyan', dash:'Dash', width:2 )}
+
+Variable China_decline_rate
+Title: China decline rate
+Definition: Local (m,b) := Regression( ln(Daily_deaths_in_Chin), Decline_date, Decline_date);~
+China_decline_offset := b;~
+m
+NodeLocation: 264,160,1
+NodeSize: 48,32
+ValueState: 2,360,17,416,303,,MIDM
+
+Variable Va2
+Definition: 330M * 20% * 0.5%  {IFR}
+NodeLocation: 120,304,1
+NodeSize: 48,24
+
+Variable China_decline_offset
+Title: China decline offset
+Definition: ComputedBy(China_decline_rate)
+NodeLocation: 264,56,1
+NodeSize: 48,32
+
+Variable China_decline_fit
+Title: China decline fit
+Definition: Exp(China_decline_offset + China_decline_rate*Decline_date)
+NodeLocation: 392,160,1
+NodeSize: 48,24
+ValueState: 2,324,330,416,303,1,MIDM
+
+Close China
+
+Module US_Age_distribution
+Title: US Age distribution
+Author: Lonnie
+Date: Fri, Mar 20, 2020 3:24 PM
+NodeLocation: 616,48,1
+NodeSize: 56,24
+DiagState: 2,243,198,737,389,17
+
+Index Age_group
+Title: Age group
+Definition: ['0-9','10-19','20-29','30-39','40-49','50-59','60-69','70-79','>80']
+NodeLocation: 192,64,1
+NodeSize: 48,24
+Att_PrevIndexValue: ['0-9','10-19','20-29','30-39','40-49','50-59','60-69','70-79','>80']
+
+Constant US_Pop_by_age
+Title: US Pop by age
+Definition: Table(Age_group)(40.4820871798007M,42.46521366998839M,45.96603900470746M,44.20550834505105M,40.93739683316012M,43.335361007519715M,37.85140918261295M,22.927370544720914M,12.829614232438711M)
+NodeLocation: 320,64,1
+NodeSize: 48,24
+WindState: 2,608,91,720,350
+ValueState: 2,262,36,564,391,0,MIDM
+Att__TotalsIndex: []
+
+Variable IFR
+Title: Incidence Infection Rate (IFR)
+Definition: Table(Age_group)(20u,60u,300u,800u,1.5m,6m,0.022,0.051,0.093)
+NodeLocation: 192,144,1
+NodeSize: 48,32
+DefnState: 2,340,346,416,303,0,DFNM
+ValueState: 2,354,339,265,270,,MIDM
+Aliases: FormNode Fo659435325
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40700|Att_CellFormat: Undefined}
+
+Variable Percent_who_contract
+Title: Percent who contract
+Definition: DetermTable(Infection_scenario,Age_group)(~
+0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,~
+0.54,0.54,0.54,0.54,0.1,0.1,0.1,0.1,0.1)
+NodeLocation: 192,208,1
+NodeSize: 56,24
+WindState: 2,255,148,720,350
+DefnState: 2,244,250,575,348,0,DFNM
+ValueState: 2,1228,334,416,303,1,MIDM
+Aliases: FormNode Fo522071869
+ReformDef: [Domain of Infection_scenario,Age_group]
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Domain: DomContinuous
+{!40300|DomainExpr: Continuous()}
+
+Variable Deaths_by_age_group
+Title: Deaths by age group
+Definition: US_Pop_by_age * IFR * Percent_who_contract 
+NodeLocation: 320,176,1
+NodeSize: 48,24
+WindState: 2,476,170,720,350
+ValueState: 2,14,197,836,475,1,MIDM
+Aliases: FormNode Fo1892560701
+GraphSetup: Grid:0~
+Att_GraphValueRange Deaths_by_age_group:1,,,,0~
+Att_CatLineStyle Graph_Primary_Valdim:9~
+Graph_HLabelRotation:45
+NumberFormat: 2,D,2,2,0,0,2,0,$,0,"ABBREV",0,,,0,0,15
+Att__TotalsIndex: [Age_group]
+{!50103|OnGraphDraw: Plot_point_labels(canv,info,roles,~
+	NumberToText( self, 'Suffix', 3),~
+	'Center', 'Bottom', fontSize:8)}
+
+{!40404|FreePassObjectCount 2Ll9YsTTy4LOtuYSKiBauB5C25S3dAkhz$rvvQqPvSjqux$dM$VySTNSSVrwycQrptulPB082pFNH1usP$Y8If0Fn5G6k1Fe0zzwwUF0fbGu8YZ7nOr5b2N$MgcxL2jIk7TkmlbKM7rBommO7vCc0DAPxFQGW$OWl1qkeLoXZN2O64vb65NmvZqeYP6cNRH_M7z6DE6zdBhBXiAQXJUo48SYZF0t1zmE6HB2mZLKsBFUSQH70CA$VDKRD6rHoKvnRy8fQ8rZ0MWfoqvHNO4vGGWklhNtbFQUj0c_D7P1Gg$osnV_S$brDeA9$soX5lkz9KifJpeY$MZt79_gAc9d7QYmpR8$AbzKippdQD1Wktz4CNsbHye6QbdUcFnQpUTiu3FD1iEbDat1u2jHyNk2AxCYwIh6XzPtMsNuR_Y8kLzcFwbI$jSCzlYMA0skcVPKGDB999BDGKPVbiq_8JViw9PgyEXqAWtFd1StKoGlFmHqNyX8lN1gL1kSBwgRD$qeULC5_vqmjgfefgjmpuz4BJScn_BPdu8Qj1Mh2PoBb0RuLqJpLtQ$Z9mO0gK$hO6raL7viWLB2wpjeZWTRPQRSVYchmt$7HRdq1FVl0JcwFbyKi6VwNqInHnJsPzZ9mO1hM2kR8uePB_ocSIA2xrliecbabdfimrx2AIRcmzAOdt8Qi0Lg0Nm8XyOqImFlGoLvT3fHvZDuaG_jTE$naPE3wogaUPMJHHHHJMPUZgnv2CNZlzBQhyEXrAWtEc$PrHkBgAgClIsR1eGuYCuaH$lVG2qeSI8$umhbXTR}
+Library OnGraphDraw_annotati
+Title: OnGraphDraw annotations
+Description: A collection of functions for use in the OnGraphDraw attribute to create various graphs and annotations.~
+~
+To use any of these, you need to first make the OnGraphDraw attribute visible in the Object Window. To do this, select "Attributes..." from the Object menu, and place a check next to OnGraphDraw. For a given chart, edit its OnGraphDraw attribute from the Object Window.~
+~
+See the description of each function for instructions on how to use.
+Author: Lonnie Chrisman Ph.D.~
+Lumina Decision Systems
+Date: Thu, Mar 14, 2019 10:47 AM
+NodeLocation: 464,64,1
+NodeSize: 72,24
+NodeInfo: 1,,,,,,0,0,,,,,,0
+DiagState: 2,41,33,501,369,17
+WindState: 2,641,84,720,350
+Att_PreLoadScript: {!40404|FreePassObjectCount 2Ll9YsTTy4LOtuYSKiBauB5C25S3dAkhz$rvvQqPvSjqux$dM$VySTNSSVrwycQrptulPB082pFNH1usP$Y8If0Fn5G6k1Fe0zzwwUF0fbGu8YZ7nOr5b2N$MgcxL2jIk7TkmlbKM7rBommO7vCc0DAPxFQGW$OWl1qkeLoXZN2O64vb65NmvZqeYP6cNRH_M7z6DE6zdBhBXiAQXJUo48SYZF0t1zmE6HB2mZLKsBFUSQH70CA$VDKRD6rHoKvnRy8fQ8rZ0MWfoqvHNO4vGGWklhNtbFQUj0c_D7P1Gg$osnV_S$brDeA9$soX5lkz9KifJpeY$MZt79_gAc9d7QYmpR8$AbzKippdQD1Wktz4CNsbHye6QbdUcFnQpUTiu3FD1iEbDat1u2jHyNk2AxCYwIh6XzPtMsNuR_Y8kLzcFwbI$jSCzlYMA0skcVPKGDB999BDGKPVbiq_8JViw9PgyEXqAWtFd1StKoGlFmHqNyX8lN1gL1kSBwgRD$qeULC5_vqmjgfefgjmpuz4BJScn_BPdu8Qj1Mh2PoBb0RuLqJpLtQ$Z9mO0gK$hO6raL7viWLB2wpjeZWTRPQRSVYchmt$7HRdq1FVl0JcwFbyKi6VwNqInHnJsPzZ9mO1hM2kR8uePB_ocSIA2xrliecbabdfimrx2AIRcmzAOdt8Qi0Lg0Nm8XyOqImFlGoLvT3fHvZDuaG_jTE$naPE3wogaUPMJHHHHJMPUZgnv2CNZlzBQhyEXrAWtEc$PrHkBgAgClIsR1eGuYCuaH$lVG2qeSI8$umhbXTR}
+
+Function Plot_Tukey_bars(canv, info, roles : reduced ; showMean : boolean atom=false)
+Title: Plot Tukey bars~
+(canv, info, roles, showMean )
+Description: Draws Tukey-bars on a graph that has a categorical X-axis and is displaying a probability bands graph.~
+To use, set the OnGraphDraw attribute to:~
+~
+	continue := Plot_Tukey_bars( canv, info, roles, showMean:true )~
+~
+And set the flags for OnGraphDraw to "after axes, before data".  You don't have to include the showMean:true option, but when you do, the mean is also shown as a dot on the graph.~
+~
+To see the Tukey bars, view the Bands result view. Set Key to None and then set the .Probability slicer to «All», which eliminates the key. It is better without the key since the colors displayed in the key don't apply to this depiction of the data.
+Definition: Local phase := info[OnGraphDrawItem='Phase'];~
+LocalAlias main := info[OnGraphDrawItem='Result'];~
+~
+if info[OnGraphDrawItem='ViewMode']<>'Bands' or phase<4 ~
+		{or info[OnGraphDrawItem='SwapXY']}~
+		or handle(main) <> roles[GraphingRole='Y axis',GraphFillerInfo='Source']~
+		or not roles[GraphingRole='X axis',GraphFillerInfo='Categorical']~
+Then ~
+	True ~
+else begin~
+	LocalAlias xCats := (roles[GraphingRole='X axis',GraphFillerInfo='Source']); ~
+	Local yAxis := roles[GraphingRole='Y axis'];~
+	Local val := #yAxis[GraphFillerInfo='Value'];~
+	if SetContains( \IndexNames(val), ".Probability" ) Then (~
+		Local clip := Clip_to_PlotArea(canv,info); ~
+		OCD_Draw_tukey_bar( clip, info, roles, xCats, val, val.probability );~
+		if showMean then (~
+			OGD_Plot_points(clip,info,roles,Mean(main))~
+		);~
+		False~
+	) else (~
+		True~
+	)~
+end
+NodeLocation: 296,100,1
+NodeSize: 160,24
+WindState: 2,270,27,850,741
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Function plot_error_bars(canv, info, roles, spread )
+Title: Plot error bars~
+(canv, info, roles, spread )
+Description: Use this function in the OnGraphDraw attribute to plot error bars around data points. Error bars are vertical lines that extend above and below a data point to visually indicate a range of uncertainty. The annotation is usually applied to a line-symbol chart where only one line is present, or less commonly to a vanilla bar chart.~
+~
+To use, in the OnGraphDraw attribute:~
+• Turn on "Evaluate before drawing" AND "Evaluate after fully drawn".~
+• Calculate a spread for your variable. A common choice is: SDeviation(Self).~
+• Set the OnGraphDraw expression ~
+~
+	If info[ OnGraphDrawItem='ViewMode']='Mean' Then ~
+		roleChanges := plot_error_bars(canv, info, roles, phase, spread:SDeviation(Self));~
+~
+• Note: You can substitute your own spread expression.~
+• Note: Error bars with spread:SDeviation(Self) are usually appropriate only from the Mean result view.~
+~
+The annotation works with a linear or log-scaled continuous Y-axis showing the variable's mean value. It also works with Swap XY (in which case the error bars are horizontal).
+Definition: Local yRole := roles[GraphingRole='Y axis'];~
+Local yPt := #yRole[GraphFillerInfo='Value'];~
+Local roleChanges := null;~
+Local phase := info[OnGraphDrawItem='Phase'];~
+~
+if phase = 2 and yRole[GraphFillerInfo='Autoscale'] then (~
+	roleChanges[GraphingRole='Y axis', GraphFillerInfo='IncludeInAutoscale'] := \([yPt+spread,yPt-spread]);~
+) else if phase=8 then (~
+	Local ticW:=4, ticH:=0;~
+	If info[ OnGraphDrawItem='SwapXY'] Then ( ticW:=0; ticH:=4 );~
+	Local xPt := #roles[GraphingRole='X axis', GraphFillerInfo='Value'];~
+	Local (xUp,yUp) := GraphToCanvasCoord(info,roles,xPt,yPt+spread); ~
+	Local (xDn,yDn) := GraphToCanvasCoord(info,roles,xPt,yPt-spread);~
+	Local clip := Clip_to_plotArea(canv,info);~
+	CanvasDrawLine(clip,xUp,yUp,xDn,yDn);~
+	CanvasDrawLine(clip,xUp-ticW,yUp-ticH,xUp+ticW,yUp+ticH);~
+	CanvasDrawLine(clip,xDn-ticW,yDn-ticH,xDn+ticW,yDn+ticH);~
+);~
+roleChanges
+NodeLocation: 296,40,1
+NodeSize: 160,24
+WindState: 2,655,4,1073,627
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Module ODG_Examples
+Title: Examples
+Description: Contains examples that demonstrate the use of the functions in this library. In all cases, the calls to the functions are in the OnGraphDraw attribute.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Thu, Mar 14, 2019 11:43 AM
+NodeLocation: 64,120,1
+NodeSize: 48,24
+DiagState: 2,79,276,812,349,17
+
+Constant OGD_mean_for_ex1
+Title: mean for example1
+Definition: exp(cumulate( random(normal(0,1,over:OGD_Cat)), OGD_Cat ) )
+NodeLocation: 104,48,1
+NodeSize: 48,24
+ValueState: 2,863,439,662,340,,MIDM
+
+Constant OGD_sdev_for_ex1
+Title: sdev for example1
+Definition: random(Uniform(1,3,over:OGD_Cat))
+NodeLocation: 104,112,1
+NodeSize: 56,32
+
+Chance ODG_Example_1
+Title: Example of Tukey and Error Bars
+Description: This demonstrates Error bars in Mean result view and Tukey bars in Bands view, and data point labels in Mid and Mean views.~
+~
+The data is random, but constructed so that the standard deviation varies with time, so that the error bar spread varies with each point.~
+~
+Tukey plots require Evaluate after axes, before data.  Error bars require before drawing (to adjust y-axis scale when autoscaled to include the error bar extent) and after fully drawn. Point annotation requires after fully drawn.
+Definition: Local s := Normal(mean:Mid(OGD_mean_for_ex1),stddev:Mid(OGD_sdev_for_ex1)); ~
+s + s^2/20
+NodeLocation: 264,80,1
+NodeSize: 56,40
+WindState: 2,590,140,852,720
+ValueState: 2,976,121,766,494,1,CONF
+GraphSetup: {!40400|Sys_PdfSmoothMethod:1}~
+{!50007|Graph_BarOutline:0}~
+ProbIndex:[0,0.05,0.25,0.5,0.75,0.95,1]~
+BarOverlap:100~
+Att_StackedBar Graph_Primary_Valdim:0~
+Att__BarOrigin ODG_Example_1:0~
+Att_GraphValueRange ODG_Example_1:1,0,1,,0,,10,0.21974563971161842,3.1039571464061737,0~
+Att_GraphIndexRange Time:1,1,1,,,,10,2,7,1~
+Grid:0~
+Att_CatLineStyle Graph_Primary_Valdim:5~
+Flip:0
+ReformVal: [OGD_Cat,Null,0,Undefined,1]
+Att__TotalsIndex: [Sys_LocalIndex('Probability')]
+Att_ResultSliceState: [Sys_LocalIndex('Probability'),-1,Time,1]
+Att_ColorRole: Null
+Att_OriginRole: Slice(Sys_LocalIndex('Probability'),5)
+{!40600|Att_ClusterIndex: Sys_LocalIndex('Probability')}
+{!50103|OnGraphDraw: continue := Plot_Tukey_bars(canv,info,roles,  showMean:true);~
+~
+Local view := info[OnGraphDrawItem='ViewMode'];~
+If continue and view='Mean'  ~
+		and info[OnGraphDrawItem='Result']=roles[GraphingRole='Y axis',GraphFillerInfo='Source'] Then~
+	roleChanges := Plot_error_bars( canv, info, roles, spread:SDeviation(Self) );~
+~
+If continue and (view='Mean' or view='Mid') Then (~
+	Plot_point_labels(canv, info, roles, labels:"←<Y axis>", vAlign:'Middle' )~
+)}
+{!50103|onGraphDrawFlagsAtt: 14}
+
+Text ODG_Te1552589030
+Title: Suggestion:
+Description: ~
+When viewing the result for the example to the left:~
+• View its Bands view for an example of Tukey bars~
+• View its Mid view for an example of point annotations.~
+• View its Mean view for an example of error bars.~
+
+NodeLocation: 536,88,-1
+NodeSize: 208,64
+NodeInfo: 1,,,,,1
+NodeColor: 52427,62259,65535
+
+Variable ODG_Lower_bound
+Title: Lower bound
+Definition: 100 * CumProduct(95%,OGD_Time_step)
+NodeLocation: 104,216,1
+NodeSize: 48,24
+ValueState: 2,147,261,549,434,1,MIDM
+
+Variable OGD_Upper_bound
+Title: Upper bound
+Definition: 100 * cumProduct(110%,OGD_Time_step)
+NodeLocation: 104,288,1
+NodeSize: 48,24
+ValueState: 2,206,281,416,303,1,MIDM
+
+Chance OGD_SolidBandExample
+Title: Solid band example
+Description: This node contains two demonstrations.~
+~
+The first demonstration is of filling between bands in a probability bands plot.   This one displays when you view the Bands view.  The code for creating this plot is in the Else case in the OnGraphDraw attribute.~
+~
+The second demonstration is filling a band when you provide a lower and upper bound for the band. For example, you might want to indicate an expected range for data behind the actual plot of your data. This example displays when you view the Mid on Sample views. The code for displaying this band appears in the Then clause in the OnGraphDraw attribute.~
+~
+Both of these shoud be drawn in the "after axes, before data" stage (so they draw in front of the grid lines). Plot_solid_band needs "before drawing" if you want it to adjust the Y-axis autoscale range to include the bounds.
+Definition: If IsSampleEvalMode Then ~
+	100 * CumProduct( 1+Normal(0,8%,over:OGD_Time_step), OGD_Time_step)~
+Else~
+	100 * CumProduct( 1+Random(Normal(0,8%,over:OGD_Time_step)), OGD_Time_step)
+NodeLocation: 232,256,1
+NodeSize: 48,24
+WindState: 2,132,14,720,853
+ValueState: 2,879,24,605,582,1,CONF
+GraphSetup: {!40400|Sys_PdfSmoothMethod:1}~
+Att_ContLineStyle Run:5~
+ProbIndex:[0,0.05,0.25,0.5,0.75,0.95,1]~
+Flip:0
+ReformVal: [Time,Null,2,Undefined,Undefined,2]
+{!50103|OnGraphDraw: Local mode := info[OnGraphDrawItem='ViewMode'];~
+Local xSrc := roles[GraphingRole='X axis', GraphFillerInfo='Source'];~
+~
+if xSrc = Handle(OGD_Time_step) and (mode='Mid' or mode='Sample') Then (~
+~
+	{ This one runs in Mid and Sample views. Demonstrates the use of Plot_solid_band }~
+	{ The before drawing is checked so that this can adjust the Y-axis autoscale. }~
+	roleChanges := Plot_solid_band( canv, info, roles,~
+					OGD_Time_step, ~
+					ODG_Lower_bound, OGD_Upper_bound, OGD_Time_step~
+					{, color:0x8090ee90});~
+~
+) else (~
+~
+	{ This one runs in the Bands view. Demonstrates the use of Plot_solid_prob_bands }~
+	roleChanges := Plot_solid_prob_band( canv, info, roles, transparency:0.5 );~
+~
+)}
+{!50103|onGraphDrawFlagsAtt: 6}
+
+Text OGD_Te1552700284
+Title: Suggestion:
+Description: ~
+The Solid band example demonstrates:~
+• In Bands view, use of Plot_solid_prob_band(). This gathers~
+   all its information automatically from the result.~
+• In Mid and Sample views, use of Plot_solid_band(), which~
+   plots a solid band where you specify the lower and upper~
+   curves.
+NodeLocation: 540,264,-1
+NodeSize: 212,72
+NodeInfo: 1,,,,,1
+NodeColor: 52427,62259,65535
+
+Index OGD_Time_step
+Title: Time step
+Description: A time index used in the example.
+Definition: 0..20
+NodeLocation: 104,360,1
+NodeSize: 48,24
+
+Index OGD_Cat
+Title: Category
+Description: Index for the examples.
+Definition: 'A'..'E'
+NodeLocation: 256,152,1
+NodeSize: 48,16
+WindState: 2,901,79,720,350
+
+Close ODG_Examples
+
+Library OGD_UtilityFunctions
+Title: Utility functions
+Description: This sub-library contains functions that you might find useful when creating your own custom OnGraphDraw code or functions.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Thu, Mar 14, 2019 11:43 AM
+NodeLocation: 64,200,1
+NodeSize: 56,24
+DiagState: 2,94,15,682,353,17
+
+Module OGD_Internals
+Title: OGD_Internals
+Description: Contains helper functions used by the main functions in this library, but not indended for direct use by end-users of this library.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Thu, Mar 14, 2019 10:47 AM
+NodeLocation: 128,280,1
+NodeSize: 72,24
+DiagState: 2,632,73,707,384,17
+
+Function OGD_Plot_points(canv, info, roles, ypoints )
+Title: Plot points
+Definition: Local rxPoints := roles[GraphingRole='X axis', GraphFillerInfo='Value'];~
+if IsReference(rxPoints) then (~
+	Local xPoints := #rxPoints;~
+	Local (x,y) := GraphToCanvasCoord(info,roles,xPoints,yPoints);~
+	Local clip := Clip_to_PlotArea(canv,info);~
+	CanvasDrawEllipse(clip,x-3,y-3,6,6,fillColor:'Black')~
+)
+NodeLocation: 136,184,1
+NodeSize: 96,24
+WindState: 2,112,298,720,350
+
+Function OCD_Draw_tukey_bar( canv, info, roles ; xCat : atom, quantile : [Level] ; Level : Index )
+Title: Draw tukey bar
+Description: Draws a tukey bar.
+Definition: Local swapXY := info[OnGraphDrawItem='SwapXY'];~
+Local xAxis := roles[GraphingRole=if swapXY then 'Y axis' else 'X axis'];~
+Local xSpan := xAxis[GraphFillerInfo='Max']-xAxis[GraphFillerInfo='Min'];~
+Local barWidth := 0.9 * info[OnGraphDrawItem='PlotAreaWidth']/xSpan;~
+Local (x,y) := GraphToCanvasCoord( info,roles, xCat, quantile, cluster:Level);~
+If swapXY Then ( Local t:=x; x:=y; y:=t; );~
+Local x1 := x-barWidth/2, x2 := x+barWidth/2;~
+Local x1i := (x1+x)/2, x2i := (x+x2)/2;~
+~
+LocalIndex I4 := 1..4;~
+Local nextY := y[@Level=@Level+1,defVal:null];~
+Local nextL := Level[@Level=@Level+1,defVal:null];~
+~
+for (lev[], lev2[], iL[], y1[], y2[]) := _(Level, nextL, @Level,y,nextY) Do (~
+	if lev2<>null then ( ~
+		if lev=0 then (~
+			CanvasDrawLine(canv,x1,y1,x2,y1,swapXY:swapXY);~
+			CanvasDrawLine(canv,x, y1,x, y2, swapXY:swapXY);~
+		) else if lev2=1 then (~
+			CanvasDrawLine(canv,x1,y2,x2,y2,swapXY:swapXY);~
+			CanvasDrawLine(canv,x, y1,x, y2,  swapXY:swapXY);~
+		) else if lev=0.5 then (~
+			CanvasDrawPolygon(canv, Array(I4,[x1,x1i,x2i,x2]), Array(I4,[y2,y1,y1,y2]), I4,~
+				fillcolor:0x40eeeeee,lineColor:'black', swapXY:swapXY);~
+		) else if lev2=0.5 then (~
+			CanvasDrawPolygon(canv, Array(I4,[x1,x1i,x2i,x2]), Array(I4,[y1,y2,y2,y1]), I4,~
+				fillcolor:0x40eeeeee,lineColor:'black', swapXY:swapXY);~
+		) else (~
+			CanvasDrawRectangle(canv,x1,Min([y1,y2]),barWidth,abs(y2-y1),~
+				fillcolor:0x40eeeeee,lineColor:'black', swapXY:swapXY);~
+		) ~
+	) ~
+)
+NodeLocation: 136,56,1
+NodeSize: 96,24
+WindState: 2,642,18,1126,882
+
+Function OGD_SubstRoleValues(roles : [GraphingRole, GraphFillerInfo]; pattern : text atom ; caller : handle atom)
+Description: To be used from within OnGraphDraw attribute. Uses a pattern to identify which role values are to be used to form labels.  ~
+~
+«roles» is the role variable supplied to OnGraphDraw.~
+~
+«pattern» is text that contains substitution patterns of the form "<Y axis>", "<X axis>", etc, where the recognized pattern names are the role names in GraphingRoles. When a pattern name appears, the role value is substituted for the template. If the role is unpopulated, uses the empty text.~
+~
+«numFmtObj» is a handle to the object whose number format is to be used to format the values as text.
+Definition: Local labels := pattern;~
+Local role[] := GraphingRole Do (~
+	if FindInText("<"&role&">", pattern) then (~
+		Local rRoleVal := roles[GraphingRole=role,GraphFillerInfo='Value'];~
+		Local roleSrc := roles[GraphingRole=role,GraphFillerInfo='Source'];~
+		Local roleVal:=If IsReference(rRoleVal) Then #rRoleVal else "";~
+		Local numFmt := If IsHandle(roleSrc) Then roleSrc else caller;~
+		Local roleValText := NumberToText( roleVal, getFrom: numFmt);~
+		labels := TextReplace(labels, "<"&role&">", roleValText, all:true, caseInsensitive:false);~
+	)~
+);~
+labels
+NodeLocation: 136,120,1
+NodeSize: 96,24
+NodeInfo: 1,1,1,,,,0,0,,,,,,0
+WindState: 2,210,315,858,549
+
+Close OGD_Internals
+
+Function Clip_to_PlotArea(canv, info)
+Title: Clip to plotArea~
+(canv, info)
+Description: This is a utility function that you might find useful when creating your own annotation code or functions for use in OnGraphDraw. ~
+~
+Returns a drawing canvas clipped to the plot area of the graph. Called from OnGraphDraw, where «canv» and «info» are the local values canv and info provided by the graphing engine to OnGraphDraw.
+Definition: Local (x,y,w,h) := _(...info[OnGraphDrawItem='PlotArea'&['Left','Top','Width','Height']]);~
+CanvasContext(canv, clip:x,y,w+1,h+1)
+NodeLocation: 112,48,1
+NodeSize: 88,24
+WindState: 2,860,51,720,350
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Function Apply_slicers_to_val(info : [OnGraphDrawItem] ; val)
+Title: Apply slicers to val~
+(info, val)
+Description: Uses the current slicer settings to slice val to value selected by the slicers of a graph. If any slicers are set to «Totals», it sums over those.~
+~
+Called from within the OnGraphDrawItem. «info» is the local variable by that name supplied to OnGraphDraw.
+Definition: Local slice := #info[OnGraphDrawItem='SlicerPositions'];~
+Local ( h, pos ) := _(slice.Slicer, slice) Do (~
+	LocalAlias I := h;~
+	val := val[ I = pos];~
+);~
+Local totInds := #info[OnGraphDrawItem='SlicersAtTotal'];~
+if size(totInds)>0 then ~
+	val := Sum(val, ...totInds);~
+val
+NodeLocation: 112,104,1
+NodeSize: 88,24
+WindState: 2,844,14,720,350
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Close OGD_UtilityFunctions
+
+Function Plot_point_labels(canv, info, roles; labels : coerce text orNull optional ; hAlign:text = 'Left' ; vAlign:text='Middle' ; fontSize:optional)
+Title: Plot point labels~
+(canv, info, roles, labels, hAlign, vAlign)
+Description: This graph annotations function draws labels on points in a graph. Use this from the OnGraphDraw function.~
+~
+To use this function:~
+• Set OnGraphDraw to evaluate after fully drawn.~
+• In your OnGraphDraw, decide on what labels you want to appear at each point. ~
+• In your OnGraphDraw expression, call: Plot_Point_Labels( canv, info, roles, labels )~
+	where «labels» specifies the labels text.  If labels contains a number, it will be formatted according to the number format for your variable.~
+• Set the number format for your calling variable if you are passing in non-text for labels.~
+~
+You can specify the «labels» in either of two ways.  ~
+Method 1: ~
+	Specify a pattern. In this case, labels in a single atomic text containing the literal text that you want in the label, along with role substitutions. For example, "(<X axis>, <Y axis>)" will show the values for the X-axis and Y-axis roles in parens. The possible substitutions are the names in the GraphingRole index. If you specify a graphing role that is not present (set to blank), the corresponding substitution used will be the empty text. ~
+~
+Example usage: Show the Y-axis value on each point:~
+	Plot_Point_Labels(canv, info, roles, "<Y axis>" )~
+~
+Method 2: ~
+	Provide an array of values. Here you can compute your own labels. When using this method, you can use Self (which is the Sample value of Mid value, depending on context). Be aware that when you use the value of other variables, you may need to use the corresponding view-mode function. For example, in Mean view mode, use Mean(B), not just B.~
+~
+Example usage: Show the Y-axis value on each point:~
+~
+	Local label := #roles[ GraphingRole='Y axis', GraphFillerInfo='Value' ];~
+	Plot_Point_Labels(canv, info, roles, label )
+Definition: if (info[OnGraphDrawItem='Phase'] = 8 /*after fully drawn*/) then (~
+	Local xPt := #roles[GraphingRole='X axis', GraphFillerInfo='Value'];~
+	Local yPt := #roles[GraphingRole='Y axis', GraphFillerInfo='Value'];~
+	Local cluster := roles[GraphingRole='Cluster', GraphFillerInfo='Value'];~
+	cluster := if IsReference(cluster) then #cluster else null;~
+~
+	Local (xLabel,yLabel) := GraphToCanvasCoord(info,roles,xPt,yPt,cluster:cluster);~
+	if size(labels)=1 then (~
+		labels := OGD_SubstRoleValues(roles, labels, HandleFromIdentifier("_Caller"))~
+	) else (~
+		labels := Apply_slicers_to_val(info, labels);~
+	);~
+	CanvasDrawText(canv, labels, xLabel, yLabel, hAlign:hAlign, vAlign:vAlign, fontSize:fontSize)~
+)
+NodeLocation: 296,160,1
+NodeSize: 160,24
+WindState: 2,103,-22,814,741
+{!40500|ParameterEnumeration: hAlign~
+	'Left'|Text left-aligned to point -- i.e., points to the left of labels~
+	'Center'|Labels horizontally centered on point~
+	'Right'|Points to the right of labels~
+vAlign~
+	'Top'|Text vertically top-aligned to points -- i.e., points are at the top of the labels~
+	'Middle'|Text vertically centered to points.~
+	'Bottom'|Text vertically bottom-aligned to points.}
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Function Plot_solid_band( canv :atom ; info : [OnGraphDrawItem]; roles :[GraphingRole,GraphFillerInfo] ; ~
+x, lowerY, upperY : [I] ; I : index ; color : color atom = 0x80FFFF00 )
+Title: Plot solid band~
+(canv, info, roles, x, lowerY, upperY, color )
+Description: Plots a solid band between a «lower» and «upper» curve in the given «color» behind the data from an OnGraphDraw attribute expression. To use, enable both "Evaluate before drawing" and "Evaluate after axes, before data".  In your call, you should do an IF on the view mode of interest, for example:~
+~
+	If info[OnGraphDrawItem='ViewMode']='Sample' Then~
+		roleChanges := Plot_Solid_Band( canv, info, roles, x, lowerY, upperY, x, 'LightGreen' )
+Definition: Local xx := Concat(x,Reverse(x,I),I,I);~
+Local yy := Concat(lowerY, Reverse(upperY,I), I, I, xx.K);~
+Local swapXY := info[OnGraphDrawItem='SwapXY'];~
+Local phase := info[OnGraphDrawItem='Phase'];~
+Local yAxis := roles[GraphingRole='Y axis'];~
+~
+Local roleChanges[GraphFillerInfo];~
+~
+if phase=4 then (~
+	{ drawing phase }~
+	Local (pixX,pixY) := GraphToCanvasCoord(info,roles,xx,yy);~
+	Local clip := Clip_to_PlotArea(canv, info);~
+	CanvasDrawPolygon( clip, x: pixX, y: pixY, fillColor: color);~
+) else if phase=2 and yAxis[GraphFillerInfo='Autoscale'] Then (~
+	{ rescaling phase }~
+	roleChanges[GraphingRole='Y axis', GraphFillerInfo='IncludeInAutoscale'] := ~
+		\([Min(yy, yy.K), Max(yy, yy.K) ]);~
+);~
+roleChanges
+NodeLocation: 296,220,1
+NodeSize: 160,24
+WindState: 2,74,173,802,735
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Function Plot_solid_prob_band( canv :atom ; info : [OnGraphDrawItem]; roles :[GraphingRole,GraphFillerInfo] ; transparency : nonNegative atom = 0 )
+Title: Plot solid prob bands~
+(canv, info, roles)
+Description: Fills in a solid band behind a probability bands view. To be used from the OnGraphDraw attribute. Usage:~
+~
+• Set "Evaluate before drawing" AND "Evaluate after axes, before data"~
+• Set the OnGraphDraw expression to:~
+~
+	Plot_solid_prob_band( canv, info, roles )~
+~
+• Select the bands view for your result.~
+• Make sure you have Color=.Probability for the pivot.~
+~
+The color for the lower percentile/fractile is used for the fill. For example, for the 5% to 95% fractile, the color for the 5% fractile is used.~
+~
+The optional «transparency» parameter is a number between 0.0 and 1.0, that specifies how much transparency to add to the fills. A value of 0 is fully opaque (no transparency), a value of 1.0 is fully transparent (invisible), and a value of 0.5 is partly transparent. Many people opine that transparency:0.5 looks better, and it is nice because the grid shows through. However, the colors only match the key colors exactly when transparency is 0.
+Definition: Local colorRole := roles[GraphingRole='Color'];~
+Local mode := info[OnGraphDrawItem='ViewMode'];~
+Local colorSrc := colorRole[GraphFillerInfo='Source'];~
+Local bProbKey := colorRole[GraphFillerInfo='Type']='Index' and identifier of (colorSrc) = '.Probability';~
+Local xRole := roles[GraphingRole='X axis'];~
+Local bXisIndex := xRole[GraphFillerInfo='Type']='Index';~
+Local commonRole := If bXisIndex then xRole Else roles[GraphingRole='Common'];~
+Local hasCommon := commonRole[GraphFillerInfo='Type'] = 'Index';~
+Local yRole := roles[GraphingRole='Y axis'];~
+Local bYisMain := yRole[GraphFillerInfo='Source'] = info[OnGraphDrawItem='Result'];~
+Local bCorrectPivot := bYisMain and hasCommon and bProbKey;~
+if transparency<0 or transparency>1 then transparency:=0;~
+Local alpha := BitShift(Floor((1.0-transparency)*254)+1,24,left:true);~
+Local roleChanges := null;~
+~
+if mode='Bands' and bCorrectPivot Then (~
+	LocalAlias common := commonRole[GraphFillerInfo='Source'];~
+	Local y := #yRole[GraphFillerInfo='Value'];~
+	Local n := IndexLength(y.Probability);~
+	LocalIndex Curve := 2..n;~
+	Local yUpper := y[@y.Probability=@Curve];~
+	Local yLower := y[@y.Probability=Curve];~
+	Local x := #roles[GraphingRole='X axis', GraphFillerInfo='Value'];~
+	Local color_i := If @Curve<=n/2 Then @Curve else n - @Curve;~
+	Local keySeq := #colorRole[GraphFillerInfo='ColorSequence'];~
+	Local colorSeq := (keySeq)[@y.Probability=color_i];~
+	{ add some transparency -- I think it looks better, even though it distorts the inner colors some }~
+	colorSeq := BitOr([alpha,BitAnd([0x00ffffff,colorSeq])]);~
+	Plot_solid_band( canv, info, roles, x, yUpper, yLower, common,colorSeq );~
+	Local newKeySeq := keySeq[@y.Probability=Min([@y.Probability, n+1-@y.Probability])];~
+	roleChanges := ~
+		If GraphingRole='Color' and GraphFillerInfo='ColorSequence' Then \newKeySeq else null;~
+);~
+roleChanges
+NodeLocation: 296,280,1
+NodeSize: 160,24
+WindState: 2,28,17,805,933
+{!40600|Att_WikiHelpURL: [wiki]}
+
+Close OnGraphDraw_annotati
+
+Variable A__Symp_req_hosp
+Title: % Symp req hosp
+Definition: Table(Age_group)(1m,3m,0.012,0.032,0.049,0.102,0.166,0.243,0.273)
+NodeLocation: 192,280,1
+NodeSize: 48,24
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable A__hosp_req_crit_car
+Title: % hosp req crit care
+Definition: Table(Age_group)(0.05,0.05,0.05,0.05,0.063,0.122,0.274,0.432,0.709)
+NodeLocation: 336,280,1
+NodeSize: 56,24
+DefnState: 2,241,322,416,303,0,DFNM
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable A__symp
+Title: % symp
+Definition: Table(Age_group)(0.2,0.25,0.35,0.45,0.55,0.65,0.65,0.65,0.65)
+NodeLocation: 192,344,1
+NodeSize: 48,24
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Prob_req_crit_care
+Title: Prob req crit care
+Definition: A__Symp_req_hosp * A__hosp_req_crit_car * A__symp
+NodeLocation: 336,344,1
+NodeSize: 48,24
+ValueState: 2,646,19,557,396,1,MIDM
+GraphSetup: Flip:8~
+Att_GraphValueRange Prob_req_crit_care:1,,,,1
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Variable Va1
+Definition: Prob_req_crit_care * US_Pop_by_age
+NodeLocation: 472,344,1
+NodeSize: 48,24
+
+Variable Actual_percent_who_c
+Title: Actual percent who contract
+Definition: sum(US_Pop_by_age * Percent_who_contract,Age_group) / sum(US_Pop_by_age,Age_group)
+NodeLocation: 464,208,1
+NodeSize: 48,40
+ValueState: 2,452,458,419,303,,MIDM
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Decision Infection_scenario
+Title: Infection scenario
+Definition: Choice(Self,0)
+NodeLocation: 64,208,1
+NodeSize: 48,24
+Aliases: FormNode Fo1095642941
+Domain: ['All groups 33%','Skewed younger 33%']
+{!40300|DomainExpr: Discrete('All groups 33%','Skewed younger 33%')}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+
+Close US_Age_distribution
+
+Module The_suppression_tria
+Title: The suppression triangle
+Description: The triangle suppression model is a novel approach to modeling the progression of COVID-19 in the US through the end of 2020. It is described in the article <a href="https://lumina.com/forecast-update-us-deaths-from-covid-19-coronavirus-in-2020/">Suppression strategy and update forecast for US deaths from COVID-19 Coronavirus in 2020</a>, and this module contains the model used in that article.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Sat, Mar 21, 2020 3:24 PM
+NodeLocation: 160,176,1
+NodeSize: 80,32
+DiagState: 2,30,120,1047,552,17
+WindState: 2,880,360,720,350
+
+Chance Decay_rate_after_mea
+Title: Decay rate after measures
+Description: The probability distribution for the decay rate (a negative number) that will occur during the suppression phase. A value of zero would be a steady state (with no end to measures). Stronger lock down measures should result in a more negative value, and a more negative value ends the suppression phase faster.  The "reasonable" range of possible values is from -0.1 to 0.~
+~
+The units are in Ln(deaths) / day.~
+~
+In China, once the deaths peaked, the average growth rate from 18-Feb-2020 thru 16-Mar-2020 was -0.0975 (pretty close to -0.1).  This is while the recovery was ramping down.
+Definition: Uniform(-0.1,0)
+NodeLocation: 104,248,1
+NodeSize: 48,32
+WindState: 2,949,360,720,350
+ValueState: 2,181,495,450,345,1,XCDZ
+Aliases: FormNode Fo955920189
+GraphSetup: {!40400|Sys_PdfSmoothMethod:1}~
+Att_ContLineStyle Graph_Pdf_Valdim:1
+
+Chance Delay_to_start_effec
+Title: Delay to start effect
+Units: days
+Description: A probability distribution for the lag time (number of days) between when suppression measures start and the effect as a reduction in daily deaths becomes observable.~
+~
+In China, there was an 11 day lag between new reported cases and deaths, and a 27 day lag from the lockdown of Wuhan city until the peak of death.
+Definition: UncertainLMH( 11, 14, 18, lb:2, ub:30 );
+NodeLocation: 368,272,1
+NodeSize: 48,24
+WindState: 2,903,454,720,350
+ValueState: 2,807,307,430,317,,PDFP
+Aliases: FormNode Fo298200893
+GraphSetup: {!40400|Sys_PdfSmoothMethod:1}~
+DistSteps:1
+
+Variable Growth_rate_by_time
+Title: Growth rate by time
+Definition: if Time < Effective_date_of_ac + Delay_to_start_effec ~
+Then Cur_Growth_rate ~
+Else If Decay_rate_treatment = 'Use distribution' Then Decay_rate_after_mea~
+Else Decay_rate_levels
+NodeLocation: 368,176,1
+NodeSize: 48,32
+ValueState: 2,489,193,672,524,1,MEAN
+ReformVal: [Time,Decay_rate_levels,Undefined,Undefined,1]
+Att_ResultSliceState: [Date_of_action,2,Decay_rate_levels,6,Sys_LocalIndex('Probability'),1,Time,1]
+
+Decision Date_of_action
+Title: Date of action
+Description: Select the date on which effective suppression measures start.
+Definition: Choice(Self,4)
+NodeLocation: 104,392,1
+NodeSize: 48,24
+WindState: 2,1130,451,720,350
+ValueState: 2,212,218,559,420,1,PDFP
+Aliases: FormNode Fo1376620349, FormNode Fo2031759165
+GraphSetup: Grid:0~
+Graph_HLabelRotation:45~
+Att_CatLineStyle Graph_Prob_Valdim:1
+BalloonHelp: A probability distribution for date at which effective suppression measures start.
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Domain: [14-Mar-2020,21-Mar-2020,28-Mar-2020,4-Apr-2020,11-Apr-2020]
+{!40300|DomainExpr: Discrete(14-Mar-2020,21-Mar-2020,28-Mar-2020,4-Apr-2020,11-Apr-2020)}
+ProbabilityNumberFmt: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40200|Att_ChoiceIndexes: Keyword Self}
+{!40300|Att_SlicerPopupSize: 232,80}
+
+Variable Forecasted_daily_dea
+Title: Forecasted daily deaths
+Description: The projected number of deaths in US from COVID-19 each day during the year 2020. ~
+
+Definition: Dynamic(if Cumulative_deaths_US <> null then Extrapolated_daily_d else ~
+	Max([Steady_state_daily_d,self[Time-1] * exp(Growth_rate_by_time)])~
+)
+NodeLocation: 544,288,1
+NodeSize: 56,24
+WindState: 2,904,443,720,350
+ValueState: 2,366,179,673,478,1,CONF
+Aliases: FormNode Fo1369059133
+GraphSetup: Graph_HLabelRotation:45~
+Att_GraphValueRange Forecasted_daily_dea:1,,1,,1,,,7.188378978648002,4799.604654322615,0|1:1,,1,,1,,,12.483613910057539,971819.6223234282,0~
+Att_GraphIndexRange Time:1,,1,,,,,42429,42540.31436115503,0~
+Grid:0
+ReformVal: [Time,Decay_rate_levels,2,Undefined,1,0]
+Att_ResultSliceState: [Date_of_action,3,Decay_rate_levels,3,Time,308]
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Variable Cumulative_forecaste
+Title: Cumulative forecasted deaths
+Description: The projected total number of deaths from COVID-19 in the US that occur prior to the indicated day.
+Definition: Dynamic( if Cumulative_deaths_US<>null then Cumulative_deaths_US else ~
+	Self[Time-1] + Forecasted_daily_dea[Time-1]~
+)
+NodeLocation: 544,384,1
+NodeSize: 56,32
+WindState: 2,830,514,720,350
+ValueState: 2,221,144,625,515,1,CONF
+Aliases: FormNode Fo832188221
+GraphSetup: Att_GraphValueRange Cumulative_forecaste:1,,1,,1,,,115.29998585917282,964378.2043741891,0|1:1,,1,,1,,,115.29998585917282,964378.2043741891,0~
+Graph_HLabelRotation:45~
+Att_GraphIndexRange Time:1,,1,,,,,42438.267084270716,42469.93694972992,0
+ReformVal: [Time,Null,2,Undefined,1,0]
+Att__TotalsIndex: []
+Att_ResultSliceState: [Time,307,Date_of_action,4,Sys_LocalIndex('Step'),1]
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Decision Decay_rate_levels
+Title: Decay rate levels
+Description: Select the rate at which deaths are expected to decay while suppression measures are active. This should be a value between 0 (no decay) and -0.1 (measures as effective as those in China). A more negative value means stronger measures leading to a shorter amount of time in the suppression phase. ~
+~
+The units are Ln(deaths)/day
+Definition: Choice(Self,2)
+IndexVals: ['item 1']
+NodeLocation: 104,112,1
+NodeSize: 48,24
+WindState: 2,1076,478,720,350
+Aliases: FormNode Fo1001230141, FormNode Fo85602109
+Domain: [-0.1,-0.05,-0.025,-0.01,0]
+{!40300|DomainExpr: [-0.1,-0.05,-0.025,-0.01,0]}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+{!40300|Att_SlicerPopupSize: 242,128}
+
+Decision Decay_rate_treatment
+Title: Decay rate treatment
+Description: Select whether you want to select a specific rate of decay during the suppression phase, or whether you want to treat the rate of decay as an uncertain variable and use a probability distribution.
+Definition: Choice(Self,1,0)
+NodeLocation: 104,168,1
+NodeSize: 56,24
+WindState: 2,1006,402,720,350
+Aliases: FormNode Fo1761171261, FormNode Fo1494888253
+Domain: ['Separate levels','Use distribution']
+{!40300|DomainExpr: Discrete('Separate levels','Use distribution',type:'Text')}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+OnChange: ChangeNodeVisibility( Handle(Decay_rate_levels),~
+	If Decay_rate_treatment='Separate levels' Then 'Visible' Else 'Hidden',~
+	what:'UserInputs'~
+);~
+ChangeNodeVisibility( Handle(Decay_rate_after_mea),~
+	If Decay_rate_treatment='Use distribution' Then 'Visible' Else 'Hidden',~
+	what:'UserInputs'~
+);~
+
+
+FormNode Fo1761171261
+Title: Growth rate treatment
+Definition: 0
+NodeLocation: 368,48,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,158,,,,,,0
+Original: Decay_rate_treatment
+
+Decision Steady_state_daily_d
+Title: Steady state daily deaths
+Description: Specify the number of deaths per day that would be "tolerable" in a post-suppression phase. This is used to determine when the suppression phase is lifted.
+Definition: 10
+NodeLocation: 544,192,1
+NodeSize: 48,32
+WindState: 2,1030,446,720,350
+Aliases: FormNode Fo2137886525, FormNode Fo1159343933
+
+Chance Date_of_action_dist
+Title: Date of action dist
+Definition: 14-Mar-2020 + round(LogNormal(10,stddev:7))
+NodeLocation: 104,328,1
+NodeSize: 48,24
+ValueState: 2,267,123,795,468,1,PDFP
+Aliases: FormNode Fo1559899965
+GraphSetup: Grid:0~
+Graph_HLabelRotation:45
+ProbabilityNumberFmt: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Decision Date_of_action_treat
+Title: Date of action treatment
+Description: Select whether you want to simulate a specific date for which effective suppression measures start, or whether you want to treat the date as an uncertain variable and use a probability distribution.
+Definition: Choice(Self,2,0)
+NodeLocation: 104,456,1
+NodeSize: 64,24
+WindState: 2,1061,467,720,350
+Aliases: FormNode Fo389386045, FormNode Fo958017341
+Domain: ['Separate levels','Use distribution']
+{!40300|DomainExpr: Discrete('Separate levels','Use distribution',type:'Text')}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+OnChange: ChangeNodeVisibility( Handle(Date_of_action),~
+	If Date_of_action_treat='Separate levels' Then 'Visible' Else 'Hidden',~
+	what:'UserInputs' );~
+ChangeNodeVisibility( ListOfHandles(Te993668925,Distribution),~
+	If Date_of_action_treat='Use distribution' Then 'Visible' Else 'Hidden' )~
+
+
+FormNode Fo389386045
+Title: Date of action treatment
+Definition: 0
+NodeLocation: 760,48,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,158,,,,,,0
+Original: Date_of_action_treat
+
+Variable Effective_date_of_ac
+Title: Effective date of action
+Definition: if Date_of_action_treat='Separate levels' then Date_of_action else Date_of_action_dist
+NodeLocation: 240,384,1
+NodeSize: 48,32
+
+Variable Date_of_peak
+Title: Date of peak
+Definition: argmax(Forecasted_daily_dea,time)
+NodeLocation: 688,288,1
+NodeSize: 48,24
+ValueState: 2,673,220,656,537,,PDFP
+ReformVal: [Undefined,Date_of_action,Undefined,Undefined,1]
+Att_ResultSliceState: [Date_of_action,4,Date_of_action,3,Sys_LocalIndex('Possible_Values'),1]
+Att_ColorRole: Null
+{!40600|Att_ClusterIndex: Null}
+
+FormNode Fo1376620349
+Title: Date of action
+Definition: 0
+NodeLocation: 760,80,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,160,,,,1,,0
+Original: Date_of_action
+
+Variable End_of_lockdown
+Title: Date of end of lock down
+Description: The forecasted date at which suppression measures would be lifted.
+Definition: Local t := condmin(time, time>Date_of_peak and Forecasted_daily_dea<=Steady_state_daily_d, time);~
+if t>=Max_end_of_lockdown then null else t
+NodeLocation: 688,360,1
+NodeSize: 48,32
+WindState: 2,743,463,720,350
+ValueState: 2,485,130,681,540,1,CDFP
+Aliases: FormNode Fo1905930045
+GraphSetup: Att_CatLineStyle Graph_CumProb_Valdim:1~
+Grid:0~
+Graph_HLabelRotation:45~
+Att_GraphIndexRange .Possible_Values:1,,0,,,,,1,275,1
+Domain: [29-Feb-2020,1-Mar-2020,2-Mar-2020,3-Mar-2020,4-Mar-2020,5-Mar-2020,6-Mar-2020,7-Mar-2020,8-Mar-2020,9-Mar-2020,10-Mar-2020,11-Mar-2020,12-Mar-2020,13-Mar-2020,14-Mar-2020,15-Mar-2020,16-Mar-2020,17-Mar-2020,18-Mar-2020,19-Mar-2020,20-Mar-2020,21-Mar-2020,22-Mar-2020,23-Mar-2020,24-Mar-2020,25-Mar-2020,26-Mar-2020,27-Mar-2020,28-Mar-2020,29-Mar-2020,30-Mar-2020,31-Mar-2020,1-Apr-2020,2-Apr-2020,3-Apr-2020,4-Apr-2020,5-Apr-2020,6-Apr-2020,7-Apr-2020,8-Apr-2020,9-Apr-2020,10-Apr-2020,11-Apr-2020,12-Apr-2020,13-Apr-2020,14-Apr-2020,15-Apr-2020,16-Apr-2020,17-Apr-2020,18-Apr-2020,19-Apr-2020,20-Apr-2020,21-Apr-2020,22-Apr-2020,23-Apr-2020,24-Apr-2020,25-Apr-2020,26-Apr-2020,27-Apr-2020,28-Apr-2020,29-Apr-2020,30-Apr-2020,1-May-2020,2-May-2020,3-May-2020,4-May-2020,5-May-2020,6-May-2020,7-May-2020,8-May-2020,9-May-2020,10-May-2020,11-May-2020,12-May-2020,13-May-2020,14-May-2020,15-May-2020,16-May-2020,17-May-2020,18-May-2020,19-May-2020,20-May-2020,21-May-2020,22-May-2020,23-May-2020,24-May-2020,25-May-2020,26-May-2020,27-May-2020,28-May-2020,29-May-2020,30-May-2020,31-May-2020,1-Jun-2020,2-Jun-2020,3-Jun-2020,4-Jun-2020,5-Jun-2020,6-Jun-2020,7-Jun-2020,8-Jun-2020,9-Jun-2020,10-Jun-2020,11-Jun-2020,12-Jun-2020,13-Jun-2020,14-Jun-2020,15-Jun-2020,16-Jun-2020,17-Jun-2020,18-Jun-2020,19-Jun-2020,20-Jun-2020,21-Jun-2020,22-Jun-2020,23-Jun-2020,24-Jun-2020,25-Jun-2020,26-Jun-2020,27-Jun-2020,28-Jun-2020,29-Jun-2020,30-Jun-2020,1-Jul-2020,2-Jul-2020,3-Jul-2020,4-Jul-2020,5-Jul-2020,6-Jul-2020,7-Jul-2020,8-Jul-2020,9-Jul-2020,10-Jul-2020,11-Jul-2020,12-Jul-2020,13-Jul-2020,14-Jul-2020,15-Jul-2020,16-Jul-2020,17-Jul-2020,18-Jul-2020,19-Jul-2020,20-Jul-2020,21-Jul-2020,22-Jul-2020,23-Jul-2020,24-Jul-2020,25-Jul-2020,26-Jul-2020,27-Jul-2020,28-Jul-2020,29-Jul-2020,30-Jul-2020,31-Jul-2020,1-Aug-2020,2-Aug-2020,3-Aug-2020,4-Aug-2020,5-Aug-2020,6-Aug-2020,7-Aug-2020,8-Aug-2020,9-Aug-2020,10-Aug-2020,11-Aug-2020,12-Aug-2020,13-Aug-2020,14-Aug-2020,15-Aug-2020,16-Aug-2020,17-Aug-2020,18-Aug-2020,19-Aug-2020,20-Aug-2020,21-Aug-2020,22-Aug-2020,23-Aug-2020,24-Aug-2020,25-Aug-2020,26-Aug-2020,27-Aug-2020,28-Aug-2020,29-Aug-2020,30-Aug-2020,31-Aug-2020,1-Sep-2020,2-Sep-2020,3-Sep-2020,4-Sep-2020,5-Sep-2020,6-Sep-2020,7-Sep-2020,8-Sep-2020,9-Sep-2020,10-Sep-2020,11-Sep-2020,12-Sep-2020,13-Sep-2020,14-Sep-2020,15-Sep-2020,16-Sep-2020,17-Sep-2020,18-Sep-2020,19-Sep-2020,20-Sep-2020,21-Sep-2020,22-Sep-2020,23-Sep-2020,24-Sep-2020,25-Sep-2020,26-Sep-2020,27-Sep-2020,28-Sep-2020,29-Sep-2020,30-Sep-2020,1-Oct-2020,2-Oct-2020,3-Oct-2020,4-Oct-2020,5-Oct-2020,6-Oct-2020,7-Oct-2020,8-Oct-2020,9-Oct-2020,10-Oct-2020,11-Oct-2020,12-Oct-2020,13-Oct-2020,14-Oct-2020,15-Oct-2020,16-Oct-2020,17-Oct-2020,18-Oct-2020,19-Oct-2020,20-Oct-2020,21-Oct-2020,22-Oct-2020,23-Oct-2020,24-Oct-2020,25-Oct-2020,26-Oct-2020,27-Oct-2020,28-Oct-2020,29-Oct-2020,30-Oct-2020,31-Oct-2020,1-Nov-2020,2-Nov-2020,3-Nov-2020,4-Nov-2020,5-Nov-2020,6-Nov-2020,7-Nov-2020,8-Nov-2020,9-Nov-2020,10-Nov-2020,11-Nov-2020,12-Nov-2020,13-Nov-2020,14-Nov-2020,15-Nov-2020,16-Nov-2020,17-Nov-2020,18-Nov-2020,19-Nov-2020,20-Nov-2020,21-Nov-2020,22-Nov-2020,23-Nov-2020,24-Nov-2020,25-Nov-2020,26-Nov-2020,27-Nov-2020,28-Nov-2020,29-Nov-2020,30-Nov-2020,1-Dec-2020,2-Dec-2020,3-Dec-2020,4-Dec-2020,5-Dec-2020,6-Dec-2020,7-Dec-2020,8-Dec-2020,9-Dec-2020,10-Dec-2020,11-Dec-2020,12-Dec-2020,13-Dec-2020,14-Dec-2020,15-Dec-2020,16-Dec-2020,17-Dec-2020,18-Dec-2020,19-Dec-2020,20-Dec-2020,21-Dec-2020,22-Dec-2020,23-Dec-2020,24-Dec-2020,25-Dec-2020,26-Dec-2020,27-Dec-2020,28-Dec-2020,29-Dec-2020,30-Dec-2020,31-Dec-2020]
+{!40300|DomainExpr: Subset(Time<Max_end_of_lockdown)}
+ProbabilityNumberFmt: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40700|Att_CellFormat: CellSpan((Self.Statistics),CellNumberFormat('Suffix',4,0,0,dateFormat:'ABBREV',fullPrecision:0,numbersAsDates:1,datesAsNumbers:0,digits_:4,zeroes_:2),3,header:0)}
+
+FormNode Fo1001230141
+Title: Growth rate levels
+Definition: 0
+NodeLocation: 368,80,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,160,,,,0,,0
+Original: Decay_rate_levels
+
+FormNode Fo2137886525
+Title: Steady state daily deaths
+Definition: 0
+NodeLocation: 760,112,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,128,,,,,,0
+Original: Steady_state_daily_d
+
+Constant Max_end_of_lockdown
+Title: Max end-of-lockdown
+Definition: 1-Jan-2021
+NodeLocation: 688,432,1
+NodeSize: 56,24
+
+Objective Total_deaths_in_2020
+Title: Total deaths in 2020
+Description: The projected total number of US deaths from COVID-19 in the year 2020.  View as a probability distribution.
+Definition: Cumulative_forecaste[@Time=IndexLength(Time)]
+NodeLocation: 544,472,1
+NodeSize: 48,32
+WindState: 2,891,490,720,350
+ValueState: 2,446,228,545,379,1,CDFP
+Aliases: FormNode Fo161099581
+GraphSetup: Att_GraphValueRange Graph_CntExcd_Valdim:1,,1,,,,,0.3419129550457001,0.4164133667945862,0~
+DistSteps:1~
+Att_GraphValueRange Total_deaths_in_2020:|1:1,,0,,,,,0,3732676.2080192566,0~
+DistResol:20~
+ProbIndex:[0.05,0.25,0.5,0.75,0.95]
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+FormNode Fo1559899965
+Title: Date of action dist
+Definition: 0
+NodeLocation: 256,584,1
+NodeSize: 240,16
+NodeInfo: 1,,,,,,,330,,,,,,0
+Original: Date_of_action_dist
+
+Close The_suppression_tria
+
+Module Running_forecast
+Title: Running forecast
+Description: In the article <a href="https://lumina.com/estimating-us-deaths-from-covid-19-coronavirus-in-2020/">Estimating US Deaths from COVID-19 Coronavirus in 2020</a> on 10-Mar-2020 I published a probabilistic forecast, then updated it two weeks later on 23-Mar-2020 in the article <a href="https://lumina.com/forecast-update-us-deaths-from-covid-19-coronavirus-in-2020/">Suppression strategy and update forecast for US deaths from COVID-19 Coronavirus in 2020</a>. This module contains my Keelin encodings of these running forecasts.  This isn't part of the suppression model, but I've left it here anyway.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+NodeLocation: 376,176,1
+NodeSize: 48,24
+WindState: 2,690,369,720,350
+
+Chance Forecasted_deaths_in
+Title: Forecasted deaths in US from COVID-19 in 2020
+Definition: Keelin(Quantile_est, Pct, Pct, lb:0)
+NodeLocation: 128,192,1
+NodeSize: 80,32
+ValueState: 2,583,296,739,474,1,XCDZ
+GraphSetup: Graph_FillTransparen:101~
+Att_AreaFill Graph_CntExcd_Valdim:1~
+Att_GraphValueRange Forecasted_deaths_in:1,,,,1|1:1,,0,1,1,,,0,10M,0~
+CdfSteps:1
+ProbabilityNumberFmt: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Index pct
+Title: pct
+Definition: [0%,10%,25%,75%,95%,99%]
+NodeLocation: 128,120,1
+NodeSize: 48,24
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Att_PrevIndexValue: [0,0.1,0.25,0.75,0.95,0.99]
+
+Variable Quantile_est
+Title: Quantile est
+Definition: Table(pct)(22,1500,15K,75K,550K,2M)
+NodeLocation: 248,120,1
+NodeSize: 48,24
+DefnState: 2,392,104,416,303,0,DFNM
+ReformDef: [Undefined,pct]
+
+Text Te117458749
+Title: First article
+NodeLocation: 188,144,-1
+NodeSize: 140,80
+
+Variable Current_death_count
+Title: Current death count
+Definition: Max(Cumulative_deaths_US,time)
+NodeLocation: 432,120,1
+NodeSize: 48,32
+
+Variable New_estimates
+Title: New estimates
+Definition: Table(pct2)(6000,40K,200K,380K,1.5M)
+NodeLocation: 552,120,1
+NodeSize: 48,24
+DefnState: 2,456,25,416,303,0,DFNM
+ValueState: 2,855,525,416,303,0,MIDM
+ReformDef: [Undefined,pct2]
+
+Chance Forecasted_deaths_i1
+Title: Forecasted deaths in US in 2020 - Forecast as of 23-Mar
+Definition: Keelin( New_estimates, Pct2, Pct2, lb:Current_death_count,nTerms:7, flags:16 )
+NodeLocation: 488,192,1
+NodeSize: 72,40
+ValueState: 2,0,254,682,463,1,XCDZ
+GraphSetup: Att_GraphValueRange Forecasted_deaths_i1:|1:1,,0,,0,,,0,1000827.1038532257,0~
+Att_AreaFill Graph_CntExcd_Valdim:1~
+Graph_FillTransparen:101
+ProbabilityNumberFmt: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Variable Number_of_deaths_in_
+Title: Number of deaths in US from COVID-19 in 2020
+Definition: [Forecasted_deaths_in,Forecasted_deaths_i1]
+NodeLocation: 344,280,1
+NodeSize: 64,40
+ValueState: 2,217,296,672,385,0,MEAN
+GraphSetup: Att_GraphValueRange Number_of_deaths_in_:|1:1,,0,,0,,,0,1005422.2494363785,0~
+Att_AreaFill Graph_CntExcd_Valdim:0~
+Graph_FillTransparen:101
+ReformVal: [Undefined,Self,Undefined,Undefined,1]
+Att_ResultSliceState: [Self,2,Sys_LocalIndex('Step'),1]
+Att_XRole: -1
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Index pct2
+Title: pct2
+Definition: [10%,25%,50%,75%,99%]
+IndexVals: ['item 1']
+NodeLocation: 552,48,1
+NodeSize: 48,24
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+Att_PrevIndexValue: [0.1,0.25,0.5,0.75,0.99]
+
+Close Running_forecast
+
+Text Te1928212285
+Title: Note
+Description: ~
+I've collected various data while working on COVID-19 models, and have left much of this here, even though they are not part of the suppression triangle model. I figured other people might find that having it already in Analytica might be useful. ~
+~
+The core model details are in the Suppression Triangle module.
+NodeLocation: 676,224,-1
+NodeSize: 204,104
+
+Close Model_details
+
+Button Description1
+Title: Description
+NodeLocation: 60,28,1
+NodeSize: 52,12
+OnClick: showwindow(Triangle_suppression,'Object')
+
+FormNode Fo1494888253
+Title: Growth rate treatment
+Definition: 0
+NodeLocation: 208,232,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,158,,,,,,0
+Original: Decay_rate_treatment
+
+FormNode Fo958017341
+Title: Date of action treatment
+Definition: 0
+NodeLocation: 208,104,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,158,,,,,,0
+Original: Date_of_action_treat
+
+FormNode Fo2031759165
+Title: Date of action
+Definition: 0
+NodeLocation: 208,136,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,160,,,,1,,0
+Original: Date_of_action
+
+FormNode Fo85602109
+Title: Growth rate levels
+Definition: 0
+NodeLocation: 208,264,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,160,,,,0,,0
+Original: Decay_rate_levels
+
+FormNode Fo1159343933
+Title: Steady state daily deaths
+Definition: 0
+NodeLocation: 208,168,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,128,,,,,,0
+Original: Steady_state_daily_d
+
+Text Te2132422461
+Title: Suppression strategy
+NodeLocation: 224,240,-1
+NodeSize: 216,184
+NodeInfo: 1,,,,1,1
+NodeColor: 52427,62259,65535
+
+FormNode Fo1369059133
+Title: Forecasted daily deaths
+Definition: 1
+NodeLocation: 632,112,1
+NodeSize: 152,16
+Original: Forecasted_daily_dea
+
+FormNode Fo832188221
+Title: Cumulative forecasted deaths
+Definition: 1
+NodeLocation: 632,144,1
+NodeSize: 152,16
+Original: Cumulative_forecaste
+
+FormNode Fo1905930045
+Title: End of lockdown
+Definition: 1
+NodeLocation: 632,232,1
+NodeSize: 152,16
+Original: End_of_lockdown
+
+FormNode Fo161099581
+Title: Total deaths in 2020
+Definition: 1
+NodeLocation: 632,176,1
+NodeSize: 152,16
+Original: Total_deaths_in_2020
+
+Text Te5910333
+Title: Result of suppression strategy
+NodeLocation: 632,184,-1
+NodeSize: 168,128
+NodeInfo: 1,,,,1,1
+NodeColor: 65535,63895,52427
+
+Text Te993668925
+Description: Distribution for date of action
+NodeLocation: 207,141,-1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,,,,,0
+
+Button Distribution
+Title: Distribution
+Description: A probability distribution for date at which effective suppression measures start.
+NodeLocation: 323,138,1
+NodeSize: 53,11
+NodeInfo: 1,,,,,,,,,,,0
+WindState: 2,1028,428,720,350
+NodeColor: 1,65535,65535
+
+FormNode Fo955920189
+Title: Growth rate after measures
+Definition: 0
+NodeLocation: 208,264,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,104,,,,1,,0
+Original: Decay_rate_after_mea
+
+FormNode Fo298200893
+Title: Delay to start effect
+Definition: 0
+NodeLocation: 208,320,1
+NodeSize: 176,16
+NodeInfo: 1,,,,,,,107,,,,,,0
+Original: Delay_to_start_effec
+
+Text Te1322659645
+Title: Miscellaneous trends and data
+NodeLocation: 232,604,-1
+NodeSize: 224,164
+NodeInfo: 1,,,,1,1
+NodeColor: 58978,52427,65535
+
+FormNode Fo701902653
+Title: Total number of deaths
+Definition: 1
+NodeLocation: 232,552,1
+NodeSize: 216,16
+Original: Compare3
+
+FormNode Fo64368445
+Title: Number that will eventually die
+Definition: 1
+NodeLocation: 232,584,1
+NodeSize: 216,16
+Original: Number_that_will_die
+
+FormNode Fo1672884029
+Title: Daily deaths US
+Definition: 1
+NodeLocation: 232,480,1
+NodeSize: 216,16
+Original: Daily_deaths_US
+
+FormNode Fo800468797
+Title: Cumulative deaths US
+Definition: 1
+NodeLocation: 232,512,1
+NodeSize: 216,16
+Original: Cumulative_deaths_US
+
+FormNode Fo460730173
+Title: Daily deaths in China during suppression phase
+Definition: 1
+NodeLocation: 232,664,1
+NodeSize: 216,16
+Original: Daily_deaths_in_Chin
+
+FormNode Fo1095642941
+Title: Infection scenario
+Definition: 0
+NodeLocation: 652,520,1
+NodeSize: 180,16
+NodeInfo: 1,,,,,,,200,,,,,,0
+Original: Infection_scenario
+
+FormNode Fo659435325
+Title: IFR
+Definition: 0
+NodeLocation: 652,488,1
+NodeSize: 180,16
+Original: IFR
+
+FormNode Fo1892560701
+Title: Deaths by age group
+Definition: 1
+NodeLocation: 652,624,1
+NodeSize: 180,16
+Original: Deaths_by_age_group
+
+Text Te449720125
+Title: No suppression -- herd immunity
+NodeLocation: 664,565,-1
+NodeSize: 200,123
+NodeInfo: 1,,,,1,1
+NodeColor: 65535,52427,52427
+
+FormNode Fo1131294525
+Title: R0 report with date collected
+Definition: 1
+NodeLocation: 232,712,1
+NodeSize: 216,16
+Original: R0_report_with_date_
+
+FormNode Fo795750205
+Title: R0 ranges
+Definition: 1
+NodeLocation: 232,744,1
+NodeSize: 216,16
+Original: R0_ranges
+
+FormNode Fo522071869
+Title: Percent who contract
+Definition: 0
+NodeLocation: 652,552,1
+NodeSize: 180,16
+Original: Percent_who_contract
+
+Close Triangle_suppression
+
+
+{!-40499|MsgBox("This Analytica model file contains text characters encoded in UTF-8 (Unicode) format, not ASCII. It was saved from Analytica release 5.4. You need to upgrade to Analytica 5.4  to read the model correctly. If you use it with this release, the Unicode characters may look strange and parts of the model may not work.",16,"Analytica 5.4 required")}

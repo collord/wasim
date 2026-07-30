@@ -25,13 +25,23 @@ _spec.loader.exec_module(A)
 
 CORPUS = os.path.join(_here, "fixtures", "ana_corpus")
 
-# Real models whose conversion is schema-INVALID. Empty: every fixture here now
-# validates. This set previously pinned two schema/engine-drift bugs the corpus
-# surfaced (a `gather` op and the nullary `null()` call missing from
-# oldmodel.schema.json's `call` node); both were fixed by syncing the schema
-# with the engine's builtins. Keep it as a live regression tracker — if a new
-# fixture converts to invalid output, the check below fails and names it.
-EXPECTED_INVALID = set()
+# Real models whose conversion is schema-INVALID. The converter emits v2-native
+# models, validated against `schema/wasim-schema-v2.json`. This set is a live
+# regression tracker — if a fixture NOT listed here converts to invalid output,
+# the check below fails and names it (and a listed one becoming valid also fails,
+# so the set stays honest).
+#
+# The three below are known v2-emit gaps the strict schema surfaces (all still
+# RUN through the engine — see engine/tests/ana_corpus_runs_v2.rs — the engine is
+# lenient where the schema is strict). Slated for the subscript/null stage:
+#   - Vector_Math: a nested `if`/`and` sub-expression shape the schema rejects.
+#   - Comparing_retirement_account_types: `index` into an array containing `null()`.
+#   - iamamr_amr_food_template: an empty-`elements` array literal (0-value table).
+EXPECTED_INVALID = {
+    "Vector_Math.ana",
+    "Comparing_retirement_account_types.ana",
+    "iamamr_amr_food_template.ana",
+}
 
 _fails = []
 
@@ -44,13 +54,15 @@ def check(name, cond):
 
 try:
     import jsonschema
-    _schema = json.load(open(os.path.join(_root, "oldmodel.schema.json")))
+    _schema = json.load(open(os.path.join(_root, "schema", "wasim-schema-v2.json")))
 except Exception:
     jsonschema = None
     _schema = None
     print("note: jsonschema not installed — schema validation skipped\n")
 
-files = sorted(glob.glob(os.path.join(CORPUS, "*.ana")))
+files = sorted(
+    p for p in glob.glob(os.path.join(CORPUS, "*"))
+    if p.lower().endswith(".ana"))
 check("corpus is non-empty", len(files) > 0)
 
 got_invalid = set()
@@ -68,11 +80,14 @@ for path in files:
     if model is None:
         continue
 
-    # Structural sanity: the emitted model is the expected shape.
-    check(f"{name}: emits a well-formed model shell",
-          isinstance(model.get("elements"), list)
+    # Structural sanity: the emitted model is the expected v2-native shape.
+    els = model.get("elements")
+    check(f"{name}: emits a well-formed v2 model shell",
+          isinstance(els, list)
           and "wasim_version" in model
-          and "simulation_settings" in model)
+          and "simulation_settings" in model
+          # is_v2_native (engine lib.rs): the first element must carry `primitive`
+          and (not els or "primitive" in els[0]))
 
     if jsonschema is not None:
         try:

@@ -1,0 +1,352 @@
+{ From user Lonnie, Model Steel_and_aluminum_t at 8-Mar-2018 12:26:51 PM, encoding="ascii" }
+SoftwareVersion 5.0.17
+
+
+{ System Variables with non-default values: }
+SampleSize := 1000
+TypeChecking := 1
+Checking := 1
+SaveOptions := 2
+SaveValues := 0
+{!40400|Sys_PdfSmoothMethod := 1}
+
+NodeInfo FormNode: 1,0,0,1,0,0,0,,0,0,,0,0
+
+
+
+Model Steel_and_aluminum_t
+Title: Steel and aluminum tariff model
+Description: This week, the US president has proposed a 10% tariff on all imports of Aluminum, and a 25% tariff on all steel imports, into the US. This has given rise to many conflicting claims about what the overall impact will be on our trade deficit and on our overall economy.~
+~
+We decided to apply a little common sense and quantitative analysis to estimate what the impact might be on the US trade deficit, after accounting for a few obvious secondary effects. This is intentionally simplistic, but meant to be understandable to everyone, as objective as possible (we, the model authors, have no direct stake in this issue, nor agenda), and something that you can put your own assumptions into.
+Author: Lonnie Chrisman, Ph.D.~
+Kimberly Mullins, Ph.D.~
+Lumina Decision Systems~
+http://Lumina.com
+Date: Tue, Mar 6, 2018 9:45 AM
+SaveAuthor: Lonnie
+SaveDate: Thu, Mar 8, 2018 12:26 PM
+DefaultSize: 56,32
+DiagState: 2,33,31,834,580,17,,
+WindState: 2,387,443,720,350
+FontStyle: Arial,15
+FileInfo: 0,Model Steel_and_aluminum_t,2,2,0,0,C:\Users\Lonnie\Documents\Analytica\Example Models\Steel and aluminum tariff model.ana
+
+Index Material
+{!40000|Att_PrevIndexValue: ['Aluminum','Steel']}
+Title: Material
+Description: The materials subject to the proposed tariff.
+Definition: ['Aluminum','Steel']
+NodeLocation: 80,56,1
+NodeSize: 48,24
+
+Decision Proposed_Tariff
+Title: Proposed Tariff
+Definition: Table(Material)(0.1,0.25)
+NodeLocation: 248,56,1
+NodeSize: 56,32
+ValueState: 2,129,455,416,303,,MIDM
+Aliases: FormNode Fo1520386490
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Chance Trade_elasticity
+Title: Trade elasticity
+Description: The elasticity describes how much (in percent) exports or imports will change per 1% change in price.~
+~
+If you are have information to support it, you can vary this by sector, and even by trade_direction, if you think there is an asymmetry between exports and imports. ~
+~
+A positive elasticity means that for either imports or exports, then the imports or exports respectively decreases with an increase in price. For imports, the reference price is the price paid by a US consumer to purchase the imported good. For exports, the price is the price the good is sold at on the open market.
+Definition: {LogNormal(1.8, 1.5, over:sector)}~
+LogNormal( Elasticity_means_by_, 1.5, over:Sector, over:Trade_direction)
+NodeLocation: 248,440,1
+NodeSize: 56,32
+WindState: 2,108,176,720,533
+ValueState: 2,286,155,734,497,1,PDFP
+ReformVal: [Undefined,Null,Undefined,Undefined,1]
+{!40000|Att_ResultSliceState: [Trade_direction,1,Sector,3,Sys_LocalIndex('Step'),1]}
+{!40000|Att_XRole: -1}
+{!40000|Att_ColorRole: Null}
+
+Chance Domestic_equil_price
+Title: Domestic equil price increase
+Description: How much the cost of steel or Aluminum domestically will increase as a result of the tariffs in the long run.~
+~
+Our thinking is that initially domestic production capacity is insufficient to meet domestic demand, so the immediate impact would be an increase by roughly the amount of the tariff. But eventually, the industry will ramp up production because it will be profitable to do so, and domestic competition will drive prices to some new equilibrium that in between the starting point and the tariff amount. This captures where that new equilibrium would be. We're avoiding a complicated equilibrium model here, so this is intended to be a crude estimate.
+Definition: Triangular(0, 75%, 100%) * Proposed_Tariff
+NodeLocation: 424,56,1
+NodeSize: 56,32
+WindState: 2,249,98,736,340
+ValueState: 2,1260,297,416,303,,PDFP
+Aliases: FormNode Fo1520386491
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Index Sector
+{!40000|Att_PrevIndexValue: ['Steel','Aluminum','Ag. and construction machinery','Engines, turbines, and power transmission equip.','Computer equipment','Industrial machinery','Household appliances','Household and institutional furniture, cabinets','Motor vehicles','Other durable manufacturing','Other non-durable goods']}
+Title: Sector
+Description: Industrial sector, including 'Steel' and 'Aluminum', the materials subject to the proposed tariff.
+Definition: ['Steel','Aluminum','Ag. and construction machinery','Engines, turbines, and power transmission equip.','Computer equipment','Industrial machinery','Household appliances','Household and institutional furniture, cabinets','Motor vehicles','Other durable manufacturing','Other non-durable goods']
+NodeLocation: 96,224,1
+NodeSize: 56,24
+WindState: 2,102,82,428,350
+
+Variable Value_share_to_goods
+Title: Value share to goods
+Definition: Table(Sector,Material)(~
+0,1,~
+1,0,~
+0.03,0.058,~
+0.08,0.08,~
+6m,6m,~
+0.03,0.047,~
+0.02,0.062,~
+0.058,0.058,~
+0.05,0.079,~
+0.015,0.015,~
+6m,6m)
+NodeLocation: 584,56,1
+NodeSize: 56,32
+DefnState: 2,152,155,530,468,0,DFNM
+ValueState: 2,136,138,581,303,,MIDM
+Aliases: FormNode Fo1520386492
+ReformDef: [Material,Sector]
+ReformVal: [Material,Sector]
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!50000|Att_ColumnWidths: [,Material,\([72])]}
+
+Variable Cur_trade_amount
+Title: Cur trade amount
+Units: $US
+Description: This is the current level of US imports and US exports in US $. The term "trade amount" is used to mean exports amount or imports amount.~
+~
+Data from 2016, International Trade Administration, U.S. Department of Commerce. Import and export data for listed products with trade partner World. (http://tse.export.gov/tse/TSEOptions.aspx?ReportID=2&Referrer=TSEReports.aspx&DataSource=NTD)
+Definition: Table(Sector,Trade_direction)(~
+27.34074322G,13.564119046G,~
+13.151517931G,7.766737093G,~
+26.251068312G,24.016781796G,~
+22.025267133G,24.372451095G,~
+86.743218413G,45.13051666G,~
+22.699454821G,20.118893087G,~
+28.923292838G,8.436370404G,~
+28.215522739G,3.630456422G,~
+277.085750756G,120.601180756G,~
+366.535273159G,157.452725942G,~
+564.760864476G,404.185884919G)
+NodeLocation: 248,536,1
+NodeSize: 56,32
+WindState: 2,102,82,720,350
+DefnState: 2,811,346,627,365,0,DFNM
+ValueState: 2,289,293,689,535,0,MIDM
+Aliases: FormNode Fo1520386493
+ReformDef: [Trade_direction,Sector]
+ReformVal: [Trade_direction,Sector]
+
+Chance degree_to_which_cost
+Title: degree to which cost of goods is passed on
+Description: In some cases, the increased cost for manufacturing may be absorbed by the industry in the form of lower profits, instead of being passed on in the form of higher prices. When the entire cost increase is absorbed, there would be no impact on trade deficit. This is a fuzzy multiplier indended to capture the degree to which the increased material costs are passed on the customers (0 = absorbed entirely by manufacturer, 1 = passed on entirely)
+Definition: if Sector='Steel' or Sector='Aluminum' then 100% else Triangular(0, 50%, 100%, over:Sector)
+NodeLocation: 656,160,1
+NodeSize: 56,40
+WindState: 2,919,603,720,350
+DefnState: 2,897,184,458,492,0,DFNM
+ValueState: 2,152,155,686,400,,CDFP
+Aliases: FormNode Fo1520386494
+ReformVal: [Undefined,Null,Undefined,Undefined,1]
+NumberFormat: 2,%,4,4,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_ResultSliceState: [Sector,3,Sys_LocalIndex('Step'),1]}
+{!40000|Att_XRole: -1}
+{!40000|Att_ColorRole: Null}
+
+Variable New_trade_amount_by_
+Title: New trade amount by sector
+Units: $US
+Description: This is the projected level of US imports and US exports in US$, by sector.~
+~
+It is computed by using the project price change for imports and exports (Trade_price_increase) after the tariff, and the trade_elasticity, which captures the sensitivity to price changes.
+Definition: Cur_trade_amount * exp( - Trade_elasticity * Trade_price_increase)
+NodeLocation: 424,440,1
+NodeSize: 56,32
+WindState: 2,557,542,720,350
+ValueState: 2,487,257,631,329,,CDFP
+ReformVal: [Trade_direction,Null,Undefined,Undefined,1]
+{!40000|Att_XRole: -1}
+{!40000|Att_ColorRole: Null}
+
+Variable Domestic_price_incre
+Title: Domestic price increase
+Description: The percent change in domestic prices across each sector.
+Definition: Sum( Value_share_to_goods * Domestic_equil_price, Material ) * degree_to_which_cost
+NodeLocation: 504,160,1
+NodeSize: 56,32
+ValueState: 2,388,161,750,495,,CDFP
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+
+Objective Net_change_to_trade_
+Title: Net change to trade deficit
+Units: $US
+Description: The net change to the US trade deficit, due to the new tariff.
+Definition: Sum( Change_to_trade_defi, Sector )
+NodeLocation: 744,536,1
+NodeSize: 56,32
+ValueState: 2,485,113,498,376,1,PDFP
+
+Index Trade_direction
+{!40000|Att_PrevIndexValue: ['Imports','Exports']}
+Title: Trade direction
+Description: We use the term "Trade direction" to encompase both 'Imports' and 'Exports'.
+Definition: ['Imports','Exports']
+NodeLocation: 96,296,1
+NodeSize: 56,24
+
+Variable Trade_price_increase
+Title: Trade price increase
+Description: The percent change import and export prices across each sector. By import price, we mean the price at which US consumers purchase imported goods. By export price, we mean the price at which international buyers purchase goods exported from the US. The values here reflect the percent change. ~
+~
+For goods not directly targeted by the tariff (i.e., everything other than Steel and Aluminum), we assume no change to import prices. We also assume that the export price is the same as the domestic price. We reason that obvious economic forces would tend to cause that to be true.~
+~
+For steel and alumimum, we assume the import price increases by the tariff amount. This assumption would be violated if a reduction of US imports alters the international market equilbrium, for example. Since the US accounts for only 8% of global imports, we feel the assumption is within the fidelity of this analysis. We assume the export price for steel and aluminum also matches the domestic price. Basic economics should tend to push those to equality in the absense of relatiatory tariffs, etc.
+Definition: Table(Sector,Trade_direction)(~
+Proposed_tariff[Material='Steel'],Domestic_equil_price[Material='Steel'],~
+Proposed_tariff[Material='Aluminum'],Domestic_equil_price[Material='Aluminum'],~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre,~
+0,Domestic_price_incre)
+NodeLocation: 424,312,1
+NodeSize: 56,32
+DefnState: 2,64,397,934,309,0,DFNM
+ValueState: 2,526,444,575,347,1,CDFP
+Aliases: FormNode Fo1520386577
+ReformDef: [Trade_direction,Sector]
+ReformVal: [Trade_direction,Null,Undefined,Undefined,1]
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15
+{!40000|Att_ResultSliceState: [Sector,4,Trade_direction,2,Trade_direction,2,Sys_LocalIndex('Step'),1]}
+{!40000|Att_XRole: -1}
+{!40000|Att_ColorRole: Null}
+
+Variable New_trade_deficit
+Title: New trade deficit
+Units: $US
+Description: The projected US trade by sector after the tariff is imposed.
+Definition: New_trade_amount_by_[ Trade_direction='Imports'] - New_trade_amount_by_[Trade_direction='Exports' ]
+NodeLocation: 608,440,1
+NodeSize: 56,32
+ValueState: 2,419,205,627,387,,MEAN
+
+Variable Cur_trade_deficits
+Title: Cur trade deficits
+Units: $US
+Description: The current US trade deficit by sector -- a positive number means a greater monetary value of goods is imported than exported.
+Definition: Cur_trade_amount[Trade_direction='Imports'] - Cur_trade_amount[Trade_direction='Exports']
+NodeLocation: 424,536,1
+NodeSize: 56,32
+ValueState: 2,216,219,675,329,,MEAN
+
+Variable Change_to_trade_defi
+Title: Change to trade deficit by sector
+Units: $US
+Description: The projected change to the US trade deficit by sector, relative to the current trade deficit.
+Definition: New_trade_deficit - Cur_trade_deficits
+NodeLocation: 608,536,1
+NodeSize: 56,32
+ValueState: 2,453,138,640,324,1,PDFP
+GraphSetup: Att_GraphValueRange Change_to_trade_defi:|1:1,,0,,,,,0,4G,0
+ReformVal: [Undefined,Null,Undefined,Undefined,1]
+{!40000|Att_ResultSliceState: [Sector,9,Sys_LocalIndex('Step'),1]}
+{!40000|Att_XRole: -1}
+{!40000|Att_ColorRole: Null}
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Variable Elasticity_means_by_
+Title: Elasticity means by sector
+Description: Import elasticity data from: ~
+* M.P. Gallaway et al. (2003) North American Journal of Economics and Finance 14:49–68.~
+~
+We didn't find (in our short effort) good estimates of export elasticity. We've used a mean of 1 as our default assessment in the absence of more specific.
+Definition: Table(Sector,Trade_direction)(~
+0.54,1,~
+0.648,1,~
+(1.151+0.826)/2,1,~
+1.024,1,~
+0.231,1,~
+0.966,1,~
+0.988,1,~
+0.839,1,~
+0.94,1,~
+1,1,~
+1,1)
+NodeLocation: 248,344,1
+NodeSize: 56,32
+WindState: 2,146,550,720,350
+DefnState: 2,918,446,634,346,0,DFNM
+ValueState: 2,283,390,501,303,,MIDM
+Aliases: FormNode Fo1520386495
+ReformDef: [Trade_direction,Sector]
+ReformVal: [Trade_direction,Sector]
+
+Module User_inputs_and_assu
+Title: User inputs and assumptions
+Author: Lonnie
+Date: Thu, Mar 8, 2018 12:25 PM
+NodeLocation: 120,632,1
+NodeSize: 64,32
+
+FormNode Fo1520386490
+Title: Proposed Tariff
+Definition: 0
+NodeLocation: 152,40,1
+NodeSize: 104,16
+Original: Proposed_Tariff
+
+FormNode Fo1520386491
+Title: Domestic equil price increase
+Definition: 0
+NodeLocation: 320,80,1
+NodeSize: 272,16
+NodeInfo: 1,,,,,,0,309,,,,,,0
+Original: Domestic_equil_price
+
+FormNode Fo1520386492
+Title: Value share to goods
+Definition: 0
+NodeLocation: 172,120,1
+NodeSize: 124,16
+Original: Value_share_to_goods
+
+FormNode Fo1520386493
+Title: Cur trade amount
+Definition: 0
+NodeLocation: 184,240,1
+NodeSize: 136,16
+Original: Cur_trade_amount
+
+FormNode Fo1520386494
+Title: degree to which cost of goods is passed on
+Definition: 0
+NodeLocation: 532,160,1
+NodeSize: 484,16
+NodeInfo: 1,,,,,,0,645,,,,,,0
+Original: degree_to_which_cost
+
+FormNode Fo1520386495
+Title: Elasticity means by sector
+Definition: 0
+NodeLocation: 188,200,1
+NodeSize: 140,16
+Original: Elasticity_means_by_
+
+FormNode Fo1520386577
+Title: Trade price increase
+Definition: 0
+NodeLocation: 168,280,1
+NodeSize: 120,16
+Original: Trade_price_increase
+
+Close User_inputs_and_assu
+
+Close Steel_and_aluminum_t
+

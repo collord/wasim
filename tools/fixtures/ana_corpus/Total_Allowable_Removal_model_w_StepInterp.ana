@@ -1,0 +1,224 @@
+{ From user Lonnie, Model Tah_w_stepinterp at Mon, Oct 08, 2007 3:39 PM~~
+}Softwareversion 4.0.0{ System Variables with non-default values: }Time := Sequence( 0, 10, 1 )Windstate Time: 2,102,90,527,424{!40000|Att_previndexvalue Time: [2007,2008,2009,2010,2011,2012,2013,2014~~
+,2015,2016,2017]}Samplesize := 5000Typechecking := 1Checking := 1Saveoptions := 2Savevalues := 0Attribute ReferenceAttribute Date_boughAttribute New_attribAskattribute Recursive,Function,YesModel Tah_w_stepinterpAuthor: richardpDate: Mon, Oct 01, 2007 10:35 AMSaveauthor: LonnieSavedate: Mon, Oct 08, 2007 3:39 PMDefaultsize: 48,24Diagstate: 1,0,0,1024,575,17Fontstyle: Arial, 15Fileinfo: 0,Model Tah_w_stepinterp,2,2,0,0,C:\Documents and Settings\L~~
+onnie\Local Settings\Temporary Internet Files\OLK11\Total Allowable R~~
+emoval model w StepInterp.ANAOutlinerstate: 2,40,50,448,280Chance Pop_sizeTitle: Pop SizeDefinition: lognormal_m_sd(57300,12400)Nodelocation: 88,64,1Nodesize: 48,24Chance LambdaTitle: LambdaDefinition: Uniform( 1.01, 1.04 )Nodelocation: 96,160,1Nodesize: 48,24Decision Landed_catchTitle: Landed catchDefinition: Sequence( 1600, 1800, 1 )Nodelocation: 832,232,1Nodesize: 48,32Windstate: 2,0,-23,837,644Valuestate: 2,40,50,416,303,1,MIDMNodecolor: 65535,19661,50247{!40000|Att_previndexvalue: [500,1000]}Chance Loss_rateTitle: Loss rateDefinition: normal(1.28,0.15)Nodelocation: 96,264,1Nodesize: 48,24Library Distribution_variatiTitle: Distribution VariationsDescription: This library contains various functions for defining stan~~
+dard distributions using different sets of parameters.Author: Lonnie Chrisman and Fred Brunton~
+Lumina Decision SystemsDate: Wed, Oct 20, 2004 12:18 AMSaveauthor: LonnieSavedate: Mon, Jan 01, 2007 1:14 PMDefaultsize: 48,24Nodelocation: 104,608,0Nodesize: 56,28Nodeinfo: 1,1,1,1,1,1,0,0,0,0Diagstate: 1,268,27,613,464,17Windstate: 2,393,94,476,224Fontstyle: Arial, 15Function Smooth_fractile(fract : ascending[F] ; ~
+ F : positive ascending IndexType; ~
+ over : ... optional atomic;~
+singleSampleMethod: optional atomic numeric hidden)Title: Smooth FractileDescription: Given a set of fractiles, this returns a smooth distribut~~
+ion with tails having the indicated fractiles.  The fractiles to use ~~
+must be specified in F, each value being between 0 and 1, and the fra~~
+ctile values must be in fract.  ~
+~
+For example, to specify a distribution having a P10, P50 and P90 of 7~~
+, 13, and 15, set:~
+F := [0.1, 0.5, 0.9]~
+fract := Table(F) ( 7, 13, 15 )~
+and call Smooth_Fractile(fract,F)Definition: {The "seed" distribution has the dimensions of fract excep~~
+t for F.}~
+var u:=if IsNotSpecified(singleSampleMethod) ~
+           Then normal(0,1,over:slice(fract,F,1))~
+           Else random(normal(0,1,over:slice(fract,F,1)), ~
+                                method:singleSampleMethod);~
+index pwr := 0..size(F)-1;~
+var N := cumnormalinv(f,0,1)^pwr;~
+var a := sum(Transpose(Invert(N,F,pwr),F,pwr)* fract,F);~
+sum(a*u^pwr,pwr)Nodelocation: 80,184,1Nodesize: 48,24Windstate: 2,365,39,514,582Paramnames: fract,F,overFunction Beta_m_sd(m : numeric, sd : positive ; lower,upper:optional n~~
+umeric; over : ... optional atomic; singleSampleMethod  : optional at~~
+omic numeric hidden )Title: beta_m_sd(m,sd)Description: A beta distribution parameterized by the theoretical mean~~
+ and std.dev. for the resulting distribution.~
+~
+Based on Method of Moments.~
+Reference:~
+Morgan, M.G., and Henrion, M., "Uncertainty", 1990, p. 97Definition: if IsNotSpecified(lower) then lower:=0;~
+if IsNotSpecified(upper) then upper:=1;~
+var u := (m-lower) / (upper-lower);~
+var v := (sd / (upper-lower))^2;~
+var a := (u^2 - u^3 - v * u) / v;~
+var b := (u * (1-u)^2 - v * (1-u)) / v;~
+if IsNotSpecified(singleSampleMethod) then~
+    beta(a,b,lower,upper)~
+else~
+    beta(a,b,lower,upper, singleSampleMethod:singleSampleMethod)Nodelocation: 320,120,1Nodesize: 96,20Windstate: 2,57,102,524,409Paramnames: m,sd,lower,upper,overFunction Lognormal_m_sd(mean, stddev; over: ... optional atomic; singl~~
+eSampleMethod  : optional atomic numeric hidden )Title: LogNormal_m_sd(m,sd)Description: This function is no longer need since the built-in log no~~
+rmal function has been enhanced.  The definition has been updated acc~~
+ordingly.  It is included here only for backwards compatibility.~
+~
+This function works well when the ratio of mean/stddev >= 1.  Otherwi~~
+se the sample stddev may vary considerably from the desired.~
+~
+Definition: if (isNotSpecified(singleSampleMethod)) then~
+    lognormal(Mean:mean,Stddev:stddev)~
+else ~
+    lognormal(Mean:mean,Stddev:stddev, singleSampleMethod:singleSampl~~
+eMethod)~
+Nodelocation: 120,56,1Nodesize: 92,20Windstate: 2,125,102,784,377Paramnames: mean,stddev,overFunction Pert(min,mode,max; over : ... optional atomic; singleSampleMe~~
+thod  : optional atomic numeric hidden )Title: Pert(min,mode,max)Description: A Pert-distribution, which is a beta distribution defined~~
+ by a given min, mode, and max.Definition: var mean := (min + 4*mode  + max ) / 6;~
+var a :=6* (mean - min) / (max-min);~
+var b := 6*(max - mean) / (max-min);~
+if (isNotSpecified(singleSampleMethod)) then~
+    beta(a,b,min,max)~
+else ~
+   beta(a,b,min,max, singleSampleMethod:singleSampleMethod)Nodelocation: 320,56,1Nodesize: 96,20Windstate: 2,55,26,784,377Paramnames: min,mode,max,overFunction Gamma_m_sd(m,sd : positive; over : ... optional atomic; singl~~
+eSampleMethod  : optional atomic numeric hidden  )Title: Gamma_m_sd(m,sd)Description: The gamma distribution, parameterized by the theoretical ~~
+mean and std.dev. of the target distribution.~
+~
+Uses Method of Moments.  Reference:~
+Morgan, M.G., and Henrion, M., "Uncertainty", 1990, p. 93.Definition: var a := (m/sd)^2;~
+var b := sd^2/m;~
+if (isNotSpecified(singleSampleMethod)) then~
+    gamma(a,b)~
+else ~
+    gamma(a,b, singleSampleMethod:singleSampleMethod)Nodelocation: 120,120,1Nodesize: 92,20Windstate: 2,93,30,784,377Paramnames: m,sd,overFunction Warp_dist(dist : Samp ; ~
+ fracts : ascending[F] ; ~
+ F : positive ascending IndexType;~
+over : ... optional atomic,~
+singleSampleMethod : hidden optional atomic numeric )Title: Warp DistDescription: Applies a smooth warping funtion to a given sample so as ~~
+to obtain the listed fractiles, while maintaining the approximate sha~~
+pe of the distribution.  For example, if you have p10, p50 and p90 pe~~
+rcentiles and you want a "Normal-like" distribution, you could use:~
+~
+index F:=[10%,50%,90%];~
+var pctiles := Array(F,[5,10,20]);~
+Warp_dist(Normal(0,1),pctiles,F)~
+~
+The resulting distribution will not be a Normal (you can't necessaril~~
+y obtain a normal with any three fractiles, since Normal has only 2 f~~
+ree parameters), but it will be basically bell-shaped -- skewed a bit~~
+ to the left to obtain the given fractiles.~
+~
+Note that if you were to provide only two fractiles, Normality would ~~
+be preserved in this example.Definition: var p := if IsNotSpecified(singleSampleMethod) ~
+             Then if IsSampleEvalMode then dist else getfract(dist,0.~~
+5)~
+              Else getfract(dist,Random(method:singleSampleMethod));~
+var z:=getfract(dist,F);~
+Cubicinterpextrap(z,fracts,p,F)Nodelocation: 192,184,1Nodesize: 48,24Windstate: 2,10,13,498,590Paramnames: dist,fracts,F,overModule Dist_var__helper_fn1Title: Dist Var. Helper FnsAuthor: LonnieDate: Thu, Mar 16, 2006 1:54 PMDefaultsize: 48,24Nodelocation: 312,184,1Nodesize: 48,24Diagstate: 1,1,0,550,300,17Function Cubicinterpextrap(D,R:numeric[I];X:atomic numeric;I:IndexType~~
+)Title: CubicInterpExtrapDescription: Linear extrapolation, same as linearinterp, with the exte~~
+nded functionality that when X < min(D,I), the first line segment in ~~
+D,R is used to extrapolate to the left, and for X>max(D,I) the last l~~
+ine segment is extrapolated.Definition: var n=size(I);~
+if n=1 then r else begin~
+  if X<slice(D,I,1) then~
+      (x-slice(D,I,1) ) * (slice(R,I,2)-slice(R,I,1)) / (Slice(D,i,2)~~
+-slice(D,i,1)) + slice(R,I,1)~
+  else if X>slice(D,I,n) then~
+      (x-slice(d,I,n)) * (slice(R,I,n)-slice(R,I,n-1)) / ~
+      (slice(d,I,n)-slice(d,I,n-1)) + Slice(R,I,n)~
+  else      ~
+      cubicinterp(d,r,x,I)~
+endNodelocation: 56,32,1Nodesize: 48,24Windstate: 2,143,90,650,421Paramnames: D,R,X,IClose Dist_var__helper_fn1Function Erlang(m,n; over : ... optional atomic; singleSampleMethod : ~~
+optional atomic numeric hidden  )Title: Erlang(m,n)Description: The Erlang distribution is really just a variant of the G~~
+amma distribution with another name, although it generally refers to ~~
+the special case when parameter n is an integer, while the correspond~~
+ing parameter A in a gamma distribution is often non-integer.  ~
+~
+The time of arrival of the nth event in a Poisson process with mean a~~
+rrival of m follows an Erlang distribution.Definition: if (isNotSpecified(singleSampleMethod)) then~
+    gamma(n,m)~
+else ~
+    gamma(n, m, singleSampleMethod:singleSampleMethod)Nodelocation: 80,264,1Nodesize: 52,24Windstate: 2,104,36,476,378Paramnames: m,n,overFunction Pareto(a,b; over : ... optional atomic; singleSampleMethod : ~~
+optional atomic numeric hidden  )Title: Pareto(a,b)Description: The Pareto distribution.   ~
+The "classic" use of the Pareto distribution is to model the distribu~~
+tion of wealth in a society, under an assumption that a smaller perce~~
+ntage of the people own a larger percentage of the wealth (e.g., 20% ~~
+of the population control 80% of the wealth).~
+~
+The Pareto distribution is appropriate for a variety of "population" ~~
+models.  Examples: The size of objects in a population (e.g., grains ~~
+of sand),  value of assets in a collection of assets, file sizes, wor~~
+d frequencies, number of acquaintances of a given person, etc.Definition: if (isNotSpecified(singleSampleMethod)) then~
+    b * (1-uniform(0,1)) ^ (-1/a)~
+else~
+    b*(1-uniform(0,1,singleSampleMethod:singleSampleMethod)) ^ (-1/a)~~
+Nodelocation: 200,264,1Nodesize: 48,24Windstate: 2,383,0,476,448Paramnames: a,b,overFunction Rayleigh(mode; over : ... optional atomic; singleSampleMethod~~
+  : optional atomic numeric hidden  )Title: Rayleigh(mode)Description: The Rayleigh distribution results when you have two ortho~~
+gonal components that are each normally distributed, such as might be~~
+ the case with Wind Speed.  The length of the vector itself will then~~
+ have a Rayleigh distribution.~
+~
+The Rayleigh is a special case of the Weibull distribution -- Weibull~~
+(2,sqrt(2)*mode).  It also coincides with Chi-Squared, conditional ex~~
+ponential, and the Rice distributions.Definition: if (isNotSpecified(singleSampleMethod)) then~
+    Sqrt((-2*mode^2*Ln(Uniform(0,1))))~
+else~
+    Sqrt((-2*mode^2*Ln(Uniform(0,1,~
+    singleSampleMethod:singleSampleMethod))))Nodelocation: 336,264,1Nodesize: 64,24Windstate: 2,14,25,596,399Paramnames: mode,overFunction Negbinomial(r,p; over : ... optional atomic; singleSampleMeth~~
+od  : optional atomic numeric hidden  )Title: NegBinomial(r,p)Description: The number of events that occur in a binomial process wit~~
+h probability p of success until the r'th success occurs.Definition: if (isNotSpecified(singleSampleMethod)) then~
+    Poisson(Gamma(r,(1-p)/p))~
+else~
+   Poisson(Gamma(r,(1-p)/p,singleSampleMethod:singleSampleMethod),~
+   singleSampleMethod:singleSampleMethod)Nodelocation: 96,344,1Nodesize: 68,24Windstate: 2,341,91,498,284Paramnames: r,p,overFunction Inversegaussian(A,B : positive atomic; over : ... optional at~~
+omic; singleSampleMethod  : optional atomic numeric hidden  )Title: InverseGaussian(A,B)Description: The inverse gaussian distribution with location parameter~~
+ A and scale parameter B.  Used in reliability studies.  Gives the fi~~
+rst passage time in a standard Brownian motion with postive drift.~
+~
+Some books refer to this as the Wald Distribution.  Others define the~~
+ Wald distribution as the special case where A=1.~
+~
+This algorithm due to:~
+* Michael, Schucany, and Haas (1976)Definition: if (isNotSpecified(singleSampleMethod)) then~
+(~
+  var y:=Normal(0,1)^2;~
+  var x := a + (a^2*y - a * sqrt( 4*A*B*y + (A*y)^2 ) ) / (2*B);~
+  if uniform(0,1) * (A+x) <= A~
+  then x~
+  else a^2/x~
+)~
+else~
+(~
+  var y:=Normal(0,1,singleSampleMethod:singleSampleMethod)^2;~
+  var x := a + (a^2*y - a * sqrt( 4*A*B*y + (A*y)^2 ) ) / (2*B);~
+  if uniform(0,1,singleSampleMethod:singleSampleMethod) * (A+x) <= A~
+  then x~
+  else a^2/x~
+)Nodelocation: 240,344,1Nodesize: 68,24Windstate: 2,399,161,476,224Paramnames: A,B,overFunction Wald(k : positive; over : ... optional atomic; singleSampleMe~~
+thod  : optional atomic numeric hidden  )Title: Wald(k)Description: The Wald distribution.~
+See also InverseGaussian -- some texts call that distribution the Wal~~
+d distribution.Definition: if (isNotSpecified(singleSampleMethod)) then~
+    Inversegaussian(1,k)~
+else~
+    Inversegaussian(1,k, singleSampleMethod: singleSampleMethod)Nodelocation: 368,344,1Nodesize: 48,24Windstate: 2,225,16,558,314Paramnames: k,overFunction Lorenzian(mode,scale; over : ... optional atomic; singleSampl~~
+eMethod  : optional atomic numeric hidden  )Title: Lorenzian (mode,scale)Description: The Lorenzian distribution (also known as Cauchy, Cauchy-~~
+Lorenz, Lorenz, and Breit-Wigner) is a continuous bell-shaped distrib~~
+ution having the indicated mode, and with the second parameter specif~~
+ying the half-width at the half-maximum density.  ~
+~
+It has uses in physics, especially in the study of resonance and spec~~
+troscopy where it describes the shape of spectral lines that are broa~~
+dened through various resonances.~
+~
+The standard form, in which mode=0 and shape=1, is known as the stand~~
+ard Cauchy distribution.~
+~
+The Lorenz distribution has some unusual mathematical properties that~~
+ are uncommon among the standard distributions.  Its mean, variance a~~
+nd higher moments are all undefined.  As a result, the law of large n~~
+umbers does not apply to samples generated from a Lorenz distribution~~
+.~
+~
+One other property of interest:  The ratio of two standard normal ran~~
+dom variables follows a standard Cauchy distribution.Definition: if (isNotSpecified(singleSampleMethod)) then~
+    mode + scale*tan( uniform(-90,90) )~
+else~
+    mode + scale*tan( uniform(-90,90,~
+    singleSampleMethod:singleSampleMethod))Nodelocation: 464,264,1Nodesize: 56,24Windstate: 2,123,22,717,448Paramnames: mode,scale,overClose Distribution_variatiChance NtTitle: NtDefinition: Dynamic(Pop_size,Max_(((Self[Time-1]*Lambda)-(Landed_catch~~
+*Loss_rate)),0))Nodelocation: 296,160,1Nodesize: 64,28Windstate: 2,0,-23,1024,653Valuestate: 2,120,130,681,496,1,CDFPReformval: [Time,Time,2,Undefined,1]{!40000|Att_resultslicestate: [Landed_catch,2,Time,10,Sys_localindex('~~
+STEP'),1]}Function Max_(x,y)Title: Max_Definition: if x<y then y else xNodelocation: 264,616,1Nodesize: 48,24Paramnames: x,yChance PercentTitle: Percent(N_0 minus N_end)Definition: (N_end-N_0)/N_0Nodelocation: 456,64,1Nodesize: 72,32Valuestate: 2,0,-23,1024,653,1,CDFPReformval: [Undefined,Landed_catch,Undefined,Undefined,1]Numberformat: 2,%,4,0,0,0,4,0,$,0,"ABBREV",0Chance N_0Title: N_0Definition: Pop_sizeNodelocation: 296,64,1Nodesize: 48,24Valuestate: 2,0,-23,1024,653,1,CDFPReformval: [Undefined,Landed_catch,Undefined,Undefined,1]Chance N_endTitle: N_endDefinition: Nt[Time=10]Nodelocation: 296,272,1Nodesize: 48,24Chance N_0___n_endTitle: N_0 & N_endDefinition: Table(Self)(~
+N_0,N_end)Indexvals: [2007,2017]Nodelocation: 456,272,1Nodesize: 68,32Valuestate: 2,0,-23,1025,654,1,CDFPReformval: [Undefined,Self,Undefined,Undefined,1]{!40000|Att_previndexvalue: [2007,2017]}{!40000|Att_resultslicestate: [Landed_catch,201,Self,1,Sys_localindex(~~
+'STEP'),1]}Chance Prob2Title: Prob(decline treshold)Definition: Probability(Percent<=-Decline_threshold_)Nodelocation: 592,152,1Nodesize: 76,28Valuestate: 2,0,0,989,547,1,MIDMNumberformat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0Objective Step_interpolated_haTitle: Step Interpolated Harvest      for P(Decline threshold) = Risk ~~
+toleranceDefinition: StepInterp(Prob2,Landed_catch,Risk_tolerance_)Nodelocation: 592,400,1Nodesize: 52,76Valuestate: 2,223,229,416,303,0,MIDMDecision Decline_threshold_Title: Decline threshold (%)Definition: 5%Nodelocation: 784,128,1Nodesize: 48,31Decision Risk_tolerance_Title: Risk tolerance (%)Definition: 75%Nodelocation: 896,128,1Nodesize: 48,32Text Te1Description: 4) Get rough objective with wide "Landed catch" sequence ~~
+and LARGE steps (e.g.10) and a SMALL uncertainty sample (eg.:1000) ch~~
+eck Prob(5% decline CDF. ~
+~
+5) Get "Step Interpolated Harvest" by narrowing "Landed catch" sequen~~
+ce around rough objective (2), using a step of ONE and a LARGE uncert~~
+ainty sample (eg.: 5000).Nodelocation: 832,440,-1Nodesize: 124,119Nodeinfo: 1,0,0,1,0,1,0,,0,Text Te2Description: 1) Set Menu Definition-Edit Time to sequence(0,end # year~~
+s,1).~
+~
+2) Set Start Pop Size, Lambda and Loss rate uncertainty distributions~~
+.Nodelocation: 176,400,-1Nodesize: 120,56Nodeinfo: 1,0,0,1,0,1,0,,0,Text Te3Description: 3) Set decline threshold (%) and risk tolerance (%)Nodelocation: 840,56,-1Nodesize: 100,20Nodeinfo: 1,0,0,1,0,1,0,,0,Close Tah_w_stepinterp

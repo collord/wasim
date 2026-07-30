@@ -1,0 +1,295 @@
+{ From user indirect, Model Compression_post_loa at Tue, Nov 04, 2003 4:49 PM~~
+}
+Softwareversion 3.0.0
+
+
+{ System Variables with non-default values: }
+Windows := 2
+Usetable := 0
+Typechecking := 1
+Checking := 1
+Graphwindows := 9
+Saveoptions := 2
+Savevalues := 0
+Webhelper := -1
+
+
+{ Non-default Time SysVar value: }
+Time := [0,1,2]
+Title Time: Time
+Description Time: Dynamic simulation periods are specified in Time's ~~
+definition. This is usually a list of numbers or labels, typically in~~
+ some unit of time (days, weeks, months, etc.).  Use the ÒDynamic()Ó ~~
+function in your variables to perform dynamic simulation.
+
+Model Compression_post_loa
+Title: Compression Post Load Capacity Calculator
+Description: Computes the load that a Douglas-Fir Larch compression p~~
+ost can support.  Based on <a href="http://www.mcvicker.com/vwall/pag~~
+e009.htm">McVicker</a>.
+Author: Lonnie Chrisman
+Date: Tue, Nov 04, 2003 3:52 PM
+Saveauthor: indirect
+Savedate: Tue, Nov 04, 2003 4:49 PM
+Defaultsize: 48,24
+Diagstate: 1,131,0,766,670,17
+Windstate: 2,126,399,476,224
+Fontstyle: Arial, 15
+Fileinfo: 0,Model Compression_post_loa,2,2,0,0,C:\My Documents\House ~~
+addition\Compression Post Load Capacity.ANA
+
+Formnode Timber_type1
+Title: Timber type
+Definition: 0
+Nodelocation: 192,32,1
+Nodesize: 156,16
+Nodeinfo: 1,0,0,1,0,0,0,162,0,1
+Original: Timber_type
+
+Formnode Grade1
+Title: Grade
+Definition: 0
+Nodelocation: 160,80,1
+Nodesize: 128,12
+Nodeinfo: 1,0,0,1,0,0,0,158,0,1
+Original: Grade
+
+Formnode Length
+Title: Length
+Definition: 0
+Nodelocation: 128,128,1
+Nodesize: 92,13
+Nodeinfo: 1,0,0,1,0,0,0,72,0,1
+Original: L
+
+Formnode Depth1
+Title: Depth
+Definition: 0
+Nodelocation: 128,176,1
+Nodesize: 88,13
+Nodeinfo: 1,0,0,1,0,0,0,72,0,1
+Original: D
+
+Formnode Thickness1
+Title: Thickness
+Definition: 0
+Nodelocation: 168,233,1
+Nodesize: 128,14
+Nodeinfo: 1,0,0,1,0,0,0,110,0,1
+Original: Thickness
+
+Formnode Total_load_not_to_e1
+Title: Total Load not to exceed
+Definition: 1
+Nodelocation: 192,280,1
+Nodesize: 152,13
+Nodeinfo: 1,0,0,1,0,0,0,72,0,1
+Original: Total_load_not_to_ex
+
+Module Model_details
+Title: Model Details
+Defaultsize: 48,24
+Nodelocation: 88,344,1
+Nodesize: 48,24
+Diagstate: 1,42,41,729,670,17
+
+Decision L
+Title: Length
+Units: in
+Description: Longest unblocked length.  For example, if a compression~~
+ post runs floor to ceiling with no blocking, L=96".  If a post were ~~
+blocked 1/3 of the way up, then L = 64", since the top portion is the~~
+ longest unbloked part.
+Definition: 96
+Nodelocation: 72,160,1
+Nodesize: 48,24
+Aliases: Formnode Length
+
+Decision D
+Title: Depth
+Units: in
+Description: Standard lumber size depth.   For example, for a 2x4 com~~
+pression post, use D=4 (not D=3.5).
+Definition: Choice(self,3)
+Nodelocation: 72,216,1
+Nodesize: 48,24
+Windstate: 2,140,273,476,224
+Aliases: Formnode Depth1
+Domain: [2,3,4,5,6,8,10,12,14]
+
+Decision Thickness
+Title: Thickness
+Units: in
+Description: Thickness of the compression post in standard units.  Fo~~
+r example, for a 2x4, use Thickness=2 (not thickness=1.5).
+Definition: Choice(Self,1)
+Nodelocation: 72,280,1
+Nodesize: 48,24
+Windstate: 2,83,445,476,224
+Aliases: Formnode Thickness1
+Domain: [2,3,4]
+
+Variable Real_depth
+Title: Real depth
+Units: in
+Description: The actual thickness of the post.
+Definition: D - 0.5 - 0.25*(D>7)
+Nodelocation: 232,216,1
+Nodesize: 48,24
+Windstate: 2,261,380,476,224
+
+Variable Real_thickness
+Title: Real thickness
+Units: in
+Definition: Thickness - 0.5 - 0.25*(Thickness>7)
+Nodelocation: 232,280,1
+Nodesize: 48,24
+
+Decision Grade
+Title: Grade
+Description: The grade of the wood used for the compression post.
+Definition: Choice(Self,0)
+Nodelocation: 72,104,1
+Nodesize: 48,24
+Nodeinfo: 1,1,1,1,1,1,0,0,0,0
+Aliases: Formnode Grade1
+Domain: ['Structural Select','No. 1 & Better','No. 1','No. 2','No. 3'~~
+,'Stud','Construction','Standard','Utility']
+
+Variable Fc0
+Title: Compression parallel to grain
+Definition: Determtable(Grade)(~
+
+1700,1500,1450,1300,750,825,1600,1350,875)
+Nodelocation: 80,464,1
+Nodesize: 60,36
+Defnstate: 2,493,158,416,303,0,MIDM
+Valuestate: 2,33,425,416,303,0,MIDM
+
+Constant Max_thickness_suppor
+Title: Max thickness supported
+Definition: DetermTable(Grade)(~
+
+4,4,4,4,4,4,4,4,4)
+Nodelocation: 360,272,1
+Nodesize: 48,31
+Defnstate: 2,53,384,416,303,0,MIDM
+Valuestate: 2,494,517,416,303,0,MIDM
+
+Constant Max_depth_supported
+Title: Max depth supported
+Definition: DetermTable(Grade)(~
+
+14,14,14,14,14,14,4,4,4)
+Nodelocation: 360,216,1
+Nodesize: 48,24
+Defnstate: 2,196,416,416,303,0,MIDM
+
+Variable Fc
+Title: Fc
+Units: psi
+Description: Compression parallel to grain
+Definition: if Thickness>Max_thickness_supported then~
+   Error("The post thickness is beyond available table values")~
+else if D>Max_depth_supported then~
+  Error("The post depth is beyond available table values")~
+else ~
+  Fc0 * Cf
+Nodelocation: 208,424,1
+Nodesize: 48,24
+Valuestate: 2,493,271,416,303,0,MIDM
+
+Decision Timber_type
+Title: Timber type
+Definition: Choice(Self,1)
+Nodelocation: 72,48,1
+Nodesize: 48,24
+Aliases: Formnode Timber_type1
+Domain: ['sawn lumber','glue laminated lumber']
+
+Variable Cp
+Title: Column stability factor
+Definition: var A:=0.5/c * (1+Fce / Fc);~
+Var B:=1/c * (Fce/Fc);~
+A - sqrt(A*A - B)
+Nodelocation: 336,424,1
+Nodesize: 48,31
+
+Variable C
+Title: c
+Definition: Determtable(Timber_type)(~
+
+0.8,0.9)
+Nodelocation: 200,48,1
+Nodesize: 48,24
+
+Variable Kce
+Title: kce
+Description: Kce is 0.3 for visually graded lumber and machine evalua~~
+ted lumber.
+Definition: 0.3
+Nodelocation: 208,616,1
+Nodesize: 48,24
+
+Variable Fce
+Title: Fce
+Definition: Kce * E / sqr(L/real_depth)
+Nodelocation: 208,520,1
+Nodesize: 48,24
+Valuestate: 2,19,90,416,303,0,MIDM
+
+Variable E
+Title: Modulus of Elasticity
+Definition: Determtable(Grade)(~
+
+1.9M,1.8M,1.7M,1.6M,1.4M,1.4M,1.5M,1.4M,1.3M)
+Nodelocation: 200,104,1
+Nodesize: 48,24
+
+Variable Cf
+Title: Compression adjustment
+Definition: Determtable( D, Grade )(~
+
+1.15,1.15,1.15,1.15,1.15,1.05,1,1,0.6,~
+
+1.15,1.15,1.15,1.15,1.15,1.05,1,1,0.6,~
+
+1.15,1.15,1.15,1.15,1.15,1.05,1,1,1,~
+
+1.1,1.1,1.1,1.1,1.1,1,0,0,0,~
+
+1.1,1.1,1.1,1.1,1.1,1,0,0,0,~
+
+1.05,1.05,1.05,1.05,1.05,0,0,0,0,~
+
+1,1,1,1,1,0,0,0,0,~
+
+1,1,1,1,1,0,0,0,0,~
+
+0.9,0.9,0.9,0.9,0.9,0,0,0,0~
+
+)
+Nodelocation: 72,384,1
+Nodesize: 52,28
+Defnstate: 2,380,66,416,303,0,MIDM
+Reformdef: [D, Grade ]
+
+Variable Allowable_unit_load
+Title: Allowable Unit Load
+Units: psi
+Definition: Cp * Fc
+Nodelocation: 456,424,1
+Nodesize: 48,24
+
+Objective Total_load_not_to_ex
+Title: Total Load not to exceed
+Units: lbs
+Definition: Allowable_unit_load*Real_depth*Real_thickness
+Nodelocation: 568,424,1
+Nodesize: 48,31
+Aliases: Formnode Total_load_not_to_e1
+
+Close Model_details
+
+Close Compression_post_loa
+

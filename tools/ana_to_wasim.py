@@ -196,6 +196,7 @@ class Tok:
     RB = "]"
     COMMA = ","
     COLON = ":"
+    RANGE = ".."
     EOF = "eof"
 
 
@@ -211,6 +212,7 @@ _TOKEN_RE = re.compile(
     | (?P<lb>\[)
     | (?P<rb>\])
     | (?P<comma>,)
+    | (?P<range>\.\.)
     | (?P<colon>:)
     | (?P<amp>&)
     | (?P<other>.)
@@ -251,6 +253,8 @@ def tokenize_expr(s: str) -> list[tuple[str, Any]]:
             toks.append((Tok.RB, val))
         elif kind == "comma":
             toks.append((Tok.COMMA, val))
+        elif kind == "range":
+            toks.append((Tok.RANGE, val))
         elif kind == "colon":
             toks.append((Tok.COLON, val))
         elif kind == "amp":
@@ -328,6 +332,12 @@ class ExprParser:
 
     def parse_expr(self, min_bp: int) -> Any:
         left = self.parse_postfix(self.parse_prefix())
+        # Analytica `a..b` inclusive integer range → materialized array literal
+        # (index members: `2003..2005`, `1..12`). Lower binding than arithmetic.
+        if self.peek()[0] == Tok.RANGE and min_bp <= 1:
+            self.next()
+            right = _as_ast(self.parse_expr(2))
+            left = _range_literal(_as_ast(left), right)
         while True:
             kind, val = self.peek()
             opname = None
@@ -551,6 +561,20 @@ def _stub(display: str, node_hint: str = "") -> dict:
     return {"op": "literal", "value": 0.0, "_stub_display": display}
 
 
+def _reducer(fn: str, args: list[dict]) -> dict:
+    """A reducer call `Sum(x, Index)` → `{op:call, fn, args:[x]}` carrying a
+    `_reduce_axis` marker naming the reduced index (when args[1] is an index ref).
+
+    The axis position can't be resolved until x's runtime axis ORDER is known
+    (align-by-name re-sorts axes by id), so the shape-inference pass in `convert`
+    later rewrites `_reduce_axis` → a 1-based position literal `args[1]`. With no
+    named axis, the reducer stays a full collapse (single arg)."""
+    node: dict[str, Any] = {"op": "call", "fn": fn, "args": args[:1] or args}
+    if len(args) >= 2 and isinstance(args[1], dict) and args[1].get("op") == "ref":
+        node["_reduce_axis"] = args[1]["element_id"]
+    return node
+
+
 def resolve_call(call: Call) -> dict:
     name = call.name.lower()
     args = [_as_ast(a) for a in call.pos]
@@ -561,21 +585,20 @@ def resolve_call(call: Call) -> dict:
         if len(args) == 2 and not named:
             return {"op": "call", "fn": name, "args": args}
         # Max(x, I) reduction (I is an index ref) or Max(x)
-        return {"op": "call", "fn": _ARRAY_REDUCERS[name], "args": args[:1] or args}
+        return _reducer(_ARRAY_REDUCERS[name], args)
 
     if name in _SCALAR_BUILTINS:
         return {"op": "call", "fn": _SCALAR_BUILTINS[name], "args": args}
 
     if name in _ARRAY_REDUCERS:
-        # Sum(x, Index) -> sum_array(x); drop the index arg (implicit in v0.1.0).
-        # Single-arg Mean/Average over a per-realization value is really an
-        # across-realization statistic (§2) — map to the array reducer but flag,
-        # since the axis is not faithfully represented in v0.1.0.
+        # Sum(x, Index) -> sum_array(x, <axis pos>): keep WHICH axis is reduced (as
+        # a `_reduce_axis` marker naming the index) so the shape-inference pass can
+        # resolve it to a 1-based axis position against x's runtime axis order.
         if name in ("mean", "average") and len(args) == 1 and not named:
             warn(call.name, "Mean/Average of a single value maps to `mean_array`, "
                             "but Analytica's Mean over the Run sample is a results-layer "
                             "(A3) statistic in WASiM, not a mid-graph array mean — verify axis.")
-        return {"op": "call", "fn": _ARRAY_REDUCERS[name], "args": args[:1] or args}
+        return _reducer(_ARRAY_REDUCERS[name], args)
 
     if name in _ARRAY_MAP_OPS:
         # `SortIndex(x)` / `cumulate(x, I)` etc. → array→array builtin; drop any
@@ -601,15 +624,30 @@ def resolve_call(call: Call) -> dict:
     if name == "choice":
         # Choice(index, default[, multi]) is a GUI selector; its value is the
         # chosen 1-based position (the `default`). The index arg is presentational.
+        # NOTE: faithful `DetermTable(thisVar)(…)` selection needs the `domain`
+        # self-index + member-value-vs-position semantics — deferred to a later
+        # stage; here `default` is passed through unchanged.
         if len(args) >= 2:
             return args[1]
         return {"op": "literal", "value": 1.0}
 
-    if name in ("table", "array", "subscript", "slice"):
-        # Table(Index)(v1..vn) collapses to an array literal of the values.
-        # (Index dimensioning is not represented in v0.1.0 scalar arrays.)
-        vals = args
-        return {"op": "array", "elements": vals}
+    if name in ("table", "determtable", "probtable"):
+        # `Table(I…)(v1..vn)` / `DetermTable(I…)(…)`: a dimensioned constant. The
+        # index dimension refs live in `call.index` (the first paren group), the
+        # row-major cell values in `call.pos` (→ `args`). Emit a `_table` marker
+        # carrying both; the v2 emit layer materializes it as nested `vector_map`
+        # over the named indexes (Stage 1: 1-D; Stage 2: N-D). Fall back to a bare
+        # array literal when no index dimensions were given.
+        index_ids = [ix.get("element_id") for ix in (call.index or [])
+                     if isinstance(ix, dict) and ix.get("op") == "ref"]
+        if index_ids and all(index_ids):
+            return {"op": "_table", "dims": index_ids,
+                    "elements": [_as_ast(a) for a in args]}
+        return {"op": "array", "elements": args}
+
+    if name in ("array", "subscript", "slice"):
+        # Array/subscript/slice constructors collapse to an array literal of values.
+        return {"op": "array", "elements": args}
 
     if name == "sequence":
         # Sequence(start, stop[, step]) -> materialized array literal.
@@ -623,6 +661,20 @@ def resolve_call(call: Call) -> dict:
 
     # Cumulate / cumproduct / dynamic / and friends: no scalar equivalent here.
     return _stub(_render_call(call))
+
+
+def _range_literal(lo: dict, hi: dict) -> dict:
+    """Analytica `a..b` → inclusive integer array literal [a, a+1, …, b].
+
+    Falls back to a 2-element array of the endpoints if either bound isn't a
+    constant number (best-effort; keeps the definition convertible)."""
+    if lo.get("op") == "literal" and hi.get("op") == "literal":
+        a, b = lo["value"], hi["value"]
+        if b >= a:
+            vals = [{"op": "literal", "value": float(k)}
+                    for k in range(int(a), int(b) + 1)]
+            return {"op": "array", "elements": vals}
+    return {"op": "array", "elements": [lo, hi]}
 
 
 def _sequence_literal(args: list[dict], call: Call) -> dict:
@@ -841,6 +893,145 @@ def _q(value: float, unit: str = "1") -> dict:
     return {"value": float(value), "unit": unit}
 
 
+WASIM_VERSION = "0.9.8"
+
+# --------------------------------------------------------------------------- #
+# Stage 5 — v2-native emit: dimensions + vector_map + dimensioned nodes
+# --------------------------------------------------------------------------- #
+#
+# The engine's ONLY node that mints a dimension-tagged NamedArray is `vector_map`
+# (via `over`). A constant `array` literal is anonymous (untagged), so a
+# `Table(I,J)` must emit as nested `vector_map over I (vector_map over J (index
+# into a flat row-major values vector)))` to acquire named axes that downstream
+# axis-`sum_array` / label-`subscript` / align-by-name can see.
+
+
+def collect_dimensions(nodes: list["AnaNode"]) -> dict[str, dict]:
+    """Every Analytica Index whose members are constant → a v2 `dimension_def`.
+
+    Returns `{id: {"id","name","size","labels","values"}}`. `labels` are the
+    stringified members; `values` are the numeric members (for `@I` / member
+    arithmetic, materialized lazily by the emit layer)."""
+    dims: dict[str, dict] = {}
+    for n in nodes:
+        if n.cls != "index":
+            continue
+        definition = n.attrs.get("definition", "").strip()
+        parsed, _ = parse_definition(definition) if definition else (None, "empty")
+        if parsed is None:
+            continue
+        ast = _as_ast(parsed)
+        if ast.get("op") != "array":
+            continue
+        values: list[float] = []
+        labels: list[str] = []
+        for i, e in enumerate(ast["elements"], start=1):
+            if isinstance(e, dict) and "_string" in e:
+                values.append(float(i))
+                labels.append(e["_string"])
+            else:
+                v = _param_value(e)
+                if v is not None:
+                    values.append(v)
+                    labels.append(_num(v))
+        if not values:
+            continue
+        name = n.attrs.get("title", n.ident).strip() or n.ident
+        dims[n.ident] = {"id": n.ident, "name": name, "size": len(values),
+                         "labels": labels, "values": values}
+    return dims
+
+
+def _index_at(depth: int) -> dict:
+    """The 1-based iteration index of the `depth`-th enclosing `vector_map`
+    (0 = innermost)."""
+    return {"op": "index_ref", "depth": depth}
+
+
+def _flat_index_expr(dim_ids: list[str], sizes: list[int]) -> dict:
+    """1-based flat row-major offset into a Table(I,J,…) values vector, from the
+    enclosing vector_map iteration indices. For dims [I,J,…] (I outermost), the
+    innermost `index` selects `((iI-1)*nJ + (iJ-1))*nK + … + iLast`.
+
+    `depth` maps to nesting: the LAST dim is innermost (depth 0), the FIRST is
+    outermost (depth len-1)."""
+    n = len(dim_ids)
+    # i_k is index_ref at depth (n-1-k); accumulate row-major with 1-based result.
+    expr: dict = {"op": "literal", "value": 0.0}
+    for k in range(n):
+        depth = n - 1 - k
+        ik = _index_at(depth)
+        if k == 0:
+            # (i0 - 1)
+            expr = {"op": "subtract", "left": ik, "right": {"op": "literal", "value": 1.0}}
+        else:
+            # expr * n_k + (i_k - 1)
+            expr = {"op": "add",
+                    "left": {"op": "multiply",
+                             "left": expr,
+                             "right": {"op": "literal", "value": float(sizes[k])}},
+                    "right": {"op": "subtract", "left": ik,
+                              "right": {"op": "literal", "value": 1.0}}}
+    # convert 0-based accumulator to the 1-based `index` selector
+    return {"op": "add", "left": expr, "right": {"op": "literal", "value": 1.0}}
+
+
+def materialize_table(table: dict, dims: dict[str, dict]) -> Optional[dict]:
+    """A `_table` marker → nested `vector_map` over its named DECLARED dimensions.
+
+    Returns None (caller falls back to a bare array literal) when any index is not
+    a declared dimension — e.g. `DetermTable(Grade)(…)` where `Grade` is a scalar
+    selector variable with a `domain` self-index rather than a top-level Index.
+    That scalar-selector / domain case is deferred to a later stage; falling back
+    to a bare array keeps the model valid and running."""
+    dim_ids = table.get("dims", [])
+    if not dim_ids or any(d not in dims for d in dim_ids):
+        return None
+    values = table.get("elements", [])
+    sizes = [dims[d]["size"] for d in dim_ids]
+    expect = 1
+    for s in sizes:
+        expect *= s
+    values = table.get("elements", [])
+    if len(values) != expect:
+        return None
+    body = {"op": "index",
+            "array": {"op": "array", "elements": values},
+            "indices": [_flat_index_expr(dim_ids, sizes)]}
+    for dim_id in reversed(dim_ids):
+        body = {"op": "vector_map", "over": dim_id, "body": body}
+    return body
+
+
+def _lower_tables(ast: Any, dims: dict[str, dict]) -> tuple[Any, list[str]]:
+    """Recursively turn `_table` markers into `vector_map` chains; return the
+    rewritten AST and the source-declared dim ids of any TOP-LEVEL table (used
+    to tag `outputs[].dimensions`). Non-top-level tables still lower correctly;
+    only the outermost one determines the element's declared dimensions."""
+    top_dims: list[str] = []
+    if isinstance(ast, dict):
+        if ast.get("op") == "_table":
+            lowered = materialize_table(ast, dims)
+            if lowered is not None:
+                top_dims = [d for d in ast["dims"] if d in dims]
+                return lowered, top_dims
+            return {"op": "array", "elements": ast.get("elements", [])}, []
+        out = {}
+        for k, v in ast.items():
+            nv, td = _lower_tables(v, dims)
+            out[k] = nv
+            if td and not top_dims:
+                top_dims = td
+        return out, top_dims
+    if isinstance(ast, list):
+        out_list = []
+        for v in ast:
+            nv, _ = _lower_tables(v, dims)
+            out_list.append(nv)
+        return out_list, top_dims
+    return ast, top_dims
+
+
 def _param_value(node: Any) -> Optional[float]:
     if isinstance(node, dict) and node.get("op") == "literal":
         if "_string" in node or "_stub_display" in node:
@@ -964,7 +1155,13 @@ def _slug(ident: str) -> str:
     return ident
 
 
-def build_element(node: AnaNode, container: Optional[str]) -> Optional[dict]:
+def build_element(node: AnaNode, container: Optional[str],
+                  dims: dict[str, dict]) -> Optional[dict]:
+    """Emit ONE v2-native element (`primitive:"node"`).
+
+    `dims` is the model's collected dimensions (see `collect_dimensions`); it lets
+    `_table` markers lower to `vector_map` and lets an Index member-carrier node be
+    materialized when referenced numerically."""
     ident = node.ident
     name = node.attrs.get("title", ident).strip() or ident
     units = node.attrs.get("units", "").strip() or "1"
@@ -974,30 +1171,25 @@ def build_element(node: AnaNode, container: Optional[str]) -> Optional[dict]:
     base: dict[str, Any] = {
         "id": ident,
         "name": name,
-        "container": container,
-        "description": desc,
+        "primitive": "node",
     }
-    if node.cls in ("index",):
-        base["source_type"] = "Index"
-    elif node.cls in ("decision", "chance", "objective", "determ", "variable", "constant"):
-        base["source_type"] = node.cls.capitalize()
+    if container is not None:
+        base["container"] = container
+    if desc is not None:
+        base["description"] = desc
 
-    # Index node -> constant-values array (best-effort; no dynamic indexing).
+    # An Index becomes a top-level dimension_def (handled in `convert`). Here it
+    # emits its numeric-member CARRIER node so `@I` / member arithmetic resolve.
     if node.cls == "index":
-        return _build_index_element(node, base, units)
+        return _build_index_carrier(node, base, units, dims)
 
     if not definition:
         # No formula: a bare input. Decisions/Constants with a numeric Value.
         val = node.attrs.get("value", "").strip()
         num = _try_number(val) if val else None
-        base.update({
-            "type": "constant",
-            "value": _q(num if num is not None else 0.0, units),
-            "editable": node.cls in ("decision", "constant"),
-            "bounds": {"min": None, "max": None},
-        })
+        base.update({"value_rule": "fixed", "value": _q(num if num is not None else 0.0, units)})
         if num is None and node.cls not in ("constant", "decision"):
-            warn(ident, "no Definition — emitted as constant 0.")
+            warn(ident, "no Definition — emitted as fixed 0.")
         return base
 
     parsed, err = parse_definition(definition)
@@ -1005,127 +1197,102 @@ def build_element(node: AnaNode, container: Optional[str]) -> Optional[dict]:
         warn(ident, f"could not parse Definition ({err}); emitted inert stub. "
                     f"Raw: {definition[:120]}")
         base.update({
-            "type": "expression",
-            "expression": {
-                "ast": {"op": "literal", "value": 0.0},
-                "display": definition,
-                "source": "inferred",
-            },
-            "inputs": [],
+            "value_rule": "expression",
+            "expression": {"ast": {"op": "literal", "value": 0.0},
+                           "display": definition, "source": "inferred"},
         })
         return base
 
-    # Top-level distribution -> random_variable (Chance / uncertain Variable).
+    # Top-level distribution -> sample node (Chance / uncertain Variable).
     if isinstance(parsed, Call) and parsed.name.lower() in _DISTRIBUTIONS:
         dist = call_to_distribution(parsed, units)
         if dist is not None:
             base.update({
-                "type": "random_variable",
+                "value_rule": "sample",
                 "distribution": dist,
                 "save_results": {"final_value": True, "time_history": False},
             })
             if units != "1":
-                base["outputs"] = [{"name": "value", "unit": units, "display_unit": None}]
+                base["outputs"] = [{"name": "value", "unit": units}]
             return base
 
-    # A bare number -> constant.
     ast = _as_ast(parsed)
     ast, stubs = strip_stub_markers(ast)
     for s in stubs:
         warn(ident, f"unconvertible sub-expression preserved as inert stub: {s}")
 
-    # A genuine bare number -> constant (but NOT a formula that merely stubbed
-    # to 0.0 — those stay expressions so the original text survives in `display`).
-    if (ast.get("op") == "literal" and not stubs
+    # Lower any `_table` markers to nested vector_map; capture the top-level
+    # table's dims so we can tag `outputs[].dimensions`.
+    ast, table_dims = _lower_tables(ast, dims)
+
+    # A genuine bare number -> fixed constant (but NOT a formula that merely
+    # stubbed to 0.0 — those stay expressions so the original text survives).
+    if (ast.get("op") == "literal" and not stubs and not table_dims
             and node.cls in ("decision", "constant", "variable", "determ")):
-        base.update({
-            "type": "constant",
-            "value": _q(ast["value"], units),
-            "editable": node.cls in ("decision", "constant"),
-            "bounds": {"min": None, "max": None},
-        })
+        base.update({"value_rule": "fixed", "value": _q(ast["value"], units)})
         return base
 
-    # Everything else -> expression element. For a partially/fully stubbed
-    # definition, keep the ORIGINAL Analytica text in `display` (more faithful
-    # than the re-rendered, stub-flattened AST).
     inputs = sorted(_collect_refs(ast))
     base.update({
-        "type": "expression",
+        "value_rule": "expression",
         "expression": {
             "ast": ast,
             "display": definition if stubs else _render_ast(_as_ast(parsed)),
             "source": "explicit" if not stubs else "inferred",
         },
-        "inputs": inputs,
     })
-    if units != "1":
-        base["outputs"] = [{"name": "value", "unit": units, "display_unit": None}]
+    if inputs:
+        base["inputs"] = inputs
+    out: dict[str, Any] = {"name": "value", "unit": units}
+    if table_dims:
+        out["dimensions"] = table_dims
+    if table_dims or units != "1":
+        base["outputs"] = [out]
     return base
 
 
-def _build_index_element(node: AnaNode, base: dict, units: str) -> Optional[dict]:
-    """Map an Analytica Index to a v0.1.0 `array` element (expressions form).
-
-    v0.1.0 arrays are a list of scalar `expressions` (`values_unit` required,
-    minItems 1). WASiM has no runtime-dynamic / label indices, so only a
-    constant-member index (`Sequence(...)`, a list, or `Table`) maps; anything
-    else degrades to an inert scalar stub + warning.
-    """
+def _build_index_carrier(node: AnaNode, base: dict, units: str,
+                         dims: dict[str, dict]) -> Optional[dict]:
+    """A constant-member Index → a dimensioned node carrying its member VALUES
+    (so `@I` ordinals and member arithmetic resolve). The dimension_def itself is
+    emitted separately in `convert`. A dynamic/label-only index with no numeric
+    members degrades to the Phase-4 "demote to computed expression" fallback."""
+    dim = dims.get(node.ident)
     definition = node.attrs.get("definition", "").strip()
-    parsed, err = parse_definition(definition) if definition else (None, "empty")
-    values: list[float] = []
-    labels: list[str] = []
-    if parsed is not None:
-        ast = _as_ast(parsed)
-        if ast.get("op") == "array":
-            for i, e in enumerate(ast["elements"], start=1):
-                if isinstance(e, dict) and "_string" in e:
-                    # Label index: ordinal position is the value, text is the label.
-                    values.append(float(i))
-                    labels.append(e["_string"])
-                else:
-                    v = _param_value(e)
-                    if v is not None:
-                        values.append(v)
-                        labels.append(_num(v))
-    if not values:
-        # A computed / dynamic index (e.g. `SortIndex(x)`, a reindex) has no constant
-        # members, so it can't be a v0.1.0 dimension. If its definition is convertible,
-        # DEMOTE it to a computed expression VARIABLE holding the derived values (Phase 4,
-        # derived-index): downstream `x[Dim=thisIndex]` gathers and `@thisIndex` ordinals
-        # then resolve against the computed array. Only when even the definition can't be
-        # converted do we fall back to the inert scalar stub.
-        if parsed is not None:
-            ast = _as_ast(parsed)
-            cleaned, stubs = strip_stub_markers(ast)
-            if not stubs:
-                base.update({
-                    "type": "expression",
-                    "expression": {"ast": ast, "display": definition, "source": "explicit"},
-                    "inputs": sorted(_collect_refs(cleaned)),
-                })
-                return base
-        warn(node.ident, "Index has no constant members and its definition is not "
-                         "convertible (dynamic/label index); emitted inert scalar stub.")
+    if dim is not None:
+        # vector_map over I (index into [members] at index_ref depth 0)
+        vals = [{"op": "literal", "value": v} for v in dim["values"]]
+        body = {"op": "index", "array": {"op": "array", "elements": vals},
+                "indices": [_index_at(0)]}
         base.update({
-            "type": "expression",
-            "expression": {"ast": {"op": "literal", "value": 0.0},
-                           "display": definition or "(empty index)",
-                           "source": "inferred"},
-            "inputs": [],
+            "value_rule": "expression",
+            "expression": {"ast": {"op": "vector_map", "over": node.ident, "body": body},
+                           "display": definition, "source": "explicit"},
+            "outputs": [{"name": "value", "unit": units, "dimensions": [node.ident]}],
         })
         return base
+
+    # No constant members: demote to a computed expression variable if convertible.
+    parsed, _ = parse_definition(definition) if definition else (None, "empty")
+    if parsed is not None:
+        ast = _as_ast(parsed)
+        cleaned, stubs = strip_stub_markers(ast)
+        if not stubs:
+            ast, _td = _lower_tables(ast, dims)
+            base.update({
+                "value_rule": "expression",
+                "expression": {"ast": ast, "display": definition, "source": "explicit"},
+            })
+            refs = sorted(_collect_refs(cleaned))
+            if refs:
+                base["inputs"] = refs
+            return base
+    warn(node.ident, "Index has no constant members and its definition is not "
+                     "convertible (dynamic/label index); emitted inert scalar stub.")
     base.update({
-        "type": "array",
-        "values_unit": units,
-        "expressions": [
-            {"ast": {"op": "literal", "value": v}, "display": lbl,
-             "source": "explicit"}
-            for v, lbl in zip(values, labels)
-        ],
-        "labels": labels,
-        "inputs": [],
+        "value_rule": "expression",
+        "expression": {"ast": {"op": "literal", "value": 0.0},
+                       "display": definition or "(empty index)", "source": "inferred"},
     })
     return base
 
@@ -1181,13 +1348,15 @@ def _sanitize_dangling_refs(elements: list[dict]) -> None:
         return node
 
     for e in elements:
-        if e["type"] == "expression":
-            e["expression"]["ast"] = fix(e["expression"]["ast"])
-            e["inputs"] = [i for i in e.get("inputs", []) if i in ids]
-        elif e["type"] == "array":
-            for ex in e.get("expressions", []):
-                ex["ast"] = fix(ex["ast"])
-            e["inputs"] = [i for i in e.get("inputs", []) if i in ids]
+        expr = e.get("expression")
+        if isinstance(expr, dict) and "ast" in expr:
+            expr["ast"] = fix(expr["ast"])
+        if "inputs" in e:
+            kept = [i for i in e["inputs"] if i in ids]
+            if kept:
+                e["inputs"] = kept
+            else:
+                del e["inputs"]
 
     if missing:
         warn("graph", f"{len(missing)} reference(s) to non-model ids "
@@ -1196,8 +1365,138 @@ def _sanitize_dangling_refs(elements: list[dict]) -> None:
                       f"{' …' if len(missing) > 8 else ''}")
 
 
+def _infer_shapes(elements: list[dict], dims: dict[str, dict]) -> None:
+    """Compute each element's RUNTIME axis-id list and, in place:
+      (a) tag `outputs[].dimensions` for dimensioned expression results, and
+      (b) rewrite reducer `_reduce_axis` markers to 1-based axis positions.
+
+    Mirrors the engine EXACTLY (WASIM_NAMEDARRAY_DESIGN / eval.rs):
+      - A `vector_map over I (…)` result carries `I` as its OUTERMOST axis.
+      - An elementwise op over ≥2 dimensioned operands unions their axes and
+        RE-SORTS by dimension id (align-by-name canonical order, `broadcast_named`).
+      - A reducer removes its named axis; the reduced axis's 1-based POSITION is
+        computed against the input's runtime order (post align-by-name sort).
+
+    `ELEM_DIMS[id]` = the ordered dim-id list an element's value carries. Computed
+    by walking each element's AST bottom-up; refs resolve via `ELEM_DIMS` in the
+    element order (Analytica's constant/expression lane is acyclic and mostly
+    topologically ordered; a not-yet-known ref contributes no axes — a safe under-
+    approximation that self-corrects on a second pass)."""
+    elem_dims: dict[str, list[str]] = {}
+
+    def axes_of(node: Any) -> list[str]:
+        """The runtime axis-id list an AST node evaluates to (order matters)."""
+        if not isinstance(node, dict):
+            return []
+        op = node.get("op")
+        if op == "ref":
+            return list(elem_dims.get(node.get("element_id"), []))
+        if op == "vector_map":
+            inner = axes_of(node.get("body"))
+            over = node.get("over")
+            return [over] + [a for a in inner if a != over]
+        if op == "call":
+            fn = node.get("fn", "")
+            cargs = node.get("args", [])
+            if fn.endswith("_array") or fn in ("gather", "ordinal", "cumulate",
+                                               "cumproduct", "sort_array", "sort_index",
+                                               "rank_array"):
+                base = axes_of(cargs[0]) if cargs else []
+                # a reducer with a resolved/known axis drops it (case-insensitive:
+                # Analytica identifiers fold case, dimension ids are exact)
+                red = node.get("_reduce_axis")
+                if fn in ("sum_array", "mean_array", "min_array", "max_array",
+                          "argmin_array", "argmax_array") and red is not None \
+                        and red.lower() in [a.lower() for a in base]:
+                    return [a for a in base if a.lower() != red.lower()]
+                if fn in ("sum_array", "mean_array", "min_array", "max_array",
+                          "argmin_array", "argmax_array", "size_array", "get_element",
+                          "dot_product") and red is None:
+                    return []  # full collapse → scalar
+                return base
+            # scalar/elementwise builtin: union of arg axes (sorted by id)
+            return _sorted_union(axes_of(a) for a in cargs)
+        if op in ("add", "subtract", "multiply", "divide", "pow", "mod",
+                  "lt", "gt", "lte", "gte", "eq", "neq", "and", "or"):
+            return _sorted_union([axes_of(node.get("left")), axes_of(node.get("right"))])
+        if op in ("neg", "not"):
+            return axes_of(node.get("operand"))
+        if op == "if":
+            return _sorted_union([axes_of(node.get("cond")), axes_of(node.get("then")),
+                                  axes_of(node.get("else"))])
+        if op == "index":
+            # positional index into an array literal → scalar (Table cell selection)
+            return []
+        if op == "subscript":
+            base = axes_of(node.get("array"))
+            return [a for a in base if a != node.get("dim")]
+        return []
+
+    def resolve_reduce_axes(node: Any) -> None:
+        """Rewrite `_reduce_axis` markers to a 1-based position literal arg.
+
+        Analytica identifiers are case-insensitive, so the reduced-axis name
+        (`month`) is matched against the array's axis ids (`Month`) case-folded."""
+        if isinstance(node, dict):
+            red = node.get("_reduce_axis")
+            if red is not None and node.get("op") == "call":
+                base = axes_of(node["args"][0]) if node.get("args") else []
+                fold = [a.lower() for a in base]
+                if red.lower() in fold:
+                    pos = fold.index(red.lower()) + 1
+                    node["args"] = [node["args"][0], {"op": "literal", "value": float(pos)}]
+                del node["_reduce_axis"]
+            for v in node.values():
+                resolve_reduce_axes(v)
+        elif isinstance(node, list):
+            for v in node:
+                resolve_reduce_axes(v)
+
+    def elem_ast(e: dict) -> Any:
+        expr = e.get("expression")
+        return expr.get("ast") if isinstance(expr, dict) else None
+
+    # Two passes over element order so forward refs converge (acyclic lane).
+    for _ in range(2):
+        for e in elements:
+            ast = elem_ast(e)
+            if ast is None:
+                # fixed/sample: dims from its declared output, if any
+                out = (e.get("outputs") or [{}])[0]
+                elem_dims[e["id"]] = list(out.get("dimensions", []))
+                continue
+            elem_dims[e["id"]] = axes_of(ast)
+
+    # Apply: resolve reducer axes, then tag outputs[].dimensions.
+    for e in elements:
+        ast = elem_ast(e)
+        if ast is None:
+            continue
+        resolve_reduce_axes(ast)
+        ed = elem_dims.get(e["id"], [])
+        if ed:
+            outs = e.get("outputs")
+            if not outs:
+                unit = "1"
+                e["outputs"] = [{"name": "value", "unit": unit, "dimensions": ed}]
+            else:
+                outs[0]["dimensions"] = ed
+
+
+def _sorted_union(axis_lists) -> list[str]:
+    """Union of several axis-id lists, sorted by id — the engine's align-by-name
+    canonical order (`broadcast_named`, BTreeMap key order)."""
+    s: set[str] = set()
+    for lst in axis_lists:
+        s.update(lst)
+    return sorted(s)
+
+
 def convert(text: str, model_name: Optional[str] = None) -> dict:
     nodes, sample_size = lex_ana(text)
+
+    # Pass A — collect dimensions from constant-member Index nodes.
+    dims = collect_dimensions(nodes)
 
     # Containers from Model/Module nodes.
     containers: list[dict] = []
@@ -1212,19 +1511,20 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
                 "children": [],
             })
 
+    # Pass B — emit v2-native elements.
     elements: list[dict] = []
     for n in nodes:
         if n.cls in SKIP_CLASSES:
             continue
         if n.cls == "function":
-            warn(n.ident, "Analytica user Function — no v0.1.0 element equivalent; skipped.")
+            warn(n.ident, "Analytica user Function — no v2 element equivalent; skipped.")
             continue
-        # A node named like the sample-size system var isn't a model element.
+        # A node named like a system index isn't a model element.
         if n.ident.lower() in ("samplesize", "sampesize", "sample_size", "time", "run"):
             continue
         container = n.parent if n.parent in module_ids else None
         try:
-            el = build_element(n, container)
+            el = build_element(n, container, dims)
         except Exception as e:  # noqa: BLE001
             warn(n.ident, f"internal error building element: {e}; skipped.")
             el = None
@@ -1232,6 +1532,10 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
             elements.append(el)
 
     _sanitize_dangling_refs(elements)
+
+    # Pass C — infer runtime array shapes: tag dimensioned expression outputs and
+    # resolve reducer axis positions (must run after refs are settled).
+    _infer_shapes(elements, dims)
 
     # populate container children back-refs
     child_map: dict[str, list[str]] = {c["id"]: [] for c in containers}
@@ -1250,17 +1554,18 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
         model_name = (model_node.attrs.get("title", model_node.ident)
                       if model_node else "Converted Analytica model")
 
-    model = {
-        "wasim_version": "0.1.0",
+    model: dict[str, Any] = {
+        "wasim_version": WASIM_VERSION,
         "source": {
             "generator": "ana_to_wasim.py",
             "notes": (
                 f"Converted from Analytica (.ana): {model_name}. "
                 "Analytica is a static Intelligent-Arrays + Monte-Carlo tool; "
-                "WASiM is a time-stepping engine. This is a scalar/1-step "
-                "translation of the arithmetic + probabilistic core. Constructs "
-                "with no v0.1.0 equivalent are preserved as inert stubs — see "
-                "the conversion warnings. Review before trusting numbers."
+                "WASiM is a time-stepping engine. This is a v2-native "
+                "translation of the arithmetic + probabilistic core, with named "
+                "dimensions from Analytica Indexes. Constructs with no WASiM "
+                "equivalent are preserved as inert stubs — see the conversion "
+                "warnings. Review before trusting numbers."
             ),
         },
         "simulation_settings": {
@@ -1269,9 +1574,16 @@ def convert(text: str, model_name: Optional[str] = None) -> dict:
             "n_realizations": n_real,
             "seed": 42,
         },
-        "containers": containers,
         "elements": elements,
     }
+    if dims:
+        model["dimensions"] = [
+            {"id": d["id"], "name": d["name"], "size": d["size"],
+             **({"labels": d["labels"]} if d["labels"] else {})}
+            for d in dims.values()
+        ]
+    if containers:
+        model["containers"] = containers
     return model
 
 

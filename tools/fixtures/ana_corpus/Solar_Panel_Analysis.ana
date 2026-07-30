@@ -1,0 +1,541 @@
+{ From user Lonnie, Model Solar_panel_analysis at 3-Mar-2015 10:12:49 PM, encoding="UTF-8" }
+SoftwareVersion 4.6.0
+
+
+{ System Variables with non-default values: }
+Time := 2015..2044
+TypeChecking := 1
+Checking := 1
+ShowHier := 1
+SaveOptions := 2
+SaveValues := 0
+{!40000|ShowDescriptionMarks := 1}
+{!40000|Att_CatLineStyle Graph_Primary_Valdim: 1}
+
+
+
+
+Model Solar_panel_analysis
+Title: Solar panel analysis
+Description: Would it be cost effective to install a solar PV system on the roof of my house?~
+~
+This model was build during <a href="http://AnalyticaOnline.com/Videos/SolarPanels/SolarPanels.html">an introductory video on building a complete model</a>.
+Author: Lonnie Chrisman, Ph.D.~
+Lumina Decision Systems
+Date: Sat, Feb 28, 2015 2:27 PM
+SaveAuthor: Lonnie
+SaveDate: Tue, Mar 3, 2015 10:12 PM
+DiagState: 2,1,0,786,416,17
+FontStyle: Arial,15
+FileInfo: 0,Model Solar_panel_analysis,2,2,0,0,C:\Users\Lonnie\Documents\Camtasia Studio\Solar Panel Analysis\Solar Panel Video model.ana
+
+Module Utility_bills
+Title: Utility bills
+Description: Examines my electricity consumption and how my utility bills are computed.
+Author: Lonnie
+Date: Tue, Mar 3, 2015 10:00 PM
+NodeLocation: 112,80,1
+NodeSize: 48,24
+DiagState: 2,365,-2,960,538,17
+
+Variable Energy_consumption
+Title: Energy consumption
+Units: kWh / month
+Description: Monthly electrical energy used by my household.~
+This represents a typical month in the future.
+Definition: Table(Month)(450,408,430,473,522,573,566,487,537,481,514,683)
+NodeLocation: 88,136,1
+NodeSize: 56,24
+Aliases: FormNode Energy_con1425271768
+
+Variable Tier_rate
+Title: Tier rate
+Units: $ / kWh
+Description: The price charged per kWh by my utility company.
+Definition: Table(Tier)(0.1617,0.18491,0.27322,0.33322)
+NodeLocation: 528,48,1
+NodeSize: 48,24
+
+Variable Energy_cost
+Title: Energy cost
+Units: $ / month
+Description: The price paid for electricity on my monthly utility bill.
+Definition: Sum( Tier_usage * Tier_rate, Tier ) * (1 + Users__tax_rate )
+NodeLocation: 528,136,1
+NodeSize: 48,24
+ValueState: 2,280,283,416,303,1,MIDM
+Aliases: Alias Energy_cos1425270902
+
+Variable Net_energy_usage
+Title: Net energy usage
+Units: kWh / month
+Description: The net energy that has to be purchased from the utility company each month.
+Definition: Energy_consumption - Energy_produced
+NodeLocation: 248,136,1
+NodeSize: 56,24
+
+Index Tier
+Title: Tier
+Description: This index defines the Tiers used by PG&E when computing my electricity bill.
+Definition: ['Tier 1','Tier 2','Tier 3','Tier 4']
+NodeLocation: 88,48,1
+NodeSize: 48,24
+{!40000|Att_PrevIndexValue: ['Tier 1','Tier 2','Tier 3','Tier 4']}
+
+Variable Tier_allowance
+Title: Tier allowance
+Units: %
+Description: The percentage of my baseline allowance that can be in each tier.
+Definition: Table(Tier)(1,0.3,0.7,INF)
+NodeLocation: 248,48,1
+NodeSize: 48,24
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0
+DisplayOutputs: Variable Tier_usage
+
+Variable Baseline_allowance
+Title: Baseline allowance
+Units: kWh
+Description: The baseline energy allowance assigned to my household by PG&E. This is the maximum amount of energy that can be covered by tier 1 each month.
+Definition: 327
+NodeLocation: 400,48,1
+NodeSize: 48,24
+
+Variable Tier_usage
+Title: Tier usage
+Units: kWh / month
+Description: How many kWh are dispatched to each tier level. 
+Definition: Dispatch ( Net_energy_usage, Tier_allowance * Baseline_allowance, Tier )
+NodeLocation: 400,184,1
+NodeSize: 48,24
+WindState: 2,102,83,683,224
+ValueState: 2,248,251,416,303,0,MIDM
+Att__TotalsIndex: [Tier]
+
+Variable Users__tax_rate
+Title: Users' tax rate
+Units: %
+Description: The city of San Jose imposes a 5% tax on each dollar of electricity used.
+Definition: 5%
+NodeLocation: 528,232,1
+NodeSize: 48,24
+WindState: 2,102,83,472,224
+
+Alias Energy_pro1425262832
+Title: Energy produced
+Definition: 1
+NodeLocation: 88,216,1
+NodeSize: 48,24
+Original: Energy_produced
+
+Close Utility_bills
+
+Module Solar_panel_output
+Title: Solar panel output
+Description: Examines how much energy the solar panels will generate.
+Author: Lonnie
+Date: Tue, Mar 3, 2015 10:00 PM
+NodeLocation: 112,160,1
+NodeSize: 48,32
+DiagState: 2,231,193,730,254,17
+
+Variable Energy_produced
+Title: Energy produced
+Units: kWh / month
+Description: The energy produced by the solar panels, in AC kWh as measured by savings at the meter.
+Definition: System_size / 1000 * Monthly_kW_per_kW_pa
+IndexVals: ['item 1']
+NodeLocation: 224,128,1
+NodeSize: 48,24
+Aliases: Alias Energy_pro1425262832, Alias Energy_pro1425270924
+
+Decision System_size
+Title: System size
+Units: dc Watts
+Description: The size of the solar panel system installed on my roof, measured in maximum dc Watt capacity.
+Definition: Choice(Self,0)
+NodeLocation: 72,128,1
+NodeSize: 48,24
+Aliases: Alias System_siz1425271998, FormNode System_siz1425271755
+Domain: [250,500,750,1000,1250,1500,1750,2000]
+{!40300|DomainExpr: 250 * (1..8)}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+
+Index Month
+Title: Month
+Description: The months of the year.
+Definition: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+NodeLocation: 72,56,1
+NodeSize: 48,24
+{!40000|Att_PrevIndexValue: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']}
+
+Variable Monthly_kW_per_kW_pa
+Title: Monthly kW per kW panel
+Units: kWh
+Description: The kWh that can be expected to be product by a 1kW solar panel system in my area of San Jose.~
+~
+This data was obtained from pcwatts.nrel.gov
+Definition: Table(Month)(79.39701843,85.47025299000001,94.50509644,152.3583374,174.6637878,179.9584656,179.8565216,169.4250946,148.171463,122.2826767,91.23784637,80.16781616)
+NodeLocation: 224,56,1
+NodeSize: 48,32
+
+Close Solar_panel_output
+
+Module Savings
+Title: Savings
+Description: Examines the savings on electricity bills that may result from installing a solar panel system.
+Author: Lonnie
+Date: Tue, Mar 3, 2015 10:00 PM
+NodeLocation: 280,120,1
+NodeSize: 48,24
+DiagState: 2,204,28,960,510,17
+
+Alias Energy_cos1425270902
+Title: Energy cost
+Definition: 1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+Original: Energy_cost
+
+Alias Energy_pro1425270924
+Title: Energy produced
+Definition: 1
+NodeLocation: 96,120,1
+NodeSize: 48,24
+Original: Energy_produced
+
+Variable Baseline_cost
+Title: Baseline cost
+Units: $ / Month
+Description: The cost per month of electricity in the absense of solar panels.
+Definition: Whatif( Energy_cost, Energy_produced, 0)
+NodeLocation: 240,48,1
+NodeSize: 48,24
+
+Variable Cost_savings
+Title: Cost savings
+Units: $ / Month
+Description: The monthly savings on my electricity bill that is expected from installing solar panels.
+Definition: Baseline_cost - Energy_cost
+NodeLocation: 240,120,1
+NodeSize: 48,24
+
+Variable Annual_savings
+Title: Annual savings
+Units: $ / year
+Description: The estimated annual savings on my electrical bill that would result from installing solar panels.
+Definition: Sum( Cost_savings, Month ) - Annual_expenses
+NodeLocation: 400,120,1
+NodeSize: 48,24
+ValueState: 2,312,315,416,303,0,MIDM
+Aliases: Alias Annual_sav1425275225, Alias Annual_sav1425409318, FormNode Annual_sav1425271745
+
+Alias Net_cost_o1425313445
+Title: Net cost of system
+Definition: 1
+NodeLocation: 96,192,1
+NodeSize: 48,24
+Original: Net_cost_of_system
+
+Variable Insurance
+Title: Insurance
+Units: $ / yr
+Description: The increase in my home owners insurance policy that I expected to result after adding the solar panel system to my insurance policy. 
+Definition: 0.3% * Net_cost_of_system
+NodeLocation: 240,192,1
+NodeSize: 48,24
+
+Variable Annual_maintenance
+Title: Annual maintenance
+Units: $ / yr
+Description: Typical annual cost to maintain the solar panels after they are installed. This might include anything from cleaning the panels to repairing inverters that fail.
+Definition: 30 + 2% * Net_cost_of_system
+NodeLocation: 240,256,1
+NodeSize: 56,24
+
+Variable Increased_property_t
+Title: Increased property tax
+Units: $ / Yr
+Description: The annual increase in property taxes that I expect will result from improving my property by adding a solar panel system.
+Definition: 1.25% * Net_cost_of_system
+NodeLocation: 240,320,1
+NodeSize: 48,32
+
+Variable Annual_expenses
+Title: Annual expenses
+Units: $ / Yr
+Description: The total annual expenses that will be added as a result of installing a solar panel system on my roof.
+Definition: Insurance + Annual_maintenance + Increased_property_t
+NodeLocation: 400,256,1
+NodeSize: 48,24
+
+Alias Net_cost_o1425408734
+Title: Net cost of system
+Definition: 1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+Original: Net_cost_of_system
+
+Alias Net_cost_o1425408947
+Title: Net cost of system
+Definition: 1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+Original: Net_cost_of_system
+
+Close Savings
+
+Module Installation_costs
+Title: Installation costs
+Description: The costs to install a solar PV system.
+Author: Lonnie
+Date: Tue, Mar 3, 2015 10:00 PM
+NodeLocation: 112,256,1
+NodeSize: 56,24
+DiagState: 2,87,14,960,538,17
+
+Alias System_siz1425271998
+Title: System size
+Definition: 1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+Original: System_size
+
+Variable Panel_cost_per_dcW
+Title: Panel cost per dcW
+Units: $/dcW
+Description: The estimated cost of solar panels, measured in dcW.~
+~
+The initial estimate of $3.30/dcW came from <a href="http://pcwatts.nrel.gov">pcwatts.nrel.gov</a>, but I've augmented this with a projection that prices will continue to fall rapidly going into the future.
+Definition: 3.30 * (1 - Rate_of_panel_price_)^(Installation_year-2015)
+NodeLocation: 96,136,1
+NodeSize: 48,24
+WindState: 2,102,83,649,224
+
+Variable Panel_and_inverter_c
+Title: Panel and inverter cost
+Units: $
+Description: The net cost of the solar panels and inverters, and any part of the installation cost that scales with the dc watt capacity of the installed system.
+Definition: System_size * Panel_cost_per_dcW
+NodeLocation: 240,136,1
+NodeSize: 48,32
+
+Variable Fixed_cost
+Title: Fixed cost
+Units: $
+Description: Installation costs that don't depend on the number of panels. For example, city permits, connecting the panels to the breaker box, etc.
+Definition: 1000
+NodeLocation: 240,240,1
+NodeSize: 48,24
+
+Variable Cost_of_system
+Title: Cost of system
+Units: $
+Description: The total installation cost of the solar panel system, before any tax credits are applied.
+Definition: Panel_and_inverter_c + Fixed_cost
+NodeLocation: 392,192,1
+NodeSize: 48,24
+
+Variable Tax_credits
+Title: Tax credits
+Units: $
+Description: Tax credits that can be claimed for the installation of the solar panels.
+Definition: If Installation_year<=2016 then ~
+	30% * Cost_of_system~
+else ~
+	0
+NodeLocation: 392,272,1
+NodeSize: 48,24
+
+Variable Net_cost_of_system
+Title: Net cost of system
+Units: $
+Description: This module computes metrics that provide ways of comparing the value of cash flow (or savings flow) over time.
+Definition: Cost_of_system - Tax_credits
+NodeLocation: 536,224,1
+NodeSize: 48,24
+ValueState: 2,296,299,416,303,0,MIDM
+Aliases: Alias Net_cost_o1425313445, Alias Net_cost_o1425408734, Alias Net_cost_o1425408947, Alias Net_cost_o1425412493, FormNode Net_cost_o1425408935
+
+Variable Rate_of_panel_price_
+Title: Rate of panel price decrease
+Units: % / year
+Description: The rate at which the price of PV solar panels are projected to fall each year going forward.
+Definition: 10%
+NodeLocation: 96,288,1
+NodeSize: 56,32
+
+Alias Installati1425417745
+Title: Installation year
+Definition: 1
+NodeLocation: 240,328,1
+NodeSize: 48,24
+Original: Installation_year
+
+Close Installation_costs
+
+Module Metrics
+Title: Metrics
+Description: The metrics computed in this module help you compare the value of savings, or of expenses, that occur at difference points in time.~
+~
+All metrics use a convention of using 2015 US$.
+Author: Lonnie
+Date: Tue, Mar 3, 2015 10:00 PM
+NodeLocation: 280,256,1
+NodeSize: 48,24
+DiagState: 2,400,64,960,511,17
+
+Alias Annual_sav1425275225
+Title: Annual savings
+Definition: 1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+Original: Annual_savings
+
+Alias Annual_sav1425409318
+Title: Annual savings
+Definition: 1
+NodeLocation: 96,48,1
+NodeSize: 48,24
+Original: Annual_savings
+
+Alias Net_cost_o1425412493
+Title: Net cost of system
+Definition: 1
+NodeLocation: 96,136,1
+NodeSize: 48,24
+Original: Net_cost_of_system
+
+Variable Annual_savings_flow
+Title: Annual savings flow
+Units: $
+Description: The savings realized each year, expressed in 2015 US$. A negative value means an expense in that year.
+Definition: if Time<Installation_year then 0 ~
+else if Time=Installation_year then Annual_savings - Net_cost_of_system~
+else Annual_savings
+NodeLocation: 232,96,1
+NodeSize: 48,32
+ValueState: 2,152,155,620,415,0,MIDM
+
+Decision Installation_year
+Title: Installation year
+Description: Select the year in which the installation will take place.
+Definition: Choice(Self,1)
+NodeLocation: 96,224,1
+NodeSize: 48,24
+WindState: 2,102,83,491,472
+Aliases: Alias Installati1425417745, FormNode Installati1425419775
+Domain: Time
+{!40300|DomainExpr: Time}
+{!40200|Att_ChoiceIndexes: Keyword Self}
+
+Variable Discount_rate
+Title: Discount rate
+Description: A dollar today is worth more to me than a dollar next year. For example, I can invest it this year and have more than a dollar next year, or I can derinve enjoyment from spending it this year. Discount rate quantifies this time-value of money.~
+~
+The discount rate here should be inflation adjusted, since we are working with 2015 US$.  For example -- if you have a sure thing 7% investment opportunity, but inflation is 3%, and this is your only consideration, then use 4% as the discount rate.
+Definition: 4%
+NodeLocation: 96,312,1
+NodeSize: 48,24
+
+Objective Net_present_value
+Title: Net present value
+Units: $
+Description: You can think of this metric as being the total savings accumulated across all years, minus the cost of the system, with the caveat that each amount is discounted based on when it occurs. Amounts this year are added directly, whereas amounts next year are discounted, and amounts the year after are discounted again. The result is that more immediate cash flow is weighted more heavily.~
+~
+Net present value is a pretty good indicator of the value of doing the project. A positive NPV indicates that it is cost effective.
+Definition: NPV( Discount_rate, Annual_savings_flow, Time )
+NodeLocation: 232,256,1
+NodeSize: 48,32
+ValueState: 2,338,70,416,303,1,MIDM
+Aliases: FormNode Net_presen1425419722
+
+Objective Internal_rate_of_ret
+Title: Internal rate of return
+Units: %
+Description: This is a metric that tells you what the effective compound interest rate that I would receive from the project is.
+Definition: Irr( Annual_savings_flow, Time )
+NodeLocation: 376,96,1
+NodeSize: 48,32
+ValueState: 2,307,117,416,303,1,MIDM
+Aliases: FormNode Internal_r1425419722
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0
+
+Objective Time_to_recoup_cost
+Title: Time to recoup cost
+Units: Years
+Description: How many years does it takes to earn back the initial cost of the project from the savings on utility bills? Here the calculation is done without discounting. 
+Definition: CondMin( Time, Time >= Installation_year And Cumulate( Annual_savings_flow, Time ) >= 0, Time ) - Installation_year
+NodeLocation: 376,256,1
+NodeSize: 48,32
+WindState: 2,102,83,717,224
+ValueState: 2,280,283,416,303,0,MIDM
+Aliases: FormNode Time_to_re1425419722
+
+Close Metrics
+
+FormNode Annual_sav1425271745
+Title: Annual savings
+Definition: 1
+NodeLocation: 568,152,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,72,,,
+Original: Annual_savings
+
+FormNode System_siz1425271755
+Title: System size
+Definition: 0
+NodeLocation: 568,32,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,78,,,,
+Original: System_size
+
+FormNode Energy_con1425271768
+Title: Energy consumption
+Definition: 0
+NodeLocation: 568,112,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,78,,,,
+Original: Energy_consumption
+
+FormNode Net_cost_o1425408935
+Title: Net cost of system
+Definition: 1
+NodeLocation: 568,192,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,72,,,
+Original: Net_cost_of_system
+
+FormNode Net_presen1425419722
+Title: Net present value
+Definition: 1
+NodeLocation: 568,232,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,72,,,
+Original: Net_present_value
+
+FormNode Internal_r1425419722
+Title: Internal rate of return
+Definition: 1
+NodeLocation: 568,272,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,72,,,
+Original: Internal_rate_of_ret
+
+FormNode Time_to_re1425419722
+Title: Time to recoup cost
+Definition: 1
+NodeLocation: 568,312,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,72,,,
+Original: Time_to_recoup_cost
+
+FormNode Installati1425419775
+Title: Installation year
+Definition: 0
+NodeLocation: 568,72,1
+NodeSize: 184,16
+NodeInfo: 1,,,,,,0,78,,,,
+Original: Installation_year
+
+Close Solar_panel_analysis
+

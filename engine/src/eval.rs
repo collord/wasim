@@ -1702,7 +1702,17 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         BuiltinFn::Atan2 => { require_args("atan2", n, 2, 2)?; vals[0].atan2(vals[1]) }
         BuiltinFn::Floor => { require_args("floor", n, 1, 1)?; vals[0].floor() }
         BuiltinFn::Ceil  => { require_args("ceil",  n, 1, 1)?; vals[0].ceil() }
-        BuiltinFn::Round => { require_args("round", n, 1, 1)?; vals[0].round() }
+        BuiltinFn::Round => {
+            // Analytica `Round(x)` rounds to integer; `Round(x, digits)` rounds
+            // to `digits` decimal places (negative digits round to tens/etc.).
+            require_args("round", n, 1, 2)?;
+            if n == 1 {
+                vals[0].round()
+            } else {
+                let f = 10f64.powf(vals[1]);
+                (vals[0] * f).round() / f
+            }
+        }
         BuiltinFn::Mod   => { require_args("mod",   n, 2, 2)?; vals[0] % vals[1] }
         BuiltinFn::Sign  => { require_args("sign",  n, 1, 1)?; vals[0].signum() }
         BuiltinFn::Int   => { require_args("int",   n, 1, 1)?; vals[0].trunc() }
