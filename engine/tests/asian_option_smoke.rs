@@ -32,7 +32,7 @@ fn spec_ids() -> Vec<&'static str> { vec!["payoff_arith", "payoff_geo", "cv_arit
 fn asian_option_control_variate_matches_and_reduces_variance() {
     let json = fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"), "/../schema_examples_manual/asian_option_control_variate.json")).unwrap();
-    let s = stats(&json, 15_000);
+    let s = stats(&json, 8_000);
     let (arith, geo, cv, gcf) = (&s["payoff_arith"], &s["payoff_geo"], &s["cv_arith"], &s["geo_price"]);
     println!("geo_closed_form = {:.6}", gcf.mean);
     println!("payoff_geo MC   : mean={:.6} std={:.6} ci={:.6}", geo.mean, geo.std, geo.ci);

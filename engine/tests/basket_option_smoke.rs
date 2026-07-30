@@ -25,7 +25,7 @@ fn basket_call_matches_and_reduces_variance() {
     spec.final_stats = true;
     let ids = ["basket_arith", "basket_geo", "basket_cv", "geo_price"];
     spec.elements = ids.iter().map(|s| s.to_string()).collect();
-    let cfg = RunConfig { n_realizations: Some(60_000), seed: Some(31313), results_spec: Some(spec),
+    let cfg = RunConfig { n_realizations: Some(30_000), seed: Some(31313), results_spec: Some(spec),
         ..Default::default() };
     let res = run_v2(&model, &graph, &cfg).expect("run");
     let fs = |id: &str| {

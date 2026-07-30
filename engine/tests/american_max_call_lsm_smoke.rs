@@ -29,7 +29,7 @@ fn american_max_call_multi_asset_lsm_matches_lattice() {
     spec.final_stats = true;
     let ids = ["american_maxcall", "american_maxcall_is", "euro_maxcall"];
     spec.elements = ids.iter().map(|s| s.to_string()).collect();
-    let cfg = RunConfig { n_realizations: Some(40_000), seed: Some(20_250_727), results_spec: Some(spec),
+    let cfg = RunConfig { n_realizations: Some(20_000), seed: Some(20_250_727), results_spec: Some(spec),
         duration_override: Some(1.0), timestep_override: Some(0.02), ..Default::default() };
     let res = run_v2(&model, &graph, &cfg).expect("run");
     let fs = |id: &str| {

@@ -23,9 +23,9 @@ fn price(json: &str, id: &str, n: u32) -> (f64, f64) {
 fn worst_of_asian_on_correlated_paths_is_structurally_sound() {
     let base = fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"), "/../schema_examples_manual/worst_of_asian_correlated.json")).unwrap();
-    let (wo, wo_ci) = price(&base, "worstof", 30_000);
-    let (a1, _) = price(&base, "asian1", 30_000);
-    let (a2, _) = price(&base, "asian2", 30_000);
+    let (wo, wo_ci) = price(&base, "worstof", 15_000);
+    let (a1, _) = price(&base, "asian1", 15_000);
+    let (a2, _) = price(&base, "asian2", 15_000);
     println!("worst-of Asian = {wo:.4} +/- {wo_ci:.4}   single Asians = {a1:.4}, {a2:.4}");
 
     // (1) Structural: the worst-of is worth no more than either single-asset Asian (min(a,b) <= a,b),

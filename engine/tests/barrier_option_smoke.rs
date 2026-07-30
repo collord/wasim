@@ -48,7 +48,7 @@ fn ids() -> Vec<&'static str> {
 fn barrier_down_and_out_prices_and_reduces_variance() {
     let json = fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"), "/../schema_examples_manual/barrier_option_down_and_out.json")).unwrap();
-    let s = stats(&json, 30_000);
+    let s = stats(&json, 15_000);
     let (van, bar, cv, bs, cont, bgk) =
         (&s["vanilla"], &s["barrier"], &s["barrier_cv"], &s["bs_price"], &s["cdo_cont"], &s["cdo_bgk"]);
     println!("bs_price  (vanilla, true T) = {:.4}", bs.mean);

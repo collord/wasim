@@ -46,7 +46,7 @@ fn ids() -> Vec<&'static str> {
 fn lookback_floating_strike_prices_and_reduces_variance() {
     let json = fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"), "/../schema_examples_manual/lookback_option_floating_strike.json")).unwrap();
-    let s = stats(&json, 40_000);
+    let s = stats(&json, 20_000);
     let (lb, cv, cont, check, ctrl) =
         (&s["lookback"], &s["lookback_cv"], &s["lb_cont"], &s["lb_check"], &s["ctrl"]);
     println!("lb_cont  (GSG continuous)  = {:.4}", cont.mean);

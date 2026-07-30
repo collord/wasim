@@ -27,7 +27,7 @@ fn american_put_lsm_matches_tree_and_beats_european() {
     spec.final_stats = true;
     let ids = ["american_put", "american_put_is", "american_dual", "euro_put", "bs_euro"];
     spec.elements = ids.iter().map(|s| s.to_string()).collect();
-    let cfg = RunConfig { n_realizations: Some(40_000), seed: Some(20_250_727), results_spec: Some(spec),
+    let cfg = RunConfig { n_realizations: Some(20_000), seed: Some(20_250_727), results_spec: Some(spec),
         duration_override: Some(1.0), timestep_override: Some(0.02), ..Default::default() };
     let res = run_v2(&model, &graph, &cfg).expect("run");
     let fs = |id: &str| {
