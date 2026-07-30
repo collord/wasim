@@ -1,8 +1,8 @@
 {
-  "wasim_version": "0.1.0",
+  "wasim_version": "0.9.8",
   "source": {
     "generator": "ana_to_wasim.py",
-    "notes": "Converted from Analytica (.ana): Plane catching with EVIU. Analytica is a static Intelligent-Arrays + Monte-Carlo tool; WASiM is a time-stepping engine. This is a scalar/1-step translation of the arithmetic + probabilistic core. Constructs with no v0.1.0 equivalent are preserved as inert stubs \u2014 see the conversion warnings. Review before trusting numbers."
+    "notes": "Converted from Analytica (.ana): Plane catching with EVIU. Analytica is a static Intelligent-Arrays + Monte-Carlo tool; WASiM is a time-stepping engine. This is a v2-native translation of the arithmetic + probabilistic core, with named dimensions from Analytica Indexes. Constructs with no WASiM equivalent are preserved as inert stubs \u2014 see the conversion warnings. Review before trusting numbers."
   },
   "simulation_settings": {
     "duration": {
@@ -16,43 +16,14 @@
     "n_realizations": 2000,
     "seed": 42
   },
-  "containers": [
-    {
-      "id": "Plane_catching_with_",
-      "name": "Plane catching with EVIU",
-      "parent": null,
-      "children": [
-        "Loss_if_miss_the_pla",
-        "Cost",
-        "Time_from_home_to_g1",
-        "Time_i_leave_home",
-        "Time_to_drive_to_air",
-        "Time_from_parking_to",
-        "Gate_time_before_dep"
-      ]
-    },
-    {
-      "id": "Eviu_details",
-      "name": "EVIU details",
-      "parent": "Plane_catching_with_",
-      "children": [
-        "Prob_of_missing_plan",
-        "Eviu",
-        "Best_time_ignoring_u",
-        "Best_time_to_min_exp",
-        "View1",
-        "Eviu_vs_ev"
-      ]
-    }
-  ],
   "elements": [
     {
       "id": "Prob_of_missing_plan",
       "name": "Prob of missing plane",
+      "primitive": "node",
       "container": "Eviu_details",
       "description": "The probability that I will miss the plane.",
-      "source_type": "Variable",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
           "op": "literal",
@@ -60,33 +31,73 @@
         },
         "display": "Probability(Time_i_leave_home < Time_from_home_to_g1)",
         "source": "inferred"
-      },
-      "inputs": []
+      }
     },
     {
       "id": "Eviu",
       "name": "EVIU",
+      "primitive": "node",
       "container": "Eviu_details",
       "description": "The expected value of including uncertainty, i.e. the increase in expected value from selecting the decision that maximizes expected value (including uncertainty) instead of making the \"optimal\" decision that maximizes value ignoring uncertainty.",
-      "source_type": "Variable",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
-          "op": "literal",
-          "value": 0.0
+          "op": "subtract",
+          "left": {
+            "op": "call",
+            "fn": "gather",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "Cost",
+                "output": "value"
+              },
+              {
+                "op": "ref",
+                "element_id": "Best_time_to_min_exp",
+                "output": "value"
+              }
+            ]
+          },
+          "right": {
+            "op": "call",
+            "fn": "gather",
+            "args": [
+              {
+                "op": "ref",
+                "element_id": "Cost",
+                "output": "value"
+              },
+              {
+                "op": "ref",
+                "element_id": "Best_time_ignoring_u",
+                "output": "value"
+              }
+            ]
+          }
         },
-        "display": "Cost[Time_i_leave_home = Best_time_to_min_exp] - Cost[Time_i_leave_home = Best_time_ignoring_u]",
-        "source": "inferred"
+        "display": "(gather(Cost, Best_time_to_min_exp) - gather(Cost, Best_time_ignoring_u))",
+        "source": "explicit"
       },
-      "inputs": []
+      "inputs": [
+        "Best_time_ignoring_u",
+        "Best_time_to_min_exp",
+        "Cost"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "mins"
+        }
+      ]
     },
     {
       "id": "Best_time_ignoring_u",
       "name": "Best time ignoring uncertainty",
+      "primitive": "node",
       "container": "Eviu_details",
       "description": "The best time to leave if we ignore uncertainty -- minimizing deterministic cost.",
-      "source_type": "Decision",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
           "op": "literal",
@@ -95,22 +106,20 @@
         "display": "ArgMin(Mid(Cost), Time_i_leave_home)",
         "source": "inferred"
       },
-      "inputs": [],
       "outputs": [
         {
           "name": "value",
-          "unit": "mins",
-          "display_unit": null
+          "unit": "mins"
         }
       ]
     },
     {
       "id": "Best_time_to_min_exp",
       "name": "Best time to min expected loss",
+      "primitive": "node",
       "container": "Eviu_details",
       "description": "The best time to leave to minimizing expected loss",
-      "source_type": "Decision",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
           "op": "literal",
@@ -119,145 +128,168 @@
         "display": "ArgMin(Mean(Cost), Time_i_leave_home)",
         "source": "inferred"
       },
-      "inputs": [],
       "outputs": [
         {
           "name": "value",
-          "unit": "mins",
-          "display_unit": null
+          "unit": "mins"
         }
       ]
     },
     {
       "id": "View1",
       "name": "View",
+      "primitive": "node",
       "container": "Eviu_details",
-      "description": null,
-      "source_type": "Index",
-      "type": "array",
-      "values_unit": "1",
-      "expressions": [
-        {
-          "ast": {
-            "op": "literal",
-            "value": 1.0
-          },
-          "display": "Cost ignoring uncertainty",
-          "source": "explicit"
+      "value_rule": "expression",
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "View1",
+          "body": {
+            "op": "index",
+            "array": {
+              "op": "array",
+              "elements": [
+                {
+                  "op": "literal",
+                  "value": 1.0
+                },
+                {
+                  "op": "literal",
+                  "value": 2.0
+                },
+                {
+                  "op": "literal",
+                  "value": 3.0
+                },
+                {
+                  "op": "literal",
+                  "value": 4.0
+                }
+              ]
+            },
+            "indices": [
+              {
+                "op": "index_ref",
+                "depth": 0
+              }
+            ]
+          }
         },
+        "display": "['Cost ignoring uncertainty','Decision ignoring uncertainty','Expected cost','Decision minimizing expected cost']",
+        "source": "explicit"
+      },
+      "outputs": [
         {
-          "ast": {
-            "op": "literal",
-            "value": 2.0
-          },
-          "display": "Decision ignoring uncertainty",
-          "source": "explicit"
-        },
-        {
-          "ast": {
-            "op": "literal",
-            "value": 3.0
-          },
-          "display": "Expected cost",
-          "source": "explicit"
-        },
-        {
-          "ast": {
-            "op": "literal",
-            "value": 4.0
-          },
-          "display": "Decision minimizing expected cost",
-          "source": "explicit"
+          "name": "value",
+          "unit": "1",
+          "dimensions": [
+            "View1"
+          ]
         }
-      ],
-      "labels": [
-        "Cost ignoring uncertainty",
-        "Decision ignoring uncertainty",
-        "Expected cost",
-        "Decision minimizing expected cost"
-      ],
-      "inputs": []
+      ]
     },
     {
       "id": "Eviu_vs_ev",
       "name": "EVIU vs EV",
+      "primitive": "node",
       "container": "Eviu_details",
-      "description": null,
-      "source_type": "Variable",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
-          "op": "array",
-          "elements": [
-            {
-              "op": "ref",
-              "element_id": "View1",
-              "output": "value"
-            },
-            {
-              "op": "literal",
-              "value": 0.0
-            },
-            {
-              "op": "if",
-              "cond": {
-                "op": "gt",
-                "left": {
-                  "op": "ref",
-                  "element_id": "Best_time_ignoring_u",
-                  "output": "value"
-                },
-                "right": {
-                  "op": "ref",
-                  "element_id": "Time_i_leave_home",
-                  "output": "value"
-                }
-              },
-              "then": {
-                "op": "literal",
-                "value": 0.0
-              },
-              "else": {
-                "op": "literal",
-                "value": 0.0
-              }
-            },
-            {
-              "op": "call",
-              "fn": "mean_array",
-              "args": [
+          "op": "vector_map",
+          "over": "View1",
+          "body": {
+            "op": "index",
+            "array": {
+              "op": "array",
+              "elements": [
                 {
-                  "op": "ref",
-                  "element_id": "Cost",
-                  "output": "value"
+                  "op": "literal",
+                  "value": 0.0
+                },
+                {
+                  "op": "if",
+                  "cond": {
+                    "op": "gt",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "Best_time_ignoring_u",
+                      "output": "value"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "Time_i_leave_home",
+                      "output": "value"
+                    }
+                  },
+                  "then": {
+                    "op": "literal",
+                    "value": 0.0
+                  },
+                  "else": {
+                    "op": "literal",
+                    "value": 0.0
+                  }
+                },
+                {
+                  "op": "call",
+                  "fn": "mean_array",
+                  "args": [
+                    {
+                      "op": "ref",
+                      "element_id": "Cost",
+                      "output": "value"
+                    }
+                  ]
+                },
+                {
+                  "op": "if",
+                  "cond": {
+                    "op": "gt",
+                    "left": {
+                      "op": "ref",
+                      "element_id": "Best_time_to_min_exp",
+                      "output": "value"
+                    },
+                    "right": {
+                      "op": "ref",
+                      "element_id": "Time_i_leave_home",
+                      "output": "value"
+                    }
+                  },
+                  "then": {
+                    "op": "literal",
+                    "value": 0.0
+                  },
+                  "else": {
+                    "op": "literal",
+                    "value": 0.0
+                  }
                 }
               ]
             },
-            {
-              "op": "if",
-              "cond": {
-                "op": "gt",
+            "indices": [
+              {
+                "op": "add",
                 "left": {
-                  "op": "ref",
-                  "element_id": "Best_time_to_min_exp",
-                  "output": "value"
+                  "op": "subtract",
+                  "left": {
+                    "op": "index_ref",
+                    "depth": 0
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1.0
+                  }
                 },
                 "right": {
-                  "op": "ref",
-                  "element_id": "Time_i_leave_home",
-                  "output": "value"
+                  "op": "literal",
+                  "value": 1.0
                 }
-              },
-              "then": {
-                "op": "literal",
-                "value": 0.0
-              },
-              "else": {
-                "op": "literal",
-                "value": 0.0
               }
-            }
-          ]
+            ]
+          }
         },
         "display": "Table(View1)(Mid(Cost), IF Best_time_ignoring_u > Time_i_leave_home THEN INF ELSE 0, Mean(Cost), IF Best_time_to_min_exp > Time_i_leave_home THEN INF ELSE 0)",
         "source": "inferred"
@@ -266,34 +298,37 @@
         "Best_time_ignoring_u",
         "Best_time_to_min_exp",
         "Cost",
-        "Time_i_leave_home",
-        "View1"
+        "Time_i_leave_home"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "unit": "1",
+          "dimensions": [
+            "View1"
+          ]
+        }
       ]
     },
     {
       "id": "Loss_if_miss_the_pla",
       "name": "Loss if miss the plane",
+      "primitive": "node",
       "container": "Plane_catching_with_",
       "description": "The loss (in minutes equivalent) of missing this plane and having to take the next one, or just cancelling the trip.",
-      "source_type": "Variable",
-      "type": "constant",
+      "value_rule": "fixed",
       "value": {
         "value": 400.0,
         "unit": "mins"
-      },
-      "editable": false,
-      "bounds": {
-        "min": null,
-        "max": null
       }
     },
     {
       "id": "Cost",
       "name": "Cost",
+      "primitive": "node",
       "container": "Plane_catching_with_",
       "description": "The total cost (in minutes) including loss of time snoozing before leaving home and loss if I miss the plane.",
-      "source_type": "Objective",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
           "op": "add",
@@ -347,18 +382,17 @@
       "outputs": [
         {
           "name": "value",
-          "unit": "minutes",
-          "display_unit": null
+          "unit": "minutes"
         }
       ]
     },
     {
       "id": "Time_from_home_to_g1",
       "name": "Time from home to gate",
+      "primitive": "node",
       "container": "Plane_catching_with_",
       "description": "Total time it takes from leaving home to plane departing.",
-      "source_type": "Variable",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
           "op": "add",
@@ -392,18 +426,17 @@
       "outputs": [
         {
           "name": "value",
-          "unit": "mins",
-          "display_unit": null
+          "unit": "mins"
         }
       ]
     },
     {
       "id": "Time_i_leave_home",
       "name": "Time I leave home before plane departure",
+      "primitive": "node",
       "container": "Plane_catching_with_",
       "description": "The time at which I decide to leave home in minutes before scheduled plane departure.",
-      "source_type": "Decision",
-      "type": "expression",
+      "value_rule": "expression",
       "expression": {
         "ast": {
           "op": "array",
@@ -517,22 +550,19 @@
         "display": "[30, 35, 40, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 100.01, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160]",
         "source": "explicit"
       },
-      "inputs": [],
       "outputs": [
         {
           "name": "value",
-          "unit": "minutes",
-          "display_unit": null
+          "unit": "minutes"
         }
       ]
     },
     {
       "id": "Time_to_drive_to_air",
       "name": "Time to drive to airport",
+      "primitive": "node",
       "container": "Plane_catching_with_",
-      "description": null,
-      "source_type": "Chance",
-      "type": "random_variable",
+      "value_rule": "sample",
       "distribution": {
         "family": "lognormal",
         "parameters": {
@@ -554,10 +584,9 @@
     {
       "id": "Time_from_parking_to",
       "name": "Time from parking to gate",
+      "primitive": "node",
       "container": "Plane_catching_with_",
-      "description": null,
-      "source_type": "Chance",
-      "type": "random_variable",
+      "value_rule": "sample",
       "distribution": {
         "family": "lognormal",
         "parameters": {
@@ -579,10 +608,9 @@
     {
       "id": "Gate_time_before_dep",
       "name": "Gate time before departure",
+      "primitive": "node",
       "container": "Plane_catching_with_",
-      "description": null,
-      "source_type": "Chance",
-      "type": "random_variable",
+      "value_rule": "sample",
       "distribution": {
         "family": "triangular",
         "parameters": {
@@ -607,9 +635,50 @@
       "outputs": [
         {
           "name": "value",
-          "unit": "min",
-          "display_unit": null
+          "unit": "min"
         }
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "View1",
+      "name": "View",
+      "size": 4,
+      "labels": [
+        "Cost ignoring uncertainty",
+        "Decision ignoring uncertainty",
+        "Expected cost",
+        "Decision minimizing expected cost"
+      ]
+    }
+  ],
+  "containers": [
+    {
+      "id": "Plane_catching_with_",
+      "name": "Plane catching with EVIU",
+      "parent": null,
+      "children": [
+        "Loss_if_miss_the_pla",
+        "Cost",
+        "Time_from_home_to_g1",
+        "Time_i_leave_home",
+        "Time_to_drive_to_air",
+        "Time_from_parking_to",
+        "Gate_time_before_dep"
+      ]
+    },
+    {
+      "id": "Eviu_details",
+      "name": "EVIU details",
+      "parent": "Plane_catching_with_",
+      "children": [
+        "Prob_of_missing_plan",
+        "Eviu",
+        "Best_time_ignoring_u",
+        "Best_time_to_min_exp",
+        "View1",
+        "Eviu_vs_ev"
       ]
     }
   ]

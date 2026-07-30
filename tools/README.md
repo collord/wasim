@@ -1,8 +1,9 @@
 # `ana_to_wasim.py` — Analytica → WASiM converter
 
-Converts an Analytica model (`.ana`, plain UTF-8) into a WASiM **v0.1.0**
-`model.json` — the format the Rust engine parses and that
-`schema_examples_manual/*.json` follow. Stdlib-only; no dependencies.
+Converts an Analytica model (`.ana`, plain UTF-8) into a **v2-native** WASiM
+`model.json` — the format the Rust engine parses (`schema/wasim-schema-v2.json`):
+`primitive:"node"` elements, named `dimensions[]` from Analytica Indexes, and
+`vector_map` comprehensions for dimensioned arrays. Stdlib-only; no dependencies.
 
 ```bash
 python3 tools/ana_to_wasim.py path/to/model.ana -o model.wasim.json
@@ -11,8 +12,8 @@ python3 tools/ana_to_wasim.py path/to/model.ana --stdout        # JSON to stdout
 
 Conversion warnings (unconvertible constructs, degraded nodes, axis caveats)
 are printed to **stderr**; the JSON goes to the file / stdout. The emitted model
-is designed to always validate against `oldmodel.schema.json` and to parse in
-the engine — unconvertible definitions become **inert stubs**
+is designed to always validate against `schema/wasim-schema-v2.json` and to parse
+in the engine — unconvertible definitions become **inert stubs**
 (`{"op":"literal","value":0.0}`, `source:"inferred"`, original text kept in
 `display`) that show up as warnings, never as silent wrong numbers.
 
@@ -23,7 +24,7 @@ pip install jsonschema
 python3 - <<'PY'
 import json, jsonschema
 jsonschema.validate(json.load(open("model.wasim.json")),
-                    json.load(open("oldmodel.schema.json")))
+                    json.load(open("schema/wasim-schema-v2.json")))
 print("valid")
 PY
 ```
@@ -37,7 +38,7 @@ To confirm it runs, feed it through the engine (`wasim_engine::simulate_json`).
 | file | what |
 |---|---|
 | `EVIU_plane_catching_3.ana` | the source model (Lumina example, 2008) |
-| `EVIU_plane_catching.wasim.json` | converter output — **validates against `oldmodel.schema.json` and runs in the engine** |
+| `EVIU_plane_catching.wasim.json` | converter output — **validates against `schema/wasim-schema-v2.json` and runs in the engine** |
 | `EVIU_plane_catching.warnings.txt` | the conversion warnings |
 
 ```bash
@@ -246,7 +247,7 @@ the converter end-to-end (they are **not** real Analytica corpus files):
 against models written by other people in different Analytica versions, with
 real-world encodings (CRLF, `~` line-wrap markers, non-ASCII titles) and
 constructs. `tools/test_ana_corpus.py` converts each and asserts it parses
-without crashing and that the output validates against `oldmodel.schema.json`
+without crashing and that the output validates against `schema/wasim-schema-v2.json`
 (where `jsonschema` is installed). Two of these real models originally surfaced
 a schema/engine-drift bug — the converter and engine both support the
 array-language builtins (`gather`, `ordinal`, `sort_*`, `cumulate`, …) and the

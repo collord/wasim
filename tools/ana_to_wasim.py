@@ -9,24 +9,26 @@ Usage:
 The `.ana` format is plain UTF-8 text: a flat sequence of typed nodes, each
 introduced by a class keyword header line (`Chance Ab_travel_time`) followed by
 attribute lines (`Title:`, `Units:`, `Definition:`, ...). See
-docs.analytica.com. This converter targets the WASiM v0.1.0 model format
-(`$id https://wasim.dev/schema/model/0.1.0`) that the Rust engine parses and
-that `schema_examples_manual/*.json` follow.
+docs.analytica.com. This converter targets the WASiM **v2-native** model format
+(`schema/wasim-schema-v2.json`) that the Rust engine parses: `primitive:"node"`
+elements, top-level `dimensions[]` from Analytica Indexes, and `vector_map`
+comprehensions for dimensioned arrays.
 
 Scope. Analytica and WASiM are architecturally different (see
 ANALYTICA_ENGINE_GAP_ANALYSIS.md): Analytica centres on Intelligent Arrays +
 Monte-Carlo with an optional Time axis, while WASiM is a time-stepping engine
 with arrays/sampling as substrate. This converter handles the arithmetic +
 probabilistic core that maps cleanly — distributions, scalar arithmetic,
-If-Then-Else, comparisons, the common reductions/math builtins, and simple
-Table/Sequence indexes. Constructs with no faithful v0.1.0 equivalent
-(runtime-dynamic indices, sample-as-axis reductions mid-graph, user Functions,
+If-Then-Else, comparisons, the common reductions/math builtins, named
+dimensions, `Table(I,J)`/`DetermTable(selector)` data, axis-selective reducers
+(`Sum(x, Index)`), and label/positional subscript (`x[Dim='label']`, `x[I=3]`).
+Constructs with no faithful WASiM equivalent (runtime-dynamic indices,
+`Self[Time-1]` recurrence, sample-as-axis reductions mid-graph, user Functions,
 metaprogramming, GUI logic) degrade to a preserved-but-inert stub
 (`{"op":"literal","value":0.0}`, `source:"inferred"`, original text kept in
-`display`) and are reported to stderr — the same graceful degradation the
-engine's own transpiler uses. The output always validates against
-`oldmodel.schema.json` and parses in the engine; unconverted definitions are
-visible as warnings + inert stubs rather than silent wrong numbers.
+`display`) and are reported to stderr. The output validates against
+`schema/wasim-schema-v2.json` and parses in the engine; unconverted definitions
+are visible as warnings + inert stubs rather than silent wrong numbers.
 
 No third-party dependencies (stdlib only).
 """
@@ -563,8 +565,8 @@ _DISTRIBUTIONS = {
 # Across-realization ("over Run") sample statistics. In WASiM these live in the
 # results/analysis layer (A3, `results_spec`), NOT as a mid-graph value a
 # downstream element can consume — the single genuine semantic gap called out in
-# ANALYTICA_ENGINE_GAP_ANALYSIS.md §2. They have no faithful v0.1.0 AST form, so
-# they degrade to an inert stub + warning.
+# ANALYTICA_ENGINE_GAP_ANALYSIS.md §2. They have no faithful mid-graph AST form,
+# so they degrade to an inert stub + warning.
 _SAMPLE_STATS = {
     "probability", "probbands", "getfract", "cdf", "pdf", "sdeviation",
     "variance", "kurtosis", "skewness", "correlation", "frequency",
@@ -622,7 +624,7 @@ def resolve_call(call: Call) -> dict:
         return {"op": "call", "fn": _ARRAY_MAP_OPS[name], "args": args[:1] or args}
 
     if name in _SAMPLE_STATS:
-        warn(call.name, "across-realization/dynamic statistic has no mid-graph v0.1.0 "
+        warn(call.name, "across-realization/dynamic statistic has no mid-graph "
                         "equivalent (see gap analysis §2); preserved as inert stub — "
                         "reconstruct in the results layer or as an accumulator.")
         return _stub(_render_call(call))

@@ -3,7 +3,7 @@
 
 Runs every file in tools/fixtures/ana_corpus/ through the converter and asserts
 it parses without crashing and yields a structurally sane WASiM model. Where
-`jsonschema` is installed, it also validates against oldmodel.schema.json and
+`jsonschema` is installed, it also validates against schema/wasim-schema-v2.json and
 checks that the set of schema-invalid conversions matches EXPECTED_INVALID (the
 known converter bugs documented in ana_corpus/SOURCE.md) — no more, no fewer.
 
