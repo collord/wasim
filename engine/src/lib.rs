@@ -9,6 +9,7 @@ pub mod graph_v2;
 pub mod model;
 pub mod model_v2;
 pub mod optimize_v2;
+pub mod voi_v2;
 pub mod params;
 pub mod results_spec;
 pub mod sampling;

@@ -188,6 +188,28 @@ impl WasmEngine {
             .map_err(|e| JsError::new(&e.to_string()))?;
         serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
     }
+
+    /// Compute value-of-information (EVPPI) for one or more uncertain probe elements. `spec_json`
+    /// carries an `OptimizationSpec` (planted transiently, like `optimize_json`), the probe element
+    /// ids, and an optional scenario count. Returns serialized `VoiResults` (baseline objective +
+    /// per-probe EVPPI). Expensive — K scenarios × an inner optimization each.
+    pub fn voi_json(&self, spec_json: &str) -> Result<String, JsError> {
+        #[derive(serde::Deserialize)]
+        struct VoiRequest {
+            optimization: crate::model::OptimizationSpec,
+            probes: Vec<String>,
+            #[serde(default)]
+            scenarios: Option<u32>,
+        }
+        let req: VoiRequest = serde_json::from_str(spec_json)
+            .map_err(|e| JsError::new(&format!("bad VOI spec: {e}")))?;
+        let mut model = self.model.clone();
+        model.optimization = Some(req.optimization);
+        let scenarios = req.scenarios.unwrap_or(crate::voi_v2::DEFAULT_SCENARIOS);
+        let results = crate::voi_v2::value_of_information(&model, &req.probes, scenarios, &RunConfig::default())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        serde_json::to_string(&results).map_err(|e| JsError::new(&e.to_string()))
+    }
 }
 
 // ── Shared run helpers (used by run_json and RunHandle) ──────────────────────────
