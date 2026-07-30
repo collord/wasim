@@ -9,6 +9,8 @@ import type {
   SensitivitySpec,
   SimulationResults,
   StudyResults,
+  VoiResults,
+  VoiSpec,
 } from './types'
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
@@ -94,6 +96,11 @@ interface State {
   optResults: StudyResults | null
   optError: string | null
 
+  // Value-of-information (runtime)
+  voiStatus: SimStatus
+  voiResults: VoiResults | null
+  voiError: string | null
+
   // Run config (user-controlled; mirrors doc.simulation_settings)
   nRealizations: number
   seed: number | null
@@ -148,6 +155,7 @@ interface Actions {
   run: () => void
   runSensitivity: (spec: SensitivitySpec) => void
   runOptimization: (spec: OptimizationSpec) => void
+  runVoi: (spec: VoiSpec) => void
   setNRealizations: (n: number) => void
   setSeed: (s: number | null) => void
   setSimDuration: (v: number) => void
@@ -200,6 +208,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   optStatus: 'idle',
   optResults: null,
   optError: null,
+  voiStatus: 'idle',
+  voiResults: null,
+  voiError: null,
   nRealizations: 1000,
   seed: 42,
   simDuration: null,
@@ -525,6 +536,11 @@ export const useStore = create<State & Actions>((set, get) => ({
     postToWorker({ type: 'run_optimization', spec })
   },
 
+  runVoi(spec) {
+    set({ voiStatus: 'running', voiError: null, voiResults: null })
+    postToWorker({ type: 'run_voi', spec })
+  },
+
   setNRealizations: (n) => { set({ nRealizations: n }); get().editSettings({ n_realizations: n }) },
   setSeed: (s) => { set({ seed: s }); get().editSettings({ seed: s }) },
   setSimDuration: (v) => {
@@ -640,9 +656,14 @@ export const useStore = create<State & Actions>((set, get) => ({
         set({ optStatus: 'done', optResults: msg.results })
         break
 
+      case 'voi_complete':
+        set({ voiStatus: 'done', voiResults: msg.results })
+        break
+
       case 'error':
         // A worker error can arrive for any in-flight job; surface it on whichever is running.
-        if (get().optStatus === 'running') set({ optStatus: 'error', optError: msg.message })
+        if (get().voiStatus === 'running') set({ voiStatus: 'error', voiError: msg.message })
+        else if (get().optStatus === 'running') set({ optStatus: 'error', optError: msg.message })
         else if (get().sensStatus === 'running') set({ sensStatus: 'error', sensError: msg.message })
         else set({ status: 'error', errorMessage: msg.message, reconciling: false })
         break

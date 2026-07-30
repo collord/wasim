@@ -1,4 +1,4 @@
-import type { ModelSummary, OptimizationSpec, SensitivityResults, SensitivitySpec, SimulationResults, StudyResults } from '../types'
+import type { ModelSummary, OptimizationSpec, SensitivityResults, SensitivitySpec, SimulationResults, StudyResults, VoiResults, VoiSpec } from '../types'
 
 // ── Validation diagnostics (from WASM validate_json + reconcile) ────────────────
 
@@ -26,6 +26,7 @@ export type MainToWorker =
   | { type: 'run'; config: { n_realizations?: number; seed?: number; duration_override?: number; timestep_override?: number } }
   | { type: 'run_sensitivity'; spec: SensitivitySpec }
   | { type: 'run_optimization'; spec: OptimizationSpec }
+  | { type: 'run_voi'; spec: VoiSpec }
   // Authoring additions (spec §13.5): a structural edit rebuilds the engine from the whole
   // model; `validate` runs parse + dimensional + graph checks without rebuilding the run engine.
   | { type: 'reconcile'; model: string; token: number }
@@ -38,6 +39,7 @@ export type WorkerToMain =
   | { type: 'complete'; results: SimulationResults }
   | { type: 'sensitivity_complete'; results: SensitivityResults }
   | { type: 'optimization_complete'; results: StudyResults }
+  | { type: 'voi_complete'; results: VoiResults }
   | { type: 'error'; message: string }
   // `reconciled` carries the fresh summary (render/edit source) + validation (issues panel)
   // + topo (causality view). `token` lets the store drop stale (out-of-order) responses.

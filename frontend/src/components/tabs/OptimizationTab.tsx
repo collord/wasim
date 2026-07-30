@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useStore, useElements } from '../../store'
-import type { ObjectiveStatKind, OptDirection, OptimizationSpec, OptVariable } from '../../types'
+import type { ObjectiveStatKind, OptDirection, OptimizationSpec, OptVariable, VoiSpec } from '../../types'
+
+const VOI_SCENARIOS = 24
 
 // Statistic options; 'final' means deterministic (no statistic → single value).
 const STAT_OPTIONS: { value: ObjectiveStatKind | 'final'; label: string }[] = [
@@ -25,6 +27,10 @@ export function OptimizationTab() {
   const results = useStore((s) => s.optResults)
   const error = useStore((s) => s.optError)
   const setConstant = useStore((s) => s.setConstant)
+  const runVoi = useStore((s) => s.runVoi)
+  const voiStatus = useStore((s) => s.voiStatus)
+  const voiResults = useStore((s) => s.voiResults)
+  const voiError = useStore((s) => s.voiError)
 
   // Candidate decision variables: editable fixed scalars with bounds (min & max).
   const candidates = useMemo(
@@ -38,8 +44,11 @@ export function OptimizationTab() {
   const [direction, setDirection] = useState<OptDirection>('minimize')
   const [stat, setStat] = useState<ObjectiveStatKind | 'final'>('final')
   const [percentile, setPercentile] = useState(50)
+  const [probes, setProbes] = useState<Set<string>>(new Set())
 
   const objectiveOptions = elements
+  // VOI probes: uncertain (stochastic) inputs whose resolution the decision could exploit.
+  const probeCandidates = useMemo(() => elements.filter((e) => e.value_rule === 'sample'), [elements])
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -47,28 +56,44 @@ export function OptimizationTab() {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+  const toggleProbe = (id: string) =>
+    setProbes((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
 
   const canRun = objectiveId !== '' && selected.size > 0 && status !== 'running'
+  // VOI needs a probabilistic objective: over a deterministic ('final') objective, resolving an
+  // uncertainty changes nothing and every EVPPI collapses to 0.
+  const canRunVoi = objectiveId !== '' && selected.size > 0 && probes.size > 0 && stat !== 'final' && voiStatus !== 'running'
 
-  const run = () => {
-    const variables: OptVariable[] = candidates
+  // The optimization problem (objective + decision variables) shared by Optimize and VOI.
+  const buildProblem = (): { objective: OptimizationSpec['objective']; variables: OptVariable[] } => ({
+    objective: {
+      element_id: objectiveId,
+      direction,
+      statistic: stat === 'final' ? null : { kind: stat, ...(stat === 'percentile' ? { p: percentile } : {}) },
+    },
+    variables: candidates
       .filter((e) => selected.has(e.id))
       .map((e) => ({
         element_id: e.id,
         lower: { value: e.bounds!.min!, unit: e.unit },
         upper: { value: e.bounds!.max!, unit: e.unit },
         initial: { value: e.value!, unit: e.unit },
-      }))
-    const spec: OptimizationSpec = {
-      objective: {
-        element_id: objectiveId,
-        direction,
-        statistic: stat === 'final' ? null : { kind: stat, ...(stat === 'percentile' ? { p: percentile } : {}) },
-      },
-      variables,
-      constraints: [],
-    }
-    runOptimization(spec)
+      })),
+  })
+
+  const run = () => {
+    const { objective, variables } = buildProblem()
+    runOptimization({ objective, variables, constraints: [] })
+  }
+
+  const runVoiClick = () => {
+    const { objective, variables } = buildProblem()
+    const spec: VoiSpec = { optimization: { objective, variables, constraints: [] }, probes: [...probes], scenarios: VOI_SCENARIOS }
+    runVoi(spec)
   }
 
   const applyOptimum = () => {
@@ -192,6 +217,62 @@ export function OptimizationTab() {
           </button>
         </section>
       )}
+
+      {/* Value of information */}
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h3 className="mb-1 text-sm font-semibold text-slate-700">Value of information</h3>
+        <p className="mb-3 text-xs text-slate-500">
+          What is it worth to learn an uncertain input <em>before</em> deciding (EVPPI)? Uses the objective and
+          variables above; runs an optimization per scenario, so it’s slow.
+        </p>
+        {probeCandidates.length === 0 ? (
+          <p className="text-xs text-slate-400">No uncertain (stochastic) inputs to probe.</p>
+        ) : (
+          <div className="space-y-1">
+            {probeCandidates.map((e) => (
+              <label key={e.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-slate-50">
+                <input type="checkbox" checked={probes.has(e.id)} onChange={() => toggleProbe(e.id)} className="h-3.5 w-3.5" />
+                <span className="flex-1 font-medium text-slate-700">{e.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <button onClick={runVoiClick} disabled={!canRunVoi}
+          className="mt-3 rounded bg-violet-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40">
+          {voiStatus === 'running' ? '⟳ Computing…' : 'Compute value of information'}
+        </button>
+        {stat === 'final' && (
+          <span className="ml-3 text-xs text-amber-600">Set the objective Statistic to Mean — VOI needs a probabilistic objective.</span>
+        )}
+        {stat !== 'final' && !canRunVoi && voiStatus !== 'running' && (
+          <span className="ml-3 text-xs text-slate-400">Pick an objective, a variable, and an input to probe.</span>
+        )}
+        {voiError && <p className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-600">{voiError}</p>}
+        {voiResults && (
+          <div className="mt-3" data-testid="voi-results">
+            <div className="mb-2 text-xs text-slate-500">
+              Best objective under uncertainty:{' '}
+              <span className="font-mono font-semibold text-slate-800">{fmt(voiResults.baseline_objective)}</span>
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-400">
+                  <th className="pb-1 font-medium">Learn before deciding</th>
+                  <th className="pb-1 text-right font-medium">EVPPI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {voiResults.probes.map((pr) => (
+                  <tr key={pr.element_id} className="border-t border-slate-100">
+                    <td className="py-1 text-slate-600">{label(pr.element_id)}</td>
+                    <td className="py-1 text-right font-mono text-slate-800">{fmt(Math.max(0, pr.evppi))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

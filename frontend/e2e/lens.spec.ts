@@ -109,6 +109,44 @@ test('draw-flow gesture wires a flow into a stock', async ({ page }) => {
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
 
+/** Part C: the decision lens reprograms authoring and computes value-of-information (EVPPI)
+ *  through the engine's new VOI reduction. */
+test('decision lens: VOI computes a positive EVPPI through the engine', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+
+  // Decision lens → palette shows Decisions; load the capacity-choice template.
+  await page.getByRole('combobox', { name: 'Lens' }).selectOption('decision')
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await expect(page.getByText('Decisions', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /Capacity choice/ }).click()
+  await expect(page.getByText('3 elems').first()).toBeVisible({ timeout: 10000 })
+
+  // Configure the optimization problem in the Optimization tab.
+  await page.getByRole('button', { name: 'Result', exact: true }).click()
+  await page.getByRole('button', { name: 'Optimization', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Element' }).selectOption({ label: 'Mismatch cost' })
+  await page.getByRole('combobox', { name: 'Statistic' }).selectOption('mean')
+  await page.locator('input[type=checkbox]').first().check() // Capacity (decision variable)
+  await page.getByRole('checkbox').last().check()            // Demand (VOI probe)
+
+  // Compute VOI → a positive EVPPI for Demand (learning it before deciding has real value).
+  await page.getByRole('button', { name: /Compute value of information/i }).click()
+  await expect(page.getByTestId('voi-results')).toBeVisible({ timeout: 60000 })
+  await expect(page.getByTestId('voi-results')).toContainText('EVPPI')
+  const evppiText = await page.getByTestId('voi-results').innerText()
+  const num = parseFloat((evppiText.match(/Demand\s+([\d.]+)/) ?? [])[1] ?? '0')
+  expect(num).toBeGreaterThan(1)
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})
+
 /** Part B polish: the stock-flow lens offers canonical templates on the empty canvas, they load
  *  warning-free, and running opens the Results view on a stock's trajectory (not a final number). */
 test('stock-flow templates load clean and run to a stock trajectory', async ({ page }) => {

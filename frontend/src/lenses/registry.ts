@@ -2,6 +2,7 @@ import type { LensId, LensSpec } from './types'
 import { groupInOrder } from './types'
 import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
 import { RELIABILITY_TEMPLATES } from './reliabilityTemplates'
+import { DECISION_TEMPLATES } from './decisionTemplates'
 import { mutateElement } from '../model/edits'
 import type { LensReadout } from './types'
 import type { ModelDoc } from '../model/schema'
@@ -213,7 +214,38 @@ const reliabilityLens: LensSpec = {
   resultReadouts: reliabilityReadouts,
 }
 
-const REGISTERED: LensSpec[] = [stockFlowLens, reliabilityLens, generalLens]
+/** Decision / value-of-information: declare decisions, chance inputs, and an objective; the
+ *  optimizer picks the best decision under uncertainty and VOI prices learning a chance input
+ *  before deciding. Reuses the existing optimizer; VOI is the one piece with new engine work. */
+const decisionLens: LensSpec = {
+  id: 'decision',
+  label: 'Decision',
+  tagline: 'Decisions, chance inputs, and an objective — optimize under uncertainty and price information (VOI).',
+  palette: () => [
+    { label: 'Decisions', items: [{ key: 'constant', label: 'Decision', iconType: 'constant', lensRole: 'decision' }] },
+    { label: 'Uncertainty', items: [{ key: 'stochastic', label: 'Chance input', iconType: 'random_variable', lensRole: 'chance' }] },
+    { label: 'Objective', items: [{ key: 'expression', label: 'Objective', iconType: 'expression', lensRole: 'objective' }] },
+  ],
+  invariants: (_summary, doc) => {
+    const issues: Issue[] = []
+    if (doc.elements.length > 0) {
+      if (!doc.elements.some((e) => e.lens_role === 'decision')) {
+        issues.push({ severity: 'warning', message: 'No decision — add a Decision variable to optimize.' })
+      }
+      if (!doc.elements.some((e) => e.lens_role === 'objective')) {
+        issues.push({ severity: 'warning', message: 'No objective — add an Objective for the optimizer to target.' })
+      }
+    }
+    return issues
+  },
+  roleLabels: { decision: 'Decision', chance: 'Chance input', objective: 'Objective' },
+  glyphOf: (role) => (role === 'decision' || role === 'objective' ? 'box' : role === 'chance' ? 'circle' : 'default'),
+  templates: DECISION_TEMPLATES,
+  preferredResultId: (doc, outputIds) =>
+    doc.elements.find((e) => e.lens_role === 'objective' && outputIds.includes(e.id))?.id ?? null,
+}
+
+const REGISTERED: LensSpec[] = [stockFlowLens, reliabilityLens, decisionLens, generalLens]
 
 export const LENSES: Partial<Record<LensId, LensSpec>> = Object.fromEntries(
   REGISTERED.map((l) => [l.id, l]),
