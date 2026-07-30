@@ -1418,22 +1418,47 @@ def _collect_refs(ast: Any) -> set[str]:
 # Stage 6 — top-level assembly
 # --------------------------------------------------------------------------- #
 
-def _sanitize_dangling_refs(elements: list[dict]) -> None:
-    """Replace refs to non-emitted elements with inert stubs, in place.
+_ANA_IDENT_MAXLEN = 20  # Analytica truncates identifiers to 20 chars at declaration.
 
-    A converted expression may reference an id that never became an element —
-    an Analytica system index (`Time`, `Run`), a user `Function` (skipped), or a
-    node the converter dropped. Left alone these are dangling edges the engine's
-    graph builder rejects. Rewrite each to `literal 0.0` so the model still
-    builds and runs; the original text already survives in the element `display`.
+
+def _truncation_target(ref: str, trunc_ids: set[str]) -> Optional[str]:
+    """If `ref` is the untruncated form of a declared id, return that id.
+
+    Analytica truncates a node's IDENTIFIER to 20 chars at declaration, but a
+    formula elsewhere may reference the full name (`Max_thickness_supported` →
+    declared `Max_thickness_suppor`). A dangling ref resolves to a 20-char id iff
+    it starts with that id (and there is exactly one such candidate). Safe: this
+    only ever touches names that are ALREADY dangling, so it can never shadow a
+    real reference."""
+    cands = [i for i in trunc_ids if len(ref) > _ANA_IDENT_MAXLEN and ref.startswith(i)]
+    return cands[0] if len(cands) == 1 else None
+
+
+def _sanitize_dangling_refs(elements: list[dict]) -> None:
+    """Resolve truncated-identifier refs, then replace still-dangling refs with
+    inert stubs, in place.
+
+    A converted expression may reference an id that never became an element. First
+    recover Analytica's identifier TRUNCATION (`…_supported` → declared `…_suppor`,
+    see `_truncation_target`). Whatever is still dangling — a system index (`Time`,
+    `Run`), a user `Function` (skipped), or a dropped node — is a graph edge the
+    engine rejects, so rewrite it to `literal 0.0`; the original text survives in
+    the element `display`.
     """
     ids = {e["id"] for e in elements}
+    trunc_ids = {i for i in ids if len(i) == _ANA_IDENT_MAXLEN}
     missing: set[str] = set()
+    recovered: set[str] = set()
 
     def fix(node: Any) -> Any:
         if isinstance(node, dict):
             if node.get("op") == "ref" and node.get("element_id") not in ids:
-                missing.add(node["element_id"])
+                ref = node["element_id"]
+                target = _truncation_target(ref, trunc_ids)
+                if target is not None:
+                    recovered.add(ref)
+                    return {**node, "element_id": target}
+                missing.add(ref)
                 return {"op": "literal", "value": 0.0}
             return {k: fix(v) for k, v in node.items()}
         if isinstance(node, list):
@@ -1445,12 +1470,26 @@ def _sanitize_dangling_refs(elements: list[dict]) -> None:
         if isinstance(expr, dict) and "ast" in expr:
             expr["ast"] = fix(expr["ast"])
         if "inputs" in e:
-            kept = [i for i in e["inputs"] if i in ids]
-            if kept:
-                e["inputs"] = kept
+            kept = []
+            for i in e["inputs"]:
+                if i in ids:
+                    kept.append(i)
+                else:
+                    t = _truncation_target(i, trunc_ids)
+                    if t is not None:
+                        kept.append(t)
+            # dedupe, preserve order
+            e_inputs = list(dict.fromkeys(kept))
+            if e_inputs:
+                e["inputs"] = e_inputs
             else:
                 del e["inputs"]
 
+    if recovered:
+        warn("graph", f"{len(recovered)} reference(s) recovered from Analytica "
+                      f"identifier truncation (full name → declared 20-char id): "
+                      f"{', '.join(sorted(recovered)[:6])}"
+                      f"{' …' if len(recovered) > 6 else ''}")
     if missing:
         warn("graph", f"{len(missing)} reference(s) to non-model ids "
                       f"(system indices / skipped nodes) replaced with inert 0.0: "

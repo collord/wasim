@@ -171,6 +171,22 @@ check("subscripted dimension declares matching labels",
       "Latitude" in coords.get("labels", []))
 
 
+# ── Identifier-truncation recovery ────────────────────────────────────────────
+
+# Analytica truncates identifiers to 20 chars at declaration, but formulas may use
+# the full name. `Fc`'s definition references `Max_thickness_supported`; the node
+# is declared `Max_thickness_suppor` (20 chars). The ref must resolve to it, not to
+# a dangling literal 0.
+cp = convert("Compression_Post_Load_Capacity.ana")
+fc = by_id(cp, "Fc")
+fc_json = __import__("json").dumps(fc["expression"]["ast"]) if fc else ""
+check("truncated-identifier ref resolves to the declared 20-char id",
+      '"Max_thickness_suppor"' in fc_json
+      and "Max_thickness_supported" not in fc_json)
+check("the truncation target element exists",
+      by_id(cp, "Max_thickness_suppor") is not None)
+
+
 print()
 if _fails:
     print(f"{len(_fails)} failure(s): {_fails}")
