@@ -133,6 +133,44 @@ check("multi-selector DetermTable → single flat get_element",
       and cfa.get("args", [{}, {}])[1].get("op") == "literal")
 
 
+# ── Stage 3: label / positional subscript ─────────────────────────────────────
+
+vm = convert("Vector_Math.ana")
+
+
+def find_op(node, op):
+    if isinstance(node, dict):
+        if node.get("op") == op:
+            return node
+        for v in node.values():
+            r = find_op(v, op)
+            if r:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = find_op(v, op)
+            if r:
+                return r
+    return None
+
+# `Point_Coordinates[Points=1, Coords='Latitude']` → chained
+# index(positional 1) then subscript(dim=Coords, label='Latitude').
+sub = None
+for el in vm["elements"]:
+    sub = find_op(el.get("expression", {}).get("ast", {}), "subscript")
+    if sub:
+        break
+check("label subscript emits a `subscript` node with dim + label",
+      sub is not None and sub.get("dim") == "Coords" and sub.get("label") == "Latitude")
+check("numeric subscript nests as a positional `index`",
+      sub is not None and (sub.get("array") or {}).get("op") == "index"
+      and (sub["array"].get("indices") or [{}])[0] == {"op": "literal", "value": 1.0})
+# The targeted dimension must actually carry labels so the engine resolves it.
+coords = next((d for d in vm.get("dimensions", []) if d["id"] == "Coords"), {})
+check("subscripted dimension declares matching labels",
+      "Latitude" in coords.get("labels", []))
+
+
 print()
 if _fails:
     print(f"{len(_fails)} failure(s): {_fails}")

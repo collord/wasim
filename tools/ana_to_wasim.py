@@ -388,25 +388,41 @@ class ExprParser:
         return self.parse_atom()
 
     def parse_postfix(self, node: Any) -> Any:
-        # Analytica postfix subscript `x[Dim = …]`. We support the reindex-by-index form
-        # `x[Dim = anIndex]` → `gather(x, anIndex)` (Phase 2). The dimension name is
-        # dropped (dims are implicit in v0.1.0). Other forms — label/number select,
-        # multi-dimensional — raise, so the fragment falls back to the existing stub path.
+        # Analytica postfix subscript `x[Dim = rhs, Dim2 = rhs2, …]`. Each clause
+        # is dispatched on its RHS:
+        #   - string label  `x[Coords='Lat']`   → subscript(x, dim=Coords, label='Lat')
+        #   - numeric literal `x[I=3]`           → index(x, [3])   (1-based positional)
+        #   - index ref     `x[Dim=anIndex]`     → gather(x, anIndex)  (reindex, Phase 2)
+        # Multiple comma-separated clauses chain left-to-right. An RHS shape we
+        # don't model (arithmetic, `@I=…`, `Domain of …`) raises, so the whole
+        # definition falls back to the existing stub path.
         while self.peek()[0] == Tok.LB:
             self.next()  # consume '['
-            base = _as_ast(node)
-            if self.peek()[0] != Tok.IDENT:
-                raise ParseError("unsupported subscript (expected `Dim = …`)")
-            self.next()  # dimension name (dropped)
-            if not (self.peek()[0] == Tok.OP and self.peek()[1] == "="):
-                raise ParseError("unsupported subscript (expected `=`)")
-            self.next()  # '='
-            rhs = _as_ast(self.parse_expr(0))
+            node = _as_ast(node)
+            while True:
+                if self.peek()[0] != Tok.IDENT:
+                    raise ParseError("unsupported subscript (expected `Dim = …`)")
+                dim = self.next()[1]  # dimension name (kept for label subscript)
+                if not (self.peek()[0] == Tok.OP and self.peek()[1] == "="):
+                    raise ParseError("unsupported subscript (expected `=`)")
+                self.next()  # '='
+                rhs = _as_ast(self.parse_expr(0))
+                if isinstance(rhs, dict) and "_string" in rhs:
+                    node = {"op": "subscript", "array": node,
+                            "dim": dim, "label": rhs["_string"]}
+                elif isinstance(rhs, dict) and rhs.get("op") == "literal" \
+                        and "_stub_display" not in rhs:
+                    node = {"op": "index", "array": node,
+                            "indices": [{"op": "literal", "value": rhs["value"]}]}
+                elif isinstance(rhs, dict) and rhs.get("op") == "ref":
+                    node = {"op": "call", "fn": "gather", "args": [node, rhs]}
+                else:
+                    raise ParseError("unsupported subscript RHS")
+                if self.peek()[0] == Tok.COMMA:
+                    self.next()
+                    continue
+                break
             self.expect(Tok.RB)
-            if isinstance(rhs, dict) and rhs.get("op") == "ref":
-                node = {"op": "call", "fn": "gather", "args": [base, rhs]}
-            else:
-                raise ParseError("unsupported subscript RHS (not an index ref)")
         return node
 
     def parse_if(self) -> Any:
