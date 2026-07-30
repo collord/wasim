@@ -45,6 +45,49 @@ function runToFailure(): ModelDoc {
   }
 }
 
+/** A component = wear parameter + damage state + condition-basis failure FSM. */
+function component(suffix: string, label: string, wearRate: number): FlatElement[] {
+  const cond = parseExpr(`damage_${suffix} >= 1`)
+  return [
+    { id: `wear_${suffix}`, name: `Wear ${label}`, primitive: 'node', value_rule: 'fixed', value: { value: wearRate, unit: '1' }, editable: true, bounds: { min: 0, max: 1 }, lens_role: 'parameter', save_results: SAVE },
+    { id: `damage_${suffix}`, name: `Damage ${label}`, primitive: 'stock', initial_value: { value: 0, unit: '1' }, inflows: [`wear_${suffix}`], outflows: [], lens_role: 'state', save_results: SAVE },
+    {
+      id: `fsm_${suffix}`, name: `Component ${label}`, primitive: 'event',
+      trigger: { mode: 'on_condition', condition: { ast: cond, display: printAst(cond) } },
+      failure_process: { basis: 'condition', repair: { policy: 'none' } },
+      effects: [], inputs: [...refsOf(cond)], lens_role: 'component', save_results: SAVE,
+    },
+  ]
+}
+
+/** 1-of-2 redundant system: two components with different wear rates, and a gate that fails only
+ *  when BOTH have failed (AND over their failure states) — parallel redundancy. The system
+ *  survives the first failure and trips when the second occurs. */
+function redundant(): ModelDoc {
+  return {
+    wasim_version: '0.1.0',
+    simulation_settings: settings(20),
+    elements: [
+      ...component('a', 'A', 0.15),
+      ...component('b', 'B', 0.1),
+      {
+        id: 'system', name: 'System (1-of-2)', primitive: 'gate', semantics: 'success',
+        root: { op: 'and', children: [{ op: 'reference', reference: 'fsm_a' }, { op: 'reference', reference: 'fsm_b' }] },
+        inputs: ['fsm_a', 'fsm_b'], lens_role: 'redundancy', save_results: SAVE,
+      },
+    ],
+    view: {
+      lens: 'reliability', authored: true,
+      positions: {
+        wear_a: { x: 60, y: 70 }, damage_a: { x: 290, y: 70 }, fsm_a: { x: 520, y: 70 },
+        wear_b: { x: 60, y: 290 }, damage_b: { x: 290, y: 290 }, fsm_b: { x: 520, y: 290 },
+        system: { x: 760, y: 180 },
+      },
+    },
+  }
+}
+
 export const RELIABILITY_TEMPLATES: ModelTemplate[] = [
   { id: 'run-to-failure', label: 'Repairable component', description: 'Damage accrues to a failure threshold — a condition-basis failure FSM. Run-to-failure.', build: runToFailure },
+  { id: 'redundant', label: '1-of-2 redundant system', description: 'Two components + a gate that trips only when both fail — parallel redundancy.', build: redundant },
 ]

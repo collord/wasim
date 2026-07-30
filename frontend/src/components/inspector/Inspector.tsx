@@ -95,6 +95,7 @@ function DefinitionSection({ el, flat }: { el: ElementSummary; flat: FlatElement
   let body = <UnsupportedEditor el={el} flat={flat} />
   if (prim === 'stock') body = <StockEditor el={el} flat={flat} />
   else if (prim === 'event') body = <EventEditor el={el} flat={flat} />
+  else if (prim === 'gate') body = <GateEditor el={el} flat={flat} />
   else if (rule === 'fixed') body = <FixedEditor el={el} flat={flat} />
   else if (rule === 'sample') body = <SampleEditor el={el} flat={flat} />
   else if (rule === 'expression') body = <ExpressionRuleEditor el={el} />
@@ -104,6 +105,68 @@ function DefinitionSection({ el, flat }: { el: ElementSummary; flat: FlatElement
   else if (rule === 'filter') body = <FilterEditor el={el} flat={flat} />
 
   return <Section title="Definition">{body}</Section>
+}
+
+// ── Gate (boolean logic over referenced element states) ──────────────────────────
+
+interface GateRoot { op?: string; threshold?: number; children?: { op?: string; reference?: string }[] }
+
+const GATE_OPS = [
+  { value: 'and', label: 'All active (AND)' },
+  { value: 'or', label: 'Any active (OR)' },
+  { value: 'n_vote', label: 'At least k active (k-of-n)' },
+]
+
+/** Structured editor for the `gate` primitive: pick the logic (AND / OR / k-of-n) and which
+ *  elements it references. A referenced element is "active" when its value > 0 (e.g. a failed
+ *  component); the gate outputs 1 when the logic holds. Nested gate trees stay editable via the
+ *  raw-JSON escape hatch. */
+function GateEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const docEls = useStore((s) => s.doc?.elements)
+  const root = (flat.root as GateRoot | undefined) ?? { op: 'n_vote', threshold: 1, children: [] }
+  const op = root.op ?? 'n_vote'
+  const childIds = (root.children ?? []).filter((c) => c?.op === 'reference' && c.reference).map((c) => c.reference as string)
+  const candidates = (docEls ?? []).filter((e) => e.id !== el.id)
+
+  const write = (nextOp: string, ids: string[], threshold: number) =>
+    mutate(el.id, (e) => {
+      const children = ids.map((id) => ({ op: 'reference', reference: id }))
+      const r: GateRoot = { op: nextOp, children }
+      if (nextOp === 'n_vote') r.threshold = Math.max(1, Math.min(threshold, ids.length || 1))
+      e.root = r
+      e.inputs = ids // so influence edges + topo see the referenced elements
+    })
+
+  const toggle = (id: string) =>
+    write(op, childIds.includes(id) ? childIds.filter((x) => x !== id) : [...childIds, id], root.threshold ?? 1)
+
+  return (
+    <>
+      <Field label="Logic" hint="A referenced element is active when its value > 0 (e.g. a failed component). Output is 1 when the logic holds.">
+        <Select value={op} onChange={(o) => write(o, childIds, root.threshold ?? 1)} options={GATE_OPS} />
+      </Field>
+      {op === 'n_vote' && (
+        <Field label="Minimum active (k)">
+          <NumInput value={root.threshold ?? 1} onChange={(v) => write(op, childIds, Math.round(v))} />
+        </Field>
+      )}
+      <Field label="Inputs" hint={childIds.length === 0 ? 'Select the elements this gate references.' : undefined}>
+        {candidates.length === 0 ? (
+          <p className="text-[11px] text-slate-400">No other elements to reference yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {candidates.map((c) => (
+              <label key={c.id} className="flex items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-slate-50">
+                <input type="checkbox" className="h-3.5 w-3.5" checked={childIds.includes(c.id)} onChange={() => toggle(c.id)} />
+                <span className="flex-1 truncate text-slate-700">{c.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </Field>
+    </>
+  )
 }
 
 // ── Fixed (constant) ──────────────────────────────────────────────────────────

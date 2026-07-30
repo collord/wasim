@@ -342,6 +342,17 @@ export const PALETTE: PaletteEntry[] = [
       save_results: { time_history: true, final_value: true },
     }),
   },
+  {
+    // v2-native boolean logic gate (spec §gate). Composes referenced elements' states with
+    // AND / OR / at-least-k (NVote); a leaf is "active" when its value > 0. Output 0/1.
+    key: 'gate', label: 'Logic Gate', group: 'Reliability', iconType: 'event',
+    make: (id, name) => ({
+      id, name, primitive: 'gate', semantics: 'success',
+      root: { op: 'n_vote', threshold: 1, children: [] },
+      inputs: [],
+      save_results: { time_history: true, final_value: true },
+    }),
+  },
 ]
 
 // ── New / blank model scaffold (spec §13.4) ──────────────────────────────────────

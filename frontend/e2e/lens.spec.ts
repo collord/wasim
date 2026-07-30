@@ -182,3 +182,49 @@ test('reliability lens reprograms authoring and its template runs', async ({ pag
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+/** Part D (redundancy): the reliability lens can author the gate primitive via a structured
+ *  editor, its 1-of-2 template runs, and the k-of-n well-formedness invariant fires. */
+test('reliability redundancy: gate editor, template run, and invariant', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.addInitScript(() => { delete (window as unknown as Record<string, unknown>).showSaveFilePicker })
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+  await page.getByRole('combobox', { name: 'Lens' }).selectOption('reliability')
+
+  // The palette exposes a Redundancy gate; adding a lone one opens the structured gate editor
+  // and trips the "no inputs" invariant.
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await expect(page.getByText('Redundancy', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /^Redundancy gate$/ }).click()
+  await expect(page.getByText('Logic', { exact: true })).toBeVisible()
+  await page.getByText(/show issues/).click()
+  await expect(page.getByText(/references no inputs/)).toBeVisible()
+
+  // Load the 1-of-2 redundant template (replaces the model) → valid, runs to a System trajectory.
+  await page.getByRole('button', { name: 'New' }).click()
+  await page.getByRole('combobox', { name: 'Lens' }).selectOption('reliability')
+  await page.getByRole('button', { name: /1-of-2 redundant system/ }).click()
+  await expect(page.getByText('7 elems').first()).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('● valid')).toBeVisible()
+  await page.getByRole('button', { name: /Run/ }).click()
+  await expect(page.getByRole('button', { name: 'Results' })).toBeVisible({ timeout: 20000 })
+  await expect(page.getByRole('button', { name: /System/ }).first()).toBeVisible()
+
+  // Round-trip: the gate (op) and its redundancy role survive save.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Save', exact: true }).click(),
+  ])
+  const fs = await import('node:fs/promises')
+  const text = await fs.readFile((await download.path()), 'utf8')
+  expect(text).toContain('"lens_role": "redundancy"')
+  expect(text).toContain('"op": "and"')
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

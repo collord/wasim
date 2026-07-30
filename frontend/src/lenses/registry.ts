@@ -126,6 +126,20 @@ function reliabilityInvariants(_summary: ModelSummary, doc: ModelDoc): Issue[] {
       message: 'No components — add a Component (failure FSM) to model reliability.',
     })
   }
+  // Gate / redundancy well-formedness.
+  for (const e of doc.elements) {
+    if (e.primitive !== 'gate') continue
+    const root = e.root as { op?: string; threshold?: number; children?: unknown[] } | undefined
+    const nChildren = root?.children?.length ?? 0
+    if (nChildren === 0) {
+      issues.push({ severity: 'warning', message: `Gate "${e.name}" references no inputs.`, element_id: e.id })
+    } else if (root?.op === 'n_vote') {
+      const k = root.threshold ?? 1
+      if (k > nChildren) {
+        issues.push({ severity: 'warning', message: `Gate "${e.name}": k=${k} exceeds its ${nChildren} inputs.`, element_id: e.id })
+      }
+    }
+  }
   return issues
 }
 
@@ -138,6 +152,7 @@ const reliabilityLens: LensSpec = {
   tagline: 'Repairable components and failure FSMs — simulate-first RAM, not static block arithmetic.',
   palette: () => [
     { label: 'Components', items: [{ key: 'event', label: 'Component', iconType: 'event', lensRole: 'component' }] },
+    { label: 'Redundancy', items: [{ key: 'gate', label: 'Redundancy gate', iconType: 'event', lensRole: 'redundancy' }] },
     { label: 'State', items: [{ key: 'stock', label: 'Damage state', iconType: 'accumulator', lensRole: 'state' }] },
     {
       label: 'Inputs',
@@ -148,12 +163,15 @@ const reliabilityLens: LensSpec = {
     },
   ],
   invariants: reliabilityInvariants,
-  roleLabels: { component: 'Component', state: 'Damage state', parameter: 'Parameter' },
-  glyphOf: (role) => (role === 'component' || role === 'state' ? 'box' : 'default'),
+  roleLabels: { component: 'Component', redundancy: 'Redundancy', state: 'Damage state', parameter: 'Parameter' },
+  glyphOf: (role) => (role === 'component' || role === 'state' || role === 'redundancy' ? 'box' : 'default'),
   templates: RELIABILITY_TEMPLATES,
-  // Open results on a component's status trajectory (0 = operating, 1 = failed).
-  preferredResultId: (doc, outputIds) =>
-    doc.elements.find((e) => e.lens_role === 'component' && outputIds.includes(e.id))?.id ?? null,
+  // Open results on the system (redundancy) trajectory if present, else a component's status
+  // (0 = operating, 1 = failed).
+  preferredResultId: (doc, outputIds) => {
+    const byRole = (r: string) => doc.elements.find((e) => e.lens_role === r && outputIds.includes(e.id))?.id
+    return byRole('redundancy') ?? byRole('component') ?? null
+  },
 }
 
 const REGISTERED: LensSpec[] = [stockFlowLens, reliabilityLens, generalLens]
