@@ -1,6 +1,6 @@
 import type { PaletteEntry } from '../model/edits'
 import type { ModelDoc } from '../model/schema'
-import type { ModelSummary } from '../types'
+import type { ModelSummary, SimulationResults } from '../types'
 import type { Issue } from '../worker/protocol'
 
 /**
@@ -41,6 +41,14 @@ export interface ModelTemplate {
   label: string
   description: string
   build: () => ModelDoc
+}
+
+/** A domain readout the lens computes from a run's results (e.g. reliability availability / MTTF),
+ *  shown above the generic charts in the Results view. */
+export interface LensReadout {
+  id: string
+  label: string
+  metrics: { name: string; value: string }[]
 }
 
 export interface LensSpec {
@@ -84,7 +92,9 @@ export interface LensSpec {
    * it (the general lens connects via expression references, not a drawn edge).
    */
   connect?: (doc: ModelDoc, fromId: string, toId: string) => ModelDoc | null
-  // Part D will further extend this for reliability (redundancy gesture, availability preset).
+  /** Domain result readouts (e.g. reliability availability / MTTF), computed from a run and shown
+   *  above the generic charts. Derived in the FE from the result data — no engine change. */
+  resultReadouts?: (results: SimulationResults, doc: ModelDoc) => LensReadout[]
 }
 
 /** Group palette entries by their `group`, preserving first-appearance order — the identity

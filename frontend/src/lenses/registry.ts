@@ -3,8 +3,9 @@ import { groupInOrder } from './types'
 import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
 import { RELIABILITY_TEMPLATES } from './reliabilityTemplates'
 import { mutateElement } from '../model/edits'
+import type { LensReadout } from './types'
 import type { ModelDoc } from '../model/schema'
-import type { ModelSummary } from '../types'
+import type { ModelSummary, SimulationResults } from '../types'
 import type { Issue } from '../worker/protocol'
 
 /**
@@ -143,6 +144,43 @@ function reliabilityInvariants(_summary: ModelSummary, doc: ModelDoc): Issue[] {
   return issues
 }
 
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x))
+const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+const fmtNum = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1))
+
+/** Reliability readouts derived from the run (no engine change): a component/system's status
+ *  time-history is the fraction failed per step, so operating fraction R(t) = 1 − failed(t).
+ *  Availability = time-average of R; MTTF = ∫ R dt (area under the survival curve); P(failed) is
+ *  the fraction of realizations failed at the end. */
+function reliabilityReadouts(results: SimulationResults, doc: ModelDoc): LensReadout[] {
+  const out: LensReadout[] = []
+  const t = results.time_axis
+  for (const e of doc.elements) {
+    if (e.lens_role !== 'component' && e.lens_role !== 'redundancy') continue
+    const er = results.elements[e.id]
+    const status = er?.time_history?.mean
+    if (!status || status.length === 0) continue
+    const survival = status.map((s) => 1 - clamp01(s))
+    const availability = survival.reduce((a, b) => a + b, 0) / survival.length
+    let mttf = 0
+    for (let i = 1; i < survival.length && i < t.length; i++) {
+      mttf += ((survival[i] + survival[i - 1]) / 2) * (t[i] - t[i - 1])
+    }
+    const fv = er?.final_values ?? []
+    const pFailed = fv.length ? fv.filter((v) => v > 0).length / fv.length : clamp01(status[status.length - 1])
+    out.push({
+      id: e.id,
+      label: er?.label ?? e.name,
+      metrics: [
+        { name: 'Availability', value: pct(availability) },
+        { name: 'MTTF', value: `${fmtNum(mttf)} ${results.time_unit || ''}`.trim() },
+        { name: 'P(failed)', value: pct(pFailed) },
+      ],
+    })
+  }
+  return out
+}
+
 /** Reliability / RBD: repairable components (failure FSMs) and the states that drive them. Reuses
  *  the engine's Event primitive and the existing EventEditor wholesale — the lens is a relabel +
  *  glyph + template over already-built authoring (thesis: the second lens is a spec file). */
@@ -172,6 +210,7 @@ const reliabilityLens: LensSpec = {
     const byRole = (r: string) => doc.elements.find((e) => e.lens_role === r && outputIds.includes(e.id))?.id
     return byRole('redundancy') ?? byRole('component') ?? null
   },
+  resultReadouts: reliabilityReadouts,
 }
 
 const REGISTERED: LensSpec[] = [stockFlowLens, reliabilityLens, generalLens]

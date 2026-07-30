@@ -215,6 +215,11 @@ test('reliability redundancy: gate editor, template run, and invariant', async (
   await expect(page.getByRole('button', { name: 'Results' })).toBeVisible({ timeout: 20000 })
   await expect(page.getByRole('button', { name: /System/ }).first()).toBeVisible()
 
+  // Reliability readouts (availability / MTTF) are derived and shown above the charts.
+  await expect(page.getByTestId('lens-readouts')).toBeVisible()
+  await expect(page.getByTestId('lens-readouts')).toContainText('Availability')
+  await expect(page.getByTestId('lens-readouts')).toContainText('MTTF')
+
   // Round-trip: the gate (op) and its redundancy role survive save.
   const [download] = await Promise.all([
     page.waitForEvent('download'),
