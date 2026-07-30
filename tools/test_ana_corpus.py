@@ -25,13 +25,13 @@ _spec.loader.exec_module(A)
 
 CORPUS = os.path.join(_here, "fixtures", "ana_corpus")
 
-# Real models whose conversion is currently schema-INVALID — genuine converter
-# bugs pinned by this corpus (see ana_corpus/SOURCE.md). Fixing the converter
-# should remove entries here; the test flags a stale list either way.
-EXPECTED_INVALID = {
-    "sa_vehicle_parc_calibration.ana",   # emits `gather` (not in schema fn enum)
-    "iamamr_amr_food_template.ana",      # emits a call with empty args
-}
+# Real models whose conversion is schema-INVALID. Empty: every fixture here now
+# validates. This set previously pinned two schema/engine-drift bugs the corpus
+# surfaced (a `gather` op and the nullary `null()` call missing from
+# oldmodel.schema.json's `call` node); both were fixed by syncing the schema
+# with the engine's builtins. Keep it as a live regression tracker — if a new
+# fixture converts to invalid output, the check below fails and names it.
+EXPECTED_INVALID = set()
 
 _fails = []
 

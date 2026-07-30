@@ -246,11 +246,13 @@ the converter end-to-end (they are **not** real Analytica corpus files):
 against models written by other people in different Analytica versions, with
 real-world encodings (CRLF, `~` line-wrap markers, non-ASCII titles) and
 constructs. `tools/test_ana_corpus.py` converts each and asserts it parses
-without crashing (plus a schema check where `jsonschema` is installed). Two of
-these real models currently convert to **schema-invalid** output — genuine
-converter bugs the corpus pins (a `gather` op missing from the schema's builtin
-enum, and a call emitted with empty `args`); the test tracks them as
-expected-invalid so a future fix is noticed.
+without crashing and that the output validates against `oldmodel.schema.json`
+(where `jsonschema` is installed). Two of these real models originally surfaced
+a schema/engine-drift bug — the converter and engine both support the
+array-language builtins (`gather`, `ordinal`, `sort_*`, `cumulate`, …) and the
+nullary `null()`, but the schema's `call` node hadn't been updated to accept
+them; that has been fixed (see `ana_corpus/SOURCE.md`), so the whole corpus now
+converts to schema-valid output.
 
 ```bash
 python3 tools/test_ana_corpus.py    # convert every real fixture + schema check
