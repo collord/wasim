@@ -1,5 +1,6 @@
 import type { LensId, LensSpec } from './types'
 import { groupInOrder } from './types'
+import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
 import type { ModelDoc } from '../model/schema'
 import type { ModelSummary } from '../types'
 import type { Issue } from '../worker/protocol'
@@ -41,7 +42,9 @@ function stockFlowInvariants(_summary: ModelSummary, doc: ModelDoc): Issue[] {
     }
     if (e.lens_role === 'stock') {
       const flowCount = (e.inflows?.length ?? 0) + (e.outflows?.length ?? 0)
-      if (flowCount === 0) {
+      // A stock is static only if nothing drives it: no flows AND no net-rate / growth-rate.
+      const hasDriver = flowCount > 0 || e.rate != null || e.return_rate != null
+      if (!hasDriver) {
         issues.push({
           severity: 'warning',
           message: `Stock "${e.name}" has no inflows or outflows — it can never change.`,
@@ -79,6 +82,10 @@ const stockFlowLens: LensSpec = {
   roleLabels: { stock: 'Stock', flow: 'Flow', auxiliary: 'Auxiliary' },
   glyphOf: (role) =>
     role === 'stock' ? 'box' : role === 'auxiliary' ? 'circle' : role === 'flow' ? 'valve' : 'default',
+  templates: STOCK_FLOW_TEMPLATES,
+  // Open results on a stock's trajectory — show the accumulation, don't ask the user to infer it.
+  preferredResultId: (doc, outputIds) =>
+    doc.elements.find((e) => e.lens_role === 'stock' && outputIds.includes(e.id))?.id ?? null,
 }
 
 const REGISTERED: LensSpec[] = [stockFlowLens, generalLens]

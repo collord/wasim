@@ -34,6 +34,15 @@ export interface PaletteGroup {
   items: PaletteItem[]
 }
 
+/** A canonical starting model for a lens (bathtub, SIR, …) — offered on the empty canvas so a
+ *  first-time user never faces a blank graph. `build()` returns a fresh, runnable doc. */
+export interface ModelTemplate {
+  id: string
+  label: string
+  description: string
+  build: () => ModelDoc
+}
+
 export interface LensSpec {
   id: LensId
   label: string
@@ -59,7 +68,16 @@ export interface LensSpec {
    * auxiliary as a circle, etc. Omitted lenses (and unmapped roles) render the default node.
    */
   glyphOf?: (role: string | null | undefined) => NodeShape
-  // Parts B & D will further extend this: resultPreset, templates, the draw-flow/redundancy gestures.
+  /** Canonical starting models offered on the empty canvas. */
+  templates?: ModelTemplate[]
+  /**
+   * Which result the Results view should open on after a run — for stock-and-flow this is a
+   * stock's trajectory, because the empirical finding (thesis §6) is that people cannot integrate
+   * a flow into a stock in their heads: the lens must *show* the accumulation, not a final number.
+   * Returns an element id present in `outputIds`, or null to keep the default (first output).
+   */
+  preferredResultId?: (doc: ModelDoc, outputIds: string[]) => string | null
+  // Part D will further extend this for reliability (redundancy gesture, availability preset).
 }
 
 /** Group palette entries by their `group`, preserving first-appearance order — the identity

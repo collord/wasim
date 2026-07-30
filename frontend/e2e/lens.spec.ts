@@ -58,3 +58,33 @@ test('stock-flow lens reprograms palette + validation and round-trips', async ({
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+/** Part B polish: the stock-flow lens offers canonical templates on the empty canvas, they load
+ *  warning-free, and running opens the Results view on a stock's trajectory (not a final number). */
+test('stock-flow templates load clean and run to a stock trajectory', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+
+  // Switch to the lens → the empty canvas offers its templates. Load the bathtub.
+  await page.getByRole('combobox', { name: 'Lens' }).selectOption('stock-flow')
+  await page.getByRole('button', { name: /Bathtub/ }).click()
+
+  // It loads a consistent, warning-free stock-flow model.
+  await expect(page.getByText('3 elems').first()).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('● valid')).toBeVisible()
+  await expect(page.getByText(/has no inflows|not connected to a stock/)).toHaveCount(0)
+
+  // Run → Results open on the stock's trajectory ("Water level" is the plotted series).
+  await page.getByRole('button', { name: /Run/ }).click()
+  await expect(page.getByRole('button', { name: 'Results' })).toBeVisible({ timeout: 20000 })
+  await expect(page.getByText('Series to plot')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Water level/ })).toBeVisible()
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})

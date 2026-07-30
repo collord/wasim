@@ -112,6 +112,7 @@ interface Actions {
   // Files
   loadModel: (json: string, filename?: string) => void
   newModel: () => void
+  loadTemplate: (doc: ModelDoc, name?: string) => void
   saveModel: () => Promise<void>
   saveParameters: () => void
 
@@ -253,6 +254,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   newModel() {
     const doc = blankModel()
     get().loadModel(serializeModel(doc), 'untitled.json')
+  },
+
+  loadTemplate(doc, name) {
+    get().loadModel(serializeModel(doc), name ?? 'template.json')
   },
 
   async saveModel() {
@@ -601,15 +606,22 @@ export const useStore = create<State & Actions>((set, get) => ({
         break
       }
 
-      case 'complete':
+      case 'complete': {
+        // Let the active lens choose which result to open on (stock-flow → a stock's trajectory);
+        // fall back to the first output.
+        const cdoc = get().doc
+        const outputs = msg.results.output_ids
+        const clens = resolveLens(cdoc?.view?.lens)
+        const preferred = cdoc && clens.preferredResultId ? clens.preferredResultId(cdoc, outputs) : null
         set({
           status: 'done',
           results: msg.results,
-          selectedResultId: msg.results.output_ids[0] ?? null,
+          selectedResultId: preferred ?? outputs[0] ?? null,
           activeTab: 'results',
           mode: 'result',
         })
         break
+      }
 
       case 'sensitivity_complete':
         set({ sensStatus: 'done', sensResults: msg.results })

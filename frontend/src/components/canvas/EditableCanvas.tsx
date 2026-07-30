@@ -38,6 +38,7 @@ export function EditableCanvas() {
   const duplicate = useStore((s) => s.duplicateElement)
   const format = useStore((s) => s.format)
   const lens = useActiveLens()
+  const loadTemplate = useStore((s) => s.loadTemplate)
   const docEls = useStore((s) => s.doc?.elements)
 
   // Map each element to its lens glyph shape (via lens_role on the canonical doc; the engine
@@ -225,8 +226,30 @@ export function EditableCanvas() {
       </svg>
 
       {elements.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-sm text-slate-400">
-          Drag elements from the Palette, or double-click a palette entry, to start building.
+        <div className="absolute inset-0 flex items-center justify-center p-6">
+          {lens.templates && lens.templates.length > 0 ? (
+            <div className="w-full max-w-sm text-center">
+              <p className="mb-3 text-sm text-slate-500">
+                Start from a {lens.label} template, or drag from the Palette.
+              </p>
+              <div className="flex flex-col gap-2">
+                {lens.templates.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => loadTemplate(t.build(), `${t.id}.json`)}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm hover:border-blue-300 hover:bg-blue-50"
+                  >
+                    <div className="text-sm font-semibold text-slate-700">{t.label}</div>
+                    <div className="text-xs text-slate-400">{t.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="pointer-events-none text-center text-sm text-slate-400">
+              Drag elements from the Palette, or double-click a palette entry, to start building.
+            </div>
+          )}
         </div>
       )}
     </div>
