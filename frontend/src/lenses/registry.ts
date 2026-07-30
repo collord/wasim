@@ -1,6 +1,7 @@
 import type { LensId, LensSpec } from './types'
 import { groupInOrder } from './types'
 import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
+import { mutateElement } from '../model/edits'
 import type { ModelDoc } from '../model/schema'
 import type { ModelSummary } from '../types'
 import type { Issue } from '../worker/protocol'
@@ -86,6 +87,31 @@ const stockFlowLens: LensSpec = {
   // Open results on a stock's trajectory — show the accumulation, don't ask the user to infer it.
   preferredResultId: (doc, outputIds) =>
     doc.elements.find((e) => e.lens_role === 'stock' && outputIds.includes(e.id))?.id ?? null,
+  connect: (doc, fromId, toId) => {
+    const from = doc.elements.find((e) => e.id === fromId)
+    const to = doc.elements.find((e) => e.id === toId)
+    if (!from || !to || fromId === toId) return null
+    // flow → stock: the flow becomes an inflow of the stock.
+    if (from.lens_role === 'flow' && to.lens_role === 'stock') {
+      if (to.inflows?.includes(fromId)) return null
+      return wireFlow(doc, toId, 'inflows', fromId)
+    }
+    // stock → flow: the stock drains out via that flow.
+    if (from.lens_role === 'stock' && to.lens_role === 'flow') {
+      if (from.outflows?.includes(toId)) return null
+      return wireFlow(doc, fromId, 'outflows', toId)
+    }
+    return null
+  },
+}
+
+/** Append a flow id to a stock's inflow/outflow list (engine recomputes the influence edges on
+ *  the next reconcile). */
+function wireFlow(doc: ModelDoc, stockId: string, field: 'inflows' | 'outflows', flowId: string): ModelDoc {
+  return mutateElement(doc, stockId, (e) => {
+    const arr = (e[field] as string[] | undefined) ?? []
+    if (!arr.includes(flowId)) e[field] = [...arr, flowId]
+  })
 }
 
 const REGISTERED: LensSpec[] = [stockFlowLens, generalLens]

@@ -59,6 +59,56 @@ test('stock-flow lens reprograms palette + validation and round-trips', async ({
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
 
+/** A5 draw-flow gesture: dragging from a flow's connection handle onto a stock wires it as an
+ *  inflow, which resolves the stock-flow-consistency warnings. */
+test('draw-flow gesture wires a flow into a stock', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  const centerDrag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 12 })
+    await page.mouse.up()
+  }
+  const center = (b: { x: number; y: number; width: number; height: number }) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+  await page.getByRole('combobox', { name: 'Lens' }).selectOption('stock-flow')
+
+  // Add a Stock and a Flow (both land at the same insert point, so move the flow clear first).
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await page.getByRole('button', { name: /^Stock$/ }).first().click()
+  await expect(page.getByText('1 elems').first()).toBeVisible({ timeout: 10000 })
+  await page.getByRole('button', { name: 'Palette' }).click()
+  await page.getByRole('button', { name: /^Flow$/ }).first().click()
+  await expect(page.getByText('2 elems').first()).toBeVisible({ timeout: 10000 })
+
+  // Move the flow straight down so it clears the stock (staying inside the canvas — a large
+  // sideways move would push its handle under the Inspector pane).
+  const flowBox = await page.getByTestId('node-flow').boundingBox()
+  await centerDrag(center(flowBox!), { x: center(flowBox!).x, y: center(flowBox!).y + 190 })
+
+  // Both SFC invariants fire (stock has no flows; flow not connected).
+  await page.getByText(/show issues/).click()
+  await expect(page.getByText(/not connected to a stock/)).toBeVisible()
+
+  // Draw from the flow's handle onto the stock → wires it as an inflow, clearing the warnings.
+  const handleBox = await page.getByTestId('link-handle-flow').boundingBox()
+  const stockBox = await page.getByTestId('node-stock').boundingBox()
+  await centerDrag(center(handleBox!), center(stockBox!))
+
+  await expect(page.getByText(/not connected to a stock|has no inflows/)).toHaveCount(0, { timeout: 10000 })
+  // The connection is visible: a flow edge is drawn from the flow to the stock.
+  await expect(page.locator('line[data-flow-edge]')).not.toHaveCount(0)
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})
+
 /** Part B polish: the stock-flow lens offers canonical templates on the empty canvas, they load
  *  warning-free, and running opens the Results view on a stock's trajectory (not a final number). */
 test('stock-flow templates load clean and run to a stock trajectory', async ({ page }) => {

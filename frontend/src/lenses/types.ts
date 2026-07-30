@@ -77,6 +77,13 @@ export interface LensSpec {
    * Returns an element id present in `outputIds`, or null to keep the default (first output).
    */
   preferredResultId?: (doc: ModelDoc, outputIds: string[]) => string | null
+  /**
+   * On-canvas "draw a connection" gesture semantics. Dragging from one node onto another calls
+   * this; it returns the updated doc, or null if the pair can't be connected. Stock-flow wires a
+   * flow → stock as an inflow, a stock → flow as an outflow. Lenses without on-canvas wiring omit
+   * it (the general lens connects via expression references, not a drawn edge).
+   */
+  connect?: (doc: ModelDoc, fromId: string, toId: string) => ModelDoc | null
   // Part D will further extend this for reliability (redundancy gesture, availability preset).
 }
 

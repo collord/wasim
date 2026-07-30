@@ -134,6 +134,7 @@ interface Actions {
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   setLens: (id: LensId) => void
+  connectElements: (fromId: string, toId: string) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
   editDimensions: (dimensions: ModelDoc['dimensions']) => void
   undo: () => void
@@ -402,6 +403,14 @@ export const useStore = create<State & Actions>((set, get) => ({
     // lens is derived from `doc.view.lens` (see `useActiveLens`), so this is the single source of
     // truth — undo/redo and load reflect it automatically.
     get().applyEdit(setDocLens(doc, id), { reconcile: false })
+  },
+
+  connectElements(fromId, toId) {
+    const doc = get().doc
+    if (!doc) return
+    const next = resolveLens(doc.view?.lens).connect?.(doc, fromId, toId)
+    // Structural (inflows/outflows changed) → reconcile so the engine redraws influence edges.
+    if (next) get().applyEdit(next)
   },
 
   editSettings(patch) {

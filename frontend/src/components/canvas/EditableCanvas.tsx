@@ -39,7 +39,9 @@ export function EditableCanvas() {
   const format = useStore((s) => s.format)
   const lens = useActiveLens()
   const loadTemplate = useStore((s) => s.loadTemplate)
+  const connectElements = useStore((s) => s.connectElements)
   const docEls = useStore((s) => s.doc?.elements)
+  const canLink = !!lens.connect
 
   // Map each element to its lens glyph shape (via lens_role on the canonical doc; the engine
   // summary doesn't carry the engine-ignored tag). Stock → box, auxiliary → circle, etc.
@@ -52,6 +54,11 @@ export function EditableCanvas() {
   const [view, setView] = useState({ tx: 0, ty: 0, scale: 1 })
   const pan = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null)
   const nodeDrag = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
+  // Draw-flow gesture: dragging from a node's connection handle to another node. The source id
+  // lives in a ref so the mouseup handler reads it synchronously (state can lag behind the rapid
+  // down→move→up event sequence); `link` state drives the ghost line's render.
+  const linkFrom = useRef<string | null>(null)
+  const [link, setLink] = useState<{ fromId: string; x: number; y: number } | null>(null)
 
   // Auto-layout seeds any element without a stored position.
   const auto = useMemo(() => autoLayout(elements), [elements])
@@ -101,6 +108,12 @@ export function EditableCanvas() {
   }
 
   const onMouseMove = (e: React.MouseEvent) => {
+    if (linkFrom.current) {
+      const w = toWorld(e.clientX, e.clientY)
+      const from = linkFrom.current
+      setLink((l) => (l ? { ...l, x: w.x, y: w.y } : { fromId: from, x: w.x, y: w.y }))
+      return
+    }
     if (nodeDrag.current) {
       const w = toWorld(e.clientX, e.clientY)
       const nd = nodeDrag.current
@@ -112,7 +125,26 @@ export function EditableCanvas() {
     if (pan.current) setView((v) => ({ ...v, tx: pan.current!.ox + e.clientX - pan.current!.sx, ty: pan.current!.oy + e.clientY - pan.current!.sy }))
   }
 
-  const endDrag = () => { pan.current = null; nodeDrag.current = null }
+  const endDrag = () => { pan.current = null; nodeDrag.current = null; linkFrom.current = null; setLink(null) }
+
+  // Draw-flow: start a link from a node's connection handle (no node drag / pan).
+  const onHandleMouseDown = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    if (e.button !== 0) return
+    linkFrom.current = id
+    const w = toWorld(e.clientX, e.clientY)
+    setLink({ fromId: id, x: w.x, y: w.y })
+  }
+
+  // Draw-flow: release over a target node → ask the lens to connect the pair.
+  const onNodeMouseUp = (e: React.MouseEvent, id: string) => {
+    const from = linkFrom.current
+    if (!from) return
+    e.stopPropagation()
+    linkFrom.current = null
+    setLink(null)
+    if (from !== id) connectElements(from, id)
+  }
 
   const onNodeMouseDown = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -156,6 +188,19 @@ export function EditableCanvas() {
     return out
   }, [elements])
 
+  // Flow edges from the doc's inflows/outflows (flow → stock for an inflow, stock → flow for an
+  // outflow). The engine summary's `inputs` doesn't carry these, so without this a wired flow
+  // would be invisible. Drawn solid (a pipe) to distinguish from the dashed influence edges.
+  const flowEdges = useMemo(() => {
+    const ids = new Set((docEls ?? []).map((e) => e.id))
+    const out: { from: string; to: string }[] = []
+    for (const e of docEls ?? []) {
+      for (const f of e.inflows ?? []) if (ids.has(f)) out.push({ from: f, to: e.id })
+      for (const f of e.outflows ?? []) if (ids.has(f)) out.push({ from: e.id, to: f })
+    }
+    return out
+  }, [docEls])
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-50" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <div className="absolute right-3 top-3 z-10 flex gap-1">
@@ -179,6 +224,12 @@ export function EditableCanvas() {
           <marker id="ec-arrow" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
             <path d="M0,0 L7,2.5 L0,5 Z" fill="#cbd5e1" />
           </marker>
+          <marker id="ec-arrow-b" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#2563eb" />
+          </marker>
+          <marker id="ec-arrow-s" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#64748b" />
+          </marker>
         </defs>
         <g transform={`translate(${view.tx},${view.ty}) scale(${view.scale})`}>
           {/* Influence edges (thin dashed grey — a projection of the dependency graph, §2.2) */}
@@ -187,6 +238,19 @@ export function EditableCanvas() {
             return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#cbd5e1" strokeWidth="1.4"
               strokeDasharray="4 3" markerEnd="url(#ec-arrow)" />
           })}
+
+          {/* Flow edges (solid — a pipe) from the doc's inflows/outflows. */}
+          {flowEdges.map((ed, i) => {
+            const a = posOf(ed.from), b2 = posOf(ed.to)
+            return <line key={`fe${i}`} data-flow-edge x1={a.x} y1={a.y} x2={b2.x} y2={b2.y}
+              stroke="#64748b" strokeWidth="2.25" markerEnd="url(#ec-arrow-s)" />
+          })}
+
+          {/* Draw-flow ghost: the in-progress connection following the cursor. */}
+          {link && (
+            <line x1={posOf(link.fromId).x} y1={posOf(link.fromId).y} x2={link.x} y2={link.y}
+              stroke="#2563eb" strokeWidth="2" markerEnd="url(#ec-arrow-b)" pointerEvents="none" />
+          )}
 
           {elements.map((e) => {
             const p = posOf(e.id)
@@ -202,9 +266,11 @@ export function EditableCanvas() {
             const rx = shape === 'box' ? 3 : shape === 'circle' ? NODE_H / 2 : 7
             const nodeStroke = sel ? 2.5 : shape === 'box' ? 2.25 : 1.5
             const nodeFill = shape === 'box' ? '#eff6ff' : 'white'
+            const showHandle = canLink && (shape === 'box' || shape === 'valve')
             return (
-              <g key={e.id} data-shape={shape} transform={`translate(${x},${y})`}
+              <g key={e.id} data-shape={shape} data-testid={`node-${e.id}`} transform={`translate(${x},${y})`}
                 onMouseDown={(ev) => onNodeMouseDown(ev, e.id)} onClick={(ev) => onNodeClick(ev, e.id)}
+                onMouseUp={(ev) => onNodeMouseUp(ev, e.id)}
                 style={{ cursor: 'pointer' }}>
                 <rect x="1" y="2" width={NODE_W} height={NODE_H} rx={rx} fill="rgba(0,0,0,0.06)" />
                 <rect width={NODE_W} height={NODE_H} rx={rx} fill={nodeFill}
@@ -219,6 +285,13 @@ export function EditableCanvas() {
                   fontFamily="ui-sans-serif,system-ui,sans-serif">
                   {(e.value_rule ?? e.primitive ?? e.type)}{unit && unit !== '1' ? ` · ${unit}` : ''}
                 </text>
+                {/* Draw-flow connection handle (stock/flow only, in a lens that supports wiring). */}
+                {showHandle && (
+                  <circle data-testid={`link-handle-${e.id}`} cx={NODE_W} cy={NODE_H / 2} r="5.5"
+                    fill="#2563eb" stroke="white" strokeWidth="1.5"
+                    style={{ cursor: 'crosshair' }}
+                    onMouseDown={(ev) => onHandleMouseDown(ev, e.id)} />
+                )}
               </g>
             )
           })}
