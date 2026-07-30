@@ -19,6 +19,10 @@ fn price(json: &str, id: &str, n: u32) -> (f64, f64) {
     (a.mean, a.ci_half_width)
 }
 
+// Heavy correlated-path Monte-Carlo with finite-difference correlation sensitivity
+// (~76s). Gated out of the default run for speed; run in CI / explicitly with
+// `cargo test -- --ignored`.
+#[ignore = "slow (~76s) correlated-MC accuracy smoke; run with --ignored / in CI"]
 #[test]
 fn worst_of_asian_on_correlated_paths_is_structurally_sound() {
     let base = fs::read_to_string(concat!(

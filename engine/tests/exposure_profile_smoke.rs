@@ -26,6 +26,10 @@ fn corr(x: &[f64], y: &[f64]) -> f64 {
     sxy / (sxx.sqrt() * syy.sqrt())
 }
 
+// Heavy per-step nested Monte-Carlo (~67s) with fixed per-step tolerances that need
+// the full sample count. Gated out of the default run for speed; run in CI /
+// explicitly with `cargo test -- --ignored`.
+#[ignore = "slow (~67s) per-step nested-MC accuracy smoke; run with --ignored / in CI"]
 #[test]
 fn each_step_nested_stat_builds_exposure_profile_matching_black_scholes() {
     let json = fs::read_to_string(concat!(

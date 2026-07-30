@@ -33,6 +33,10 @@ fn corr(x: &[f64], y: &[f64]) -> f64 {
     sxy / (sxx.sqrt() * syy.sqrt())
 }
 
+// Heavy nested Monte-Carlo (N_outer × N_inner double loop, ~110s) with fixed
+// tolerances that need the full sample count. Gated out of the default run for speed;
+// run in CI / explicitly with `cargo test -- --ignored`.
+#[ignore = "slow (~110s) nested-MC accuracy smoke; run with --ignored / in CI"]
 #[test]
 fn nested_stat_reproduces_conditional_bs_and_horizon_var() {
     let json = fs::read_to_string(concat!(
