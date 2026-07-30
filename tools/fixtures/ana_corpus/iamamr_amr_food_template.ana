@@ -1,0 +1,1294 @@
+{ Analytica Model iAM_AMR_MOD_FOOD, encoding="UTF-8" }
+SoftwareVersion 6.4.8
+
+
+{ System Variables with non-default values: }
+SampleSize := 1000
+TypeChecking := 1
+Checking := 1
+SaveOptions := 2
+SaveValues := 0
+
+DisplayInputs Object: Index locale, Index microbe, Index medium, Index period, Index resistance
+{!-50299|DiagramColor Model: 65535,65535,65535}
+{!-50299|DiagramColor Module: 65535,65535,65535}
+{!-50299|DiagramColor LinkModule: 65535,65535,65535}
+{!-50299|DiagramColor Library: 65535,65535,65535}
+{!-50299|DiagramColor LinkLibrary: 65535,65535,65535}
+{!-50299|DiagramColor Form: 65535,65535,65535}
+DisplayInputs Variable: Index locale, Index microbe, Index medium, Index period, Index resistance
+DisplayInputs Chance: Object Index, Index locale, Index microbe, Index medium, Index period, Index resistance
+DisplayOutputs Index: Object Chance
+NodeInfo FormNode: 1,0,0,1,0,0,0,,0,1,,0,0
+NodeColor Text: 65535,65535,65535
+
+{!-60000|Attribute AcpStyles}
+Attribute sourceref
+Title: Reference
+
+Attribute Link
+Title: Link
+
+Attribute Default
+Title: Default
+
+Attribute More
+Title: More
+
+Attribute nodenote
+Title: Note
+
+
+AskAttribute sourceref,Function,Yes
+AskAttribute Link,Function,Yes
+AskAttribute Default,Function,Yes
+AskAttribute More,Function,Yes
+AskAttribute nodenote,Function,Yes
+AskAttribute sourceref,Module,Yes
+AskAttribute Link,Module,Yes
+AskAttribute Default,Module,Yes
+AskAttribute More,Module,Yes
+AskAttribute nodenote,Module,Yes
+AskAttribute TableCellDefault,Variable,Yes
+AskAttribute sourceref,Variable,Yes
+AskAttribute Link,Variable,Yes
+AskAttribute Default,Variable,Yes
+AskAttribute More,Variable,Yes
+AskAttribute nodenote,Variable,Yes
+
+Model iAM_AMR_MOD_FOOD
+Title: iAM.AMR.MODEL.TEMPLATE.FOOD
+Author: Brennan Chapman
+Date: Tue, Aug 22, 2017 12:24 PM
+DefaultSize: 48,24
+DiagState: 2,35,26,1847,939,17,10
+DiagramColor: 65535,65535,65535
+FontStyle: Arial,13
+FileInfo: 0,Model iAM_AMR_MOD_FOOD,2,2,0,0,C:\IAM.AMR.MODEL.TEMPLATE.FOOD.ana
+OutlinerState: 2,772,45,450,600
+
+Index locale
+Att_PrevIndexValue: ['Atlantis','Themyscira ']
+Title: Locale
+Description: The locale(s) included in the model.
+Definition: ['Atlantis','Themyscira ']
+NodeLocation: 264,96,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 1,19662,39321
+DisplayOutputs: Object Object, Object Variable, Object Chance
+NodeFontColor: 65535,65535,65535
+
+Index microbe
+Att_PrevIndexValue: ['Microbe A','Microbe B']
+Title: Microbe
+Description: The microbe(s) included in the model.
+Definition: ['Microbe A','Microbe B']
+NodeLocation: 536,96,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 1,19662,39321
+DisplayOutputs: Object Object, Object Variable, Object Chance
+NodeFontColor: 65535,65535,65535
+{!40300|Att_SlicerPopupSize: 227,42}
+
+Index medium
+Att_PrevIndexValue: ['Peacock']
+Title: Medium
+Description: The media included in the model.
+Definition: ['Peacock']
+NodeLocation: 128,96,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 1,19662,39321
+DisplayOutputs: Object Object, Object Variable, Object Chance
+NodeFontColor: 65535,65535,65535
+
+Index period
+Att_PrevIndexValue: ['2035']
+Title: Period
+Description: The period(s) included in the model.
+Definition: ['2035']
+NodeLocation: 400,96,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 1,19662,39321
+DisplayOutputs: Object Object, Object Variable, Object Chance
+NodeFontColor: 65535,65535,65535
+
+Index antimicrobial
+Title: Antimicrobial
+Description: A list of antimicrobials.
+Definition: ['Brennamycin','Doxycolleen']
+NodeLocation: 880,104,-8
+NodeSize: 64,24
+NodeInfo: 1,,0,,0,,,,,,0
+NodeColor: 1,26216,52427
+NodeFontColor: 65535,65535,65535
+{!40300|Att_SlicerPopupSize: 227,42}
+
+Index resistance
+Att_PrevIndexValue: ['Brennamycin','Doxycolleen','bren-1']
+Title: Resistance
+Description: The antimicrobial resistance(s) included in the model.
+Definition: concat(antimicrobial, resistance_gene)
+NodeLocation: 672,96,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 1,19662,39321
+DisplayOutputs: Object Object, Object Variable, Object Chance
+NodeFontColor: 65535,65535,65535
+{!40300|Att_SlicerPopupSize: 237,42}
+
+Index medium_selection
+{!40300|Att_PrevDomainValue: ['Peacock']}
+Title: Select Medium
+Description: Choose which media to evaluate in the model.
+Definition: MultiChoice(medium,returnList:1)
+NodeLocation: 136,88,-3
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+Aliases: FormNode Fo519346099
+NodeColor: 42598,42598,42598
+{!40300|DomainExpr: medium}
+NodeFontColor: 65535,65535,65535
+
+Index microbe_selection
+{!40300|Att_PrevDomainValue: ['E. coli','Salmonella']}
+Title: Select Microbe
+Description: Choose which microbe(s) to evaluate in the model.
+Definition: MultiChoice(microbe,returnList:1)
+NodeLocation: 544,88,-6
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+Aliases: FormNode Fo626354099
+NodeColor: 42598,42598,42598
+{!40300|DomainExpr: microbe}
+NodeFontColor: 65535,65535,65535
+{!40300|Att_SlicerPopupSize: 227,32}
+
+Index resistance_selection
+{!40300|Att_PrevDomainValue: ['Brennamycin','Doxycolleen','bla-1']}
+Title: Select Resistance
+Description: Choose the resistance(s) to evaluate in the model.
+Definition: MultiChoice(resistance,returnList:1)
+NodeLocation: 680,88,-7
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+Aliases: FormNode Fo1500309427
+NodeColor: 42598,42598,42598
+{!40300|DomainExpr: resistance}
+NodeFontColor: 65535,65535,65535
+
+Index locale_selection
+{!40300|Att_PrevDomainValue: ['Locale A','Locale B']}
+Title: Select Locale
+Description: Choose which locale(s) to evaluate in the model.
+Definition: MultiChoice(locale,returnList:1)
+NodeLocation: 272,88,-4
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+Aliases: FormNode Fo971827123
+NodeColor: 42598,42598,42598
+{!40300|DomainExpr: locale}
+NodeFontColor: 65535,65535,65535
+
+Index period_selection
+Title: Select Period
+Description: Choose which period(s) to evaluate in the model.
+Definition: MultiChoice(period,returnList:1)
+NodeLocation: 408,88,-5
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+Aliases: FormNode Fo1022662579
+NodeColor: 42598,42598,42598
+{!40300|DomainExpr: period}
+NodeFontColor: 65535,65535,65535
+
+Index resistance_gene
+Title: Resistance Gene
+Description: A list of the antimicrobial resistance genes included in the model.
+Definition: ['bren-1']
+NodeLocation: 920,80,-9
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 1,26216,52427
+NodeFontColor: 65535,65535,65535
+
+Module iAM_AMR_FRAMEWORK
+Title: iAM.AMR FRAMEWORK
+Author: Brennan Chapman~
+PHAC
+Date: Thu, Sep 26, 2024 12:13 PM
+NodeLocation: 400,152,1
+NodeSize: 336,16
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 39321,1,1
+NodeFontColor: 65535,65535,65535
+
+Index factor_fields
+Att_PrevIndexValue: ['Factor Group','Reference Group','Odds Ratio','exp (SE Log OR)','Significance']
+Title: Factor Fields
+Description: This index sets the fields used to define a factor / resistance outcome.
+Definition: ['Factor Group','Reference Group','Odds Ratio','exp (SE Log OR)','Significance']
+IndexVals: ['item 1']
+NodeLocation: 128,88,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+nodenote: Frequency is not captured here because frequency relates to the factor, not the resistance outcomes described in the table.~
+Changes to the Factor Group, Reference Group, Odds Ratio, or exp (SE Log OR) must be propegated to interface nodes, which text-match to slice tables.
+
+Index factor_status
+Att_PrevIndexValue: ['As Defined','Alternate','Not Included']
+Title: Factor Status
+Description: This index defines possible factor statuses.
+Definition: ['As Defined','Alternate','Not Included']
+NodeLocation: 400,88,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+nodenote: 'As Defined' refers to factors applied as described by the source. ~
+'Alternate' refers to factors applied in the opposite direction as described by the source.~
+For example, if the effect of exposure to A is described by a factor, the alternate exposure is no exposure to A.~
+Factors that are 'Not Included' are removed from calculations in the model.
+
+Index interface
+Att_PrevIndexValue: ['Factor Name','Group Allocation','Reference Group','Factor Group','OR','Frequency']
+Title: Interface
+Description: This index sets the fields shown in interface nodes.
+Definition: ['Factor Name','Group Allocation','Reference Group','Factor Group','OR','Frequency']
+IndexVals: ['item 1']
+NodeLocation: 264,88,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+
+Function selectivelyEvaluate(source: Array)
+Title: Selectively Evaluate
+Description: Selectively evaluate source by re-indexing source indices by cooresponding selection indices (where they exist).
+Definition: /* Get a list of indices (as handles) of the sourceTable. */ ~
+VAR sourceIndices     := IndexesOf(source);~
+~
+/* Convert the list of index handles into a list of text (lowercase). */~
+VAR sourceIndexNames  := TextLowerCase(sourceIndices);~
+~
+/* For each index of sourceTable... */~
+FOR sourceIndexName   := sourceIndexNames DO (~
+~
+	/* Get the handle of the index. */~
+	LocalAlias sourceIndex := HandleFromIdentifier(IDENTIFIER OF sourceIndexName);	~
+~
+	/* Get the name of the cooresponding selection index. */~
+	VAR selectionIndexName := sourceIndexName & "_selection";~
+~
+	/* If the selection index exists (i.e., the handle is defined ... */~
+	IF (NOT IsUndef( HandleFromIdentifier(selectionIndexName) )) THEN (~
+~
+		/* Get the handle of the selection index. */~
+		LocalAlias selectionIndex := HandleFromIdentifier(IDENTIFIER OF selectionIndexName);~
+		~
+		/* Re-index sourceTable. */~
+		source := source[sourceIndex = selectionIndex];~
+   );~
+~
+);~
+~
+source
+NodeLocation: 400,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+nodenote: The selective evaluation system is enabled through the creation of a selection index with matching identifier (‘indexidentifier_selection’).
+
+Function includedFactors(factorStatus)
+Title: Included Factors
+Description: Get an index of included factors from a factor status node.
+Definition: Subset(factorStatus <> 'Not Included')
+NodeLocation: 536,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function frequencyTree(~
+factorsNode: Index;~
+factorStatusNode;~
+frequencyNode;~
+)
+Description: Generate a frequency tree.
+Definition: /* Get included factors. */~
+INDEX factors     := includedFactors(factorStatusNode);~
+~
+/* Get frequencies for included factors. */~
+VAR frequencies := frequencyNode[factorsNode = factors];~
+~
+/* Make a frequency tree. */~
+fTree(frequencies, factors)
+NodeLocation: 536,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function oddsRatioTree(oddsRatios; factors: index)
+Title: oddsRatio Tree
+Description: Generate the product of the powerset of all odds ratios; make an odds ratio tree.
+Definition: /* Get the number of factors. */~
+VAR     numberOfFactors := Size(factors); ~
+~
+/* The tree will have 2 ^ numberOfFactors leaves. */ ~
+/* Generate an index of length 2 ^ numberOfFactors. */~
+INDEX   leafNumber      := 1..(2 ^ numberOfFactors);~
+~
+/* Generate a tree (an array) of length 2 ^ numberOfFactors. */~
+/* Initialize with (1). */~
+VAR    orTree           := Array(leafNumber, 1);~
+~
+/* For each factor .. */~
+FOR    factorPosition   := 1..numberOfFactors DO (~
+~
+	/* Get the factor's odds ratio (by position). */~
+	VAR oddsRatio        := Slice(oddsRatios, factors, factorPosition);~
+~
+	/* Get the number of existing leaves on the tree. */~
+	/* For each existing leaf, a new leaf will be added. */~
+	VAR numberOfLeaves   := 2 ^ (factorPosition - 1);~
+~
+	/* To generate each new leaf ... */~
+	FOR newLeafPosition  := 1 .. numberOfLeaves DO (~
+		~
+		/* Multiply the existing leaf by the odds ratio, and insert the new leaf in the tree (by position). */~
+		orTree[@leafNumber = (numberOfLeaves + newLeafPosition)] := orTree[@leafNumber = newLeafPosition] * oddsRatio;~
+	);~
+~
+);~
+~
+orTree
+NodeLocation: 128,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function probabilityTree(~
+pIN;~
+factorsNode: index;~
+factorStatusNode; ~
+oddsRatioNode;~
+)
+Description: Generate a probability tree.
+Definition: /* Get included factors as index. */~
+INDEX incFactors := includedFactors(factorStatusNode);~
+~
+/* Get odds ratios for included factors. */~
+VAR oddsRatios   := oddsRatioNode[factorsNode = incFactors];~
+~
+/* Make an odds ratio tree. */~
+VAR orTree       := oddsRatioTree(oddsRatios: oddsRatios, factors:incFactors);~
+~
+/* Update the probability IN with the odds ratios, creating a probability tree. */~
+(orTree * pIN) / (1 - pIN + orTree * pIN)
+NodeLocation: 264,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Index countTotal
+Att_PrevIndexValue: ['Count','Total']
+Title: CountTotal
+Description: This index sets the two dimensions used to define a countTable (a table of counts of outcomes and total observations). Convert a countTable to a table of prevalences using getPrevalenceCountTable().
+Definition: ['Count','Total']
+NodeLocation: 536,88,1
+NodeSize: 64,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0,,,
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+
+Function fTree(freqencies; factors: Index)
+Title: fTree
+Description: Generate the frequency of every combination of factors; make a frequency tree.
+Definition: /* Get the number of factors. */~
+VAR     numberOfFactors := Size(factors); ~
+~
+/* The tree will have 2 ^ numberOfFactors leaves. */ ~
+/* Generate an index of length 2 ^ numberOfFactors. */~
+INDEX   leafNumber      := 1..(2 ^ numberOfFactors);~
+~
+/* Generate a tree (an array) of length 2 ^ numberOfFactors. */~
+/* Initialize with (1). */~
+VAR    fTree            := Array(leafNumber, 1);~
+~
+/* For each factor .. */~
+FOR    factorPosition   := 1..numberOfFactors DO (~
+~
+	/* Get the factor's frequency (by position). */~
+	VAR frequency        := Slice(freqencies, factors, factorPosition);~
+~
+	/* Get the number of existing leaves on the tree. */~
+	/* For each existing leaf, a new leaf will be added. */~
+	VAR numberOfLeaves   := 2 ^ (factorPosition - 1);~
+~
+	/* To generate each new leaf ... */~
+	FOR newLeafPosition  := 1 .. numberOfLeaves DO (~
+		~
+		/* Multiply the existing leaf by the frequency, and insert the new leaf in the tree (by position). */~
+		fTree[@leafNumber = (numberOfLeaves + newLeafPosition)] := fTree[@leafNumber = newLeafPosition] * frequency;~
+      /* Replace the existing leaf with the complimentary frequency (1 - frequency). */~
+		fTree[@leafNumber = newLeafPosition] := fTree[@leafNumber = newLeafPosition] * (1 - frequency);~
+	);~
+~
+);~
+~
+fTree
+NodeLocation: 400,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function mergeTrees(frequencyTree; probabilityTree; factors: Index)
+Title: mergeTrees
+Description: Multiply the leaves of the frequency and probability trees together, then sum to calculate the new probability.
+Definition: /* Get the number of factors. */~
+VAR    numberOfFactors := Size(factors); ~
+~
+/* To perform operations on the trees, they must share indices. */~
+/* .leafNumber is an implicit index; re-index the trees using a shared index by position. */~
+/* The trees have 2 ^ numberOfFactors leaves; generate a shared index of length 2 ^ numberOfFactors. */~
+INDEX  leafNumber      := 1..(2 ^ numberOfFactors);~
+VAR    xTree           := probabilityTree[@.leafNumber = @leafNumber] * frequencyTree[@.leafNumber = @leafNumber];~
+~
+/* Sum along shared index. */~
+Sum(xTree, leafNumber)
+NodeLocation: 672,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function betaPrevalence(count; total)
+Title: beta Prevalence Counts
+Description: Create a Beta(a + 1, b – a + 1) distribution representing prevalence, where a = count of events, and b = total observations.
+Definition: Beta(count + 1, (total - count + 1))
+NodeLocation: 128,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function getPrevalenceCountTable(~
+countTable;~
+replaceMissing: Boolean Optional = False;~
+missingCount: Optional Number = 1;~
+missingTotal: Optional Number = 15~
+)
+Title: Prevalence from Count Table
+Description: Get prevalence represented as a beta distribution from a countTable (a table of counts indexed by countTable).~
+~
+Optionally, replace missing count and total values. If << replaceMissing >> is FALSE, missing values return NULL. Specify << missingCount >> and << missingTotal >> to replace defaults.
+Definition: /* betaPrevalence() is called in each branch intentionally; an IF/ELSE must do a (non-assignment) action. */~
+~
+IF (replaceMissing = True) THEN (~
+~
+	/* Replace missing values; default is 1 and 15 (~6%). */~
+	var count := IF countTable[countTotal='Count'] = Null THEN  missingCount ELSE countTable[countTotal='Count'];~
+	var total := IF countTable[countTotal='Total'] = Null THEN  missingTotal ELSE countTable[countTotal='Total'];~
+~
+	/* Return beta distribution. */~
+	betaPrevalence(count:count, total:total);~
+~
+) ELSE (~
+~
+	var count := countTable[countTotal='Count'];~
+	var total := countTable[countTotal='Total'];~
+~
+	/* Return beta distribution. */~
+	betaPrevalence(count:count, total:total);~
+~
+);
+NodeLocation: 264,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Close iAM_AMR_FRAMEWORK
+
+Variable XX_F_factors
+Att_PrevIndexValue: [factor_a,factor_B,factor_C]
+Title: Farm Factors
+Description: Add factors here.
+Definition: [factor_a,factor_B,factor_C]
+NodeLocation: 432,704,1
+NodeSize: 48,24
+NodeInfo: 1,,0,,0,,,,,,0
+NodeColor: 29491,29491,29491
+ReformVal: [factor_fields,Self]
+Att_ResultSliceState: [microbe,1,resistance,1,Self,1,factor_fields,1]
+
+Variable XX_F_factor_status
+Title: Factor Status
+Description: Factor status sets the direction of the factor or excludes it from the model.
+Definition: Table(XX_F_factors)(Choice(factor_status,1,0),Choice(factor_status,1,0),Choice(factor_status,1,0))
+NodeLocation: 432,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,374,278,622,524,0,DFNM
+NodeColor: 58978,52427,65535
+ReformDef: [Null,XX_F_factors]
+TableCellDefault: Choice(factor_status, 3, 0)
+Default: Choice(factor_status,3,0)
+
+Variable XX_F_Interface
+Title: Farm Interface
+Definition: MultiTable(interface)(IndexValue(XX_F_factors),XX_F_factor_status,IF XX_F_factor_status = 'As Defined' ~
+THEN XX_F_factors[factor_fields='Reference Group']~
+ELSE IF XX_F_factor_status = 'Alternate'~
+THEN XX_F_factors[factor_fields='Factor Group']~
+ELSE '',IF XX_F_factor_status = 'As Defined' ~
+THEN XX_F_factors[factor_fields='Factor Group']~
+ELSE IF XX_F_factor_status = 'Alternate'~
+THEN XX_F_factors[factor_fields='Reference Group']~
+ELSE '',IF XX_F_factor_status = 'As Defined' ~
+THEN XX_F_factors[factor_fields = 'Odds Ratio']~
+ELSE IF XX_F_factor_status = 'Alternate'~
+THEN 1 / XX_F_factors[factor_fields = 'Odds Ratio']~
+ELSE 1,XX_F_freq)
+NodeLocation: 544,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,79,674,1935,529,0,DFNM
+NodeColor: 42592,19661,65535
+ReformDef: [interface,XX_F_factors]
+Att_ResultSliceState: [microbe,1,resistance,1,XX_F_factors,1,Interface,1]
+Att_EditSliceState: [microbe,1,resistance,2,XX_F_factors,1,interface,1]
+
+Variable XX_F_freq
+Title: Frequency
+Description: The frequency of factor exposure.
+Definition: Table(XX_F_factors)(0.5,0.5,0.5)
+NodeLocation: 656,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,128,403,495,514,0,DFNM
+NodeColor: 58978,52427,65535
+NumberFormat: 2,%,4,0,0,0,4,0,$,0,"ABBREV",0,,,0,0,15,,0
+TableCellDefault: 0.5
+{!40700|Att_CellFormat: CellSpan(XX_F_factors,CellNumberFormat('Percentage',2,0,0,dateFormat:'ABBREV',fullPrecision:0,numbersAsDates:0,datesAsNumbers:0,digits_:4,zeroes_:2,showZeroImPart:0),1,header:0)}
+Default: 0.5
+nodenote: A frequency must be specified for each factor; by default, it is set to 0.5 or 50%.~
+~
+A factor whose frequency is 0 is included in calculations, but has no effect on the model.
+
+Chance XX_F_oddsratios
+Title: Odds Ratios
+Description: The odds ratio expressed as a log normal distribution.
+Definition: VAR distributions := LogNormal(XX_F_Interface[interface='OR'], XX_F_factors[factor_fields = 'exp (SE Log OR)']);~
+~
+selectivelyEvaluate(distributions)
+NodeLocation: 544,704,1
+NodeSize: 56,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+GraphSetup: Att_GraphValueRange Graph_Pdf_Valdim:1,0,1,,,,,0,130.5110603570938,0~
+Att_GraphValueRange XX_F_oddsratios:|1:1,,1,,,,,0.9689284443855286,1.027821409702301,0
+ReformVal: [Undefined,XX_F_factors,Undefined,1,Undefined,1]
+Att_ResultSliceState: [microbe_selection,1,resistance_selection,1,XX_F_factors,1,Sys_LocalIndex('Step'),1]
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Variable XX_F_prob_tree
+Title: Probability Tree
+Units: p(res)
+Description: The probability of resistance after the effect(s) of every possible combination of length 1 to n (the powerset) of included factors.
+Definition: probabilityTree(pIN:              XX_F_in,~
+                factorsNode:      XX_F_factors, ~
+                factorStatusNode: XX_F_factor_status, ~
+					oddsRatioNode:    XX_F_oddsratios~
+					)
+NodeLocation: 544,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+ReformVal: [resistance_selection,Sys_LocalIndex('leafNumber'),Undefined,1]
+Att__TotalsIndex: []
+Att_ResultSliceState: [microbe_selection,1,period_selection,1,Sys_LocalIndex('leafNumber'),1,resistance_selection,1]
+
+Variable XX_baseline
+Title: Baseline p(res)
+Description: The baseline probability of resistance of the microbe(s) in the medium.
+Definition: /* Get the baseline count table for Peacock. */~
+var bl_countTable := baseline_countTable[medium = 'Peacock'];~
+~
+/* Get a beta distribution representing the count data. */~
+getPrevalenceCountTable(countTable:     bl_countTable, ~
+							 replaceMissing: False)
+NodeLocation: 128,768,1
+NodeSize: 64,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 1,32770,65535
+ReformVal: [locale,microbe,Undefined,Undefined,1]
+NodeFontColor: 65535,65535,65535
+Att_ResultSliceState: [period,1,resistance,1,microbe,1,Sys_LocalIndex('Step'),1]
+Att_XRole: -1
+
+Variable XX_F_freq_tree
+Title: Frequency Tree
+Description: The frequency of all possible combinations of included factors.
+Definition: frequencyTree(factorsNode:      XX_F_factors,~
+              factorStatusNode: XX_F_factor_status,~
+              frequencyNode:    XX_F_freq~
+				 )
+NodeLocation: 656,704,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+ReformVal: [Sys_LocalIndex('tblWidth'),Sys_LocalIndex('tblLength')]
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15,,0
+
+Objective XX_F_resistance
+Title: Farm ~
+p(res) out
+Description: The probability of resistance after the effects of all included factors,
+Definition: /* Get an index of included factors. */ ~
+INDEX incFactors := includedFactors(XX_F_factor_status);~
+~
+/* Merge the trees to calculate the probability of resistance out. */~
+mergeTrees(frequencyTree:   XX_F_freq_tree, ~
+			 probabilityTree: XX_F_prob_tree, ~
+			 factors:         incFactors)
+NodeLocation: 656,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 1,32770,65535
+GraphSetup: Att_GraphValueRange XX_F_resistance:|1:1,,1,,,,,1,1,1~
+Att_GraphValueRange Graph_Pdf_Valdim:1,0,1,,,,,1,1,1
+ReformVal: [locale,microbe,Undefined,Undefined,Undefined,2]
+NodeFontColor: 65535,65535,65535
+Att_ResultSliceState: [microbe_selection,1,period_selection,1,resistance_selection,1,Sys_LocalIndex('Step'),1]
+{!40200|Att_GraphSetupSlices: [3,1,DensityIndex,1]}
+
+Variable XX_Ab_factors
+Att_PrevIndexValue: [factor_D]
+Title: Abattoir Factors
+Description: Add factors here.
+Definition: [factor_D]
+NodeLocation: 880,704,1
+NodeSize: 48,24
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+NodeColor: 29491,29491,29491
+
+Variable XX_Ab_factor_status
+Title: Factor Status
+Description: Factor status sets the direction of the factor or excludes it from the model.
+Definition: Table(XX_Ab_factors)(Choice(factor_status,1,0))
+NodeLocation: 880,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 58978,52427,65535
+TableCellDefault: Choice(factor_status, 3, 0)
+Default: Choice(factor_status,3,0)
+
+Variable XX_Ab_Interface
+Title: Abattoir Interface
+Definition: MultiTable(interface)(IndexValue(XX_Ab_factors),XX_Ab_factor_status,IF XX_Ab_factor_status = 'As Defined' ~
+THEN XX_Ab_factors[factor_fields='Reference Group']~
+ELSE IF XX_Ab_factor_status = 'Alternate'~
+THEN XX_Ab_factors[factor_fields='Factor Group']~
+ELSE '',IF XX_Ab_factor_status = 'As Defined' ~
+THEN XX_Ab_factors[factor_fields='Factor Group']~
+ELSE IF XX_Ab_factor_status = 'Alternate'~
+THEN XX_Ab_factors[factor_fields='Reference Group']~
+ELSE '',IF XX_Ab_factor_status = 'As Defined' ~
+THEN XX_Ab_factors[factor_fields = 'Odds Ratio']~
+ELSE IF XX_Ab_factor_status = 'Alternate'~
+THEN 1 / XX_Ab_factors[factor_fields = 'Odds Ratio']~
+ELSE 1,XX_Ab_freq)
+NodeLocation: 992,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,232,348,1979,546,0,DFNM
+NodeColor: 42592,19661,65535
+ReformDef: [interface,XX_Ab_factors]
+
+Variable XX_Ab_freq
+Title: Frequency
+Description: The frequency of factor exposure.
+Definition: Table(XX_Ab_factors)(0.5)
+NodeLocation: 1104,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,953,202,416,303,0,MIDM
+NodeColor: 58978,52427,65535
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15,,0
+TableCellDefault: 0.5
+Default: 0.5
+nodenote: A frequency must be specified for each factor; by default, it is set to 0.5 or 50%.~
+~
+A factor whose frequency is 0 is included in calculations, but has no effect on the model.
+
+Chance XX_Ab_oddsratios
+Title: Odds Ratios
+Description: The odds ratio expressed as a log normal distribution.
+Definition: VAR distributions := LogNormal(XX_Ab_Interface[interface='OR'], XX_Ab_factors[factor_fields = 'exp (SE Log OR)']);~
+~
+selectivelyEvaluate(distributions)
+NodeLocation: 992,704,1
+NodeSize: 56,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+ReformVal: [Undefined,XX_Ab_factors,Undefined,2,Undefined,1]
+
+Variable XX_Ab_prob_tree
+Title: Probability Tree
+Units: p(res)
+Description: The probability of resistance after the effect(s) of every possible combination of length 1 to n (the powerset) of included factors.
+Definition: probabilityTree(pIN:              XX_Ab_in,~
+                factorsNode:      XX_Ab_factors, ~
+                factorStatusNode: XX_AB_factor_status, ~
+					oddsRatioNode:    XX_AB_oddsratios~
+					)
+NodeLocation: 992,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+ReformVal: [microbe,locale,Undefined,1]
+Att_ResultSliceState: [microbe_selection,1,period_selection,1,Sys_LocalIndex('tblLength'),1,locale_selection,1,resistance_selection,1]
+
+Variable XX_Ab_freq_tree
+Title: Frequency Tree
+Description: The frequency of all possible combinations of included factors.
+Definition: frequencyTree(factorsNode:      XX_Ab_factors, ~
+              factorStatusNode: XX_Ab_factor_status,~
+				 frequencyNode:    XX_Ab_freq ~
+              )
+NodeLocation: 1104,704,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+
+Objective XX_Ab_resistance
+Title: Abattoir~
+p(res) out
+Description: The probability of resistance after the effects of all included factors,
+Definition: /* Get an index of included factors. */ ~
+INDEX incFactors := includedFactors(XX_Ab_factor_status);~
+~
+/* Merge the trees to calculate the probability of resistance out. */~
+mergeTrees(frequencyTree:   XX_Ab_freq_tree, ~
+			 probabilityTree: XX_Ab_prob_tree, ~
+			 factors:         incFactors)
+NodeLocation: 1104,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 1,32770,65535
+NodeFontColor: 65535,65535,65535
+
+Variable XX_Re_factors
+Att_PrevIndexValue: [factor_E]
+Title: Retail Factors
+Description: Add factors here.
+Definition: [factor_E]
+NodeLocation: 1328,704,1
+NodeSize: 48,24
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+NodeColor: 29491,29491,29491
+
+Variable XX_Re_factor_status
+Title: Factor Status
+Description: Factor status sets the direction of the factor or excludes it from the model.
+Definition: Table(XX_Re_factors)(Choice(factor_status,1,0))
+NodeLocation: 1328,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 58978,52427,65535
+TableCellDefault: Choice(factor_status, 3, 0)
+Default: Choice(factor_status,3,0)
+
+Variable XX_Re_Interface
+Title: Retail Interface
+Definition: MultiTable(interface)(IndexValue(XX_Re_factors),XX_Re_factor_status,IF XX_Re_factor_status = 'As Defined' ~
+THEN XX_Re_factors[factor_fields='Reference Group']~
+ELSE IF XX_Re_factor_status = 'Alternate'~
+THEN XX_Re_factors[factor_fields='Factor Group']~
+ELSE '',IF XX_Re_factor_status = 'As Defined' ~
+THEN XX_Re_factors[factor_fields='Factor Group']~
+ELSE IF XX_Re_factor_status = 'Alternate'~
+THEN XX_Re_factors[factor_fields='Reference Group']~
+ELSE '',IF XX_Re_factor_status = 'As Defined' ~
+THEN XX_Re_factors[factor_fields = 'Odds Ratio']~
+ELSE IF XX_Re_factor_status = 'Alternate'~
+THEN 1 / XX_Re_factors[factor_fields = 'Odds Ratio']~
+ELSE 1,XX_Re_freq)
+NodeLocation: 1440,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,670,304,1751,546,0,DFNM
+NodeColor: 42592,19661,65535
+ReformDef: [interface,XX_Re_factors]
+
+Variable XX_Re_freq
+Title: Frequency
+Description: The frequency of factor exposure.
+Definition: Table(XX_Re_factors)(0.5)
+NodeLocation: 1552,640,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,953,202,416,303,0,MIDM
+NodeColor: 58978,52427,65535
+NumberFormat: 2,%,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15,,0
+TableCellDefault: 0.5
+Default: 0.5
+nodenote: A frequency must be specified for each factor; by default, it is set to 0.5 or 50%.~
+~
+A factor whose frequency is 0 is included in calculations, but has no effect on the model.
+
+Chance XX_Re_oddsratios
+Title: Odds Ratios
+Description: The odds ratio expressed as a log normal distribution.
+Definition: VAR distributions := LogNormal(XX_Re_Interface[interface='OR'], XX_Re_factors[factor_fields = 'exp (SE Log OR)']);~
+~
+selectivelyEvaluate(distributions)
+NodeLocation: 1440,704,1
+NodeSize: 56,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+ReformVal: [Undefined,XX_Re_factors,Undefined,2,1,1]
+Att_ResultSliceState: [microbe_selection,1,XX_Re_factors,1,resistance_selection,1,Sys_LocalIndex('Step'),1]
+Att_XRole: -1
+
+Chance microbe_recovery_rate
+Title: Microbe Recovery Rate
+Units: mic / med
+Description: The proportion of medium units that include the microbe.
+Definition: Table(locale,microbe,medium,period)(~
+0.15,~
+0.15,~
+0.15,~
+0.15)
+NodeLocation: 1800,704,1
+NodeSize: 72,32
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,1219,359,416,303,0,MIDM
+NodeColor: 58978,52427,65535
+ReformDef: [locale,microbe]
+Att_ResultSliceState: [microbe,2,bl_animal,3,bl_year,1,bl_region,1]
+Att_EditSliceState: [medium,1,period,1,microbe,1,locale,1]
+nodenote: This is the proportion of medium units that contain either the resistant or susceptible microbe.
+
+Variable med_res_mic_rec_rate
+Title: Prop. Exposures AMR+
+Units: res-mic / med
+Description: The proportion of media units that include the resistant microbe.
+Definition: selectivelyEvaluate(XX_exp_resistance * microbe_recovery_rate)
+NodeLocation: 1800,832,1
+NodeSize: 72,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,1470,170,416,303,0,MIDM
+NodeColor: 39321,58983,65535
+Att_ResultSliceState: [Pathogen,1,Region,1,Animal,1]
+nodenote: Prior to this node, the model tracks p(res) - the probability of resistance for a given microbe.~
+Here, we multiply by the recovery rate of the microbe (resistant or susceptible) to determine the proportion of media units that include a resistant microbe.
+
+Variable population
+Title: Population
+Units: pers
+Description: The number of persons in the locale(s).
+Definition: Table(locale)(1M,2M)
+NodeLocation: 1960,576,1
+NodeSize: 72,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+DefnState: 2,1742,765,416,303,0,DFNM
+NodeColor: 58978,52427,65535
+Att_EditSliceState: [period,1,microbe,1,locale,1]
+nodenote: This node can be indexed by period to examine the effect of changes in the size of the population.~
+Population has a linear relationship with model output.
+
+Variable medium_exposure_rate
+Title: Medium Exposure Rate
+Units: med / wk
+Description: The proportion of persons exposed to the medium in the locale(s) in a one-week period.
+Definition: Table(locale,medium)(~
+0.25,~
+0.35)
+NodeLocation: 1800,640,1
+NodeSize: 72,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 58978,52427,65535
+ReformDef: [locale,medium]
+Att_EditSliceState: [period,1,medium,1,locale,1]
+nodenote: This node can be indexed by period to examine the effect of changes in the exposure rate.~
+Medium Exposure Rate has a linear relationship with model output.
+
+Variable medium_exposures
+Title: Medium Exposure Events
+Units: pers-med / wk
+Description: The number of persons exposed to the medium in the locale(s) in a one week period.
+Definition: population * medium_exposure_rate
+NodeLocation: 1960,640,1
+NodeSize: 72,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+
+Objective res_microbe_expos
+Title: Exposure
+Units: pers-exp-res-mic / wk
+Description: The number of persons potentially exposed to an antimicrobial resistant microbe via the medium in the locale(s) in a one-week period.
+Definition: selectivelyEvaluate(XX_exp_resistance * microbe_exposures)
+NodeLocation: 1960,768,1
+NodeSize: 72,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+Aliases: FormNode Fo1760155571
+NodeColor: 52427,13109,1
+NodeFontColor: 65535,65535,65535
+Att_ResultSliceState: [period_selection,1,medium_selection,1,locale_selection,1,microbe_selection,1,resistance_selection,1]
+nodenote: Assuming a one-to-one , the number of servings at risk from an antimicrobial resisant microbe.
+
+Variable XX_Re_prob_tree
+Title: Probability Tree
+Units: p(res)
+Definition: probabilityTree(pIN:              XX_Re_in,~
+                factorsNode:      XX_Re_factors, ~
+                factorStatusNode: XX_Re_factor_status, ~
+					oddsRatioNode:    XX_Re_oddsratios~
+					)
+NodeLocation: 1440,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+ReformVal: [Undefined,Self,Undefined,1]
+Att_ResultSliceState: [Pathogen,1,Self,1,Region,1]
+
+Variable XX_Re_freq_tree
+Title: Frequency Tree
+Description: The frequency of all possible combinations of included factors.
+Definition: frequencyTree(factorsNode:      XX_Re_factors, ~
+              factorStatusNode: XX_Re_factor_status,~
+				 frequencyNode:    XX_Re_freq ~
+              )
+NodeLocation: 1552,704,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 49151,49151,49151
+
+Objective XX_Re_resistance
+Title: Retail ~
+p(res) out
+Description: The probability of resistance after the effects of all included factors,
+Definition: /* Get an index of included factors. */ ~
+INDEX incFactors := includedFactors(XX_Re_factor_status);~
+~
+/* Merge the trees to calculate the probability of resistance out. */~
+mergeTrees(frequencyTree:   XX_Re_freq_tree, ~
+			 probabilityTree: XX_Re_prob_tree, ~
+			 factors:         incFactors)
+NodeLocation: 1552,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 1,32770,65535
+NodeFontColor: 65535,65535,65535
+Att_ResultSliceState: [microbe_selection,1,period_selection,1,locale_selection,1,resistance_selection,1]
+
+FormNode Fo626354099
+Title: Select Microbe
+Definition: 0
+NodeLocation: 568,288,1
+NodeSize: 160,16
+NodeInfo: 1,,,,,,,142,,,,,,0
+NodeColor: 19662,39321,1
+Original: microbe_selection
+NodeFontColor: 0,0,0
+
+Variable Placeholder
+Title: Placeholder Factor
+Description: This node acts as a placeholder, preventing errors where no factors are available.
+Definition: Table(factor_fields)('Placeholder Factor Group','Placeholder Reference Group',1,1,'N/A')
+NodeLocation: 904,296,1
+NodeSize: 56,24
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,216,218,1075,572,0,MIDM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,Null]
+
+Chance baseline_countTable
+Title: Baseline Count Data
+Definition: Table(microbe,medium,period,resistance,countTotal)(~
+5,100,~
+10,100,~
+20,100,~
+25,100,~
+30,100,~
+40,100)
+NodeLocation: 128,680,1
+NodeSize: 64,32
+NodeInfo: 1,,,,0,,,,,,0
+DefnState: 2,70,228,1665,502,0,DFNM
+NodeColor: 58978,52427,65535
+ReformDef: [locale,resistance]
+ReformVal: [medium,microbe,Undefined,Undefined,Undefined,2]
+Att_ResultSliceState: [locale,1,countTotal,1,period,1,resistance,1,microbe,1,medium,1]
+Att_EditSliceState: [period,1,medium,1,countTotal,1,resistance,1,microbe,2]
+nodenote: This node can be indexed by period to examine the effect of changes in the baseline.
+
+Variable XX_Ab_in
+Title: Abattoir~
+p(res) in
+Description: The prevalence of resistance coming into the stage.
+Definition: XX_F_resistance
+NodeLocation: 880,768,1
+NodeSize: 48,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0
+NodeColor: 1,32770,65535
+NodeFontColor: 65535,65535,65535
+
+Variable XX_Re_in
+Title: Retail~
+p(res) in
+Description: The prevalence of resistance coming into the stage.
+Definition: XX_Ab_resistance
+NodeLocation: 1328,768,1
+NodeSize: 48,24
+NodeInfo: 1,,,,0
+NodeColor: 1,32770,65535
+NodeFontColor: 65535,65535,65535
+
+Variable XX_F_in
+Title: Farm ~
+p(res) in
+Description: The prevalence of resistance coming into the stage.
+Definition: selectivelyEvaluate(XX_baseline)
+NodeLocation: 432,768,1
+NodeSize: 48,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 1,32770,65535
+NodeFont: Arial,15
+ReformVal: [Undefined,resistance_selection,Undefined,Undefined,1]
+NodeFontColor: 65535,65535,65535
+Att_ResultSliceState: [period_selection,1,microbe_selection,1,resistance_selection,2,Sys_LocalIndex('Step'),1]
+Att_XRole: -1
+
+Variable factor_template
+Title: Factor Template
+Description: Duplicate me to create a factor.
+Definition: Table(factor_fields,microbe,resistance)(~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+1,1,1,~
+1,1,1,~
+1,1,1,~
+1,1,1,~
+Null,Null,Null,~
+Null,Null,Null)
+NodeLocation: 904,224,1
+NodeSize: 72,32
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,402,347,1075,572,0,DFNM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,resistance]
+Att_EditSliceState: [microbe,1,resistance,1,factor_fields,1]
+
+FormNode Fo1500309427
+Title: Select Resistance
+Definition: 0
+NodeLocation: 568,248,1
+NodeSize: 160,16
+NodeInfo: 1,,,,,,,138,,,,,,0
+NodeColor: 42598,42598,42598
+Original: resistance_selection
+NodeFontColor: 0,0,0
+
+FormNode Fo971827123
+Title: Select Locale
+Definition: 0
+NodeLocation: 568,208,1
+NodeSize: 160,16
+NodeInfo: 1,,,,,,,142,,,,,,0
+NodeColor: 42598,42598,42598
+Original: locale_selection
+NodeFontColor: 0,0,0
+
+Variable factor_a
+Title: Factor A
+Definition: Table(factor_fields,microbe,resistance)(~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+0.5,0.5,0.5,~
+0.5,0.5,0.5,~
+0.75,0.75,0.75,~
+0.75,0.75,0.75,~
+Null,Null,Null,~
+Null,Null,Null)
+NodeLocation: 432,544,1
+NodeSize: 48,32
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,402,347,1075,572,0,DFNM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,resistance]
+Att_EditSliceState: [microbe,2,resistance,1,factor_fields,1]
+
+Variable factor_B
+Title: Factor B
+Definition: Table(factor_fields,microbe,resistance)(~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+1.15,1.15,1.15,~
+1.15,1.15,1.15,~
+1.5,1.5,1.5,~
+1.5,1.5,1.5,~
+Null,Null,Null,~
+Null,Null,Null)
+NodeLocation: 544,544,1
+NodeSize: 48,32
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,402,347,1075,572,0,DFNM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,resistance]
+Att_EditSliceState: [microbe,1,resistance,1,factor_fields,1]
+
+Variable factor_C
+Title: Factor C
+Description: Factor C.
+Definition: Table(factor_fields,microbe,resistance)(~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+3,3,3,~
+3,3,3,~
+1.5,1.5,1.5,~
+1.5,1.5,1.5,~
+Null,Null,Null,~
+Null,Null,Null)
+NodeLocation: 656,544,1
+NodeSize: 48,32
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,402,347,1075,572,0,DFNM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,resistance]
+Att_EditSliceState: [microbe,2,resistance,1,factor_fields,1]
+
+{!50500|ArrowClass Arrow485758899}
+{!50500|Att_HeadNode: XX_F_oddsratios}
+{!50500|Att_TailNode: XX_F_Interface}
+{!50500|Att_ArrowWayPoints: [Null,-92.38594467591453]}
+
+{!50500|ArrowClass Arrow546248627}
+{!50500|NodeInfo: ,,,,,,,,,,,0}
+{!50500|Att_HeadNode: XX_F_freq_tree}
+{!50500|Att_TailNode: XX_F_factor_status}
+
+{!50500|ArrowClass Arrow412030899}
+{!50500|NodeInfo: ,,,,,,,,,,,0}
+{!50500|Att_HeadNode: XX_F_resistance}
+{!50500|Att_TailNode: XX_F_factor_status}
+
+{!50500|ArrowClass Arrow871307187}
+{!50500|NodeInfo: ,,,,,,,,,,,0}
+{!50500|Att_HeadNode: XX_F_prob_tree}
+{!50500|Att_TailNode: XX_F_factor_status}
+
+FormNode Fo1022662579
+Title: Select Period
+Definition: 0
+NodeLocation: 224,248,1
+NodeSize: 160,16
+NodeInfo: 1,,,,,,,116,,,,,,0
+NodeColor: 42598,42598,42598
+Original: period_selection
+NodeFontColor: 0,0,0
+
+FormNode Fo519346099
+Title: Select Medium
+Definition: 0
+NodeLocation: 224,208,1
+NodeSize: 160,16
+NodeInfo: 1,,,,,,,119,,,,,,0
+NodeColor: 42598,42598,42598
+Original: medium_selection
+NodeFontColor: 0,0,0
+
+Variable factor_D
+Title: Factor D (C2)
+Definition: Table(factor_fields,microbe,resistance)(~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+3,3,3,~
+3,3,3,~
+1.5,1.5,1.5,~
+1.5,1.5,1.5,~
+Null,Null,Null,~
+Null,Null,Null)
+NodeLocation: 880,544,1
+NodeSize: 48,32
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,402,347,1075,572,0,DFNM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,resistance]
+Att_EditSliceState: [microbe,1,resistance,1,factor_fields,1]
+
+Variable microbe_exposures
+Title: Microbe Exposure Events
+Units: mic-pers / wk
+Description: The number of persons potentially exposed to the microbe via the medium in the locale(s) in a one-week period.
+Definition: medium_exposures * microbe_recovery_rate
+NodeLocation: 1960,704,1
+NodeSize: 72,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 49151,49151,49151
+
+Variable XX_exp_resistance
+Title: p(res) Exposure
+Description: The probability the microbe will be antimicrobial resistant at the point of exposure.
+Definition: XX_Re_resistance
+NodeLocation: 1800,768,1
+NodeSize: 72,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 1,32770,65535
+NodeFontColor: 65535,65535,65535
+Att_ResultSliceState: [microbe_selection,1,period_selection,1,locale_selection,1,resistance_selection,1,Sys_LocalIndex('Step'),1]
+
+Variable factor_E
+Title: Factor E (C3)
+Definition: Table(factor_fields,microbe,resistance)(~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+Null,Null,Null,~
+3,3,3,~
+3,3,3,~
+1.5,1.5,1.5,~
+1.5,1.5,1.5,~
+Null,Null,Null,~
+Null,Null,Null)
+NodeLocation: 1328,544,1
+NodeSize: 48,32
+NodeInfo: 1,1,0,1,0,1,0,,0,,0
+DefnState: 2,402,347,1075,572,0,DFNM
+NodeColor: 1,49155,65535
+ReformDef: [factor_fields,resistance]
+Att_EditSliceState: [microbe,1,resistance,1,factor_fields,1]
+
+FormNode Fo1760155571
+Title: Exposure
+Definition: 1
+NodeLocation: 396,328,1
+NodeSize: 332,16
+NodeColor: 52427,13109,1
+Original: res_microbe_expos
+NodeFontColor: 0,0,0
+
+Close iAM_AMR_MOD_FOOD
+

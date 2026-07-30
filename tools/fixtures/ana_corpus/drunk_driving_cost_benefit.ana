@@ -1,0 +1,2142 @@
+{ Analytica Model Drunk_Driving_C_B, encoding="UTF-8" }
+SoftwareVersion 6.4.8
+
+
+{ System Variables with non-default values: }
+SampleSize := 1000
+TypeChecking := 1
+Checking := 1
+SaveOptions := 2
+SaveValues := 0
+Sys_DefaultNumberFmt := 2,D,3,2,0,0,3,0,$,0,"ABBREV",0,,,0,0,15,,0
+{!40400|Sys_PdfSmoothMethod := 1}
+
+{!-50299|DiagramColor Model: 65535,65535,65535}
+{!-50299|DiagramColor Module: 65535,65535,65535}
+{!-50299|DiagramColor LinkModule: 65535,65535,65535}
+{!-50299|DiagramColor Library: 65535,65535,65535}
+{!-50299|DiagramColor LinkLibrary: 65535,65535,65535}
+{!-50299|DiagramColor Form: 65535,65535,65535}
+NodeInfo FormNode: 1,0,0,,0,0,,,,0,,,0
+{!-50299|NodeColor Text: 62258,62258,62258}
+
+{!-60000|Attribute AcpStyles}
+
+
+Model Drunk_Driving_C_B
+Title: Drunk Driving C/B
+Description: A cost benefit model for the hypothetical benefit of NIR BAC Technology
+Author: noah singer
+Date: Tue, Oct 8, 2024 3:54 PM
+DiagState: 2,48,34,754,413,17,10
+FontStyle: Arial,15
+FileInfo: 0,Model Drunk_Driving_C_B,2,2,0,0,C:\Users\noahs\Downloads\analytica_1126C.ana
+
+Index Enf
+Title: Enforcement Level
+Description: How strict is the technology
+Definition: ['Low Enforcement Level','Medium Enforcement Level','High Enforcement Level']
+IndexVals: ['item 1']
+NodeLocation: 88,128,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+DisplayOutputs: Module Detection
+{!40300|Att_SlicerPopupSize: 237,64}
+
+Index Crash_Types
+Title: Crash Types
+Description: Options for injury level on the MAIS scale
+Definition: ['PDO','MAIS 0','MAIS 1','MAIS 2','MAIS 3','MAIS 4','MAIS 5','FATAL']
+NodeLocation: 88,184,1
+NodeSize: 64,24
+{!40300|Att_SlicerPopupSize: 232,144}
+
+Index DriverType
+Att_PrevIndexValue: ['Sober','Buzzed','Drunk','Extremely Drunk']
+Title: Driver Type
+Description: Index
+Definition: ['Sober','Buzzed','Drunk','Extremely Drunk']
+NodeLocation: 88,240,1
+NodeSize: 64,24
+
+Text Te1628200563
+Title: INDEXES
+NodeLocation: 88,20,-1
+NodeSize: 48,12
+
+Module Distracted_DMS
+Title: Distracted / DMS
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Wed, Nov 20, 2024 4:39 PM
+NodeLocation: 288,128,1
+NodeSize: 80,16
+DiagState: 2,346,81,814,326,17,10
+
+Index Model_Scenario
+Att_PrevIndexValue: ['Only Reported Data','W/ Underreported Data']
+Title: Model Scenario
+Definition: ['Only Reported Data','W/ Underreported Data']
+NodeLocation: 80,64,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+
+Variable Distracted_Crash
+Title: Distracted Crash
+Units: Crash
+Description: Number of distracted crashes~
+Crash Report Scenario: Obtained via data analysis. See Chapter 4.2 for more details.~
+Underreported Scenario: Source (https://crashstats.nhtsa.dot.gov/Api/Public/ViewPublication/813403 pg: 141)
+Definition: Table(Model_Scenario)(350K,8.182789M)
+NodeLocation: 104,192,1
+NodeSize: 72,24
+Aliases: Alias Al928792179
+
+Module Detection_Compliance
+Title: Detection & Compliance
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Wed, Nov 20, 2024 4:39 PM
+NodeLocation: 280,192,1
+NodeSize: 64,24
+DiagState: 2,650,93,674,416,17,10
+
+Variable dms_error_rate
+Title: DMS error rate
+Units: Percent
+Description: Error rate of the DMS technology. How often a distracted driver is not correctly identified.~
+Source: https://ieeexplore.ieee.org/document/10484402/figures#figures
+Definition: .2
+NodeLocation: 128,232,1
+NodeSize: 64,24
+WindState: 2,114,347,720,350
+
+Alias Al928792179
+Title: Distracted Trips
+NodeLocation: 128,112,1
+NodeSize: 72,24
+Original: Distracted_Crash
+
+Variable dms_correctly_de
+Title: Correctly detected distracted crash
+Units: Crash
+Description: Number of crashes that were correctly identified as distracted driving
+Definition: (1-dms_error_rate) * Distracted_Crash
+NodeLocation: 360,112,1
+NodeSize: 72,32
+WindState: 2,287,350,720,350
+
+Variable incorrect_nd_distracted_crash
+Title: Incorrectly not detected distracted crash
+Units: Crash
+Description: Distracted crashes that would have not been identified by the technology due to error. These crashes will still occur
+Definition: distracted_crash - dms_correctly_de
+NodeLocation: 360,264,1
+NodeSize: 96,24
+WindState: 2,124,418,720,350
+
+Variable dms_c_crash
+Title: Crashes Avoided
+Units: Crash
+Description: Crashes that are avoided due to the distracted driver complying with the warning
+Definition: dms_correctly_de * dms_comp
+NodeLocation: 576,160,1
+NodeSize: 64,24
+WindState: 2,135,463,720,350
+ValueState: 2,676,112,513,306,,MIDM
+
+Variable dms_comp
+Title: Does the Driver Comply? (DMS)
+Units: Percent
+Description: Probability that the driver will comply with the warning~
+Probabilities are given by the Technology group. See Chapter 2 for details.
+Definition: Table(Enf)(0.3,0.5,1)
+NodeLocation: 576,72,1
+NodeSize: 72,24
+WindState: 2,0,0,720,350
+DefnState: 2,244,250,415,303,0,DFNM
+
+Variable Distracted_crash_still_occuring
+Title: Distracted crashes still occuring
+Units: Crash
+Description: Distracted crashes that still occur that will consist of:~
+Crashes where the technology failed to detect that a driver was distracted~
+Crashes where the driver bypassed the technology or resisted the warning
+Definition: (dms_correctly_de - dms_c_crash) + incorrect_nd_distracted_crash
+NodeLocation: 576,264,1
+NodeSize: 80,24
+WindState: 2,50,457,720,350
+ValueState: 2,708,461,416,303,,MIDM
+Aliases: Alias Al1293041267
+
+Text Te1599946355
+Title: Existing Estimate
+NodeLocation: 132,188,-1
+NodeSize: 84,12
+
+Text Te584924787
+Title: Unknown, varied value
+NodeLocation: 552,28,-1
+NodeSize: 104,12
+
+Close Detection_Compliance
+
+Module Old_New_Crash_Condit
+Title: New Crash Condition & Benefits
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Wed, Nov 20, 2024 4:39 PM
+NodeLocation: 464,192,1
+NodeSize: 88,24
+DiagState: 2,358,95,704,416,17,10
+
+Variable Distracted_Crash_sev
+Title: Distracted Crash Severity
+Units: Crash
+Description: Existing distracted crashes indexed by crash severity~
+Reported trips comes from CRSS data analysis, see Chapter 4.2 of the report for details~
+W/ underreported comes from (https://crashstats.nhtsa.dot.gov/Api/Public/ViewPublication/813403) page 141
+Definition: Table(Crash_Types,Model_Scenario)(~
+1.308284M,5.57301M,~
+306.985K,1.307689M,~
+262.853K,1.119698M,~
+29.041K,123.709K,~
+9575,40.788K,~
+1308,5572,~
+488,2077,~
+2476,10.546K)
+NodeLocation: 152,112,1
+NodeSize: 64,24
+DefnState: 2,394,277,416,293,0,DFNM
+ReformDef: [Model_Scenario,Crash_Types]
+
+Alias Al1293041267
+Title: Distracted crashes still occuring
+NodeLocation: 560,40,1
+NodeSize: 80,24
+Original: Distracted_crash_still_occuring
+
+Variable Frequency_Crash_Sev
+Title: Frequency of Crash Severity
+Description: To classify the new crashes by severity, we assume the distribution by crash type will be the same, so the existing distribution of distracted crashes is used.
+Definition: distracted_crash_sev / sum(Distracted_Crash_sev,Crash_Types)
+NodeLocation: 352,72,1
+NodeSize: 64,24
+WindState: 2,112,310,720,350
+
+Variable New_distracted_crash_sev
+Title: New Distracted Crash by severity
+Units: Crash
+Description: New distracted crashes from crashes not prevented by the technology
+Definition: ROUND(Distracted_crash_still_occuring*Frequency_Crash_Sev,0)
+NodeLocation: 560,112,1
+NodeSize: 104,24
+WindState: 2,338,215,720,345
+ValueState: 2,718,75,416,303,0,MIDM
+ReformVal: [Crash_Types,Model_Scenario]
+Att_ResultSliceState: [Enf,3,Model_Scenario,1,Crash_Types,1]
+
+Alias Al531775091
+Title: Crash Category Cost
+NodeLocation: 352,176,1
+NodeSize: 64,24
+Original: crash_cat_cost
+
+Variable Ex_distracted_cost
+Title: Existing Distracted Cost
+Units: Dollars
+Description: Existing cost of all distracted driving crashes, indexed by crash severity
+Definition: crash_cat_cost * Distracted_Crash_sev
+NodeLocation: 152,224,1
+NodeSize: 80,24
+WindState: 2,335,266,720,350
+
+Variable ex_total_distracted_cost
+Title: Existing Total Distracted Costs
+Units: Dollars
+Description: Total cost of all existing distracted driving crashes
+Definition: sum(Ex_distracted_cost,Crash_Types)
+NodeLocation: 152,288,1
+NodeSize: 96,24
+WindState: 2,567,165,720,350
+
+Variable New_distracted_cost
+Title: New Distracted Cost
+Units: Dollars
+Description: New cost of all distracted driving crashes, indexed by crash severity
+Definition: crash_cat_cost * New_distracted_crash_sev
+NodeLocation: 552,216,1
+NodeSize: 80,24
+WindState: 2,335,266,720,350
+ValueState: 2,253,190,416,303,1,MIDM
+Att_ResultSliceState: [Model_Scenario,1,Enf,1,Crash_Types,1]
+
+Variable new_total_distracted
+Title: New Total Distracted Costs
+Units: Dollars
+Description: Total cost of all distracted driving crashes that were not prevented by the technology
+Definition: sum(New_distracted_cost,Crash_Types)
+NodeLocation: 552,280,1
+NodeSize: 96,24
+WindState: 2,567,165,720,350
+
+Variable dms_Benefits
+Title: Benefits
+Units: Dollars
+Description: Difference between the existing and new crash scenario
+Definition: ex_total_distracted_cost-new_total_distracted
+NodeLocation: 344,352,1
+NodeSize: 64,24
+WindState: 2,632,164,720,350
+
+Variable dms_benefits_severity
+Title: Benefits by crash severity
+Units: Dollars
+Description: Difference between the existing and new crash scenario, indexed by crash severity
+Definition: Ex_distracted_cost - New_distracted_cost
+NodeLocation: 352,248,1
+NodeSize: 64,24
+WindState: 2,632,164,720,350
+ValueState: 2,869,12,416,497,1,MIDM
+Att_ResultSliceState: [Model_Scenario,2,Enf,1,Crash_Types,1]
+
+Text Te1279082099
+Title: Existing Estimate
+NodeLocation: 156,68,-1
+NodeSize: 84,12
+
+Text Te1799175795
+Title: Existing Estimate
+NodeLocation: 356,132,-1
+NodeSize: 84,12
+
+Close Old_New_Crash_Condit
+
+Text Te1589788275
+Title: fovio DMS
+NodeLocation: 312,12,-1
+NodeSize: 56,12
+
+Module Costs1
+Title: Costs
+Author: noah singer
+Date: Thu, Oct 10, 2024 10:56 AM
+NodeLocation: 288,280,1
+NodeSize: 64,24
+DiagState: 2,22,142,690,358,17,10
+
+Variable dms_annual_tech_cost
+Title: Annual Technology Cost
+Units: Dollars / Vehicle
+Description: Total annualized cost for the installation and maintence of the NIR BAC technology in a single vehicle
+Definition: (DMS_Tech_Cost * Discount_Rate) / (1-(1/(1+Discount_Rate)^avg_lifetime))
+NodeLocation: 592,80,1
+NodeSize: 64,32
+ValueState: 2,436,442,416,303,0,MIDM
+
+Variable dms_total_costs
+Title: Total Costs
+Units: Dollars
+Description: Total cost of installing and maintaining the technology in all vehicles for a single year
+Definition: num_vehicles * dms_annual_tech_cost
+NodeLocation: 592,304,1
+NodeSize: 64,24
+WindState: 2,88,145,720,350
+
+Variable DMS_Tech_Cost
+Title: DMS Tech Cost
+Units: Dollars / Vehicle
+Description: Net Present Value of the cost of the fovio DMS technology over its lifecycle~
+See Chapter 2: Technology and Life Cycle for details on how the values were derived
+Definition: Table(Sens_Tech_Cost)(100,175,400)
+NodeLocation: 256,240,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+DefnState: 2,194,338,613,303,0,DFNM
+ValueState: 2,436,442,416,303,0,MIDM
+ReformDef: [Sens_Tech_Cost,0]
+Att_EditSliceState: [Tech_Cost1,3,Discount_Rates,1,Sens_Tech_Cost,1]
+
+Text Te516570739
+Title: Unknown, varied value
+NodeLocation: 256,36,-1
+NodeSize: 104,12
+
+Text Te1590312563
+Title: Existing Estimate
+NodeLocation: 252,148,-1
+NodeSize: 84,12
+
+Text Te1053441651
+Description: Indexed by Discount Rate
+NodeLocation: 592,36,-1
+NodeSize: 96,12
+
+Alias Al518667891
+Title: Number of Total Vehicles
+NodeLocation: 248,296,1
+NodeSize: 64,24
+Original: num_vehicles
+
+Alias Al1592409715
+Title: Average vehicle years
+NodeLocation: 256,184,1
+NodeSize: 64,24
+Original: avg_lifetime
+
+Alias Al1055538803
+Title: Discount Rate
+NodeLocation: 256,72,1
+NodeSize: 64,24
+Original: Discount_Rate
+
+Close Costs1
+
+Variable Net_benefits_dms
+Title: Net Benefits (DMS)
+Units: Dollars
+Description: Cost Benefit analysis for a single year.~
+The benefits is the economic value of the crash reduction.~
+The costs are the net present value of the technology, annualized, in every vehicle
+Definition: dms_Benefits - dms_total_costs
+NodeLocation: 464,280,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+ValueState: 2,12,57,651,492,0,MIDM
+Aliases: Alias Al609894003
+ReformVal: [Enf,Model_Scenario]
+Att_ResultSliceState: [Discount_Rates,1,Cost_Type,2,Sens_Tech_Cost,2,Tech_Cost1,3,Model_Scenario,1,Enf,1]
+{!40600|Att_ClusterIndex: Model_Scenario}
+
+Text Te1914322547
+Description: This submodule is for the Driver Monitoring System (DMS). This model uses a simplified approach, only considering the existing distracted driving crashes. Instead of considering the crash rate of a trip after detection, detection is assumed to be 100% effective in preventing a crash. Likewise, resistance means that the crash will still occur.
+NodeLocation: 488,68,-1
+NodeSize: 312,36
+
+Text Te710753907
+Title: Existing Estimate
+NodeLocation: 116,148,-1
+NodeSize: 84,12
+
+Close Distracted_DMS
+
+Module Alcohol_Involved_NIR
+Title: Alcohol-Involved / NIR
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Wed, Nov 20, 2024 4:39 PM
+NodeLocation: 288,64,1
+NodeSize: 96,16
+DiagState: 2,0,231,1109,315,17,10
+
+Module A_of_Drunk_Trips
+Title: # of Drunk Trips
+Author: noah singer
+Date: Wed, Oct 9, 2024 1:14 PM
+NodeLocation: 112,72,1
+NodeSize: 72,24
+DiagState: 2,169,156,771,472,17,10
+NumberFormat: 2,D,7,2,0,0,7,0,$,0,"ABBREV",0,,,0,0,15,,0
+
+Variable ai_trips
+Title: Number of alcohol involved trips
+Units: Trips
+Description: Number of trips taken by a driver with a BAC > 0.00~
+Low estimate: 126M (https://www.cdc.gov/impaired-driving/facts/index.html)~
+High estimate: 941M (https://pmc.ncbi.nlm.nih.gov/articles/PMC6676697/)~
+Base: 534M (average of high/low)
+Definition: ai_trips_sens[sens_ai_trips='low AI']
+NodeLocation: 112,232,1
+NodeSize: 80,24
+WindState: 2,408,318,720,351
+ValueState: 2,100,106,416,303,,MIDM
+GraphSetup: {!40400|Sys_PdfSmoothMethod:1}
+
+Variable drunk_trips
+Title: Legally Drunk Trips
+Units: Trips
+Description: Trips with BAC > 0.08
+Definition: ai_trips - Buzzed_Trips
+NodeLocation: 488,232,1
+NodeSize: 64,24
+WindState: 2,300,524,720,350
+
+Variable Buzzed_Trips
+Title: Buzzed trips
+Units: trips
+Description: Number of trips with a driver BAC > 0.00 but less than 0.08
+Definition: ai_trips*buzzed_trip_percent
+NodeLocation: 488,168,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+ValueState: 2,98,440,416,303,,MIDM
+
+Variable total_trips
+Title: Total trips
+Units: Trips
+Description: Total number of trips made by all drivers
+Definition: total_trips_sens
+NodeLocation: 656,80,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+
+Variable Sober_trips
+Title: Sober trips
+Units: Trips
+Description: Number of trips with a driver BAC of 0.00
+Definition: total_trips - drunk_trips - buzzed_trips
+NodeLocation: 656,232,1
+NodeSize: 64,32
+WindState: 2,0,0,720,350
+ValueState: 2,40,50,400,300,0,MIDM
+NumberFormat: 2,D,7,2,0,0,7,0,$,0,"ABBREV",0,,,0,0,15,,0
+Att__TotalsIndex: []
+Att_ResultSliceState: [sens_buzzed_trip_percent,2,sens_total_trips,1,sens_ai_trips,1]
+
+Variable buzzed_trip_percent
+Title: Percent of AI trips with Driver BAC < 0.08
+Units: Percent
+Description: Percent of alcohol involved trips with a driver BAC below the legal limit (aka percent buzzed trips)~
+Low Value: 0.13 (obtained via data analysis, see chapter 4.2)~
+High Value: 0.86 (Guess)~
+Mid Value: 0.50 (average of low/high)
+Definition: buzzed_trip_percent_sens
+NodeLocation: 128,128,1
+NodeSize: 88,24
+WindState: 2,160,212,720,338
+ValueState: 2,822,81,416,304,,MIDM
+
+Variable low_drunk
+Title: Drunk drivers below 0.15
+Units: Percent
+Description: Percentage of drunk trips with 0.08 < BAC < 0.15
+Definition: .855
+NodeLocation: 200,344,1
+NodeSize: 64,24
+WindState: 2,98,82,720,350
+
+Variable High_drunk
+Title: Drunk drivers ABOVE 0.15
+Units: Percent
+Description: Percentage of drunk trips with driver BAC > 0.15
+Definition: 1 - low_drunk
+NodeLocation: 200,416,1
+NodeSize: 64,24
+
+Variable low_drunk_trips
+Title: Low Drunk Trips
+Units: trips
+Description: Number of drunk trips with 0.08 < BAC < 0.15
+Definition: drunk_trips*low_drunk
+NodeLocation: 488,344,1
+NodeSize: 72,24
+ValueState: 2,185,579,416,284,,MIDM
+
+Variable High_Drunk_trips
+Title: High Drunk Trips
+Units: trips
+Description: Number of drunk trips with driver BAC > 0.15
+Definition: drunk_trips*high_drunk
+NodeLocation: 488,416,1
+NodeSize: 72,24
+ValueState: 2,676,591,416,303,,MIDM
+
+Text Te2025086579
+Description: Submodule for calculating the number of buzzed, drunk, and sober trips. The drunk trips are then categorized into low-drunk and high-drunk
+NodeLocation: 284,36,-1
+NodeSize: 252,20
+
+Text Te1320443507
+Title: Existing, varied Estimate
+NodeLocation: 668,32,-1
+NodeSize: 84,24
+
+Text Te431251059
+Title: Unknown, varied value
+NodeLocation: 132,84,-1
+NodeSize: 108,12
+
+Text Te1500798579
+Title: Existing Estimate
+NodeLocation: 116,196,-1
+NodeSize: 84,12
+
+Text Te1639022963
+Title: Existing Estimate
+NodeLocation: 204,308,-1
+NodeSize: 84,12
+
+Close A_of_Drunk_Trips
+
+Module Detection
+Title: Detection
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Wed, Oct 9, 2024 3:38 PM
+NodeLocation: 280,72,1
+NodeSize: 64,24
+DiagState: 2,100,322,1106,493,17,10
+DisplayInputs: Index Enf
+
+Variable Bypass
+Title: Percent Trips Bypassed
+Units: Percent
+Description: How frequently the technology is bypassed based on type and enforcement level, as the bypass will only apply in high enforcement.~
+Base values come from Table 3.6.3. Low values were assumed to be 0, and high values were assumed to be two times the base values.
+Definition: sens_bypass
+NodeLocation: 184,272,1
+NodeSize: 56,24
+DefnState: 2,280,400,726,303,0,DFNM
+ValueState: 2,85,140,588,270,,MIDM
+ReformDef: [DriverType,Enf]
+Att__TotalsIndex: []
+Att_ResultSliceState: [bypass_sens,2,Enf,1,DriverType,1]
+Att_EditSliceState: [Enf,1,Privacy,1,Tech,1]
+
+Variable low_drunk_trip_bypass
+Title: Number of low drunk trips bypassed
+Units: Trips
+Description: Low Drunk trips that did not have a chance of being detected due to the technology being bypassed
+Definition: Bypass[DriverType='Drunk'] * low_drunk_trips
+NodeLocation: 392,184,1
+NodeSize: 80,32
+WindState: 2,98,82,720,350
+ValueState: 2,875,175,416,268,0,MIDM
+
+Variable de_low_drunk_trips
+Title: Correctly detected low drunk trips
+Units: Trips
+Description: Number of trips with 0.08 < BAC < 0.15 that are correctly identified by the technology, and the trip is detected
+Definition: detectable_low_drunk_trips - nd_low_drunk_trips 
+NodeLocation: 800,272,1
+NodeSize: 64,32
+WindState: 2,768,470,720,350
+ValueState: 2,656,372,390,227,,MIDM
+DisplayOutputs: Module Compliance
+Att_ResultSliceState: [bypass_sens,1,error_sens,1,sens_buzzed_trip_percent,1,Enf,1]
+
+Variable nd_low_drunk_trips
+Title: Incorrectly not detected low drunk Trips
+Units: Trips
+Description: Number of trips with 0.08 < BAC < 0.15 that are incorrectly identified by the technology, and the trip is not detected
+Definition: detectable_low_drunk_trips * NIR_errorrate * error_range_percent
+NodeLocation: 800,192,1
+NodeSize: 64,32
+WindState: 2,540,133,719,350
+ValueState: 2,89,53,838,338,,MIDM
+Aliases: Alias Al325401203
+ReformVal: [error_sens,Enf]
+Att_ResultSliceState: [error_sens,3,Enf,1,bypass_sens,1]
+
+Variable detectable_low_drunk_trips
+Title: Detectable Drunk Trips
+Units: Trips
+Description: Trips with 0.08 < BAC < 0.15 that were NOT bypassed
+Definition: low_drunk_trips - low_drunk_trip_bypass
+NodeLocation: 600,184,1
+NodeSize: 64,24
+WindState: 2,1016,24,720,350
+ValueState: 2,152,339,416,303,,MIDM
+
+Variable buzzed_trip_bypass
+Title: Number of Buzzed trips bypassed
+Units: Trips
+Description: Buzzed trips that did not have a chance of being detected due to the technology being bypassed
+Definition: Buzzed_Trips * bypass[DriverType='Buzzed']
+NodeLocation: 392,464,1
+NodeSize: 64,32
+WindState: 2,553,136,720,350
+ValueState: 2,378,425,932,304,,MIDM
+Att_ResultSliceState: [bypass_sens,1,sens_buzzed_trip_percent,1,Enf,1]
+
+Variable detectable_buzzed_trip
+Title: Detectable buzzed Trips
+Units: Trips
+Description: Trips with 0.0 < BAC < 0.08 that were NOT bypassed
+Definition: Buzzed_Trips - buzzed_trip_bypass
+NodeLocation: 592,464,1
+NodeSize: 64,24
+ValueState: 2,368,97,814,435,,MIDM
+
+Variable Falsely_detected_buzzed_trips
+Title: Incorrectly detected buzzed trips
+Units: Trips
+Description: Number of buzzed trips falsely identified as legally-drunk
+Definition: detectable_buzzed_trip * NIR_errorrate * error_range_percent
+NodeLocation: 800,464,1
+NodeSize: 64,32
+WindState: 2,627,174,719,350
+ValueState: 2,353,610,733,357,,MIDM
+ReformVal: [error_sens,Enf]
+Att_ResultSliceState: [bypass_sens,2,error_sens,1,Enf,1,sens_buzzed_trip_percent,3]
+
+Variable NIR_errorrate
+Title: Error Rate
+Units: Percent
+Description: NIR BAC technology error rate~
+Value is based on (https://www-nrd.nhtsa.dot.gov/pdf/ESV/Proceedings/27/27ESV-000293.pdf)
+Definition: errorratesens
+NodeLocation: 432,320,1
+NodeSize: 56,16
+ValueState: 2,293,243,416,303,,MIDM
+
+Variable high_drunk_trip_bypass
+Title: Number of high drunk trips bypassed
+Units: Trips
+Description: High-Drunk trips that did not have a chance of being detected due to the technology being bypassed
+Definition: Bypass * high_drunk_trips
+NodeLocation: 392,72,1
+NodeSize: 80,32
+WindState: 2,98,82,720,350
+ValueState: 2,656,175,635,268,0,MIDM
+
+Variable de_high_drunk_trip
+Title: Detectable High Drunk Trips
+Units: Trips
+Description: Trips with driver BAC > 0.15 that were NOT bypassed
+Definition: High_Drunk_trips - high_drunk_trip_bypass
+NodeLocation: 600,72,1
+NodeSize: 64,32
+ValueState: 2,152,339,416,303,,MIDM
+
+Variable Detected_Trips
+Title: Detected Trips
+Units: Trips
+Description: Total detected trips, including properly detected high/low drunk trips and incorrectly detected buzzed trips
+Definition: Table(DriverType)(0,Falsely_detected_buzzed_trips,de_low_drunk_trips,de_high_drunk_trip)
+NodeLocation: 1080,272,1
+NodeSize: 64,24
+WindState: 2,552,12,720,350
+DefnState: 2,149,478,416,283,0,DFNM
+ValueState: 2,491,305,639,303,,MIDM
+Aliases: Alias Al1305295475
+Att_ResultSliceState: [sens_buzzed_trip_percent,2,bypass_sens,3,error_sens,1,Enf,1,DriverType,1]
+
+{!50500|ArrowClass Arrow1595202163}
+{!50500|Att_HeadNode: Detected_Trips}
+{!50500|Att_TailNode: de_high_drunk_trip}
+
+Variable nd_buzzed_trip
+Title: Correctly not detected buzzed trisp
+Units: Trip
+Description: Number of buzzed trips correctly identified as under the legal limit
+Definition: detectable_buzzed_trip - Falsely_detected_buzzed_trips
+NodeLocation: 800,368,1
+NodeSize: 64,32
+WindState: 2,20,87,720,350
+ValueState: 2,127,187,776,196,,MIDM
+Aliases: Alias Al708129139
+ReformVal: [error_sens,Enf]
+Att_ResultSliceState: [sens_buzzed_trip_percent,1,bypass_sens,1,Enf,1,error_sens,1]
+
+Text Te1410096755
+Title: Unknown, varied value
+NodeLocation: 188,220,-1
+NodeSize: 60,20
+
+Text Te1175215731
+Title: Existing Estimate
+NodeLocation: 612,268,-3
+NodeSize: 84,12
+
+Text Te1292656243
+Description: Submodule for calculating the number of trips detected as over the legal limit. Only buzzed or low-drunk trips will be have error, as all sober trips are not detected and all high-drunk trips are detected.
+NodeLocation: 244,604,-1
+NodeSize: 220,36
+
+Text Te1166827123
+Description: Indexed by Driver Type & Enforcement Level
+NodeLocation: 1084,196,-1
+NodeSize: 84,28
+
+Variable error_range_percent
+Title: Percent of trips in error range
+Units: Percent
+Description: The percentage of buzzed trips between 0.078-0.080 and low drunk trips between 0.080-0.082~
+Percentage obtained from analysis of CRSS data. See Chapter 4.5.2 for more detail.
+Definition: .113
+NodeLocation: 600,320,1
+NodeSize: 64,32
+ValueState: 2,667,471,416,303,,MIDM
+
+{!50500|ArrowClass Arrow1791590771}
+{!50500|Att_HeadNode: Detected_Trips}
+{!50500|Att_TailNode: Falsely_detected_buzzed_trips}
+{!50500|Att_ArrowWayPoints: [Null,156.80140409679143]}
+
+Text Te1608089971
+Title: Existing, varied value
+NodeLocation: 448,280,-1
+NodeSize: 64,24
+
+Text Te887435635
+Description: Submodule for calculating the amount of detected trips. Note that a bypass value is applied prior to the technology's error rate is considered
+NodeLocation: 912,56,-1
+NodeSize: 192,40
+
+Close Detection
+
+Module Compliance
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Wed, Oct 9, 2024 3:38 PM
+NodeLocation: 448,72,1
+NodeSize: 64,24
+DiagState: 2,716,256,522,306,17,10
+DisplayInputs: Variable de_low_drunk_trips
+
+Variable driver_comp
+Title: Does the Driver Comply?
+Units: Percent
+Description: Probability that the driver will comply with the warning~
+Base values come Chapter 5.3.5.
+Definition: sens_comp
+NodeLocation: 128,160,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+DefnState: 2,244,250,656,303,0,DFNM
+ValueState: 2,241,317,775,303,,MIDM
+ReformVal: [Enf,DriverType]
+Att_ResultSliceState: [sens_compliance,1,DriverType,1,Enf,1]
+{!50000|Att_ColumnWidths: [,DriverType,\([,74])]}
+
+Variable c_trips
+Title: Compliance Trips
+Units: Trips
+Description: Trips where the driver complies with the warning
+Definition: Detected_Trips * driver_comp
+NodeLocation: 384,160,1
+NodeSize: 64,24
+WindState: 2,98,82,718,350
+ValueState: 2,505,275,660,303,,MIDM
+Aliases: Alias Al1684355699
+ReformVal: [DriverType,Enf]
+Att_ResultSliceState: [bypass_sens,1,error_sens,1,Enf,1,DriverType,1]
+
+Variable r_trips
+Title: Resistant Trips
+Units: Trips
+Description: Trips where the technology is activated but the driver does not comply
+Definition: Detected_Trips - c_trips
+NodeLocation: 384,240,1
+NodeSize: 64,24
+WindState: 2,98,82,707,350
+ValueState: 2,211,543,853,326,,MIDM
+Aliases: Alias Al1885682291
+ReformVal: [DriverType,Enf]
+Att_ResultSliceState: [sens_ai_trips,1,sens_buzzed_trip_percent,2,Enf,1,DriverType,1]
+
+Alias Al1305295475
+Title: Detected Trips
+NodeLocation: 128,232,1
+NodeSize: 64,24
+Original: Detected_Trips
+
+Text Te877420147
+Description: Submodule for calculating the number of trips where a driver did/did not comply (compliance/resistance).
+NodeLocation: 244,28,-1
+NodeSize: 236,20
+
+Text Te223108723
+Title: Unknown, varied value
+NodeLocation: 128,124,-1
+NodeSize: 112,12
+
+Text Te952917619
+Description: Indexed by Driver Type & Enforcement Level
+NodeLocation: 256,92,2
+NodeSize: 160,12
+
+Close Compliance
+
+Module Crash_Reduction
+Title: New Crash Condition
+Author: noah singer
+Date: Thu, Oct 10, 2024 10:56 AM
+NodeLocation: 608,72,1
+NodeSize: 64,24
+DiagState: 2,67,51,992,469,17,10
+
+Variable r_factor
+Title: Resistance Crash Reduction
+Units: Percent
+Description: How much does the crash percentage reduce when a driver is given a warning and does not heed it~
+Values were varied in sensitivity analysis
+Definition: r_factor_sens
+NodeLocation: 248,208,1
+NodeSize: 72,24
+WindState: 2,98,82,720,350
+ValueState: 2,227,212,581,304,,MIDM
+ReformVal: [Enf,DriverType]
+Att_ResultSliceState: [sens_rfactor,2,Enf,1,DriverType,1]
+
+Variable Bypass_trips
+Title: Bypassed Trips
+Units: Trips
+Description: Trips which have been bypassed indexed by the driver BAC level
+Definition: Table(DriverType)(Sober_trips*bypass,buzzed_trip_bypass,low_drunk_trip_bypass,high_drunk_trip_bypass)
+NodeLocation: 96,88,1
+NodeSize: 64,24
+DefnState: 2,574,332,415,303,0,DFNM
+ValueState: 2,1024,-13,789,303,,MIDM
+
+Alias Al1885682291
+Title: Driver resists
+NodeLocation: 96,256,1
+NodeSize: 64,24
+Original: r_trips
+
+Alias Al1684355699
+Title: Driver complies
+NodeLocation: 96,144,1
+NodeSize: 64,24
+Original: c_trips
+
+Alias Al325401203
+Title: Low Drunk Trips NOT detected
+NodeLocation: 96,360,1
+NodeSize: 64,32
+Original: nd_low_drunk_trips
+
+Variable new_bypass_crash
+Title: Bypassed Crashes
+Units: Crash
+Description: Total crashes in the new scenario for all drivers who bypassed the technology
+Definition: Bypass_trips * crashrate_bydriver
+NodeLocation: 400,88,1
+NodeSize: 64,24
+WindState: 2,115,307,720,350
+ValueState: 2,198,35,678,333,,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,3,bypass_sens,1,Crash_Types,1,DriverType,4]
+
+Variable c_crash
+Title: Compliant Crashes
+Units: Crash
+Description: Total crashes in the new scenario generated by drunk trips that were replaced with sober trips that would have not otherwise occured. These crashes are attributed to the level of AI trip that they replaced
+Definition: round(c_trips * (crashrate_bydriver[DriverType='Sober']),0)
+NodeLocation: 400,144,1
+NodeSize: 64,24
+WindState: 2,1105,187,720,350
+ValueState: 2,965,68,599,320,,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,2,bypass_sens,1,error_sens,2,Crash_Types,1,DriverType,1]
+
+Variable r_crash
+Title: Resistant Crashes
+Units: Crash
+Description: Total crashes in the new scenario for all trips in which the technology was activitated and the driver resisted the warning
+Definition: r_trips * (crashrate_bydriver * r_factor)
+NodeLocation: 400,256,1
+NodeSize: 64,24
+WindState: 2,942,564,720,350
+ValueState: 2,1102,343,555,356,,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,1,sens_ai_trips,3,sens_buzzed_trip_percent,2,Crash_Rate_Index,3,sens_rfactor,1,Crash_Types,1,DriverType,1]
+
+Variable nd_drunk_crash
+Title: Not Detected Drunk Crashes
+Units: Crash
+Description: Crashes from low drunk trips that were incorrectly not detected
+Definition: nd_low_drunk_trips * crashrate_bydriver[DriverType='Drunk']
+NodeLocation: 400,376,1
+NodeSize: 72,24
+WindState: 2,98,68,720,350
+ValueState: 2,604,329,712,316,,MIDM
+ReformVal: [Null,Crash_Types]
+Att_ResultSliceState: [bypass_sens,1,error_sens,3,Enf,1,Crash_Types,1]
+
+Variable nd_buzzed_crash
+Title: Not Detected buzzed Crashes
+Units: Crash
+Description: Crashes from buzzed trips that were correctly not detected
+Definition: nd_buzzed_trip * crashrate_bydriver[DriverType='Buzzed']
+NodeLocation: 400,440,1
+NodeSize: 72,24
+WindState: 2,526,209,720,350
+ValueState: 2,958,380,706,318,,MIDM
+ReformVal: [Enf,Crash_Types]
+Att__TotalsIndex: []
+Att_ResultSliceState: [bypass_sens,1,error_sens,1,Crash_Types,8,Enf,1]
+
+Module Submodel
+Title: Submodel
+Author: noah singer
+Date: Mon, Nov 11, 2024 8:54 PM
+NodeLocation: 608,248,1
+NodeSize: 64,24
+DiagState: 2,380,144,813,416,17,10
+
+Text Te583394931
+Title: ONLY FOR ORGANIZING THE NEW TOTAL
+NodeLocation: 232,40,-1
+NodeSize: 112,24
+
+Alias Al1201888883
+Title: New Total Crash
+NodeLocation: 728,200,1
+NodeSize: 72,24
+Original: new_total_crash
+
+Variable CRB_Crash
+Title: Compliance, Resistance, and Bypass Crash
+Units: Crash
+Definition: r_crash+c_crash+new_bypass_crash
+NodeLocation: 80,192,1
+NodeSize: 72,32
+ValueState: 2,335,573,634,399,,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,1,sens_rfactor,1,bypass_sens,1,error_sens,2,Crash_Types,1,DriverType,1]
+
+Variable subm_sober
+Title: Sober
+Definition: CRB_Crash[DriverType='Sober']
+NodeLocation: 456,88,1
+NodeSize: 64,24
+
+Variable subm_buzzed
+Title: Buzzed
+Definition: CRB_Crash[DriverType='Buzzed']+nd_buzzed_crash
+NodeLocation: 456,176,1
+NodeSize: 64,24
+
+Variable subm_drunk
+Title: Drunk
+Definition: CRB_Crash[DriverType='Drunk']+nd_drunk_crash
+NodeLocation: 456,296,1
+NodeSize: 64,24
+
+Variable subm_extreme
+Title: Extremely Drunk
+Definition: CRB_Crash[DriverType='Extremely Drunk']
+NodeLocation: 432,360,1
+NodeSize: 64,24
+
+Alias Al1104314739
+Title: Not Detected Drunk Crashes
+NodeLocation: 144,304,1
+NodeSize: 72,24
+Original: nd_drunk_crash
+
+Alias Al567443827
+Title: Not Detected buzzed Crashes
+NodeLocation: 168,104,1
+NodeSize: 72,24
+Original: nd_buzzed_crash
+
+Close Submodel
+
+Variable new_total_crash
+Title: New Total Crash
+Units: Crash
+Description: New total crashes indexed by driver BAC level
+Definition: Table(DriverType)(subm_sober,subm_buzzed,subm_drunk,subm_extreme)
+NodeLocation: 760,248,1
+NodeSize: 72,24
+ValueState: 2,257,340,683,432,0,MIDM
+Aliases: Alias Al1897085555, Alias Al2134499699
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,2,sens_rfactor,2,bypass_sens,2,error_sens,3,sens_buzzed_trip_percent,1,sens_total_trips,2,sens_compliance,2,Crash_Types,1,DriverType,1]
+{!50000|Att_ColumnWidths: [,DriverType,\([,,62])]}
+
+{!50500|ArrowClass Arrow304897651}
+{!50500|Att_HeadNode: Submodel}
+{!50500|Att_TailNode: new_bypass_crash}
+{!50500|Att_ArrowWayPoints: [1.7899106227136674,-147.03059992303474]}
+
+{!50500|ArrowClass Arrow1915510387}
+{!50500|Att_HeadNode: Submodel}
+{!50500|Att_TailNode: c_crash}
+{!50500|Att_ArrowWayPoints: [0,-163.55961673333059]}
+
+{!50500|ArrowClass Arrow439115379}
+{!50500|Att_HeadNode: Submodel}
+{!50500|Att_TailNode: nd_buzzed_crash}
+{!50500|Att_ArrowWayPoints: [-1.5911402717569547,Null]}
+
+{!50500|ArrowClass Arrow2049728115}
+{!50500|Att_HeadNode: Submodel}
+{!50500|Att_TailNode: nd_drunk_crash}
+{!50500|Att_ArrowWayPoints: [-18.17801913632826,Null]}
+
+Text Te19684979
+Title: Unknown, varied value
+NodeLocation: 256,172,-1
+NodeSize: 104,12
+
+Text Te858545779
+Description: Submodule for calculating the new total alcohol-involved crashes with the technology. The trips are categorized by bypass, compliance, resistance, and not-detected trips. ~
+The additional submodel is for organizing the data.
+NodeLocation: 692,64,-1
+NodeSize: 180,48
+
+Text Te564944499
+Description: Indexed by Driver Type & Enforcement Level
+NodeLocation: 108,36,-1
+NodeSize: 92,20
+
+Text Te1601527411
+Description: Indexed by Driver Type, Enforcement Level, and Crash Type
+NodeLocation: 396,36,-1
+NodeSize: 92,28
+
+Text Te385179251
+Description: Indexed by Driver Type, Enforcement Level, and Crash Type
+NodeLocation: 756,188,-1
+NodeSize: 92,28
+
+Text Te1576361587
+Description: Indexed by Enforcement Level & Crash Type
+NodeLocation: 456,324,-1
+NodeSize: 112,20
+
+Alias Al708129139
+Title: Correctly not detected buzzed trisp
+NodeLocation: 96,440,1
+NodeSize: 64,32
+Original: nd_buzzed_trip
+
+Close Crash_Reduction
+
+Module Costs
+Title: Costs
+Author: noah singer
+Date: Thu, Oct 10, 2024 10:56 AM
+NodeLocation: 632,256,1
+NodeSize: 64,24
+DiagState: 2,61,35,688,358,17,10
+
+Variable annual_tech_cost
+Title: Annual Technology Cost
+Units: Dollars / Vehicle
+Description: Total annualized cost for the installation and maintence of the NIR BAC technology in a single vehicle
+Definition: (NIR_Tech_Cost * Discount_Rate) / (1-(1/(1+Discount_Rate)^avg_lifetime))
+NodeLocation: 592,80,1
+NodeSize: 64,32
+ValueState: 2,70,293,716,308,0,MIDM
+ReformVal: [Sens_Tech_Cost,0]
+NumberFormat: 2,D,5,2,0,0,5,0,$,0,"ABBREV",0,,,0,0,15,,0
+
+Variable num_vehicles
+Title: Number of Total Vehicles
+Units: Vehicles
+Description: Total number of vehicles in the entire US driving fleet in a given year~
+Value: 275,936,367 (https://www.fhwa.dot.gov/policyinformation/statistics/2020/mv1.cfm)
+Definition: 275,936,367
+NodeLocation: 240,304,1
+NodeSize: 64,24
+Aliases: Alias Al518667891
+
+Variable Total_Costs
+Title: Total Costs
+Units: Dollars
+Description: Total cost of installing and maintaining the technology in all vehicles for a single year
+Definition: num_vehicles * annual_tech_cost
+NodeLocation: 592,304,1
+NodeSize: 64,24
+WindState: 2,88,145,720,350
+ValueState: 2,763,285,543,303,,MIDM
+Aliases: Alias Al1551055475
+Att_ResultSliceState: [Tech_Cost,1,Sens_Tech_Cost,1,Discount_Rates,1]
+
+Variable NIR_Tech_Cost
+Title: NIR Tech Cost
+Units: Dollars
+Description: Net Present Value of the cost of the NIR BAC technology over its lifecycle~
+See Chapter 2: Technology and Life Cycle for details on how the values were derived
+Definition: NIR_tech_sens
+NodeLocation: 240,248,1
+NodeSize: 64,24
+ValueState: 2,522,328,579,222,,MIDM
+ReformVal: [Sens_Tech_Cost,Tech_Cost]
+Att_ResultSliceState: [Tech_Cost,2,Discount_Rates,1,Sens_Tech_Cost,1]
+
+Variable avg_lifetime
+Title: Average vehicle years
+Units: Years
+Description: Average amount of years for a given vehicle to be on the road~
+Low: 13~
+Mid:25~
+High: 42 (Chapter 2: Technology and Lifecycle (section))~
+(placeholder values for lwo and mid)
+Definition: 13
+NodeLocation: 240,192,1
+NodeSize: 64,24
+WindState: 2,0,0,720,350
+ValueState: 2,116,122,416,303,,MIDM
+Aliases: Alias Al1592409715
+
+Variable Discount_Rate
+Title: Discount Rate
+Units: percent
+Description: Yearly Discount Rate~
+3%, 5%, and 7% were used
+Definition: 0.03
+NodeLocation: 240,80,1
+NodeSize: 64,24
+Aliases: Alias Al1055538803
+
+Text Te1129143923
+Title: Unknown, varied value
+NodeLocation: 256,36,-1
+NodeSize: 104,12
+
+Text Te994926195
+Title: Existing Estimate
+NodeLocation: 252,148,-1
+NodeSize: 84,12
+
+{!50500|ArrowClass Arrow147676787}
+{!50500|Att_HeadNode: annual_tech_cost}
+{!50500|Att_TailNode: Discount_Rate}
+{!50500|Att_ArrowWayPoints: [-3.576334433856043,Null]}
+
+Text Te885874291
+Description: Indexed by Discount Rate
+NodeLocation: 592,36,-1
+NodeSize: 96,12
+
+{!50500|ArrowClass Arrow1150770803}
+{!50500|Att_HeadNode: annual_tech_cost}
+{!50500|Att_TailNode: NIR_Tech_Cost}
+{!50500|Att_ArrowWayPoints: [0,145.17550688408093]}
+
+{!50500|ArrowClass Arrow345464435}
+{!50500|Att_HeadNode: annual_tech_cost}
+{!50500|Att_TailNode: avg_lifetime}
+{!50500|Att_ArrowWayPoints: [0.8951737173277154,162.64596964881466]}
+
+Variable NIR_tech_sens
+Title: NIR Technology Sensitivity
+Description: shit sophie did i dont get it
+Definition: Table(Sens_Tech_Cost,Tech_Cost)(~
+389.28118250339094,848.1766722488508,1891.193556482324,~
+288.0487070599769,703.5588501868308,1703.1903878016979,~
+233.35778611520539,625.4289631228714,1601.6215346185509)
+NodeLocation: 80,248,1
+NodeSize: 72,24
+DefnState: 2,95,282,693,303,0,DFNM
+ReformDef: [Sens_Tech_Cost,0]
+Att_ResultSliceState: [Tech_Cost,3,Sens_Tech_Cost,1,Discount_Rates,1]
+Att_EditSliceState: [Tech_Cost,2,Discount_Rates,1,Sens_Tech_Cost,1]
+
+Close Costs
+
+Module Benefits
+Title: Benefits
+Author: noah singer
+Date: Thu, Oct 10, 2024 10:56 AM
+NodeLocation: 808,72,1
+NodeSize: 64,24
+DiagState: 2,93,14,1339,505,17,10
+
+Variable crash_cat_cost
+Title: Crash Unit Cost
+Units: Dollars
+Description: Unit cost of crashes by different severieties~
+Source: (https://crashstats.nhtsa.dot.gov/Api/Public/ViewPublication/813403 pg:141)
+Definition: Table(Crash_Types,Cost_Type)(~
+5251,5251,~
+3252,3252,~
+20.524K,64.203K,~
+76.726K,507.61K,~
+296.557K,2.201186M,~
+706.705K,3.46049M,~
+1.004877M,6.534484M,~
+1.606644M,11.258495M)
+NodeLocation: 96,256,1
+NodeSize: 64,24
+WindState: 2,98,82,720,350
+DefnState: 2,372,134,416,547,0,DFNM
+ValueState: 2,964,356,416,303,,MIDM
+Aliases: Alias Al531775091, Alias Al1991893363
+ReformDef: [Cost_Type,Crash_Types]
+
+Variable ex_category_costs
+Title: Existing Crash Costs by cat
+Units: Dollars
+Description: Existing total cost of AI crashes indexed by crash severity
+Definition: (crash_cat_cost * (ex_total_Crash_count))
+NodeLocation: 736,88,1
+NodeSize: 80,24
+WindState: 2,121,252,720,350
+ValueState: 2,492,352,416,273,,MIDM
+ReformVal: [sens_ai_trips,Crash_Types]
+
+Alias Al1268988531
+Title: Existing Total AI Crash Count
+NodeLocation: 480,88,1
+NodeSize: 88,24
+Original: ex_total_Crash_count
+
+Variable ex_total_cost
+Title: Existing Total Cost of Crashes
+Description: Total cost of all existing AI crashes
+Definition: sum(ex_category_costs,Crash_Types)
+NodeLocation: 1080,88,1
+NodeSize: 64,32
+WindState: 2,679,525,720,350
+ValueState: 2,7,434,416,303,,MIDM
+Att__TotalsIndex: []
+
+Alias Al1897085555
+Title: New Total Crash
+NodeLocation: 232,408,1
+NodeSize: 72,24
+Original: new_total_crash
+
+Variable New_Total_Crash_Count
+Units: Crash
+Description: New crash totals indexed by crash severity
+Definition: sum(new_total_crash,DriverType)
+NodeLocation: 440,408,1
+NodeSize: 104,24
+WindState: 2,609,268,719,350
+ValueState: 2,474,22,850,368,,MIDM
+ReformVal: [Enf,Crash_Types]
+NumberFormat: 2,D,4,2,0,0,4,0,$,0,"ABBREV",0,,,0,0,15,,0
+Att_ResultSliceState: [sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_total_trips,2,sens_compliance,2,Crash_Types,1,Enf,1]
+{!50000|Att_ColumnWidths: [,Crash_Types,\([71,71,71,71,71,71,71,71])]}
+
+Variable new_category_costs
+Title: New Crash Costs
+Units: Dollars
+Description: New total cost of AI crashes indexed by crash severity
+Definition: (crash_cat_cost * (new_total_crash_count))
+NodeLocation: 736,408,1
+NodeSize: 80,24
+WindState: 2,704,265,720,350
+ValueState: 2,671,208,574,363,,MIDM
+ReformVal: [Cost_Type,Crash_Types]
+
+Variable new_total_cost
+Title: New Total Cost of Crashes
+Description: Total cost of AI crashes in new scenarios
+Definition: sum(new_category_costs,Crash_Types)
+NodeLocation: 1080,408,1
+NodeSize: 64,32
+WindState: 2,644,108,720,350
+ValueState: 2,580,337,765,303,,MIDM
+ReformVal: [sens_ai_trips,Enf]
+Att_ResultSliceState: [sens_total_trips,1,sens_buzzed_trip_percent,1,Crash_Rate_Index,1,Cost_Type,2,Enf,1,sens_ai_trips,1]
+
+Text Te1208835699
+Title: Existing Estimate
+NodeLocation: 116,212,-1
+NodeSize: 84,12
+
+{!50500|ArrowClass Arrow101539443}
+{!50500|Att_HeadNode: ex_category_costs}
+{!50500|Att_TailNode: crash_cat_cost}
+{!50500|Att_ArrowWayPoints: [Null,126.86990322915143]}
+
+Text Te789405299
+Description: Indexed by Enforcement Level & Crash Type
+NodeLocation: 436,460,2
+NodeSize: 92,20
+
+Text Te1720540787
+Description: Indexed by Driver Type, Enforcement Level, and Crash Type
+NodeLocation: 260,36,-1
+NodeSize: 132,20
+
+{!50500|ArrowClass Arrow1145921139}
+{!50500|Att_HeadNode: New_Total_Crash_Count}
+{!50500|Att_TailNode: Al1897085555}
+
+Text Te1965514355
+Description: Submodule for calculating the benefits of the technology, which are derived from crash reduction. Crashes are converted to dollars in this module using the unit cost of a crash
+NodeLocation: 724,28,-1
+NodeSize: 300,20
+
+Alias Al957350259
+Title: Existing AI crashes
+NodeLocation: 248,96,1
+NodeSize: 72,24
+Original: Existing_AI_crash
+
+Text Te1655013747
+Title: EXISTING CONDITIONS
+NodeLocation: 80,104,-1
+NodeSize: 64,24
+
+Text Te648380787
+Title: NEW CONDITIONS
+NodeLocation: 80,408,-1
+NodeSize: 64,24
+
+Text Te2019918195
+Description: Indexed by Driver Type, Enforcement Level, and Crash Type
+NodeLocation: 252,356,-1
+NodeSize: 132,20
+
+Module High_Drunk_Only
+Title: High-Drunk Only
+Author: noah singer~
+Carnegie Mellon Universtiy
+Date: Sun, Nov 24, 2024 11:26 PM
+NodeLocation: 1240,248,1
+NodeSize: 64,24
+DiagState: 2,205,151,1049,432,17,10
+
+Variable change_high_drunk_crash
+Title: Change in High Drunk Crashes
+Description: Difference in crashes by drivers with BAC>0.15 before and after the technology.
+Definition: Existing_AI_crash[DriverType='Extremely Drunk'] - new_total_crash[DriverType='Extremely Drunk']
+NodeLocation: 368,272,1
+NodeSize: 88,24
+ValueState: 2,204,213,700,370,,MIDM
+ReformVal: [Enf,Crash_Types]
+
+Alias Al154788211
+Title: Existing AI crashes
+NodeLocation: 136,224,1
+NodeSize: 72,24
+Original: Existing_AI_crash
+
+Alias Al2134499699
+Title: New Total Crash
+NodeLocation: 144,328,1
+NodeSize: 72,24
+Original: new_total_crash
+
+Alias Al1991893363
+Title: Crash Unit Cost
+NodeLocation: 352,192,1
+NodeSize: 64,24
+Original: crash_cat_cost
+
+Variable High_Drunk_Ben
+Title: High Drunk Benefits
+Units: Dollars
+Description: Benefits from the reduction in crashes for drivers with a BAC>0.15
+Definition: change_high_drunk_crash * crash_cat_cost
+NodeLocation: 592,232,1
+NodeSize: 104,24
+WindState: 2,98,82,720,350
+ValueState: 2,-2,483,702,406,,MIDM
+ReformVal: [Enf,Crash_Types]
+Att_ResultSliceState: [sens_compliance,3,sens_total_trips,2,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,1,Cost_Type,2,Crash_Types,1,Enf,1]
+
+Variable High_drunk_benefits_percent
+Title: High Drunk Benefits as percent of total
+Units: Percent
+Description: What percentage of the benefits are derived from the reduction of high crashes
+Definition: sum(High_Drunk_Ben,Crash_Types) / total_benefits
+NodeLocation: 584,312,1
+NodeSize: 112,24
+ValueState: 2,342,306,735,313,,MIDM
+ReformVal: [Enf,Null]
+Att_ResultSliceState: [sens_total_trips,2,sens_buzzed_trip_percent,2,sens_rfactor,1,bypass_sens,2,error_sens,3,sens_compliance,2,Cost_Type,2,Enf,1]
+
+Variable total_high_ben
+Title: Total High Drunk Benefits
+Units: Dollars
+Description: Benefits from crash reduction of high-drunk drivers only
+Definition: sum(High_Drunk_Ben,Crash_Types)
+NodeLocation: 816,216,1
+NodeSize: 88,24
+WindState: 2,222,191,720,350
+ValueState: 2,276,282,700,315,,MIDM
+ReformVal: [Enf,Null]
+Att_ResultSliceState: [sens_total_trips,2,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_compliance,1,Cost_Type,2,Enf,1]
+
+Text Te1930244467
+Description: Submodule for calculating the benefits of high-drunk crashes only. The goal of this is to see if a technology with a threshold of 0.15 would be profitable.
+NodeLocation: 304,72,-1
+NodeSize: 232,32
+
+Close High_Drunk_Only
+
+Module COMPARISON
+Title: COMPARISON
+NodeLocation: 736,240,1
+NodeSize: 64,24
+DiagState: 2,150,52,944,485,17,10
+
+Variable total_benefits
+Title: Total Benefits
+Units: Dollars
+Description: Total benefits from the crash reduction of the technology
+Definition: ex_total_cost- new_total_cost
+NodeLocation: 824,312,1
+NodeSize: 64,24
+WindState: 2,525,142,720,350
+ValueState: 2,64,80,632,293,0,MIDM
+Aliases: Alias Al175323763, Alias Al1354051955
+ReformVal: [Null,Enf]
+Att_ResultSliceState: [Cost_Type,2,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_total_trips,3,sens_compliance,3,Enf,1]
+
+Variable Benefits_crash_sev
+Title: Benefits by category
+Description: Different between old and new cost of crashes indexed by crash severity
+Definition: ex_category_costs - new_category_costs
+NodeLocation: 168,176,1
+NodeSize: 64,24
+WindState: 2,635,454,720,350
+ValueState: 2,280,118,728,422,0,MIDM
+ReformVal: [Enf,Crash_Types]
+Att_ResultSliceState: [sens_total_trips,2,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_compliance,2,Cost_Type,2,Crash_Types,1,Enf,1]
+{!40600|Att_ClusterIndex: Enf}
+
+Variable Total_Benefits_by_ca
+Title: Total Benefits by category
+Description: Difference between old and new cost of crashes indexed by crash severity and enforcement type
+Definition: Round((Existing_AI_crash-new_total_crash)*crash_cat_cost,0)
+NodeLocation: 520,232,1
+NodeSize: 64,24
+ValueState: 2,1008,161,571,441,,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,1,sens_total_trips,1,sens_buzzed_trip_percent,1,sens_rfactor,1,bypass_sens,2,error_sens,2,sens_compliance,1,Cost_Type,1,Crash_Types,1,DriverType,1]
+
+Text Te1980587635
+Description: Indexed by Crash Type, Driver BAC, and Enforcement Level
+NodeLocation: 564,132,-1
+NodeSize: 220,12
+
+Text Te822959731
+Title: Total Value
+NodeLocation: 824,252,-1
+NodeSize: 56,12
+
+Text Te927161971
+Description: Indexed by Enforcement Level
+NodeLocation: 832,276,2
+NodeSize: 112,12
+
+Variable Crash_Difference
+Title: Crash Difference
+Description: Decrease in crashes due to the technology
+Definition: (Existing_AI_crash - new_total_crash)
+NodeLocation: 520,176,1
+NodeSize: 64,24
+WindState: 2,571,55,720,350
+ValueState: 2,795,643,799,439,0,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_total_trips,2,sens_compliance,2,Enf,2,Crash_Types,1,DriverType,1]
+{!50000|Att_ColumnWidths: [,DriverType,\([,73])]}
+
+Text Te1369801075
+Description: Submodule used to organize the comparison between new and existing conditions. Results include the change in crashes, benefits by crash type and driver BAC, and Total Benefits
+NodeLocation: 364,32,-1
+NodeSize: 324,24
+
+Variable Benefits_PIF
+Title: Benefits by PDO, Injury, and Fatal
+Description: Benefits organized by PDO (property damage only), INJURY (MAIS 0-5), and FATAL crash types.~
+Note that all injury costs are stored in "MAIS 2" to avoid making another index for model simplicity.
+Definition: Table(Crash_Types)(Benefits_crash_sev[Crash_Types='PDO'],0,0,Benefits_crash_sev[Crash_Types='MAIS 0'] +Benefits_crash_sev[Crash_Types='MAIS 1'] + Benefits_crash_sev[Crash_Types='MAIS 2'] + Benefits_crash_sev[Crash_Types='MAIS 3'] + Benefits_crash_sev[Crash_Types='MAIS 4'] + ~
+Benefits_crash_sev[Crash_Types='MAIS 5'],0,0,0,Benefits_crash_sev[Crash_Types='FATAL'])
+NodeLocation: 168,384,1
+NodeSize: 64,32
+WindState: 2,588,184,720,350
+DefnState: 2,968,273,856,303,0,DFNM
+ValueState: 2,662,475,831,303,,MIDM
+Att_ResultSliceState: [sens_total_trips,2,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_compliance,2,Cost_Type,1,Enf,1,Crash_Types,1]
+{!50000|Att_ColumnWidths: [,Crash_Types,\([,,,68])]}
+
+Variable Cost_Crash_Diff
+Title: Benefits from crash reduction
+Units: Dollars
+Description: The dollar value of the reduction in crashes indexted by Driver Type, Crash Type, and Enforcement Level
+Definition: Crash_Difference*crash_cat_cost
+NodeLocation: 680,176,1
+NodeSize: 72,24
+ValueState: 2,1054,240,535,414,0,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [Enf,1,sens_total_trips,3,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,1,sens_compliance,2,Cost_Type,2,Crash_Types,1,DriverType,1]
+{!40600|Att_ClusterIndex: DriverType}
+
+Text Te2079666547
+Description: Indexed by Crash Type and Enforcement Level
+NodeLocation: 180,124,-1
+NodeSize: 116,20
+
+Text Te537735539
+Description: Indexed by Crash Type (PDO, INJURY, FATAL only) and Enforcement Level
+NodeLocation: 176,272,-1
+NodeSize: 144,24
+
+Close COMPARISON
+
+Alias Al1354051955
+Title: Total Benefits
+NodeLocation: 1032,240,1
+NodeSize: 64,24
+Original: total_benefits
+
+Close Benefits
+
+Module C_B
+Title: C / B
+Author: noah singer
+Date: Thu, Oct 24, 2024 3:30 PM
+NodeLocation: 808,248,1
+NodeSize: 64,24
+DiagState: 2,17,227,571,295,17,10
+
+Variable Net_Benefits_NIR
+Title: Net Benefits (NIR)
+Units: Dollars
+Description: Ruben Tejada
+Definition: total_benefits - Total_Costs
+NodeLocation: 232,176,1
+NodeSize: 64,24
+WindState: 2,670,500,720,350
+ValueState: 2,12,75,824,350,0,MIDM
+Aliases: Alias Al207240819
+ReformVal: [Enf,0]
+NumberFormat: 2,G,3,2,0,0,3,0,$,0,"ABBREV",0,,,0,0,15,,0
+Att_ResultSliceState: [Cost_Type,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_compliance,2,sens_buzzed_trip_percent,2,sens_total_trips,2,Tech_Cost,2,Sens_Tech_Cost,2,Discount_Rates,3,Enf,1]
+{!40600|Att_ClusterIndex: Discount_Rates}
+{!50000|Att_RowHeights: [,Enf,\([18,18,18])]}
+
+Alias Al1551055475
+Title: Total Costs
+NodeLocation: 136,72,1
+NodeSize: 64,24
+Original: Total_Costs
+
+Alias Al175323763
+Title: Total Benefits
+NodeLocation: 360,72,1
+NodeSize: 64,24
+Original: total_benefits
+
+Text Te2009947763
+Description: Indexed by Enforcement Level & Discount Rate
+NodeLocation: 240,124,-1
+NodeSize: 112,20
+
+{!50500|ArrowClass Arrow4415091}
+{!50500|Att_HeadNode: Net_Benefits_NIR}
+{!50500|Att_TailNode: Al175323763}
+{!50500|Att_ArrowWayPoints: [Null,-1.7899106227136674]}
+
+{!50500|ArrowClass Arrow541286003}
+{!50500|Att_HeadNode: Net_Benefits_NIR}
+{!50500|Att_TailNode: Al1551055475}
+{!50500|Att_ArrowWayPoints: [Null,-173.75808637177843]}
+
+Text Te339959411
+Description: Indexed by Discount Rate           Indexed by Enforcement Level
+NodeLocation: 264,48,-1
+NodeSize: 224,24
+
+Close C_B
+
+{!50500|ArrowClass Arrow1545751667}
+{!50500|Att_HeadNode: Costs}
+{!50500|Att_TailNode: Detection}
+{!50500|Att_ArrowWayPoints: [Null,179.1048267559561]}
+
+Module Existing_Crash_Condi
+Title: Existing Crash Conditions
+Author: noah singer
+Date: Fri, Nov 8, 2024 11:51 AM
+NodeLocation: 112,160,1
+NodeSize: 72,24
+DiagState: 2,62,130,1068,495,17,10
+
+Variable ex_total_crash
+Title: Existing Crash Count (by BAC)
+Units: Crash
+Description: Existing drunk crash count for drivers at varying BAC levels
+Definition: Table(Crash_Types,DriverType)(~
+16.54794M,525.177K,2.215022M,0,~
+3.882996M,123.227K,51.978K,0,~
+3.493366M,96.899K,285K,0,~
+354.328K,12.247K,60.544K,0,~
+106.641K,4583,29.943K,0,~
+14.441K,633,4211,0,~
+4549,278,2360,0,~
+22.281K,2062,12.157K,0)
+NodeLocation: 160,144,1
+NodeSize: 88,24
+WindState: 2,98,82,720,350
+DefnState: 2,87,298,416,303,0,DFNM
+ValueState: 2,162,151,572,303,,MIDM
+ReformDef: [DriverType,Crash_Types]
+ReformVal: [DriverType,Crash_Types]
+{!50000|Att_ColumnWidths: [,DriverType,\([112,73,107])]}
+
+Variable ex_Drunk_Crash_Freq
+Title: Existing AI Crash Frequency
+Units: Percent
+Description: Type of crash frequency for drivers of varying BAC levels
+Definition: ex_total_crash / sum(ex_total_crash,Crash_Types)
+NodeLocation: 96,352,1
+NodeSize: 80,24
+ValueState: 2,858,429,416,303,,MIDM
+ReformVal: [DriverType,Crash_Types]
+
+Variable ex_total_Crash_count
+Units: Crash
+Description: Total existing crashes with driver BAC > 0 indexed by crash type
+Definition: ex_total_crash[DriverType = 'Drunk'] + ex_total_crash[DriverType = 'Buzzed'] 
+NodeLocation: 96,280,1
+NodeSize: 72,32
+ValueState: 2,866,85,416,303,,MIDM
+Aliases: Alias Al1268988531
+ReformVal: [Self,Crash_Types]
+
+Variable low_drunk_crashrate
+Title: Low Drunk Crash Rate
+Units: Percent
+Description: Percentage of low drunk trips that result in a crash
+Definition: ex_total_crash[DriverType='Drunk'] / (low_drunk_trips + ((High_Drunk_Risk/low_drunk_risk)*High_Drunk_trips))
+NodeLocation: 456,248,1
+NodeSize: 64,24
+WindState: 2,98,82,720,350
+ValueState: 2,388,429,416,303,,MIDM
+ReformVal: [sens_buzzed_trip_percent,Crash_Types]
+
+Variable sober_crashrate
+Title: Sober Crash Rate
+Units: Percent
+Description: Percentage of sober trips that result in a collision
+Definition: ex_total_crash[DriverType = 'Sober'] / Sober_trips
+NodeLocation: 456,112,1
+NodeSize: 64,24
+ValueState: 2,753,267,416,292,,MIDM
+
+Variable buzzed_crashrate
+Title: Buzzed Crash Rate
+Units: CRASH
+Description: buzzed crash rate
+Definition: ex_total_crash[DriverType='Buzzed'] / Buzzed_Trips
+NodeLocation: 456,176,1
+NodeSize: 64,24
+ValueState: 2,186,387,416,303,,MIDM
+
+Variable high_drunk_crashrate
+Title: High Drunk Crash Rate
+Units: Percent
+Description: Percentage of high drunk trips that result in a crash
+Definition: low_drunk_crashrate * (High_Drunk_Risk/low_drunk_risk)
+NodeLocation: 456,344,1
+NodeSize: 64,24
+WindState: 2,58,517,720,350
+ValueState: 2,819,410,416,303,,MIDM
+ReformVal: [Undefined,Crash_Types]
+
+Variable low_drunk_risk
+Title: Low Drunk Relative Risk
+Units: Relative Crash Risk
+Description: see Bloomber et al., 2009~
+(https://www.sciencedirect.com/science/article/pii/S0022437509000723)
+Definition: (6.41+8.9)/2
+NodeLocation: 280,344,1
+NodeSize: 72,24
+ValueState: 2,483,563,416,303,,MIDM
+
+Variable High_Drunk_Risk
+Title: High Drunk Relative Risk
+Units: Relative Crash Risk
+Description: see Bloomber et al., 2009~
+(https://www.sciencedirect.com/science/article/pii/S0022437509000723)
+Definition: (81.7+99.78)/2
+NodeLocation: 280,248,1
+NodeSize: 72,24
+ValueState: 2,828,315,416,303,,MIDM
+
+Variable low_drunk_crash
+Title: Low Drunk Crashes
+Description: Existing number of crashes for trips with 0.08 < BAC < 0.15
+Definition: low_drunk_crashrate * low_drunk_trips
+NodeLocation: 664,248,1
+NodeSize: 72,24
+ValueState: 2,953,372,416,303,,MIDM
+
+Variable high_drunk_crash
+Title: High Drunk Crashes
+Units: Crash
+Description: Existing number of crashes for trips with driver BAC > 0.15
+Definition: high_drunk_crashrate * High_Drunk_trips
+NodeLocation: 656,344,1
+NodeSize: 72,24
+WindState: 2,566,247,720,350
+ValueState: 2,510,380,415,303,,MIDM
+
+Variable crashrate_bydriver
+Title: Existing Crashrate by Driver BAC
+Description: Crash rate of all drivers indexed by BAC level
+Definition: Table(DriverType)(sober_crashrate,buzzed_crashrate,low_drunk_crashrate,high_drunk_crashrate)
+NodeLocation: 680,160,1
+NodeSize: 80,24
+WindState: 2,105,289,720,350
+DefnState: 2,151,267,416,303,0,DFNM
+ValueState: 2,652,158,583,466,,MIDM
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [sens_buzzed_trip_percent,1,sens_total_trips,1,Crash_Types,1,DriverType,1]
+
+Variable Existing_AI_crash
+Title: Existing AI crashes
+Units: Crash
+Description: Total existing AI crashes, with drunk crashes divided into low/high drunk
+Definition: Table(DriverType)(0,ex_total_crash[DriverType='Buzzed'],low_drunk_crash,high_drunk_crash)
+NodeLocation: 856,160,1
+NodeSize: 72,24
+WindState: 2,98,82,720,350
+DefnState: 2,305,400,416,303,0,DFNM
+ValueState: 2,36,459,574,364,,MIDM
+Aliases: Alias Al957350259, Alias Al154788211
+ReformVal: [DriverType,Crash_Types]
+Att_ResultSliceState: [sens_ai_trips,2,sens_buzzed_trip_percent,1,Crash_Types,1,DriverType,1]
+
+Text Te668425843
+Description: Submodel for calculating existing crashrates and crashes. ~
+The sober and buzzed crashrates are based on the existing number of crashes and the estimated number of trips.~
+Drunk crashes are divided into low (0.08-0.15) and high (>0.15) crash rates and trips using relative risk
+NodeLocation: 640,36,-1
+NodeSize: 400,28
+
+Text Te1370971763
+Description: "A relative risk function is determined that indicates the~
+likelihood of a driver at a specified BAC becoming involved in a crash compared to~
+similar drivers under the same conditions at .00 BAC"
+NodeLocation: 388,424,-1
+NodeSize: 196,40
+
+Text Te1369202291
+Title: Existing Estimate
+NodeLocation: 156,100,-3
+NodeSize: 84,12
+
+{!50500|ArrowClass Arrow1341227379}
+{!50500|Att_HeadNode: Existing_AI_crash}
+{!50500|Att_TailNode: ex_total_crash}
+{!50500|Att_ArrowWayPoints: [Null,Null,0.3137254901960784,-72,0.7450980392156863,-72]}
+{!50500|Att_ArrowProperties: 0}
+
+{!50500|ArrowClass Arrow1141473651}
+{!50500|Att_HeadNode: crashrate_bydriver}
+{!50500|Att_TailNode: high_drunk_crashrate}
+{!50500|Att_ArrowWayPoints: [Null,163.65182428712575]}
+
+{!50500|ArrowClass Arrow873038195}
+{!50500|Att_HeadNode: crashrate_bydriver}
+{!50500|Att_TailNode: low_drunk_crashrate}
+{!50500|Att_ArrowWayPoints: [Null,173.5812117930318]}
+
+{!50500|ArrowClass Arrow1275691379}
+{!50500|Att_HeadNode: crashrate_bydriver}
+{!50500|Att_TailNode: buzzed_crashrate}
+{!50500|Att_ArrowWayPoints: [Null,-174.9993503100232]}
+
+{!50500|ArrowClass Arrow470385011}
+{!50500|Att_HeadNode: crashrate_bydriver}
+{!50500|Att_TailNode: sober_crashrate}
+{!50500|Att_ArrowWayPoints: [Null,-167.70473559720625]}
+
+Close Existing_Crash_Condi
+
+{!50500|ArrowClass Arrow1263852147}
+{!50500|Att_HeadNode: Crash_Reduction}
+{!50500|Att_TailNode: Existing_Crash_Condi}
+{!50500|Att_ArrowWayPoints: [-3.179830213149167,106.2602035596098,0.9838709677419355,0.09090909090909091]}
+{!50500|Att_ArrowProperties: 0}
+
+{!50500|ArrowClass Arrow1824602739}
+{!50500|Att_HeadNode: Benefits}
+{!50500|Att_TailNode: Existing_Crash_Condi}
+{!50500|Att_ArrowWayPoints: [6.340191825842859,Null,0.7011494252873564,9]}
+{!50500|Att_ArrowProperties: 0}
+
+{!50500|ArrowClass Arrow936983155}
+{!50500|Att_HeadNode: Existing_Crash_Condi}
+{!50500|Att_TailNode: A_of_Drunk_Trips}
+{!50500|Att_ArrowWayPoints: [Null,-90.00000250447816]}
+
+Text Te303259251
+Title: Variables are classified as:
+NodeLocation: 144,260,-1
+NodeSize: 120,12
+
+Text Te370368115
+Description: Existing Estimate: Values obtained via sources or data anlysis~
+Unknown/Varied: Values varied with sensitivity analysis without sources~
+All other variables with inputs (arrows pointing IN to them) are obtained via calculations you can view by clicking into a module
+NodeLocation: 284,320,-1
+NodeSize: 260,40
+
+Text Te414989939
+Title: NIR BAC
+NodeLocation: 464,28,-1
+NodeSize: 64,12
+
+Close Alcohol_Involved_NIR
+
+Index Tech_Cost
+Att_PrevIndexValue: ['Low Tech Cost','Mid Tech Cost','High Tech Cost']
+Title: Tech Cost
+Definition: ['Low Tech Cost','Mid Tech Cost','High Tech Cost']
+NodeLocation: 72,352,1
+NodeSize: 64,24
+
+Module Sensitivity_Indexes
+Title: Sensitivity Indexes
+Author: noah singer
+Date: Wed, Nov 20, 2024 10:16 AM
+NodeLocation: 96,64,1
+NodeSize: 64,24
+DiagState: 2,17,129,1196,273,17,10
+
+Index Sens_Tech_Cost
+Att_PrevIndexValue: ['Low Vehicle Lifetime','Mid Vehicle Lifetime','High Vehicle Lifetime']
+Title: Tech Lifetime (Sensitivity)
+Description: This varies the cost, which was generated by varying the lifetime
+Definition: ['Low Vehicle Lifetime','Mid Vehicle Lifetime','High Vehicle Lifetime']
+NodeLocation: 96,216,1
+NodeSize: 72,24
+
+Index sens_ai_trips
+Att_PrevIndexValue: ['low AI','mid AI','high AI']
+Title: AI Trips (sensitivity)
+Definition: ['low AI','mid AI','high AI']
+NodeLocation: 72,40,1
+NodeSize: 64,24
+
+Variable ai_trips_sens
+Title: Number of AI trips (sensitivity)
+Units: Trips
+Description: Sensitivty analysit for the number of AI trips~
+Set ai_trips to equal this to "activate" the variable
+Definition: Table(sens_ai_trips)(126.386691M,534.050238M,941.713784M)
+NodeLocation: 80,120,1
+NodeSize: 64,32
+
+Index sens_total_trips
+Att_PrevIndexValue: ['low Total Trip','mid Total Trip','high Total Trip']
+Title: Total Trips (sensitivity)
+Units: Trip
+Definition: ['low Total Trip','mid Total Trip','high Total Trip']
+IndexVals: ['item 1']
+NodeLocation: 216,40,1
+NodeSize: 64,24
+
+Variable total_trips_sens
+Title: Number of Total trips (sensitivity)
+Units: Trips
+Description: Sensitivty analysis for the number of Total trips~
+Add "_sens" to the end of the variable to 'activate' the sensitivty
+Definition: Table(sens_total_trips)(224.335917104G,320.489726787G,416.643536471G)
+NodeLocation: 216,128,1
+NodeSize: 64,32
+ValueState: 2,420,426,416,303,,MIDM
+
+Index sens_buzzed_trip_percent
+Title: Buzzed Trip Percent (sensitivity)
+Units: Trip
+Definition: ['low percent buzzed','mid percent buzzed','high percent buzzed']
+IndexVals: ['item 1']
+NodeLocation: 368,40,1
+NodeSize: 80,24
+WindState: 2,0,0,720,350
+{!40300|Att_SlicerPopupSize: 227,64}
+
+Variable buzzed_trip_percent_sens
+Title: Buzzed Trip Percent (sensitivity)
+Units: Percent
+Description: Sensitivty analysis for the percent of AI trips with driver BAC < 0.08~
+Add "_sens" to the end of the variable to 'activate' the sensitivty
+Definition: Table(sens_buzzed_trip_percent)(0.13,0.5,0.86)
+NodeLocation: 360,120,1
+NodeSize: 64,32
+WindState: 2,0,0,720,350
+
+Index sens_rfactor
+Title: Resistance Factor (sensitivity)
+Units: Percent
+Definition: ['low r factor','mid r factor','high r factor']
+IndexVals: ['item 1']
+NodeLocation: 536,40,1
+NodeSize: 80,24
+WindState: 2,0,0,720,350
+
+Variable r_factor_sens
+Title: Resistance Factor (sensitivity)
+Units: Percent
+Description: Sensitivty analysis for the resistance factor~
+Add "_sens" to the end of the variable to 'activate' the sensitivty
+Definition: Table(Enf,DriverType,sens_rfactor)(~
+1,1,1,~
+1,0.9,0.8,~
+1,0.9,0.8,~
+1,0.95,0.9,~
+1,1,1,~
+0.9,0.75,0.5,~
+0.9,0.75,0.5,~
+0.95,0.8,0.6,~
+0,0,0,~
+1,1,0,~
+1,1,0,~
+1,1,0)
+NodeLocation: 536,120,1
+NodeSize: 64,32
+WindState: 2,0,0,720,350
+DefnState: 2,40,50,685,300,0,DFNM
+ReformDef: [Enf,DriverType]
+Att_EditSliceState: [sens_rfactor,3,DriverType,1,Enf,3]
+{!50000|Att_ColumnWidths: [,Enf,\([67,66,94])]}
+
+Text Te1933590131
+Description: Submodule for sensitivity analysis indexes and variables. For information on where the values come from, refer to the non-sensitivity variable description.
+NodeLocation: 948,224,-1
+NodeSize: 236,32
+
+Variable avg_lifetime_sens
+Title: Average Vehicle Lifetime (sensitivity)
+Definition: Table(Average_Lifetime)(12,14,16)
+NodeLocation: 696,120,1
+NodeSize: 64,40
+WindState: 2,0,0,720,350
+DefnState: 2,40,50,400,300,0,DFNM
+
+Index Average_Lifetime
+Att_PrevIndexValue: ['Low Lifetime','Med Lifetime','High Lifetime']
+Title: Average Lifetime (sensitivity)
+Description: Add "_sens" to the end of the variable to 'activate' the sensitivty
+Definition: ['Low Lifetime','Med Lifetime','High Lifetime']
+NodeLocation: 712,40,1
+NodeSize: 64,32
+WindState: 2,0,0,720,350
+
+Variable sens_bypass
+Title: Bypass (sensitivity)
+Description: Variations in the bypass rate to account of unknown conditions.~
+Low Values: No bypass at all~
+High Values: Kind of given in Chapter 2~
+Mid: Average of high/low~
+
+Definition: Table(Enf,DriverType,bypass_sens)(~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0,0,~
+0,0.05,0.1,~
+0,0.05,0.1,~
+0,0.11,0.22)
+NodeLocation: 1032,128,1
+NodeSize: 64,24
+DefnState: 2,149,388,853,303,0,DFNM
+ValueState: 2,552,136,674,303,,MIDM
+ReformDef: [Enf,DriverType]
+Att_ResultSliceState: [bypass_sens,3,Enf,1,DriverType,1]
+Att_EditSliceState: [bypass_sens,2,DriverType,1,Enf,1]
+{!50000|Att_ColumnWidths: [,Enf,\([185])]}
+
+Index bypass_sens
+Att_PrevIndexValue: ['low bypass','mid bypass','high bypass']
+Title: bypass_sens
+Definition: ['low bypass','mid bypass','high bypass']
+NodeLocation: 1048,48,1
+NodeSize: 64,24
+
+Index error_sens
+Title: error rate sensitivity
+Definition: ['low error','mid error','high error']
+IndexVals: ['item 1']
+NodeLocation: 880,40,1
+NodeSize: 64,24
+
+Variable errorratesens
+Title: Error Rate (sensitivity)
+Description: Sensitivity Value of the error rates~
+Low error assumes measurements >3 standard deviations away from 0.08 will be wrong~
+Medium error assumes >2 SD will be wrong~
+High error Assumes  >1 SD
+Definition: Table(error_sens)((1-.999426696856)/2,(1-.9973)/2,(1-.3173)/2)
+NodeLocation: 856,120,1
+NodeSize: 64,24
+WindState: 2,98,82,720,350
+ValueState: 2,579,352,416,303,,MIDM
+
+Index sens_compliance
+Att_PrevIndexValue: ['Low Compliance','Mid Compliance','High Compliance']
+Title: Compliance (Sensitivity)
+Definition: ['Low Compliance','Mid Compliance','High Compliance']
+NodeLocation: 384,200,1
+NodeSize: 72,24
+WindState: 2,485,120,720,350
+{!40300|Att_SlicerPopupSize: 227,64}
+
+Variable sens_comp
+Title: Compliance (sensitivity)
+Definition: Table(Enf,DriverType,sens_compliance)(~
+1,1,1,~
+0.12,0.24,1,~
+0.12,0.24,1,~
+0.06,0.12,1,~
+1,1,1,~
+0.39,0.78,1,~
+0.39,0.78,1,~
+0.35,0.71,1,~
+1,1,1,~
+1,1,1,~
+1,1,1,~
+1,1,1)
+NodeLocation: 376,248,1
+NodeSize: 64,24
+WindState: 2,620,138,720,350
+DefnState: 2,388,394,658,303,0,DFNM
+ValueState: 2,180,186,631,303,,MIDM
+ReformDef: [DriverType,Enf]
+Att_ResultSliceState: [sens_compliance,2,Enf,1,DriverType,1]
+Att_EditSliceState: [sens_compliance,3,Enf,1,DriverType,1]
+
+Close Sensitivity_Indexes
+
+Alias Al609894003
+Title: C / B
+NodeLocation: 456,128,1
+NodeSize: 64,24
+Original: Net_benefits_dms
+
+Alias Al207240819
+Title: Net Benefits
+NodeLocation: 600,64,1
+NodeSize: 64,24
+Original: Net_Benefits_NIR
+
+Text Te878526067
+Title: Variables are classified as:
+NodeLocation: 328,228,-1
+NodeSize: 120,12
+
+Text Te1952267891
+Description: Existing Estimate: Values obtained via sources or data anlysis~
+~
+Unknown/Varied: Values varied with sensitivity analysis without sources~
+~
+All other variables with inputs (arrows pointing IN to them) are obtained via calculations you can view by clicking into a module
+NodeLocation: 468,304,-1
+NodeSize: 260,56
+
+Index Cost_Type
+Att_PrevIndexValue: ['Economic','Comprehensive']
+Title: Cost Type
+Description: Comprehensive is economic + QALY (Quality adjusted life years)
+Definition: ['Economic','Comprehensive']
+NodeLocation: 80,296,1
+NodeSize: 64,24
+{!40300|Att_SlicerPopupSize: 237,48}
+
+Variable Combine_Net_Benefits
+Title: Combine Net Benefits
+Units: Dollars
+Definition: Net_benefits_dms + Net_Benefits_NIR
+NodeLocation: 600,128,1
+NodeSize: 64,24
+ValueState: 2,84,90,744,512,,MIDM
+ReformVal: [Enf,Null]
+NumberFormat: 2,D,5,2,0,0,5,0,$,0,"ABBREV",0,,,0,0,15,,0
+Att_ResultSliceState: [Model_Scenario,1,Tech_Cost1,2,Sens_Tech_Cost,2,Tech_Cost,2,sens_total_trips,2,sens_buzzed_trip_percent,2,sens_rfactor,2,bypass_sens,2,error_sens,2,sens_compliance,2,Cost_Type,1,Discount_Rates,1,Enf,1]
+
+Close Drunk_Driving_C_B
+

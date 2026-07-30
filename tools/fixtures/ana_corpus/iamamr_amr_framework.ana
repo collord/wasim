@@ -1,0 +1,326 @@
+{ Analytica Model iAMAMR_FRAMEWORK, encoding="UTF-8" }
+SoftwareVersion 6.4.8
+
+{!-60000|Attribute AcpStyles}
+Attribute Reference
+Title: Note
+
+
+AskAttribute Reference,Function,Yes
+AskAttribute Reference,Module,Yes
+AskAttribute Reference,Variable,Yes
+
+LinkModule iAMAMR_FRAMEWORK
+Title: iAM.AMR Framework
+Author: Brennan Chapman~
+PHAC
+Date: Thu, Sep 26, 2024 12:13 PM
+DefaultSize: 48,24
+NodeSize: 336,16
+NodeInfo: 1,,,,0,,,,,,0
+DiagState: 2,0,0,1264,656,17,10
+NodeColor: 39321,1,1
+FontStyle: Arial,13
+FileInfo: 0,LinkModule iAMAMR_FRAMEWORK,2,2,0,0,C:\iAM.AMR Framework.ana
+NodeFontColor: 65535,65535,65535
+
+Index factor_fields
+Att_PrevIndexValue: ['Factor Group','Reference Group','Odds Ratio','exp (SE Log OR)','Significance']
+Title: Factor Fields
+Description: This index sets the fields used to define a factor / resistance outcome.
+Definition: ['Factor Group','Reference Group','Odds Ratio','exp (SE Log OR)','Significance']
+IndexVals: ['item 1']
+NodeLocation: 128,88,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+Reference: Frequency is not captured here because frequency relates to the factor, not the resistance outcomes described in the table.~
+Changes to the Factor Group, Reference Group, Odds Ratio, or exp (SE Log OR) must be propegated to interface nodes, which text-match to slice tables.
+
+Index factor_status
+Att_PrevIndexValue: ['As Defined','Alternate','Not Included']
+Title: Factor Status
+Description: This index defines possible factor statuses.
+Definition: ['As Defined','Alternate','Not Included']
+NodeLocation: 400,88,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+Reference: 'As Defined' refers to factors applied as described by the source. ~
+'Alternate' refers to factors applied in the opposite direction as described by the source.~
+For example, if the effect of exposure to A is described by a factor, the alternate exposure is no exposure to A.~
+Factors that are 'Not Included' are removed from calculations in the model.
+
+Index interface
+Att_PrevIndexValue: ['Factor Name','Group Allocation','Reference Group','Factor Group','OR','Frequency']
+Title: Interface
+Description: This index sets the fields shown in interface nodes.
+Definition: ['Factor Name','Group Allocation','Reference Group','Factor Group','OR','Frequency']
+IndexVals: ['item 1']
+NodeLocation: 264,88,1
+NodeSize: 64,24
+NodeInfo: 1,,0,,0
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+
+Function selectivelyEvaluate(source: Array)
+Title: Selectively Evaluate
+Description: Selectively evaluate source by re-indexing source indices by cooresponding selection indices (where they exist).
+Definition: /* Get a list of indices (as handles) of the sourceTable. */ ~
+VAR sourceIndices     := IndexesOf(source);~
+~
+/* Convert the list of index handles into a list of text (lowercase). */~
+VAR sourceIndexNames  := TextLowerCase(sourceIndices);~
+~
+/* For each index of sourceTable... */~
+FOR sourceIndexName   := sourceIndexNames DO (~
+~
+	/* Get the handle of the index. */~
+	LocalAlias sourceIndex := HandleFromIdentifier(IDENTIFIER OF sourceIndexName);	~
+~
+	/* Get the name of the cooresponding selection index. */~
+	VAR selectionIndexName := sourceIndexName & "_selection";~
+~
+	/* If the selection index exists (i.e., the handle is defined ... */~
+	IF (NOT IsUndef( HandleFromIdentifier(selectionIndexName) )) THEN (~
+~
+		/* Get the handle of the selection index. */~
+		LocalAlias selectionIndex := HandleFromIdentifier(IDENTIFIER OF selectionIndexName);~
+		~
+		/* Re-index sourceTable. */~
+		source := source[sourceIndex = selectionIndex];~
+   );~
+~
+);~
+~
+source
+NodeLocation: 400,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+Reference: The selective evaluation system is enabled through the creation of a selection index with matching identifier (‘indexidentifier_selection’).
+
+Function includedFactors(factorStatus)
+Title: Included Factors
+Description: Get an index of included factors from a factor status node.
+Definition: Subset(factorStatus <> 'Not Included')
+NodeLocation: 536,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function frequencyTree(~
+factorsNode: Index;~
+factorStatusNode;~
+frequencyNode;~
+)
+Description: Generate a frequency tree.
+Definition: /* Get included factors. */~
+INDEX factors     := includedFactors(factorStatusNode);~
+~
+/* Get frequencies for included factors. */~
+VAR frequencies := frequencyNode[factorsNode = factors];~
+~
+/* Make a frequency tree. */~
+fTree(frequencies, factors)
+NodeLocation: 536,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function oddsRatioTree(oddsRatios; factors: index)
+Title: oddsRatio Tree
+Description: Generate the product of the powerset of all odds ratios; make an odds ratio tree.
+Definition: /* Get the number of factors. */~
+VAR     numberOfFactors := Size(factors); ~
+~
+/* The tree will have 2 ^ numberOfFactors leaves. */ ~
+/* Generate an index of length 2 ^ numberOfFactors. */~
+INDEX   leafNumber      := 1..(2 ^ numberOfFactors);~
+~
+/* Generate a tree (an array) of length 2 ^ numberOfFactors. */~
+/* Initialize with (1). */~
+VAR    orTree           := Array(leafNumber, 1);~
+~
+/* For each factor .. */~
+FOR    factorPosition   := 1..numberOfFactors DO (~
+~
+	/* Get the factor's odds ratio (by position). */~
+	VAR oddsRatio        := Slice(oddsRatios, factors, factorPosition);~
+~
+	/* Get the number of existing leaves on the tree. */~
+	/* For each existing leaf, a new leaf will be added. */~
+	VAR numberOfLeaves   := 2 ^ (factorPosition - 1);~
+~
+	/* To generate each new leaf ... */~
+	FOR newLeafPosition  := 1 .. numberOfLeaves DO (~
+		~
+		/* Multiply the existing leaf by the odds ratio, and insert the new leaf in the tree (by position). */~
+		orTree[@leafNumber = (numberOfLeaves + newLeafPosition)] := orTree[@leafNumber = newLeafPosition] * oddsRatio;~
+	);~
+~
+);~
+~
+orTree
+NodeLocation: 128,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function probabilityTree(~
+pIN;~
+factorsNode: index;~
+factorStatusNode; ~
+oddsRatioNode;~
+)
+Description: Generate a probability tree.
+Definition: /* Get included factors as index. */~
+INDEX incFactors := includedFactors(factorStatusNode);~
+~
+/* Get odds ratios for included factors. */~
+VAR oddsRatios   := oddsRatioNode[factorsNode = incFactors];~
+~
+/* Make an odds ratio tree. */~
+VAR orTree       := oddsRatioTree(oddsRatios: oddsRatios, factors:incFactors);~
+~
+/* Update the probability IN with the odds ratios, creating a probability tree. */~
+(orTree * pIN) / (1 - pIN + orTree * pIN)
+NodeLocation: 264,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Index countTotal
+Att_PrevIndexValue: ['Count','Total']
+Title: CountTotal
+Description: This index sets the two dimensions used to define a countTable (a table of counts of outcomes and total observations). Convert a countTable to a table of prevalences using getPrevalenceCountTable().
+Definition: ['Count','Total']
+NodeLocation: 536,88,1
+NodeSize: 64,24
+NodeInfo: 1,1,1,1,0,1,0,,0,,0,,,
+NodeColor: 29491,29491,29491
+NodeFontColor: 65535,65535,65535
+
+Function fTree(freqencies; factors: Index)
+Title: fTree
+Description: Generate the frequency of every combination of factors; make a frequency tree.
+Definition: /* Get the number of factors. */~
+VAR     numberOfFactors := Size(factors); ~
+~
+/* The tree will have 2 ^ numberOfFactors leaves. */ ~
+/* Generate an index of length 2 ^ numberOfFactors. */~
+INDEX   leafNumber      := 1..(2 ^ numberOfFactors);~
+~
+/* Generate a tree (an array) of length 2 ^ numberOfFactors. */~
+/* Initialize with (1). */~
+VAR    fTree            := Array(leafNumber, 1);~
+~
+/* For each factor .. */~
+FOR    factorPosition   := 1..numberOfFactors DO (~
+~
+	/* Get the factor's frequency (by position). */~
+	VAR frequency        := Slice(freqencies, factors, factorPosition);~
+~
+	/* Get the number of existing leaves on the tree. */~
+	/* For each existing leaf, a new leaf will be added. */~
+	VAR numberOfLeaves   := 2 ^ (factorPosition - 1);~
+~
+	/* To generate each new leaf ... */~
+	FOR newLeafPosition  := 1 .. numberOfLeaves DO (~
+		~
+		/* Multiply the existing leaf by the frequency, and insert the new leaf in the tree (by position). */~
+		fTree[@leafNumber = (numberOfLeaves + newLeafPosition)] := fTree[@leafNumber = newLeafPosition] * frequency;~
+      /* Replace the existing leaf with the complimentary frequency (1 - frequency). */~
+		fTree[@leafNumber = newLeafPosition] := fTree[@leafNumber = newLeafPosition] * (1 - frequency);~
+	);~
+~
+);~
+~
+fTree
+NodeLocation: 400,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function mergeTrees(frequencyTree; probabilityTree; factors: Index)
+Title: mergeTrees
+Description: Multiply the leaves of the frequency and probability trees together, then sum to calculate the new probability.
+Definition: /* Get the number of factors. */~
+VAR    numberOfFactors := Size(factors); ~
+~
+/* To perform operations on the trees, they must share indices. */~
+/* .leafNumber is an implicit index; re-index the trees using a shared index by position. */~
+/* The trees have 2 ^ numberOfFactors leaves; generate a shared index of length 2 ^ numberOfFactors. */~
+INDEX  leafNumber      := 1..(2 ^ numberOfFactors);~
+VAR    xTree           := probabilityTree[@.leafNumber = @leafNumber] * frequencyTree[@.leafNumber = @leafNumber];~
+~
+/* Sum along shared index. */~
+Sum(xTree, leafNumber)
+NodeLocation: 672,248,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function betaPrevalence(count; total)
+Title: beta Prevalence Counts
+Description: Create a Beta(a + 1, b – a + 1) distribution representing prevalence, where a = count of events, and b = total observations.
+Definition: Beta(count + 1, (total - count + 1))
+NodeLocation: 128,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Function getPrevalenceCountTable(~
+countTable;~
+replaceMissing: Boolean Optional = False;~
+missingCount: Optional Number = 1;~
+missingTotal: Optional Number = 15~
+)
+Title: Prevalence from Count Table
+Description: Get prevalence represented as a beta distribution from a countTable (a table of counts indexed by countTable).~
+~
+Optionally, replace missing count and total values. If << replaceMissing >> is FALSE, missing values return NULL. Specify << missingCount >> and << missingTotal >> to replace defaults.
+Definition: /* betaPrevalence() is called in each branch intentionally; an IF/ELSE must do a (non-assignment) action. */~
+~
+IF (replaceMissing = True) THEN (~
+~
+	/* Replace missing values; default is 1 and 15 (~6%). */~
+	var count := IF countTable[countTotal='Count'] = Null THEN  missingCount ELSE countTable[countTotal='Count'];~
+	var total := IF countTable[countTotal='Total'] = Null THEN  missingTotal ELSE countTable[countTotal='Total'];~
+~
+	/* Return beta distribution. */~
+	betaPrevalence(count:count, total:total);~
+~
+) ELSE (~
+~
+	var count := countTable[countTotal='Count'];~
+	var total := countTable[countTotal='Total'];~
+~
+	/* Return beta distribution. */~
+	betaPrevalence(count:count, total:total);~
+~
+);
+NodeLocation: 264,168,1
+NodeSize: 64,24
+NodeInfo: 1,,,,0,,,,,,0
+NodeColor: 26208,1,52427
+NodeFontColor: 65535,65535,65535
+
+Text vNumber
+Title: v3.0.1
+NodeLocation: 672,92,-1
+NodeSize: 48,20
+NodeInfo: 1,,,,,,,,,,0,,1
+
+Close iAMAMR_FRAMEWORK
+
