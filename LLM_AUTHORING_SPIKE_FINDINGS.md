@@ -28,18 +28,30 @@ construct was documented — which is the actionable finding.
 |---|---|---|---|
 | Two-tank overflow into a creek | stock-flow | **2** | ✅ mass-conserving at equilibrium |
 | 30-yr retirement, N(μ,σ) returns, fixed withdrawal | stochastic finance | **6** | ✅ right-skewed, sequence-of-returns ruin visible |
+| ↳ same prompt, **after** adding distribution + field schemas to the guide | stochastic finance | **1** | ✅ same result, valid on first attempt |
 
 The stock-flow model (well-documented constructs) converged in 2. The retirement model spent 5 of
 its 6 iterations chasing the **distribution parameter schema**, which the registries do not describe.
 
+**The controlled follow-up nails the lever.** After extending the guide with the distribution
+catalog (families + parameter names, sourced from the engine's `DistributionKind`) and per-construct
+required-field schemas, the *identical* retirement prompt validated **on the first attempt — 6 → 1
+iterations**. Nothing about the model or the loop changed; only the context. This is direct evidence
+that convergence cost is context quality, and that the distribution/field schemas are the missing
+piece — not a smarter model or a better loop.
+
 ## Findings (in priority order)
 
-1. **The registries alone are NOT sufficient copilot context.** The element registry lists *that* a
-   `sample` construct exists, but not its **nested parameter schema** (`{family, parameters:{mean,
-   stddev}}`, each param a `{value, unit}` quantity). The LLM had to reverse-engineer it from
-   validator errors — 5 wasted iterations. §17.2's "authoring guide" must project **more than the
-   registry**: at minimum the distribution catalog and the per-construct field schemas. This is the
-   single biggest lever on convergence speed.
+1. **The registries alone are NOT sufficient copilot context — and fixing that is the whole game.**
+   The element registry lists *that* a `sample` construct exists, but not its **nested parameter
+   schema** (`{family, parameters:{mean, stddev}}`, each param a `{value, unit}` quantity). The LLM
+   had to reverse-engineer it from validator errors — 5 wasted iterations. Adding the distribution
+   catalog + required-field schemas to the guide dropped the same prompt to **1 iteration** (see the
+   runs table). §17.2's "authoring guide" must project **more than the registry**: the distribution
+   catalog, the per-construct required fields, and the engine-native AST. This is the single biggest,
+   and now measured, lever on convergence speed. The schemas exist authoritatively in the engine
+   (`engine/src/model.rs` `DistributionKind`; the `.ok_or_else(missing(...))` checks in
+   `v2_parse.rs`) — a generator should project from there.
 
 2. **The engine-native AST ≠ the frontend AST — and it's a trap.** The engine parses `{op:'ref',
    element_id:...}` and `{op:'call', fn:...}`; the frontend authors/prints `reference` and (my guide
