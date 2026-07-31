@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://wasim.dev/schema/functions/1.0",
+  "title": "WASiM Function Reference",
+  "description": "Documentation for the expression language's builtins and time references (WASIM_LENS_MANIFEST_SPEC.md §9). Enriches the parser's BUILTINS/TIME_REFS rosters (model/ast.ts) with prose docs + examples for the Functions reference panel; grouping and signatures come from the roster, so this stays keyed by name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "functions", "timeRefs"],
+  "properties": {
+    "version": { "type": "string" },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "doc"],
+        "properties": {
+          "name": { "type": "string", "description": "Must match a BUILTINS entry name." },
+          "doc": { "type": "string" },
+          "example": { "type": "string" }
+        }
+      }
+    },
+    "timeRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "doc"],
+        "properties": {
+          "name": { "type": "string", "description": "Must match a TIME_REFS entry." },
+          "doc": { "type": "string" }
+        }
+      }
+    }
+  }
+}

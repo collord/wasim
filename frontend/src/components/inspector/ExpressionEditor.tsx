@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BUILTINS, TIME_REFS, printAst, tryParseExpr, type Ast } from '../../model/ast'
+import { setActiveExpressionTarget, clearActiveExpressionTarget } from '../../model/functionRef'
 import { useElements } from '../../store'
 
 interface Props {
@@ -8,6 +9,10 @@ interface Props {
   onCommit: (ast: Ast) => void
   placeholder?: string
 }
+
+/** Suggested when the inserter box is focused but empty (§9 discoverability). */
+const COMMON_FNS = ['min', 'max', 'abs', 'exp', 'step', 'interp_array']
+const COMMON_TIME_REFS = ['elapsed', 'timestep']
 
 /**
  * The expression editor (spec §6): type a formula, it parses to an AST live, references
@@ -23,18 +28,22 @@ export function ExpressionEditor({ ast, onCommit, placeholder }: Props) {
   const parsed = useMemo(() => tryParseExpr(text.trim() === '' ? '0' : text), [text])
   const dirty = printAst(ast) !== text
 
-  const insertAtCaret = (token: string) => {
+  const insertAtCaret = useCallback((token: string) => {
     const el = ref.current
-    const start = el?.selectionStart ?? text.length
-    const end = el?.selectionEnd ?? text.length
-    const next = text.slice(0, start) + token + text.slice(end)
-    setText(next)
+    const start = el?.selectionStart ?? el?.value.length ?? 0
+    const end = el?.selectionEnd ?? start
+    setText((prev) => prev.slice(0, start) + token + prev.slice(end))
     requestAnimationFrame(() => {
       el?.focus()
       const caret = start + token.length
       el?.setSelectionRange(caret, caret)
     })
-  }
+  }, [])
+
+  // While this editor is focused, it is the target for the Functions panel's click-to-insert
+  // (§9). A stable wrapper (insertAtCaret is memoized) is registered on focus and released on blur.
+  const claimTarget = useCallback(() => setActiveExpressionTarget(insertAtCaret), [insertAtCaret])
+  useEffect(() => () => clearActiveExpressionTarget(insertAtCaret), [insertAtCaret])
 
   const commit = () => {
     if (parsed.ok) onCommit(parsed.ast)
@@ -44,8 +53,12 @@ export function ExpressionEditor({ ast, onCommit, placeholder }: Props) {
   const matchEls = q
     ? elements.filter((e) => e.id.toLowerCase().includes(q) || e.name.toLowerCase().includes(q)).slice(0, 8)
     : elements.slice(0, 8)
-  const matchFns = q ? BUILTINS.filter((b) => b.name.includes(q)).slice(0, 6) : []
-  const matchTime = q ? TIME_REFS.filter((t) => t.includes(q)).slice(0, 6) : []
+  // When empty, suggest a few common functions/time-refs instead of nothing (§9 discoverability) —
+  // so a user who doesn't know a name has a starting point rather than a blank dropdown.
+  const matchFns = q
+    ? BUILTINS.filter((b) => b.name.includes(q)).slice(0, 6)
+    : BUILTINS.filter((b) => COMMON_FNS.includes(b.name))
+  const matchTime = q ? TIME_REFS.filter((t) => t.includes(q)).slice(0, 6) : COMMON_TIME_REFS
 
   return (
     <div className="space-y-1.5">
@@ -54,6 +67,7 @@ export function ExpressionEditor({ ast, onCommit, placeholder }: Props) {
         value={text}
         spellCheck={false}
         onChange={(e) => setText(e.target.value)}
+        onFocus={claimTarget}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit() }
