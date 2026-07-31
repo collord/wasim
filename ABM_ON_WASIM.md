@@ -111,9 +111,18 @@ relaxation loop (row 3) for genuine instantaneous simultaneity.
 
 1. **Field + Network lens** (patches, diffusion, cellular automata, graph contagion, synchronous)
    — fits WaSim natively and, crucially, **composes with stock-and-flow**: stocks-and-flows on
-   network nodes is the *metapopulation* model class (spatial epidemiology, supply-chain contagion,
-   regional diffusion). This is the natural second lens after stock-and-flow, not a separate
-   product.
+   network nodes is the *metapopulation* model class (**network / metapopulation epidemiology** on
+   a contact/mobility graph, supply-chain contagion, inter-regional diffusion). This is the natural
+   second lens after stock-and-flow, not a separate product.
+
+   **Caveat — this is topology, not geometry.** WaSim has no spatial data type: no coordinates, no
+   distance metric, no radius/nearest-neighbor query, no raster or continuous field. "Space" here
+   means *connectivity* — who is coupled to whom, via an adjacency/coupling matrix (or the
+   `cell`/`medium`/`flux` compartment-transport primitives, which are likewise a cell-and-link
+   network, cells carrying a `volume` but no position). Any real geometry — patch coordinates,
+   gravity/distance kernels — must be **precomputed off-engine** and fed in as a constant coupling
+   matrix `W = f(D)`; the engine consumes baked geometry but cannot compute it. So the honest claim
+   is metapopulation/network models, not GIS-style spatial modeling.
 2. **Mobile-agent lens** (turtles in space, async, dynamic populations) — fits poorly; doing it
    means bolting an imperative, order-dependent sidecar onto the engine, which sacrifices the
    synchronous determinism and diffability that are the moat. Disclaim it, don't chase it.
