@@ -18,9 +18,14 @@ construct was documented — which is the actionable finding.
   sim, prints a JSON report (`{ok, errors[], warnings[], topo[], run?}`) + a human digest, exits
   non-zero on error. This is the engine ground-truth §17.3's `validate()`/`run()` tools would wrap.
   (It replicates `wasm.rs::validate_json`, which is `wasm32`-gated and unavailable off-wasm.)
-- **`scratchpad/spike/`** (not committed) — `gen_guide.py` (projects the element + function
-  registries into a ~9KB authoring guide), `exemplar_bathtub.json` (a validated v2 exemplar),
-  `spike.sh` (the harness), and `runs/` (transcripts + resulting models).
+- **`tools/gen_authoring_guide.py`** — the committed authoring-guide generator (the durable form of
+  the spike's throwaway `gen_guide.py`). Projects the construct catalog, required fields, distribution
+  catalog, `failure_process` sub-schema, function reference, and engine-native AST. Sources the
+  registries (committed JSON) verbatim and carries the engine-derived schema tables inline.
+- **`engine/tests/authoring_guide_schemas.rs`** — the drift guard: round-trips one minimal model per
+  distribution family + per required-field claim + the `failure_process` recipe through the real
+  parser, so the guide's schema tables can never drift from what the engine accepts.
+- **`scratchpad/spike/`** (not committed) — the exemplar, harness (`spike.sh`), and run transcripts.
 
 ## Runs
 
@@ -29,6 +34,13 @@ construct was documented — which is the actionable finding.
 | Two-tank overflow into a creek | stock-flow | **2** | ✅ mass-conserving at equilibrium |
 | 30-yr retirement, N(μ,σ) returns, fixed withdrawal | stochastic finance | **6** | ✅ right-skewed, sequence-of-returns ruin visible |
 | ↳ same prompt, **after** adding distribution + field schemas to the guide | stochastic finance | **1** | ✅ same result, valid on first attempt |
+| Repairable pump, exponential MTTF + repair | reliability (event FSM) | **4** | ✅ availability 0.9375 vs theoretical 0.926 |
+
+The reliability run (against the committed guide) surfaced the *next* nested sub-schema gap —
+`failure_process` (`basis` values + the `repair` sub-structure) wasn't spelled out, costing
+iterations. It has since been added to the generator (and drift-guarded). The recurring pattern is
+clear: **nested sub-schemas** (distribution params, then `failure_process`) are where the LLM stalls,
+and each is a concrete, engine-sourced block to add to the guide.
 
 The stock-flow model (well-documented constructs) converged in 2. The retirement model spent 5 of
 its 6 iterations chasing the **distribution parameter schema**, which the registries do not describe.
