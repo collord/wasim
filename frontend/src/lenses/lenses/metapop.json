@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "id": "metapop",
+  "label": "Metapopulation",
+  "tagline": "Compartments on a coupling network — SIR/SEIR across patches, network-mediated mixing.",
+  "behavior": "metapop",
+  "palette": [
+    { "section": "Compartments", "items": [
+      { "ref": "stock", "label": "Compartment", "role": "compartment" }
+    ] },
+    { "section": "Transitions", "items": [
+      { "ref": "expression", "label": "Transition", "role": "transition" }
+    ] },
+    { "section": "Network", "items": [
+      { "ref": "expression", "label": "Coupling network (W)", "role": "coupling" },
+      { "ref": "expression", "label": "Force of infection", "role": "mixing" }
+    ] },
+    { "section": "Parameters", "items": [
+      { "ref": "constant", "label": "Parameter (β, γ …)", "role": "parameter" },
+      { "ref": "stochastic", "label": "Uncertain input", "role": "parameter" }
+    ] }
+  ],
+  "roleLabels": {
+    "compartment": "Compartment",
+    "transition": "Transition",
+    "coupling": "Coupling network",
+    "mixing": "Force of infection",
+    "parameter": "Parameter"
+  },
+  "glyphByRole": { "compartment": "box", "transition": "valve", "coupling": "hex", "mixing": "circle" },
+  "templates": ["two-patch-sir", "sir-on-network"],
+  "preferredResult": { "roleOrder": ["compartment"] }
+}

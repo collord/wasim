@@ -102,6 +102,12 @@ describe('manifest loader — behavior wiring', () => {
     expect(l.invariants).toBeTypeOf('function')
     expect(l.resultReadouts).toBeTypeOf('function')
   })
+  it('metapop has invariants + connect + readouts', () => {
+    const l = resolveLens('metapop')
+    expect(l.invariants).toBeTypeOf('function')
+    expect(l.connect).toBeTypeOf('function')
+    expect(l.resultReadouts).toBeTypeOf('function')
+  })
   it('general has no behavior', () => {
     const l = resolveLens('general')
     expect(l.invariants).toBeUndefined()
@@ -112,7 +118,7 @@ describe('manifest loader — behavior wiring', () => {
 
 describe('manifest loader — reference stability (store-selector contract)', () => {
   it('resolveLens returns the same object per id', () => {
-    for (const id of ['general', 'stock-flow', 'reliability', 'decision']) {
+    for (const id of ['general', 'stock-flow', 'reliability', 'decision', 'metapop']) {
       expect(resolveLens(id)).toBe(resolveLens(id))
       expect(resolveLens(id)).toBe(LENSES[id])
     }
@@ -159,7 +165,7 @@ describe('General lens — §5 completeness', () => {
 })
 
 describe('picker', () => {
-  it('lists all four lenses in manifest declaration order', () => {
-    expect(listLenses().map((l) => l.id)).toEqual(['stock-flow', 'reliability', 'decision', 'general'])
+  it('lists all built-in lenses in manifest declaration order', () => {
+    expect(listLenses().map((l) => l.id)).toEqual(['stock-flow', 'reliability', 'decision', 'metapop', 'general'])
   })
 })

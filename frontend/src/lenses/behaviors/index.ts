@@ -2,6 +2,7 @@ import type { LensBehavior } from '../manifest-types'
 import { stockFlowBehavior } from './stockFlow'
 import { reliabilityBehavior } from './reliability'
 import { decisionBehavior } from './decision'
+import { metapopBehavior } from './metapop'
 
 /**
  * The behavior-plugin registry (WASIM_LENS_MANIFEST_SPEC.md §7): the code half of a lens,
@@ -13,6 +14,7 @@ export const BEHAVIORS: Record<string, LensBehavior> = {
   'stock-flow': stockFlowBehavior,
   reliability: reliabilityBehavior,
   decision: decisionBehavior,
+  metapop: metapopBehavior,
 }
 
 /** Resolve a manifest `behavior` id to its plugin; throws on an unknown id (a load error). */

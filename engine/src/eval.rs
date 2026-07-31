@@ -1681,49 +1681,77 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
         _ => {}
     }
 
-    // Scalar functions: evaluate args as scalars.
+    // Element-wise math functions: evaluate args as full `Value`s and map/zip over them, so they
+    // broadcast over a dimension exactly like the operators do (via `Value::map`/`zip_with`) rather
+    // than collapsing every array arg to element 0. Scalars stay scalar (map/zip on `Scalar` →
+    // `Scalar`), so scalar results are bit-identical to the previous behavior.
+    macro_rules! unary {
+        ($name:literal, $f:expr) => {{
+            require_args($name, args.len(), 1, 1)?;
+            return Ok(eval_ast(&args[0], ctx)?.map($f));
+        }};
+    }
+    macro_rules! binary {
+        ($name:literal, $f:expr) => {{
+            require_args($name, args.len(), 2, 2)?;
+            return Ok(eval_ast(&args[0], ctx)?.zip_with(eval_ast(&args[1], ctx)?, $f));
+        }};
+    }
+    match func {
+        BuiltinFn::Abs   => unary!("abs",   f64::abs),
+        BuiltinFn::Sqrt  => unary!("sqrt",  f64::sqrt),
+        BuiltinFn::Exp   => unary!("exp",   f64::exp),
+        BuiltinFn::Ln    => unary!("ln",    f64::ln),
+        BuiltinFn::Log   => unary!("log",   f64::log10),
+        BuiltinFn::Log2  => unary!("log2",  f64::log2),
+        BuiltinFn::Sin   => unary!("sin",   f64::sin),
+        BuiltinFn::Cos   => unary!("cos",   f64::cos),
+        BuiltinFn::Tan   => unary!("tan",   f64::tan),
+        BuiltinFn::Asin  => unary!("asin",  f64::asin),
+        BuiltinFn::Acos  => unary!("acos",  f64::acos),
+        BuiltinFn::Atan  => unary!("atan",  f64::atan),
+        BuiltinFn::Sinh  => unary!("sinh",  f64::sinh),
+        BuiltinFn::Cosh  => unary!("cosh",  f64::cosh),
+        BuiltinFn::Tanh  => unary!("tanh",  f64::tanh),
+        BuiltinFn::Gamma => unary!("gamma", gamma_fn),
+        BuiltinFn::Erf   => unary!("erf",   erf),
+        BuiltinFn::Erfc  => unary!("erfc",  |x: f64| 1.0 - erf(x)),
+        BuiltinFn::Floor => unary!("floor", f64::floor),
+        BuiltinFn::Ceil  => unary!("ceil",  f64::ceil),
+        BuiltinFn::Sign  => unary!("sign",  f64::signum),
+        BuiltinFn::Int   => unary!("int",   f64::trunc),
+        BuiltinFn::Step  => unary!("step",  |x: f64| if x >= 0.0 { 1.0 } else { 0.0 }),
+        BuiltinFn::Mod   => binary!("mod",   |a: f64, b: f64| a % b),
+        BuiltinFn::Atan2 => binary!("atan2", f64::atan2),
+        // Variadic min/max: fold the arg Values elementwise (min(arrA, arrB) is per-cell; min(arr)
+        // alone returns arr). Preserves the previous scalar fold when all args are scalars.
+        BuiltinFn::Min | BuiltinFn::Max => {
+            let name = if matches!(func, BuiltinFn::Min) { "min" } else { "max" };
+            require_args(name, args.len(), 1, usize::MAX)?;
+            let f: fn(f64, f64) -> f64 = if matches!(func, BuiltinFn::Min) { f64::min } else { f64::max };
+            let mut acc = eval_ast(&args[0], ctx)?;
+            for a in &args[1..] {
+                acc = acc.zip_with(eval_ast(a, ctx)?, f);
+            }
+            return Ok(acc);
+        }
+        // Analytica `Round(x)` → integer; `Round(x, digits)` → `digits` decimal places. The value
+        // maps elementwise; the optional `digits` arg is a scalar.
+        BuiltinFn::Round => {
+            require_args("round", args.len(), 1, 2)?;
+            if args.len() == 1 {
+                return Ok(eval_ast(&args[0], ctx)?.map(f64::round));
+            }
+            let f = 10f64.powf(eval_ast_scalar(&args[1], ctx)?);
+            return Ok(eval_ast(&args[0], ctx)?.map(move |x| (x * f).round() / f));
+        }
+        _ => {}
+    }
+
+    // Remaining truly-scalar functions (date extraction, finance factors): collapse args to scalars.
     let vals: Vec<f64> = args.iter().map(|a| eval_ast_scalar(a, ctx)).collect::<Result<_, _>>()?;
     let n = vals.len();
-
     let result = match func {
-        BuiltinFn::Min   => { require_args("min", n, 1, usize::MAX)?; vals.iter().cloned().fold(f64::INFINITY, f64::min) }
-        BuiltinFn::Max   => { require_args("max", n, 1, usize::MAX)?; vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max) }
-        BuiltinFn::Abs   => { require_args("abs",   n, 1, 1)?; vals[0].abs() }
-        BuiltinFn::Sqrt  => { require_args("sqrt",  n, 1, 1)?; vals[0].sqrt() }
-        BuiltinFn::Exp   => { require_args("exp",   n, 1, 1)?; vals[0].exp() }
-        BuiltinFn::Ln    => { require_args("ln",    n, 1, 1)?; vals[0].ln() }
-        BuiltinFn::Log   => { require_args("log",   n, 1, 1)?; vals[0].log10() }
-        BuiltinFn::Sin   => { require_args("sin",   n, 1, 1)?; vals[0].sin() }
-        BuiltinFn::Cos   => { require_args("cos",   n, 1, 1)?; vals[0].cos() }
-        BuiltinFn::Tan   => { require_args("tan",   n, 1, 1)?; vals[0].tan() }
-        BuiltinFn::Asin  => { require_args("asin",  n, 1, 1)?; vals[0].asin() }
-        BuiltinFn::Acos  => { require_args("acos",  n, 1, 1)?; vals[0].acos() }
-        BuiltinFn::Atan  => { require_args("atan",  n, 1, 1)?; vals[0].atan() }
-        BuiltinFn::Atan2 => { require_args("atan2", n, 2, 2)?; vals[0].atan2(vals[1]) }
-        BuiltinFn::Floor => { require_args("floor", n, 1, 1)?; vals[0].floor() }
-        BuiltinFn::Ceil  => { require_args("ceil",  n, 1, 1)?; vals[0].ceil() }
-        BuiltinFn::Round => {
-            // Analytica `Round(x)` rounds to integer; `Round(x, digits)` rounds
-            // to `digits` decimal places (negative digits round to tens/etc.).
-            require_args("round", n, 1, 2)?;
-            if n == 1 {
-                vals[0].round()
-            } else {
-                let f = 10f64.powf(vals[1]);
-                (vals[0] * f).round() / f
-            }
-        }
-        BuiltinFn::Mod   => { require_args("mod",   n, 2, 2)?; vals[0] % vals[1] }
-        BuiltinFn::Sign  => { require_args("sign",  n, 1, 1)?; vals[0].signum() }
-        BuiltinFn::Int   => { require_args("int",   n, 1, 1)?; vals[0].trunc() }
-        BuiltinFn::Step  => { require_args("step",  n, 1, 1)?; if vals[0] >= 0.0 { 1.0 } else { 0.0 } }
-        BuiltinFn::Log2  => { require_args("log2",  n, 1, 1)?; vals[0].log2() }
-        BuiltinFn::Sinh  => { require_args("sinh",  n, 1, 1)?; vals[0].sinh() }
-        BuiltinFn::Cosh  => { require_args("cosh",  n, 1, 1)?; vals[0].cosh() }
-        BuiltinFn::Tanh  => { require_args("tanh",  n, 1, 1)?; vals[0].tanh() }
-        BuiltinFn::Gamma => { require_args("gamma", n, 1, 1)?; gamma_fn(vals[0]) }
-        BuiltinFn::Erf   => { require_args("erf",  n, 1, 1)?; erf(vals[0]) }
-        BuiltinFn::Erfc  => { require_args("erfc", n, 1, 1)?; 1.0 - erf(vals[0]) }
         // Date extraction: the arg is seconds since the sim epoch; decompose to a civil date.
         BuiltinFn::GetYear   => { require_args("get_year",   n, 1, 1)?; civil_from_secs(vals[0]).0 as f64 }
         BuiltinFn::GetMonth  => { require_args("get_month",  n, 1, 1)?; civil_from_secs(vals[0]).1 as f64 }
@@ -1738,21 +1766,9 @@ fn eval_call(func: &BuiltinFn, args: &[AstNode], ctx: &EvalCtx) -> Result<Value,
             let (r, np) = (vals[0], vals[1]);
             if r == 0.0 { np } else { (1.0 - (1.0 + r).powf(-np)) / r }
         }
-        BuiltinFn::TableMin | BuiltinFn::TableMax | BuiltinFn::ColumnCount
-        | BuiltinFn::SumArray | BuiltinFn::SizeArray | BuiltinFn::GetElement
-        | BuiltinFn::InterpArray | BuiltinFn::MeanArray | BuiltinFn::MinArray
-        | BuiltinFn::MaxArray | BuiltinFn::ArgminArray | BuiltinFn::ArgmaxArray
-        | BuiltinFn::DotProduct
-        // Masked reducers are handled by the array-consuming match above; never reach here.
-        | BuiltinFn::ArgminWhere | BuiltinFn::ArgmaxWhere | BuiltinFn::MaskedSum
-        | BuiltinFn::MaskedMean | BuiltinFn::MaskedMin | BuiltinFn::MaskedMax
-        | BuiltinFn::MaskedCount
-        // Array-language layer: handled by the early return above; never reach here.
-        | BuiltinFn::SortArray | BuiltinFn::SortIndex | BuiltinFn::RankArray
-        | BuiltinFn::Cumulate | BuiltinFn::Cumproduct | BuiltinFn::Gather | BuiltinFn::Ordinal
-        | BuiltinFn::Null
-        // Event predicates are handled by the early return above; never reach the scalar path.
-        | BuiltinFn::Occurs | BuiltinFn::Changed => unreachable!(),
+        // All element-wise math is handled above; the array/masked/array-language/event families are
+        // handled by the earlier array-consuming and early-return tiers — none reach here.
+        _ => unreachable!(),
     };
     Ok(Value::Scalar(result))
 }

@@ -59,15 +59,14 @@ fn probe1_array_element_results_expand_to_members() {
     assert!(r.elements["fleet#2"].time_history.is_some());
 }
 
-/// PROBE 2 — Can a `stock` be array-valued: integrate a per-member rate into per-member state?
+/// PROBE 2 — An array-valued `stock` integrates a per-member inflow into per-member state.
 ///
-/// Per-truck cumulative damage is `damage[i]` = ∫ rate[i] dt. In the engine, stock state is
-/// `HashMap<String, f64>` (scalar per element) and integration adds a scalar rate. Feeding a
-/// stock an array-valued rate is the untested path.
+/// Per-truck cumulative damage is `damage[i]` = ∫ rate[i] dt. FIXED: a dimensioned stock now (a)
+/// broadcasts a scalar initial across every cell and (b) sums inflows/outflows as arrays, so it
+/// carries per-member state. The stock declares `dimensions` so its members surface via `#k`.
 #[test]
 fn probe2_array_valued_stock_integration() {
-    // rate = [1, 2, 3] per member; over 3 days each member should reach [3, 6, 9] IF the
-    // stock integrates per-member. If stock state is scalar, we learn how it degrades.
+    // rate = [1, 2, 3] per member; over 3 days each member reaches [3, 6, 9].
     let json = r#"{
       "wasim_version": "0.8.3",
       "simulation_settings": {"duration": {"value": 3, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}, "n_realizations": 1},
@@ -75,10 +74,12 @@ fn probe2_array_valued_stock_integration() {
       "elements": [
         {"id": "rate", "name": "Rate", "primitive": "node", "value_rule": "expression",
          "expression": {"ast": {"op": "vector_map", "over": "Fleet",
-           "body": {"op": "index_ref", "axis": "row"}}}},
+           "body": {"op": "index_ref", "axis": "row"}}},
+         "outputs": [{"name": "Rate", "unit": "1", "dimensions": ["Fleet"]}]},
         {"id": "damage", "name": "Damage", "primitive": "stock", "inputs": ["rate"],
          "initial_value": {"value": 0, "unit": "1"},
-         "rate": {"ast": {"op": "ref", "element_id": "rate"}},
+         "inflows": ["rate"],
+         "outputs": [{"name": "Damage", "unit": "1", "dimensions": ["Fleet"]}],
          "save_results": {"final_value": true}}
       ]
     }"#;
@@ -87,15 +88,10 @@ fn probe2_array_valued_stock_integration() {
     let g = ModelGraphV2::build(&m).expect("graph");
     let r = run_v2(&m, &g, &RunConfig::default()).expect("run");
 
-    let damage = &r.elements["damage"];
-    // OBSERVED-BEHAVIOR PROBE: we don't assert a specific number blindly — record what the
-    // engine actually does so the boundary is documented. If the stock integrated the first
-    // member only, final = 1*3 = 3.0. Whatever it is, one scalar comes back, confirming a
-    // stock cannot carry per-member (vector) state today.
-    eprintln!("probe2: array-fed stock final_values = {:?}", damage.final_values);
-    assert_eq!(damage.final_values.len(), 1,
-        "GAP: stock produces a single scalar per realization; per-member (vector) stock \
-         state is the one substantial new executor piece the fleet model needs");
+    // FIXED: per-member stock state — member i integrates rate=i over 3 steps → 3i.
+    assert_eq!(r.elements["damage#1"].final_values, vec![3.0], "member 1 = 1*3");
+    assert_eq!(r.elements["damage#2"].final_values, vec![6.0], "member 2 = 2*3 — per-member stock state");
+    assert_eq!(r.elements["damage#3"].final_values, vec![9.0], "member 3 = 3*3");
 }
 
 /// PROBE 3 — Does per-member state evolve correctly across timesteps via a *stateless* path
