@@ -19,32 +19,32 @@
   ],
   "elements": [
 
-    { "id": "rated", "name": "Rated payload", "primitive": "node", "value_rule": "fixed",
+    { "id": "rated", "lens_role": "parameter", "name": "Rated payload", "primitive": "node", "value_rule": "fixed",
       "container": "inputs",
       "description": "OEM-rated payload (tonnes). Damage is normalised to this.",
       "value": { "value": 240.0, "unit": "t" } },
 
-    { "id": "payload_nom", "name": "Nominal payload", "primitive": "node", "value_rule": "fixed",
+    { "id": "payload_nom", "lens_role": "parameter", "name": "Nominal payload", "primitive": "node", "value_rule": "fixed",
       "container": "inputs",
       "description": "Truck A loading policy: run at rated payload.",
       "value": { "value": 240.0, "unit": "t" } },
 
-    { "id": "payload_ovl", "name": "Overload payload", "primitive": "node", "value_rule": "fixed",
+    { "id": "payload_ovl", "lens_role": "parameter", "name": "Overload payload", "primitive": "node", "value_rule": "fixed",
       "container": "inputs",
       "description": "Truck B loading policy: overload +25% to 300 t for productivity.",
       "value": { "value": 300.0, "unit": "t" } },
 
-    { "id": "base_rate", "name": "Base damage rate", "primitive": "node", "value_rule": "fixed",
+    { "id": "base_rate", "lens_role": "parameter", "name": "Base damage rate", "primitive": "node", "value_rule": "fixed",
       "container": "inputs",
       "description": "Damage consumed per year at rated load. 0.2/yr => nominal life 5 yr (damage reaches 1.0).",
       "value": { "value": 0.2, "unit": "1/yr" } },
 
-    { "id": "disc_rate", "name": "Discount rate", "primitive": "node", "value_rule": "fixed",
+    { "id": "disc_rate", "lens_role": "parameter", "name": "Discount rate", "primitive": "node", "value_rule": "fixed",
       "container": "inputs",
       "description": "Continuous discount rate for NPV.",
       "value": { "value": 0.08, "unit": "1/yr" } },
 
-    { "id": "beta", "name": "Load exponent (beta)", "primitive": "node", "value_rule": "sample",
+    { "id": "beta", "lens_role": "parameter", "name": "Load exponent (beta)", "primitive": "node", "value_rule": "sample",
       "container": "uncertain",
       "description": "Power-law load-to-life exponent. The single largest source of model uncertainty; entered as a distribution, NOT a point value. Triangular(2.5, 3.0, 4.0).",
       "distribution": { "family": "triangular", "parameters": {
@@ -54,7 +54,7 @@
       } },
       "save_results": { "final_value": true } },
 
-    { "id": "price", "name": "Metal price ($/t handled)", "primitive": "node", "value_rule": "sample",
+    { "id": "price", "lens_role": "parameter", "name": "Metal price ($/t handled)", "primitive": "node", "value_rule": "sample",
       "container": "uncertain",
       "description": "Realised net value per tonne handled (price x grade x recovery, normalised). Lognormal, one draw per realization.",
       "distribution": { "family": "lognormal", "parameters": {
@@ -83,21 +83,21 @@
           "left": { "op": "divide", "left": { "op": "ref", "element_id": "payload_ovl" }, "right": { "op": "ref", "element_id": "rated" } },
           "right": { "op": "ref", "element_id": "beta" } } } } },
 
-    { "id": "damage_nom", "name": "Cumulative damage (nominal)", "primitive": "stock",
+    { "id": "damage_nom", "lens_role": "state", "name": "Cumulative damage (nominal)", "primitive": "stock",
       "container": "nominal",
       "description": "Miner's-rule cumulative damage; fails at 1.0.",
       "initial_value": { "value": 0.0, "unit": "1" },
       "rate": { "ast": { "op": "ref", "element_id": "damage_rate_nom" } },
       "save_results": { "time_history": true, "final_value": true } },
 
-    { "id": "damage_ovl", "name": "Cumulative damage (overload)", "primitive": "stock",
+    { "id": "damage_ovl", "lens_role": "state", "name": "Cumulative damage (overload)", "primitive": "stock",
       "container": "overload",
       "description": "Cumulative damage under the overload policy.",
       "initial_value": { "value": 0.0, "unit": "1" },
       "rate": { "ast": { "op": "ref", "element_id": "damage_rate_ovl" } },
       "save_results": { "time_history": true, "final_value": true } },
 
-    { "id": "fsm_nom", "name": "Truck A failure (condition basis)", "primitive": "event",
+    { "id": "fsm_nom", "lens_role": "component", "name": "Truck A failure (condition basis)", "primitive": "event",
       "container": "nominal", "inputs": ["damage_nom"],
       "description": "Fails when cumulative damage >= 1.0; no repair (run-to-failure). Output: 0 = operating, 1 = failed. Charges a one-time replacement cost on failure.",
       "trigger": { "mode": "on_condition", "condition": { "ast": {
@@ -108,7 +108,7 @@
       "effects": [ { "target": "capcost_nom", "mode": "additive", "change": { "value": 400.0, "unit": "USD" } } ],
       "save_results": { "time_history": true, "final_value": true } },
 
-    { "id": "fsm_ovl", "name": "Truck B failure (condition basis)", "primitive": "event",
+    { "id": "fsm_ovl", "lens_role": "component", "name": "Truck B failure (condition basis)", "primitive": "event",
       "container": "overload", "inputs": ["damage_ovl"],
       "description": "Fails when cumulative damage >= 1.0; no repair. Output: 0 = operating, 1 = failed.",
       "trigger": { "mode": "on_condition", "condition": { "ast": {
@@ -223,5 +223,7 @@
         "right": { "op": "ref", "element_id": "capcost_ovl" } } },
       "save_results": { "time_history": true, "final_value": true } }
 
-  ]
+  ],
+  "view": { "lens": "reliability", "authored": true }
+
 }
