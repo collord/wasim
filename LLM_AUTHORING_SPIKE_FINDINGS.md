@@ -97,3 +97,17 @@ piece — not a smarter model or a better loop.
 - **Scope note:** this validated *feasibility and the loop*, not §17's shipped architecture (browser
   SPA, BYO-key, provider abstraction, Copilot panel UX). Those are still to design/build; nothing
   here shortcuts them.
+
+## Open measurement — adaptive thinking on/off (default is provisional)
+
+The browser copilot exposes a "use extended reasoning" toggle; its **default is unmeasured**. The
+spike ran through `claude -p` (adaptive thinking on by default) and never isolated thinking-on vs
+-off on the raw API, so there is no data that thinking changes validate-iterations for this task.
+`DEFAULT_THINKING` (`frontend/src/copilot/aiConfig.ts`) is therefore set conservatively to **off**
+(cheaper, faster; convergence is achievable without it) — *not* asserted as optimal.
+
+To settle it, run `tools/copilot_thinking_ab.mjs` (needs `ANTHROPIC_API_KEY` + a built
+`wasim-validate`): it drives the real copilot loop over 3 prompts × {thinking off, on}, reporting
+validate-iterations to convergence, and prints which default wins. Flip `DEFAULT_THINKING` to the
+lower-iteration / higher-validity setting (or keep off on a tie). This wasn't runnable at build time
+(no key in the environment).

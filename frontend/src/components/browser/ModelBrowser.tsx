@@ -5,10 +5,11 @@ import { iconTypeOf, TypeBadge } from '../../ui/typeIcons'
 import { kindLabel } from '../../model/schema'
 import { Palette } from './Palette'
 import { FunctionsPanel } from './FunctionsPanel'
+import { CopilotPanel } from '../copilot/CopilotPanel'
 
 type Lens = 'containment' | 'type'
-type Panel = 'browse' | 'palette' | 'functions'
-const PANEL_LABELS: Record<Panel, string> = { browse: 'Browser', palette: 'Palette', functions: 'Functions' }
+type Panel = 'browse' | 'palette' | 'functions' | 'copilot'
+const PANEL_LABELS: Record<Panel, string> = { browse: 'Browser', palette: 'Palette', functions: 'Functions', copilot: 'Copilot' }
 
 /** The model browser (spec §4): a searchable tree with two lenses (by containment / by
  *  type), plus the insert palette. Every element comes straight from ModelSummary.elements
@@ -81,7 +82,7 @@ export function ModelBrowser() {
     <div className="flex h-full flex-col">
       {/* Panel switch */}
       <div className="flex border-b border-slate-200 text-[11px] font-medium">
-        {(['browse', 'palette', 'functions'] as Panel[]).map((p) => (
+        {(['browse', 'palette', 'functions', 'copilot'] as Panel[]).map((p) => (
           <button key={p} onClick={() => setPanel(p)}
             className={`flex-1 py-2 ${panel === p ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>
             {PANEL_LABELS[p]}
@@ -93,6 +94,8 @@ export function ModelBrowser() {
         <div className="flex-1 overflow-auto"><Palette /></div>
       ) : panel === 'functions' ? (
         <div className="flex-1 overflow-hidden"><FunctionsPanel /></div>
+      ) : panel === 'copilot' ? (
+        <div className="flex-1 overflow-hidden"><CopilotPanel /></div>
       ) : (
         <>
           <div className="space-y-2 border-b border-slate-100 p-2">

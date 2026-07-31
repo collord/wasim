@@ -167,9 +167,18 @@ def build():
     return "\n".join(out)
 
 
+# The committed browser-bundle copy of the guide. The LLM-authoring copilot imports this via
+# Vite `?raw` (it can't shell out to this script), so regenerate it whenever the registries change:
+#   python3 tools/gen_authoring_guide.py --frontend
+# (Content is drift-guarded against the engine by engine/tests/authoring_guide_schemas.rs.)
+FRONTEND_GUIDE = f"{ROOT}/frontend/src/copilot/authoring-guide.generated.md"
+
 if __name__ == "__main__":
     text = build()
-    if len(sys.argv) > 1:
+    if "--frontend" in sys.argv[1:]:
+        open(FRONTEND_GUIDE, "w").write(text)
+        print(f"wrote {FRONTEND_GUIDE}: {len(text)} chars", file=sys.stderr)
+    elif len(sys.argv) > 1:
         open(sys.argv[1], "w").write(text)
         print(f"wrote {sys.argv[1]}: {len(text)} chars", file=sys.stderr)
     else:

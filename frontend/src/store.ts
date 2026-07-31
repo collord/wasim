@@ -24,10 +24,13 @@ import { resolveLens, listLenses } from './lenses/registry'
 import type { LensId, LensSpec } from './lenses/types'
 import type { LensManifest } from './lenses/manifest-types'
 import { importManifest, removeManifest, registerPersisted } from './lenses/customLenses'
+import { loadAiConfig, saveAiConfig, type AiConfig } from './copilot/aiConfig'
 
 // Register any persisted custom lenses into the loader synchronously, before the store (and thus
 // the app) first renders — so imported lenses appear in the picker on load with no async bootstrap.
 const PERSISTED_LENSES = registerPersisted()
+// Persisted copilot config (the API key rehydrates only if the user opted into remembering it).
+const PERSISTED_AI = loadAiConfig()
 
 const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
 const RECONCILE_DEBOUNCE_MS = 250
@@ -74,6 +77,9 @@ interface State {
   // LENSES map is mutable; components subscribe to this counter to see it change).
   customManifests: LensManifest[]
   lensVersion: number
+  // LLM-authoring copilot config (§17). Doc-independent; the API key is memory-only unless the
+  // user opts into remembering it (see copilot/aiConfig.ts).
+  aiConfig: AiConfig
 
   // Undo/redo command stack over `doc` (snapshots; docs are plain JSON, §13.4).
   past: ModelDoc[]
@@ -157,6 +163,8 @@ interface Actions {
   importLens: (json: string) => string | null
   /** Remove an imported custom lens by id (built-ins are ignored). */
   removeCustomLens: (id: string) => void
+  /** Update copilot config (API key, model, remember-key, thinking); persists per remember-key. */
+  setAiConfig: (patch: Partial<AiConfig>) => void
   connectElements: (fromId: string, toId: string) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
   editDimensions: (dimensions: ModelDoc['dimensions']) => void
@@ -206,6 +214,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   modelFilename: null,
   customManifests: PERSISTED_LENSES,
   lensVersion: 0,
+  aiConfig: PERSISTED_AI,
   past: [],
   future: [],
   mode: 'edit',
@@ -450,6 +459,12 @@ export const useStore = create<State & Actions>((set, get) => ({
     // If the active document was tagged with the removed lens, it falls back to `general` on the
     // next `useActiveLens` read (resolveLens defaults unknown ids) — no doc edit needed.
     set((s) => ({ customManifests: next, lensVersion: s.lensVersion + 1 }))
+  },
+
+  setAiConfig(patch) {
+    const next = { ...get().aiConfig, ...patch }
+    saveAiConfig(next) // writes the key only when rememberKey is true
+    set({ aiConfig: next })
   },
 
   connectElements(fromId, toId) {
