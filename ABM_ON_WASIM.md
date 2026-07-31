@@ -252,35 +252,49 @@ So Tier 1 is a **real, shippable, importable metapop lens** — it just borrows 
 For a teaching or exploratory surface over the constructs the `network_sir_v2` proof already
 exercises, it is enough.
 
-### 5.3 Tier 2 — the first-party additions that make it a true metapop lens
+### 5.3 Tier 2 — the first-party additions that make it a true metapop lens (implemented)
 
 Everything Tier 1 can't do reduces to **additive lens-layer code**, in exactly the mold of the three
-shipped behaviors. None of it touches the Rust engine (§5.4).
+shipped behaviors, and none of it touches the Rust engine (§5.4). This tier is now **built and
+shipped** as a fourth domain lens — the pieces below are the actual modules, and both templates are
+validated end-to-end against the engine (`serializeModel` → `parse_v2`/`run_v2`).
 
-- **`behaviors/metapop.ts` — a `LensBehavior`** registered in `behaviors/index.ts` (then set
-  `"behavior": "metapop"` in the manifest, and switch the roles back to domain terms since the code
-  now owns them):
-  - `invariants` — the metapopulation twin of `stockFlowInvariants`: (a) **population
-    conservation** — every transition subtracts from one compartment and adds to another; an
-    unmatched add is a leak → warning; (b) **coupling well-formedness** — `W` must be square over
-    two axes of the *same* patch dimension, and a `mixing` term must reduce the *neighbor* axis, not
-    the patch axis (the classic transposed-reduction silent bug), statically checkable from
-    `doc.dimensions` + the AST; (c) **mixing completeness** — a `mixing` term must reference both a
-    `coupling` matrix and a prevalence `compartment`, and coupling weights must be ≥ 0.
-  - `connect` — dragging `coupling → compartment` sets that compartment's prevalence as the
-    network's mixing source (compartment ↔ transition wiring can still delegate to stock-flow's
-    `wireFlow`).
-  - `resultReadouts` — derived from result data with no engine change, exactly like reliability's
-    availability/MTTF: **peak prevalence** and **time-to-peak**, **attack rate** (final `ΣR` / total
-    population), **epidemic duration**, and an **R₀** estimate (β/γ, or an early-exponential-growth
-    fit).
-- **`metapopTemplates.ts`** — `two-patch-sir` (two coupled cities: the minimal teaching
-  metapopulation, the "bathtub" of this lens) and `sir-on-network` (the `network_sir_v2` graph
-  promoted to a full SIR with recovery), built through `parseExpr`/`printAst`/`refsOf` and tagged
-  per-element `lens_role` so they open warning-clean. Wire both into the loader's `TEMPLATES` map and
-  list their ids in the manifest's `templates`.
-- **(Ship it built-in)** add the manifest to `BUILTIN_MANIFESTS` in `loader.ts` so it appears in the
-  picker without an import.
+- **`behaviors/metapop.ts` — a `LensBehavior`** registered in `behaviors/index.ts`, named by
+  `"behavior": "metapop"` in the manifest (which uses domain roles `compartment` / `transition` /
+  `coupling` / `mixing` / `parameter`, since the code now owns them):
+  - `invariants` — the metapopulation twin of `stockFlowInvariants`, keyed off `lens_role`,
+    `inflows`/`outflows`, `inputs`, and `outputs[].dimensions` (structural fields — no expression
+    eval): (a) **population conservation** — a transition must move population between compartments;
+    an unmatched add (inflow of a compartment, outflow of none) is a leak → warning; (b) **mixing
+    completeness** — a `mixing` term's dependency closure must reach both a `coupling` and a
+    prevalence `compartment` (a cycle-safe BFS over `deps`, because the graph closes cycles through
+    `lag`), else it is mean-field, not a network model; (c) **coupling well-formedness** — a
+    dimensioned `coupling` must be square over two axes of equal size (checked against
+    `doc.dimensions`); (d) **transposed-reduction guard** — a dimensioned `mixing` term must retain
+    the coupling's *first* (home) axis and drop its *second* (neighbor) axis; still carrying the
+    neighbor axis is the classic silent bug → warning.
+  - `connect` — `transition → compartment` wires the transition as an inflow, `compartment →
+    transition` as an outflow (the stock-flow `wireFlow` gesture, re-keyed to metapop roles). (The
+    original sketch's "coupling → compartment sets the mixing source" gesture is deferred — it has no
+    concrete backing field yet.)
+  - `resultReadouts` — derived from result data with no engine change, like reliability's
+    availability/MTTF: a per-compartment **peak** + **time-to-peak** row, plus an **Epidemic**
+    summary — **peak prevalence** and **time-to-peak** of the aggregate infected curve, **epidemic
+    duration**, **attack rate** (final ΣR / initial total population, a ratio over one consistent
+    aggregate so it is scale-invariant), and an **R₀** estimate (β/γ, when both are exposed as
+    parameters).
+- **`metapopTemplates.ts`** — `two-patch-sir` (two coupled cities: scalar SIR stocks, a
+  between-patch mixing weight carrying the epidemic from the seeded city; the "bathtub" of this lens)
+  and `sir-on-network` (the `network_sir_v2` graph promoted to a full SIR with recovery), tagged
+  per-element `lens_role` so they open warning-clean. Both are wired into the loader's `TEMPLATES`
+  map and listed in the manifest's `templates`; the manifest is added to `BUILTIN_MANIFESTS` so the
+  lens appears in the picker without an import.
+
+The one subtlety the templates exposed: the array forms (the coupling matrix and the force-of-
+infection reduction) are built as **explicit AST literals**, not via `parseExpr`, because the text
+parser doesn't synthesise the engine's array ops (`index_ref` with `depth`, positional `index`
+gather, axis-selective `sum_array(_, axis)`) — the same "raw" authoring §5.2 flagged. Scalar
+expressions still go through the parser.
 
 ### 5.4 Isolated changes required
 
@@ -297,6 +311,27 @@ shipped behaviors. None of it touches the Rust engine (§5.4).
   comprehension. Everything else in Tier 2 (`behaviors/metapop.ts`, `metapopTemplates.ts`, the
   `behaviors/index.ts` and `loader.ts` registrations) is **additive code isolated to
   `frontend/src/lenses/`** — no change to the engine, the store, or the on-disk model schema.
+- **Engine limitations worked around (candidate future improvements, not blockers).** Building the
+  `sir-on-network` template surfaced three sharp edges in the engine's array evaluation. The template
+  routes around all three, so the lens needs no engine change today — but each is a reasonable
+  engine improvement that would make networked models easier to author:
+  1. **`min` / `max` / unary math builtins don't map over an array** — `min([10,20,30],[1,2,3])`
+     returns `[1,0,0]`, not the elementwise `[1,2,3]`. Only the binary operators (`+ − × ÷`,
+     comparisons) and `sum_array` broadcast. So the infection term is written as pure elementwise
+     arithmetic (`β·force·S`) with β kept small enough that susceptibles never go negative, instead
+     of a `min(…, S)` saturation clamp.
+  2. **A dimensioned *stock*'s scalar `initial_value` seeds only one cell** (not broadcast per node),
+     and a dimensioned stock advanced through `lag` + `index` gather loses per-node identity (every
+     node collapses to the same trajectory). So the networked compartments are dimensioned
+     *expressions* advanced by `lag` (the proof's pattern), not `stock` primitives. Per-node initial
+     conditions are set with an `initial_value` **expression** (`vector_map` over the patch axis) —
+     which does broadcast correctly — and seeded on the first step via `elapsed == 0`.
+  3. Consequently the network template's "compartments" are expression nodes, so the conservation /
+     `wireFlow` invariants (which key on `inflows`/`outflows`) exercise the *two-patch* template,
+     which uses real stocks; the network template exercises the coupling/mixing/transposed-reduction
+     checks. Fixing (2) — per-node dimensioned stock initials + identity-preserving `lag` on stocks —
+     is the one change that would let a single formulation serve both, and is the highest-value
+     engine follow-up for this lens.
 
 ### 5.5 The one honest boundary to encode in the UI
 

@@ -5,12 +5,14 @@ import { resolveBehavior } from './behaviors'
 import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
 import { RELIABILITY_TEMPLATES } from './reliabilityTemplates'
 import { DECISION_TEMPLATES } from './decisionTemplates'
+import { METAPOP_TEMPLATES } from './metapopTemplates'
 
 import elementRegistry from './element-registry.json'
 import generalManifest from './lenses/general.json'
 import stockFlowManifest from './lenses/stock-flow.json'
 import reliabilityManifest from './lenses/reliability.json'
 import decisionManifest from './lenses/decision.json'
+import metapopManifest from './lenses/metapop.json'
 
 /**
  * The lens **loader** (WASIM_LENS_MANIFEST_SPEC.md §3, §6): compiles a declarative JSON manifest
@@ -28,12 +30,13 @@ const BUILTIN_MANIFESTS: LensManifest[] = [
   stockFlowManifest as LensManifest,
   reliabilityManifest as LensManifest,
   decisionManifest as LensManifest,
+  metapopManifest as LensManifest,
   generalManifest as LensManifest,
 ]
 
 // Template registry: manifest `templates` are ids into this map (bound by import, as before).
 const TEMPLATES: Record<string, ModelTemplate> = Object.fromEntries(
-  [...STOCK_FLOW_TEMPLATES, ...RELIABILITY_TEMPLATES, ...DECISION_TEMPLATES].map((t) => [t.id, t]),
+  [...STOCK_FLOW_TEMPLATES, ...RELIABILITY_TEMPLATES, ...DECISION_TEMPLATES, ...METAPOP_TEMPLATES].map((t) => [t.id, t]),
 )
 
 /** A ref's palette entry (for `make()` + `iconType`): manifest refs map 1:1 to PALETTE keys. */
