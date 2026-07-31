@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../../store'
 import { serializeModel } from '../../model/edits'
-import { effectiveThinking } from '../../copilot/aiConfig'
-import { callAnthropic } from '../../copilot/anthropic'
+import { chat, hasKey } from '../../copilot/providers'
 import { validateCandidate } from '../../copilot/validateCandidate'
 import { propose, type ProposeResult } from '../../copilot/loop'
 import { coldStartPrompt, refinePrompt } from '../../copilot/systemPrompt'
@@ -38,7 +37,7 @@ export function CopilotPanel() {
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const hasKey = aiConfig.apiKey.trim().length > 0
+  const configured = hasKey(aiConfig.llm)
 
   const generate = async () => {
     setRunning(true)
@@ -55,9 +54,9 @@ export function CopilotPanel() {
       const firstMessage = refining ? `Change: ${description.trim()}` : description.trim()
       const r = await propose(
         firstMessage,
-        { apiKey: aiConfig.apiKey, model: aiConfig.model, thinking: effectiveThinking(aiConfig) },
+        aiConfig.llm,
         systemPrompt,
-        { call: callAnthropic, validate: validateCandidate },
+        { call: chat, validate: validateCandidate },
         { signal: ctrl.signal, onIteration: (attempt, validation) => setStatus({ attempt, validation }) },
       )
       setResult(r)
@@ -79,9 +78,9 @@ export function CopilotPanel() {
 
   return (
     <div className="flex h-full flex-col p-2" data-testid="copilot-panel">
-      {!hasKey && (
+      {!configured && (
         <div className="mb-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
-          Set an Anthropic API key in <span className="font-medium">Settings…</span> to enable the copilot.
+          Set an LLM provider + API key in <span className="font-medium">Settings…</span> to enable the copilot.
         </div>
       )}
 
@@ -118,7 +117,7 @@ export function CopilotPanel() {
       <div className="mt-2 flex items-center gap-2">
         <button
           onClick={generate}
-          disabled={running || !hasKey || description.trim().length === 0}
+          disabled={running || !configured || description.trim().length === 0}
           className="rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
         >
           {running ? 'Generating…' : 'Generate'}

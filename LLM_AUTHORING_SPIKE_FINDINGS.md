@@ -98,16 +98,17 @@ piece — not a smarter model or a better loop.
   SPA, BYO-key, provider abstraction, Copilot panel UX). Those are still to design/build; nothing
   here shortcuts them.
 
-## Open measurement — adaptive thinking on/off (default is provisional)
+## Open measurement — adaptive thinking on/off (deferred; toggle removed with the provider abstraction)
 
-The browser copilot exposes a "use extended reasoning" toggle; its **default is unmeasured**. The
-spike ran through `claude -p` (adaptive thinking on by default) and never isolated thinking-on vs
--off on the raw API, so there is no data that thinking changes validate-iterations for this task.
-`DEFAULT_THINKING` (`frontend/src/copilot/aiConfig.ts`) is therefore set conservatively to **off**
-(cheaper, faster; convergence is achievable without it) — *not* asserted as optimal.
+The copilot briefly had a "use extended reasoning" (adaptive thinking) toggle. The provider
+abstraction (§17.1) adopted a **lowest-common-denominator interface** — `chat()` carries only what
+every provider shares — so the Anthropic-only thinking knob was **removed** from the config and UI.
+The `tools/copilot_thinking_ab.mjs` harness stays committed (a standalone Anthropic experiment) but
+no longer feeds a UI default. If thinking is re-introduced later, it belongs *inside* the Anthropic
+adapter (read from an Anthropic-specific config field), not in the neutral interface — and its
+default should still be set by the A/B, not asserted.
 
-To settle it, run `tools/copilot_thinking_ab.mjs` (needs `ANTHROPIC_API_KEY` + a built
-`wasim-validate`): it drives the real copilot loop over 3 prompts × {thinking off, on}, reporting
-validate-iterations to convergence, and prints which default wins. Flip `DEFAULT_THINKING` to the
-lower-iteration / higher-validity setting (or keep off on a tie). This wasn't runnable at build time
-(no key in the environment).
+The unanswered question is unchanged: the spike ran through `claude -p` (thinking on by default) and
+never isolated thinking-on vs -off on the raw API. To settle it, run the harness (needs
+`ANTHROPIC_API_KEY` + a built `wasim-validate`) — it drives the real loop over 3 prompts ×
+{thinking off, on} and reports validate-iterations to convergence.

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Validation } from '../worker/protocol'
 import { propose, type ProposeDeps } from './loop'
+import type { LlmConfig } from './providers/types'
 
-const CFG = { apiKey: 'k', model: 'claude-opus-4-8' }
+const CFG: LlmConfig = { provider: 'anthropic', apiKey: 'k', model: 'claude-opus-4-8' }
 const OK: Validation = { ok: true, issues: [], topo: [] }
 const BAD: Validation = { ok: false, issues: [{ severity: 'error', message: 'unknown field foo' }], topo: [] }
 

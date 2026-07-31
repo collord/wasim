@@ -1,5 +1,5 @@
 import type { Validation } from '../worker/protocol'
-import type { AnthropicConfig, ChatMessage } from './anthropic'
+import type { LlmConfig, ChatMessage } from './providers/types'
 import { extractJson } from './extractJson'
 
 /**
@@ -25,7 +25,7 @@ export interface ProposeResult {
 }
 
 export interface ProposeDeps {
-  call: (cfg: AnthropicConfig, system: string, messages: ChatMessage[], signal?: AbortSignal) => Promise<string>
+  call: (cfg: LlmConfig, system: string, messages: ChatMessage[], signal?: AbortSignal) => Promise<string>
   validate: (json: string) => Promise<Validation>
 }
 
@@ -47,7 +47,7 @@ function diagnosticsMessage(v: Validation): string {
 
 export async function propose(
   description: string,
-  cfg: AnthropicConfig,
+  cfg: LlmConfig,
   systemPrompt: string,
   deps: ProposeDeps,
   opts: ProposeOptions = {},

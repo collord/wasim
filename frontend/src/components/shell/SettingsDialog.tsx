@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useStore } from '../../store'
 import type { DimensionDef } from '../../model/schema'
-import { DEFAULT_THINKING } from '../../copilot/aiConfig'
+import { PROVIDERS, testConnection, type TestResult } from '../../copilot/providers'
+import type { LlmConfig, ProviderId } from '../../copilot/providers/types'
 import { Field, NumInput, Select, TextInput, Toggle } from '../inspector/fields'
 
 /** Settings dialog: simulation settings (spec §9) and copilot/AI config (§17.1). Sim settings
@@ -82,37 +84,102 @@ function AiSettingsSection() {
   const cfg = useStore((s) => s.aiConfig)
   const setAiConfig = useStore((s) => s.setAiConfig)
 
+  const llm = cfg.llm
+  const [test, setTest] = useState<TestResult | 'running' | null>(null)
+
+  // Merge a patch into the active provider's LlmConfig (the variants share `apiKey`, so a partial
+  // over the current variant stays well-typed).
+  const setLlm = (patch: Partial<LlmConfig>) => setAiConfig({ llm: { ...llm, ...patch } as LlmConfig })
+  const switchProvider = (id: ProviderId) => {
+    setTest(null)
+    setAiConfig({ llm: PROVIDERS[id].blank() })
+  }
+
+  const runTest = async () => {
+    setTest('running')
+    setTest(await testConnection(llm))
+  }
+
+  const keyField = (
+    <>
+      <Field label="API key" hint="Sent directly from your browser to the provider — nowhere else.">
+        <input
+          type="password"
+          value={llm.apiKey}
+          placeholder={llm.provider === 'anthropic' ? 'sk-ant-…' : 'sk-…'}
+          onChange={(e) => setLlm({ apiKey: e.target.value })}
+          className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs outline-none focus:border-blue-400"
+        />
+      </Field>
+      <Toggle
+        label="Remember key on this device (stores it in this browser)"
+        checked={cfg.rememberKey}
+        onChange={(rememberKey) => setAiConfig({ rememberKey })}
+      />
+    </>
+  )
+
   return (
     <div className="border-t border-slate-100 pt-4">
       <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">AI copilot</h4>
       <div className="space-y-3">
-        <Field label="Anthropic API key" hint="Sent directly to api.anthropic.com from your browser.">
-          <input
-            type="password"
-            value={cfg.apiKey}
-            placeholder="sk-ant-…"
-            onChange={(e) => setAiConfig({ apiKey: e.target.value })}
-            className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs outline-none focus:border-blue-400"
+        <Field label="Provider">
+          <Select
+            value={llm.provider}
+            onChange={(p) => switchProvider(p as ProviderId)}
+            options={(Object.keys(PROVIDERS) as ProviderId[]).map((id) => ({ value: id, label: PROVIDERS[id].label }))}
           />
         </Field>
-        <Toggle
-          label="Remember key on this device (stores it in this browser)"
-          checked={cfg.rememberKey}
-          onChange={(rememberKey) => setAiConfig({ rememberKey })}
-        />
-        <Field label="Model">
-          <Select value={cfg.model} onChange={(model) => setAiConfig({ model })}
-            options={[
-              { value: 'claude-opus-4-8', label: 'Claude Opus 4.8 (most capable)' },
-              { value: 'claude-sonnet-5', label: 'Claude Sonnet 5 (faster)' },
-              { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (cheapest)' },
-            ]} />
-        </Field>
-        <Toggle
-          label={`Use extended reasoning${cfg.thinking === undefined ? ` (default: ${DEFAULT_THINKING ? 'on' : 'off'})` : ''}`}
-          checked={cfg.thinking ?? DEFAULT_THINKING}
-          onChange={(thinking) => setAiConfig({ thinking })}
-        />
+
+        {llm.provider === 'anthropic' && (
+          <>
+            <Field label="Model">
+              <Select value={llm.model} onChange={(model) => setLlm({ model })}
+                options={[
+                  { value: 'claude-opus-4-8', label: 'Claude Opus 4.8 (most capable)' },
+                  { value: 'claude-sonnet-5', label: 'Claude Sonnet 5 (faster)' },
+                  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (cheapest)' },
+                ]} />
+            </Field>
+            {keyField}
+          </>
+        )}
+
+        {llm.provider === 'openai' && (
+          <>
+            <Field label="Model"><TextInput value={llm.model} mono onChange={(model) => setLlm({ model })} /></Field>
+            <Field label="Base URL" hint="Optional — for OpenAI-compatible gateways.">
+              <TextInput value={llm.baseUrl ?? ''} mono onChange={(baseUrl) => setLlm({ baseUrl: baseUrl || undefined })} />
+            </Field>
+            {keyField}
+          </>
+        )}
+
+        {llm.provider === 'azure-openai' && (
+          <>
+            <Field label="Resource" hint="{resource}.openai.azure.com">
+              <TextInput value={llm.resource} mono onChange={(resource) => setLlm({ resource })} />
+            </Field>
+            <Field label="Deployment"><TextInput value={llm.deployment} mono onChange={(deployment) => setLlm({ deployment })} /></Field>
+            <Field label="API version"><TextInput value={llm.apiVersion} mono onChange={(apiVersion) => setLlm({ apiVersion })} /></Field>
+            {keyField}
+          </>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={runTest}
+            disabled={test === 'running' || !PROVIDERS[llm.provider].hasKey(llm)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {test === 'running' ? 'Testing…' : 'Test connection'}
+          </button>
+          {test && test !== 'running' && (
+            <span className={`text-[11px] ${test.ok ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {test.ok ? `✓ ${test.model} · ${test.ms} ms` : `✗ ${test.error}`}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )

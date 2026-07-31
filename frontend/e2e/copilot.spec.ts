@@ -58,6 +58,8 @@ test('copilot: describe → validate-loop against WASM → Accept loads + runs',
 
   // Set an API key via the Settings dialog (doc-independent AI section).
   await page.getByRole('button', { name: 'Settings…' }).click()
+  // The provider picker defaults to Anthropic (multi-provider abstraction, §17.1).
+  await expect(page.getByRole('combobox').filter({ hasText: 'Anthropic' })).toBeVisible()
   await page.getByPlaceholder('sk-ant-…').fill('sk-ant-test-key')
   await page.getByRole('button', { name: 'Done' }).click()
 
