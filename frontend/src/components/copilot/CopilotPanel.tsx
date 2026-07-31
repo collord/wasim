@@ -1,29 +1,21 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../../store'
+import { serializeModel } from '../../model/edits'
 import { effectiveThinking } from '../../copilot/aiConfig'
 import { callAnthropic } from '../../copilot/anthropic'
 import { validateCandidate } from '../../copilot/validateCandidate'
 import { propose, type ProposeResult } from '../../copilot/loop'
-import { BATHTUB_EXEMPLAR } from '../../copilot/exemplar'
-import authoringGuide from '../../copilot/authoring-guide.generated.md?raw'
+import { coldStartPrompt, refinePrompt } from '../../copilot/systemPrompt'
 import type { Validation } from '../../worker/protocol'
 
 /**
- * The LLM-authoring copilot panel (WASIM_AUTHORING_ENVIRONMENT_SPEC.md §17): describe a model in
- * words → the copilot drafts it, validates it through the engine, and self-corrects until valid →
- * you Accept (loads it) or Reject. Crudest useful surface — the feasibility slice, not the polished
- * Copilot panel. Nothing auto-applies; Accept is gated on the engine calling the model valid.
+ * The LLM-authoring copilot panel (WASIM_AUTHORING_ENVIRONMENT_SPEC.md §17). Two turn types:
+ * **New model** (§17.7 Phase 1) — describe → draft → validate → Accept; and **Refine current
+ * model** (Phase 2) — describe a change → the copilot returns the updated full model, validated the
+ * same way. Nothing auto-applies; Accept is gated on the engine calling the model valid.
  */
 
-const SYSTEM_PROMPT =
-  authoringGuide +
-  '\n\nReturn ONE complete WASiM v2 model as a single JSON object. If you are given validation ' +
-  'diagnostics, fix exactly those issues and return the corrected full model. A fenced ```json block ' +
-  'is fine. Do not include commentary that is not part of the JSON.\n\n' +
-  'A complete, engine-valid example to follow (note the exact shapes — `ref` uses `element_id`, ' +
-  'stocks list flow ids in `inflows`/`outflows`):\n```json\n' +
-  BATHTUB_EXEMPLAR +
-  '\n```'
+type Mode = 'new' | 'refine'
 
 interface Status {
   attempt: number
@@ -33,6 +25,11 @@ interface Status {
 export function CopilotPanel() {
   const aiConfig = useStore((s) => s.aiConfig)
   const loadModel = useStore((s) => s.loadModel)
+  const doc = useStore((s) => s.doc)
+
+  // Prefer Refine (the common case once you have a model); with no doc loaded it collapses to New.
+  const [mode, setMode] = useState<Mode>('refine')
+  const effectiveMode: Mode = doc ? mode : 'new'
 
   const [description, setDescription] = useState('')
   const [running, setRunning] = useState(false)
@@ -51,10 +48,15 @@ export function CopilotPanel() {
     const ctrl = new AbortController()
     abortRef.current = ctrl
     try {
+      // Cold-start: the guide + exemplar, first message = the description.
+      // Refine: the guide + the *current* model, first message = the change instruction.
+      const refining = effectiveMode === 'refine' && doc
+      const systemPrompt = refining ? refinePrompt(serializeModel(doc)) : coldStartPrompt()
+      const firstMessage = refining ? `Change: ${description.trim()}` : description.trim()
       const r = await propose(
-        description.trim(),
+        firstMessage,
         { apiKey: aiConfig.apiKey, model: aiConfig.model, thinking: effectiveThinking(aiConfig) },
-        SYSTEM_PROMPT,
+        systemPrompt,
         { call: callAnthropic, validate: validateCandidate },
         { signal: ctrl.signal, onIteration: (attempt, validation) => setStatus({ attempt, validation }) },
       )
@@ -83,10 +85,31 @@ export function CopilotPanel() {
         </div>
       )}
 
+      {doc && (
+        <div className="mb-2 flex gap-1 text-[11px]" role="tablist" aria-label="Copilot mode">
+          {(['refine', 'new'] as Mode[]).map((m) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={effectiveMode === m}
+              onClick={() => setMode(m)}
+              disabled={running}
+              className={`rounded px-2 py-0.5 ${effectiveMode === m ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'} disabled:opacity-40`}
+            >
+              {m === 'refine' ? 'Refine current model' : 'New model'}
+            </button>
+          ))}
+        </div>
+      )}
+
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Describe a model — e.g. “a bathtub: one stock filled by a tap and drained in proportion to its level”"
+        placeholder={
+          effectiveMode === 'refine'
+            ? 'Describe a change — e.g. “add a second inflow called rain”, “make the tank overflow at 100”'
+            : 'Describe a model — e.g. “a bathtub: one stock filled by a tap and drained in proportion to its level”'
+        }
         rows={4}
         disabled={running}
         className="w-full resize-y rounded border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-blue-400 disabled:bg-slate-50"
