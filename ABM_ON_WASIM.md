@@ -285,10 +285,11 @@ validated end-to-end against the engine (`serializeModel` → `parse_v2`/`run_v2
     parameters).
 - **`metapopTemplates.ts`** — `two-patch-sir` (two coupled cities: scalar SIR stocks, a
   between-patch mixing weight carrying the epidemic from the seeded city; the "bathtub" of this lens)
-  and `sir-on-network` (the `network_sir_v2` graph promoted to a full SIR with recovery), tagged
-  per-element `lens_role` so they open warning-clean. Both are wired into the loader's `TEMPLATES`
-  map and listed in the manifest's `templates`; the manifest is added to `BUILTIN_MANIFESTS` so the
-  lens appears in the picker without an import.
+  and `sir-on-network` (the `network_sir_v2` graph promoted to a full SIR with recovery, as real
+  dimensioned S/I/R **stocks** over the patch axis with per-node infection/recovery flows — see §5.4),
+  tagged per-element `lens_role` so they open warning-clean. Both are wired into the loader's
+  `TEMPLATES` map and listed in the manifest's `templates`; the manifest is added to
+  `BUILTIN_MANIFESTS` so the lens appears in the picker without an import.
 
 The one subtlety the templates exposed: the array forms (the coupling matrix and the force-of-
 infection reduction) are built as **explicit AST literals**, not via `parseExpr`, because the text
@@ -298,12 +299,13 @@ expressions still go through the parser.
 
 ### 5.4 Isolated changes required
 
-- **Rust engine: none.** §3's proof established that rows 1–2 of the interaction table (mean-field
-  and network/local) run on today's engine with **no new primitives**, and the metapop lens targets
-  exactly those two rows. The one open engine item on the ABM roadmap is the **within-step
-  relaxation loop** (row 3, genuine instantaneous simultaneity — market clearing, congestion
-  pricing), and SIR/SEIR metapopulation does not need it. The metapop lens is an engine-complete
-  problem.
+- **Rust engine: no new primitives.** §3's proof established that rows 1–2 of the interaction table
+  (mean-field and network/local) run on today's engine with **no new primitives**, and the metapop
+  lens targets exactly those two rows. The one open engine item on the ABM roadmap is the
+  **within-step relaxation loop** (row 3, genuine instantaneous simultaneity — market clearing,
+  congestion pricing), and SIR/SEIR metapopulation does not need it. What this work *did* change in
+  the engine is array-evaluation **robustness** (below) — no new primitive, but three fixes so the
+  natural dimensioned stock-and-flow authoring works instead of silently misbehaving.
 - **Shared registry / schema: one *optional* addition.** A new `element-registry.json` entry
   (`matrix` / `coupling`) plus a structured 2-D editor for `W` would replace the raw-expression
   authoring of the coupling matrix noted in §5.2. This is the single genuinely new *widget*, and it
@@ -311,27 +313,25 @@ expressions still go through the parser.
   comprehension. Everything else in Tier 2 (`behaviors/metapop.ts`, `metapopTemplates.ts`, the
   `behaviors/index.ts` and `loader.ts` registrations) is **additive code isolated to
   `frontend/src/lenses/`** — no change to the engine, the store, or the on-disk model schema.
-- **Engine limitations worked around (candidate future improvements, not blockers).** Building the
-  `sir-on-network` template surfaced three sharp edges in the engine's array evaluation. The template
-  routes around all three, so the lens needs no engine change today — but each is a reasonable
-  engine improvement that would make networked models easier to author:
-  1. **`min` / `max` / unary math builtins don't map over an array** — `min([10,20,30],[1,2,3])`
-     returns `[1,0,0]`, not the elementwise `[1,2,3]`. Only the binary operators (`+ − × ÷`,
-     comparisons) and `sum_array` broadcast. So the infection term is written as pure elementwise
-     arithmetic (`β·force·S`) with β kept small enough that susceptibles never go negative, instead
-     of a `min(…, S)` saturation clamp.
-  2. **A dimensioned *stock*'s scalar `initial_value` seeds only one cell** (not broadcast per node),
-     and a dimensioned stock advanced through `lag` + `index` gather loses per-node identity (every
-     node collapses to the same trajectory). So the networked compartments are dimensioned
-     *expressions* advanced by `lag` (the proof's pattern), not `stock` primitives. Per-node initial
-     conditions are set with an `initial_value` **expression** (`vector_map` over the patch axis) —
-     which does broadcast correctly — and seeded on the first step via `elapsed == 0`.
-  3. Consequently the network template's "compartments" are expression nodes, so the conservation /
-     `wireFlow` invariants (which key on `inflows`/`outflows`) exercise the *two-patch* template,
-     which uses real stocks; the network template exercises the coupling/mixing/transposed-reduction
-     checks. Fixing (2) — per-node dimensioned stock initials + identity-preserving `lag` on stocks —
-     is the one change that would let a single formulation serve both, and is the highest-value
-     engine follow-up for this lens.
+- **Engine array-eval fixes (done).** Building the `sir-on-network` template first surfaced three
+  sharp edges in the engine's array evaluation; all three are now **fixed** (`engine/src/eval.rs`,
+  `engine/src/engine_v2.rs`), which is what let the network template be rewritten as a genuine
+  dimensioned stock-and-flow SIR sharing one formulation with `two-patch-sir`:
+  1. **Element-wise math builtins.** `min` / `max` and the unary math builtins (`exp`, `abs`, …) now
+     broadcast over a dimension via `Value::map`/`zip_with` — the same machinery the operators use —
+     instead of collapsing every array arg to element 0 (`min([10,20,30],[1,2,3])` was `[1,0,0]`, now
+     `[1,2,3]`). Scalar calls stay bit-identical; date/finance builtins remain scalar-arg.
+  2. **Dimensioned stocks integrate per-cell.** A scalar `initial_value` on a dimensioned stock now
+     broadcasts to every cell (was: cell 0 only), and inflows/outflows are summed as `Value`s so the
+     stock keeps per-cell identity (was: collapsed to cell 0 via `as_scalar`). So a compartment can
+     be a real `stock` over a patch axis with per-node flows — the network template now uses S/I/R
+     stocks + `infect`/`recover` flows, dropping the earlier manual-Euler lagged-expression
+     scaffolding and the `elapsed==0` seed. The conservation / `wireFlow` invariants now apply to
+     *both* templates.
+  3. Remaining, documented non-goals: array stocks with `floor`/`capacity` bounds use the existing
+     aggregate bound-split (per-cell clamping is out of scope; SIR needs no bounds), and
+     cumulative-flow/withdrawal side-channels record the aggregate flow total for array stocks (the
+     per-cell *level* is correct).
 
 ### 5.5 The one honest boundary to encode in the UI
 

@@ -779,8 +779,15 @@ analysis layer. The primary `"<id>"` still records member[0] for back-compat.
 **Per-member state (stateless recurrence).** `lag` preserves the `Value` shape, so an
 array-valued input lags per member. This gives per-member accumulation without an array-valued
 *stock*: an array `expression` reading its own previous-step value through a `lag` (e.g.
-`x[i]_t = x[i]_{t-1} + rate[i]·Δt`) integrates each member independently. Array-valued stocks
-are therefore not required for multi-unit models.
+`x[i]_t = x[i]_{t-1} + rate[i]·Δt`) integrates each member independently.
+
+**Dimensioned stocks integrate per-member.** An array-valued `stock` (its primary output declares
+`dimensions`) is also supported directly: a scalar `initial_value` broadcasts across every cell, and
+inflows/outflows are summed as arrays, so the stock carries per-member state (`damage[i] = ∫ rate[i]`).
+Use a per-member `initial_value` **expression** (a `vector_map` over the axis) when members start at
+different values. Two edges remain aggregate for array stocks: `floor`/`capacity` bound-splitting and
+the cumulative-flow / withdrawal side-channels operate on the scalar (`as_scalar`) flow total — the
+per-cell *level* is correct. The `lag`-based recurrence above stays valid; both formulations work.
 
 **Array-valued stateful nodes.** The `status` latch is array-aware: when its primary output
 declares `dimensions`, it holds a per-member `Vec<bool>` and evaluates its `set`/`reset`

@@ -45,7 +45,6 @@ const vmap = (over: string, body: Ast): Ast => ({ op: 'vector_map', over, body }
 const idx = (depth: number): Ast => ({ op: 'index_ref', depth } as unknown as Ast)
 /** Positional gather `array[indices…]`. */
 const gather = (array: Ast, ...indices: Ast[]): Ast => ({ op: 'index', array, indices } as Ast)
-const timeRef = (property: string): Ast => ({ op: 'time_ref', property } as Ast)
 
 /** An expression element from an AST (`inputs`/`outputs`/`lens_role` carried through `el`; the
  *  extra `outputs` field rides FlatElement's index signature; `expression` is optional on
@@ -113,17 +112,25 @@ function sirOnNetwork(): ModelDoc {
     bin('or', bin('and', bin('eq', idx(1), lit(2)), bin('eq', idx(0), lit(5))),
               bin('and', bin('eq', idx(1), lit(5)), bin('eq', idx(0), lit(2)))))
 
-  // First-step seed gate (elapsed == 0) and per-node masks (node 1 seeded).
-  const gate0 = bin('eq', timeRef('elapsed'), lit(0))
-  const blend = (seed: Ast, dyn: Ast): Ast =>
-    bin('add', bin('multiply', gate0, seed), bin('multiply', bin('subtract', lit(1), gate0), dyn))
+  // Per-node initial conditions (node 1 seeded). S/I use per-node initial-value expressions; R uses
+  // a scalar 0 that broadcasts across every node.
   const seedI = vmap('Node', bin('multiply', bin('eq', idx(0), lit(1)), lit(0.01)))
   const seedS = vmap('Node', bin('subtract', lit(1), bin('multiply', bin('eq', idx(0), lit(1)), lit(0.01))))
-
-  // new_inf = β·(foi + own prevalence)·S_prev ; new_rec = γ·I_prev  (elementwise only, so S ≥ 0).
-  const newInf = bin('multiply', bin('multiply', ref('beta'), bin('add', ref('foi'), ref('I_prev'))), ref('S_prev'))
-  const newRec = bin('multiply', ref('gamma'), ref('I_prev'))
   const dim = (n: string) => [{ name: n, unit: '1', dimensions: ['Node'] }]
+
+  // A dimensioned compartment stock over Node. `initial` may be a per-node expression (S/I seed) or a
+  // scalar broadcast to every node (R).
+  const compartment = (id: string, name: string, initial: Ast | number, inflows: string[], outflows: string[]): FlatElement =>
+    ({
+      id, name, primitive: 'stock',
+      initial_value: typeof initial === 'number' ? { value: initial, unit: '1' } : { ast: initial, display: printAst(initial) },
+      inflows, outflows, lens_role: 'compartment', outputs: dim(id), save_results: SAVE,
+    } as unknown as FlatElement)
+
+  // infect = min(β·(foi + own prevalence)·S, S) — the min clamp guarantees S ≥ 0 (now that min
+  // broadcasts elementwise over the Node axis); recover = γ·I.
+  const infect = call('min', bin('multiply', bin('multiply', ref('beta'), bin('add', ref('foi'), ref('I_prev'))), ref('S')), ref('S'))
+  const recover = bin('multiply', ref('gamma'), ref('I'))
 
   return {
     wasim_version: '0.1.0',
@@ -137,10 +144,8 @@ function sirOnNetwork(): ModelDoc {
       { id: 'gamma', name: 'Recovery γ', primitive: 'node', value_rule: 'fixed', value: { value: 0.08, unit: '1' }, editable: true, bounds: { min: 0, max: 1 }, lens_role: 'parameter', save_results: SAVE },
       expr(vmap('Node', vmap('NodeB', adj)), { id: 'W', name: 'Coupling network W', primitive: 'node', value_rule: 'expression', lens_role: 'coupling',
         outputs: [{ name: 'W', unit: '1', dimensions: ['Node', 'NodeB'] }], save_results: SAVE }),
-      // lagged per-node state (scalar initial broadcasts to every node)
-      { id: 'S_prev', name: 'S (previous)', primitive: 'node', value_rule: 'lag', input: 'S', initial: { value: 1, unit: '1' }, inputs: ['S'], outputs: dim('S_prev') },
+      // Previous-step infected (per node), for synchronous neighbour coupling.
       { id: 'I_prev', name: 'I (previous)', primitive: 'node', value_rule: 'lag', input: 'I', initial: { value: 0, unit: '1' }, inputs: ['I'], outputs: dim('I_prev') },
-      { id: 'R_prev', name: 'R (previous)', primitive: 'node', value_rule: 'lag', input: 'R', initial: { value: 0, unit: '1' }, inputs: ['R'], outputs: dim('R_prev') },
       // reindex I_prev onto the neighbour axis, W × prevalence, reduce the neighbour axis (axis 2)
       expr(vmap('NodeB', gather(ref('I_prev'), idx(0))), { id: 'I_prev_B', name: 'I on neighbour axis', primitive: 'node', value_rule: 'expression', inputs: ['I_prev'],
         outputs: [{ name: 'I_prev_B', unit: '1', dimensions: ['NodeB'] }] }),
@@ -148,13 +153,13 @@ function sirOnNetwork(): ModelDoc {
         outputs: [{ name: 'wprod', unit: '1', dimensions: ['Node', 'NodeB'] }] }),
       expr(call('sum_array', ref('wprod'), lit(2)), { id: 'foi', name: 'Force of infection', primitive: 'node', value_rule: 'expression', inputs: ['wprod'], lens_role: 'mixing',
         outputs: dim('foi'), save_results: SAVE }),
-      // transition rates
-      expr(newInf, { id: 'new_inf', name: 'Infection rate', primitive: 'node', value_rule: 'expression', inputs: ['beta', 'foi', 'I_prev', 'S_prev'], outputs: dim('new_inf') }),
-      expr(newRec, { id: 'new_rec', name: 'Recovery rate', primitive: 'node', value_rule: 'expression', inputs: ['gamma', 'I_prev'], outputs: dim('new_rec') }),
-      // compartments: per-node expressions advanced by lag, seeded on the first step
-      expr(blend(seedS, bin('subtract', ref('S_prev'), ref('new_inf'))), { id: 'S', name: 'Susceptible', primitive: 'node', value_rule: 'expression', inputs: ['S_prev', 'new_inf'], lens_role: 'compartment', outputs: dim('S'), save_results: SAVE }),
-      expr(blend(seedI, bin('add', ref('I_prev'), bin('subtract', ref('new_inf'), ref('new_rec')))), { id: 'I', name: 'Infected', primitive: 'node', value_rule: 'expression', inputs: ['I_prev', 'new_inf', 'new_rec'], lens_role: 'compartment', outputs: dim('I'), save_results: SAVE }),
-      expr(blend(vmap('Node', lit(0)), bin('add', ref('R_prev'), ref('new_rec'))), { id: 'R', name: 'Recovered', primitive: 'node', value_rule: 'expression', inputs: ['R_prev', 'new_rec'], lens_role: 'compartment', outputs: dim('R'), save_results: SAVE }),
+      // transitions (per-node flows between compartment stocks)
+      expr(infect, { id: 'infect', name: 'Infection', primitive: 'node', value_rule: 'expression', inputs: ['beta', 'foi', 'I_prev', 'S'], lens_role: 'transition', outputs: dim('infect'), save_results: SAVE }),
+      expr(recover, { id: 'recover', name: 'Recovery', primitive: 'node', value_rule: 'expression', inputs: ['gamma', 'I'], lens_role: 'transition', outputs: dim('recover'), save_results: SAVE }),
+      // compartments: real dimensioned stocks over Node, wired by the transitions
+      compartment('S', 'Susceptible', seedS, [], ['infect']),
+      compartment('I', 'Infected', seedI, ['infect'], ['recover']),
+      compartment('R', 'Recovered', 0, ['recover'], []),
       // scalar total (the epidemic curve)
       expr(call('sum_array', ref('I')), { id: 'totI', name: 'Total infected', primitive: 'node', value_rule: 'expression', inputs: ['I'], save_results: SAVE }),
     ],
@@ -162,10 +167,9 @@ function sirOnNetwork(): ModelDoc {
       lens: 'metapop', authored: true,
       positions: {
         beta: { x: 60, y: 40 }, gamma: { x: 60, y: 130 }, W: { x: 320, y: 40 },
-        S_prev: { x: 60, y: 260 }, I_prev: { x: 60, y: 350 }, R_prev: { x: 60, y: 440 },
-        I_prev_B: { x: 300, y: 350 }, wprod: { x: 480, y: 200 }, foi: { x: 480, y: 350 },
-        new_inf: { x: 680, y: 260 }, new_rec: { x: 680, y: 440 },
-        S: { x: 900, y: 200 }, I: { x: 900, y: 350 }, R: { x: 900, y: 500 }, totI: { x: 1120, y: 350 },
+        I_prev: { x: 60, y: 300 }, I_prev_B: { x: 300, y: 300 }, wprod: { x: 480, y: 180 }, foi: { x: 480, y: 320 },
+        infect: { x: 700, y: 240 }, recover: { x: 700, y: 440 },
+        S: { x: 920, y: 180 }, I: { x: 920, y: 340 }, R: { x: 920, y: 500 }, totI: { x: 1140, y: 340 },
       },
     },
   }

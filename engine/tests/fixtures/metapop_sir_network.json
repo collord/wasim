@@ -1,0 +1,650 @@
+{
+  "wasim_version": "0.1.0",
+  "simulation_settings": {
+    "duration": {
+      "value": 60,
+      "unit": "d"
+    },
+    "timestep": {
+      "value": 1,
+      "unit": "d"
+    },
+    "n_realizations": 1,
+    "sampling_method": "monte_carlo",
+    "seed": 1
+  },
+  "dimensions": [
+    {
+      "id": "Node",
+      "name": "Node",
+      "size": 6
+    },
+    {
+      "id": "NodeB",
+      "name": "Node (neighbour)",
+      "size": 6
+    }
+  ],
+  "elements": [
+    {
+      "id": "beta",
+      "name": "Transmission β",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "value": {
+        "value": 0.25,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0,
+        "max": 1
+      },
+      "lens_role": "parameter",
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "gamma",
+      "name": "Recovery γ",
+      "primitive": "node",
+      "value_rule": "fixed",
+      "value": {
+        "value": 0.08,
+        "unit": "1"
+      },
+      "editable": true,
+      "bounds": {
+        "min": 0,
+        "max": 1
+      },
+      "lens_role": "parameter",
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "W",
+      "name": "Coupling network W",
+      "primitive": "node",
+      "value_rule": "expression",
+      "lens_role": "coupling",
+      "outputs": [
+        {
+          "name": "W",
+          "unit": "1",
+          "dimensions": [
+            "Node",
+            "NodeB"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      },
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Node",
+          "body": {
+            "op": "vector_map",
+            "over": "NodeB",
+            "body": {
+              "op": "or",
+              "left": {
+                "op": "or",
+                "left": {
+                  "op": "eq",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "index_ref",
+                      "depth": 1
+                    },
+                    "right": {
+                      "op": "index_ref",
+                      "depth": 0
+                    }
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1
+                  }
+                },
+                "right": {
+                  "op": "eq",
+                  "left": {
+                    "op": "subtract",
+                    "left": {
+                      "op": "index_ref",
+                      "depth": 0
+                    },
+                    "right": {
+                      "op": "index_ref",
+                      "depth": 1
+                    }
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1
+                  }
+                }
+              },
+              "right": {
+                "op": "or",
+                "left": {
+                  "op": "and",
+                  "left": {
+                    "op": "eq",
+                    "left": {
+                      "op": "index_ref",
+                      "depth": 1
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 2
+                    }
+                  },
+                  "right": {
+                    "op": "eq",
+                    "left": {
+                      "op": "index_ref",
+                      "depth": 0
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 5
+                    }
+                  }
+                },
+                "right": {
+                  "op": "and",
+                  "left": {
+                    "op": "eq",
+                    "left": {
+                      "op": "index_ref",
+                      "depth": 1
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 5
+                    }
+                  },
+                  "right": {
+                    "op": "eq",
+                    "left": {
+                      "op": "index_ref",
+                      "depth": 0
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "display": "over Node: over NodeB: member − member == 1 || member − member == 1 || (member == 2 && member == 5 || member == 5 && member == 2)"
+      }
+    },
+    {
+      "id": "I_prev",
+      "name": "I (previous)",
+      "primitive": "node",
+      "value_rule": "lag",
+      "input": "I",
+      "initial": {
+        "value": 0,
+        "unit": "1"
+      },
+      "inputs": [
+        "I"
+      ],
+      "outputs": [
+        {
+          "name": "I_prev",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "I_prev_B",
+      "name": "I on neighbour axis",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "I_prev"
+      ],
+      "outputs": [
+        {
+          "name": "I_prev_B",
+          "unit": "1",
+          "dimensions": [
+            "NodeB"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "vector_map",
+          "over": "NodeB",
+          "body": {
+            "op": "index",
+            "array": {
+              "op": "ref",
+              "element_id": "I_prev"
+            },
+            "indices": [
+              {
+                "op": "index_ref",
+                "depth": 0
+              }
+            ]
+          }
+        },
+        "display": "over NodeB: I_prev[member]"
+      }
+    },
+    {
+      "id": "wprod",
+      "name": "W × prevalence",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "W",
+        "I_prev_B"
+      ],
+      "outputs": [
+        {
+          "name": "wprod",
+          "unit": "1",
+          "dimensions": [
+            "Node",
+            "NodeB"
+          ]
+        }
+      ],
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "W"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "I_prev_B"
+          }
+        },
+        "display": "W × I_prev_B"
+      }
+    },
+    {
+      "id": "foi",
+      "name": "Force of infection",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "wprod"
+      ],
+      "lens_role": "mixing",
+      "outputs": [
+        {
+          "name": "foi",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      },
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "wprod"
+            },
+            {
+              "op": "literal",
+              "value": 2
+            }
+          ]
+        },
+        "display": "sum_array(wprod, 2)"
+      }
+    },
+    {
+      "id": "infect",
+      "name": "Infection",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "beta",
+        "foi",
+        "I_prev",
+        "S"
+      ],
+      "lens_role": "transition",
+      "outputs": [
+        {
+          "name": "infect",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      },
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "min",
+          "args": [
+            {
+              "op": "multiply",
+              "left": {
+                "op": "multiply",
+                "left": {
+                  "op": "ref",
+                  "element_id": "beta"
+                },
+                "right": {
+                  "op": "add",
+                  "left": {
+                    "op": "ref",
+                    "element_id": "foi"
+                  },
+                  "right": {
+                    "op": "ref",
+                    "element_id": "I_prev"
+                  }
+                }
+              },
+              "right": {
+                "op": "ref",
+                "element_id": "S"
+              }
+            },
+            {
+              "op": "ref",
+              "element_id": "S"
+            }
+          ]
+        },
+        "display": "min(beta × (foi + I_prev) × S, S)"
+      }
+    },
+    {
+      "id": "recover",
+      "name": "Recovery",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "gamma",
+        "I"
+      ],
+      "lens_role": "transition",
+      "outputs": [
+        {
+          "name": "recover",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      },
+      "expression": {
+        "ast": {
+          "op": "multiply",
+          "left": {
+            "op": "ref",
+            "element_id": "gamma"
+          },
+          "right": {
+            "op": "ref",
+            "element_id": "I"
+          }
+        },
+        "display": "gamma × I"
+      }
+    },
+    {
+      "id": "S",
+      "name": "Susceptible",
+      "primitive": "stock",
+      "initial_value": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Node",
+          "body": {
+            "op": "subtract",
+            "left": {
+              "op": "literal",
+              "value": 1
+            },
+            "right": {
+              "op": "multiply",
+              "left": {
+                "op": "eq",
+                "left": {
+                  "op": "index_ref",
+                  "depth": 0
+                },
+                "right": {
+                  "op": "literal",
+                  "value": 1
+                }
+              },
+              "right": {
+                "op": "literal",
+                "value": 0.01
+              }
+            }
+          }
+        },
+        "display": "over Node: 1 − (member == 1) × 0.01"
+      },
+      "inflows": [],
+      "outflows": [
+        "infect"
+      ],
+      "lens_role": "compartment",
+      "outputs": [
+        {
+          "name": "S",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "I",
+      "name": "Infected",
+      "primitive": "stock",
+      "initial_value": {
+        "ast": {
+          "op": "vector_map",
+          "over": "Node",
+          "body": {
+            "op": "multiply",
+            "left": {
+              "op": "eq",
+              "left": {
+                "op": "index_ref",
+                "depth": 0
+              },
+              "right": {
+                "op": "literal",
+                "value": 1
+              }
+            },
+            "right": {
+              "op": "literal",
+              "value": 0.01
+            }
+          }
+        },
+        "display": "over Node: (member == 1) × 0.01"
+      },
+      "inflows": [
+        "infect"
+      ],
+      "outflows": [
+        "recover"
+      ],
+      "lens_role": "compartment",
+      "outputs": [
+        {
+          "name": "I",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "R",
+      "name": "Recovered",
+      "primitive": "stock",
+      "initial_value": {
+        "value": 0,
+        "unit": "1"
+      },
+      "inflows": [
+        "recover"
+      ],
+      "outflows": [],
+      "lens_role": "compartment",
+      "outputs": [
+        {
+          "name": "R",
+          "unit": "1",
+          "dimensions": [
+            "Node"
+          ]
+        }
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      }
+    },
+    {
+      "id": "totI",
+      "name": "Total infected",
+      "primitive": "node",
+      "value_rule": "expression",
+      "inputs": [
+        "I"
+      ],
+      "save_results": {
+        "time_history": true,
+        "final_value": true
+      },
+      "expression": {
+        "ast": {
+          "op": "call",
+          "fn": "sum_array",
+          "args": [
+            {
+              "op": "ref",
+              "element_id": "I"
+            }
+          ]
+        },
+        "display": "sum_array(I)"
+      }
+    }
+  ],
+  "view": {
+    "lens": "metapop",
+    "authored": true,
+    "positions": {
+      "beta": {
+        "x": 60,
+        "y": 40
+      },
+      "gamma": {
+        "x": 60,
+        "y": 130
+      },
+      "W": {
+        "x": 320,
+        "y": 40
+      },
+      "I_prev": {
+        "x": 60,
+        "y": 300
+      },
+      "I_prev_B": {
+        "x": 300,
+        "y": 300
+      },
+      "wprod": {
+        "x": 480,
+        "y": 180
+      },
+      "foi": {
+        "x": 480,
+        "y": 320
+      },
+      "infect": {
+        "x": 700,
+        "y": 240
+      },
+      "recover": {
+        "x": 700,
+        "y": 440
+      },
+      "S": {
+        "x": 920,
+        "y": 180
+      },
+      "I": {
+        "x": 920,
+        "y": 340
+      },
+      "R": {
+        "x": 920,
+        "y": 500
+      },
+      "totI": {
+        "x": 1140,
+        "y": 340
+      }
+    }
+  }
+}

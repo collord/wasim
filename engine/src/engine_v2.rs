@@ -23,7 +23,7 @@ use crate::engine::{
     SimulationResults, TimeHistoryStats,
 };
 use crate::error::EngineError;
-use crate::eval::{eval_ast, resolve_distribution, EvalCtx, LookupData, Value};
+use crate::eval::{eval_ast, resolve_distribution, Axis, EvalCtx, LookupData, NamedArray, Value};
 use crate::graph_v2::ModelGraphV2;
 use crate::model::{AstNode, OptDirection, QuantityOrFormula};
 use crate::model_v2::{
@@ -33,6 +33,27 @@ use crate::model_v2::{
 };
 use crate::optimize_v2::SearchBounds;
 use crate::sampling;
+
+/// Broadcast a scalar stock initial across the stock's declared dimensions, so a dimensioned stock
+/// with a scalar `initial_value` seeds *every* cell rather than only cell 0 (§15). A scalar (no-dims)
+/// stock stays `Value::Scalar`; an `initial_expression` that already yields a `NamedArray` bypasses
+/// this. Axes are built in the stock's declared dimension order; align-by-name broadcast keeps
+/// downstream arithmetic correct regardless of order.
+fn broadcast_stock_initial(dims: &[String], dim_sizes: &HashMap<String, usize>, v: f64) -> Value {
+    if dims.is_empty() {
+        return Value::Scalar(v);
+    }
+    let axes: Vec<Axis> = dims
+        .iter()
+        .map(|d| Axis { id: d.clone(), len: dim_sizes.get(d).copied().unwrap_or(1) })
+        .collect();
+    let n: usize = axes.iter().map(|a| a.len).product();
+    if n <= 1 {
+        Value::Scalar(v)
+    } else {
+        Value::array(NamedArray { axes, data: vec![v; n] })
+    }
+}
 
 struct CorrGroup {
     ids: Vec<String>,
@@ -1590,7 +1611,10 @@ impl<'a> RunState<'a> {
                     _ => {}
                 },
                 Primitive::Stock(s) => {
-                    init_outputs.insert(id.to_string(), Value::Scalar(s.initial_value.value));
+                    // A dimensioned stock with a scalar initial broadcasts across every cell (§15);
+                    // a scalar stock stays Scalar. (An `initial_expression` is handled below.)
+                    let dims = elem.base.outputs.first().map(|o| o.dimensions.as_slice()).unwrap_or(&[]);
+                    init_outputs.insert(id.to_string(), broadcast_stock_initial(dims, &self.dim_sizes_by_id, s.initial_value.value));
                 }
                 _ => {}
             }
@@ -1640,8 +1664,10 @@ impl<'a> RunState<'a> {
         // stocks that fell back) from its scalar initial_value.
         for &id in stock_ids {
             if !stock_state.contains_key(id) {
-                if let Primitive::Stock(s) = &model.elements[elem_idx[id]].primitive {
-                    stock_state.insert(id.to_string(), Value::Scalar(s.initial_value.value));
+                let elem = &model.elements[elem_idx[id]];
+                if let Primitive::Stock(s) = &elem.primitive {
+                    let dims = elem.base.outputs.first().map(|o| o.dimensions.as_slice()).unwrap_or(&[]);
+                    stock_state.insert(id.to_string(), broadcast_stock_initial(dims, &self.dim_sizes_by_id, s.initial_value.value));
                 }
             }
         }
@@ -2609,11 +2635,20 @@ impl<'a> RunState<'a> {
                         (r, rs.max(0.0), (-rs).max(0.0))
                     }
                     None => {
-                        let infl: f64 = s.inflows.iter()
-                            .map(|i| outputs.get(i).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
-                        let outf: f64 = s.outflows.iter()
-                            .map(|o| outputs.get(o).map(|v| v.as_scalar()).unwrap_or(0.0)).sum();
-                        (Value::Scalar(infl - outf), infl, outf)
+                        // Sum flows as Values so a dimensioned stock keeps per-cell identity
+                        // (align-by-name broadcast); scalar flows fold to a Scalar, bit-identical to
+                        // before. `add_rate`/`wd_rate` stay scalar (`as_scalar`) for withdrawal
+                        // allocation + cumulative-flow bookkeeping (aggregate for array stocks, §15).
+                        let sum_flows = |ids: &[String]| -> Value {
+                            ids.iter().fold(Value::Scalar(0.0), |acc, i| match outputs.get(i) {
+                                Some(v) => acc.zip_with(v.clone(), |a, b| a + b),
+                                None => acc,
+                            })
+                        };
+                        let infl_v = sum_flows(&s.inflows);
+                        let outf_v = sum_flows(&s.outflows);
+                        let (infl, outf) = (infl_v.as_scalar(), outf_v.as_scalar());
+                        (infl_v.zip_with(outf_v, |a, b| a - b), infl, outf)
                     }
                 };
                 // Trait compound_growth: multiplicative self-referential return term.
