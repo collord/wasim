@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "id": "demo-widgets",
+  "label": "Widgets",
+  "tagline": "A relabel-only custom lens imported at runtime — no code, pure JSON.",
+  "palette": [
+    { "section": "Gadgets", "items": [
+      { "ref": "constant", "label": "Gizmo", "role": "gizmo" }
+    ] }
+  ],
+  "roleLabels": { "gizmo": "Gizmo" }
+}

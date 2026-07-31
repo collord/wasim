@@ -20,8 +20,14 @@ import {
   updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
-import { resolveLens } from './lenses/registry'
-import type { LensId } from './lenses/types'
+import { resolveLens, listLenses } from './lenses/registry'
+import type { LensId, LensSpec } from './lenses/types'
+import type { LensManifest } from './lenses/manifest-types'
+import { importManifest, removeManifest, registerPersisted } from './lenses/customLenses'
+
+// Register any persisted custom lenses into the loader synchronously, before the store (and thus
+// the app) first renders — so imported lenses appear in the picker on load with no async bootstrap.
+const PERSISTED_LENSES = registerPersisted()
 
 const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
 const RECONCILE_DEBOUNCE_MS = 250
@@ -63,6 +69,11 @@ interface State {
   modelSummary: ModelSummary | null
   modelJson: string | null // last serialized doc (kept for viewer compatibility)
   modelFilename: string | null
+  // User-imported custom lenses (§7 overlay, browser-SPA delivery). `lensVersion` bumps whenever
+  // the registered lens set changes, so the picker and `useActiveLens` re-render (the loader's
+  // LENSES map is mutable; components subscribe to this counter to see it change).
+  customManifests: LensManifest[]
+  lensVersion: number
 
   // Undo/redo command stack over `doc` (snapshots; docs are plain JSON, §13.4).
   past: ModelDoc[]
@@ -141,6 +152,11 @@ interface Actions {
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   setLens: (id: LensId) => void
+  /** Import a custom lens from raw JSON: validate, register, persist. Returns an error string on
+   *  failure (invalid JSON / dangling ref / unknown behavior), or null on success. */
+  importLens: (json: string) => string | null
+  /** Remove an imported custom lens by id (built-ins are ignored). */
+  removeCustomLens: (id: string) => void
   connectElements: (fromId: string, toId: string) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
   editDimensions: (dimensions: ModelDoc['dimensions']) => void
@@ -188,6 +204,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   modelSummary: null,
   modelJson: null,
   modelFilename: null,
+  customManifests: PERSISTED_LENSES,
+  lensVersion: 0,
   past: [],
   future: [],
   mode: 'edit',
@@ -414,6 +432,24 @@ export const useStore = create<State & Actions>((set, get) => ({
     // lens is derived from `doc.view.lens` (see `useActiveLens`), so this is the single source of
     // truth — undo/redo and load reflect it automatically.
     get().applyEdit(setDocLens(doc, id), { reconcile: false })
+  },
+
+  importLens(json) {
+    try {
+      const { next } = importManifest(json, get().customManifests)
+      // Bump lensVersion so the picker / useActiveLens re-read the (now-larger) lens set.
+      set((s) => ({ customManifests: next, lensVersion: s.lensVersion + 1 }))
+      return null
+    } catch (e) {
+      return (e as Error).message
+    }
+  },
+
+  removeCustomLens(id) {
+    const next = removeManifest(id, get().customManifests)
+    // If the active document was tagged with the removed lens, it falls back to `general` on the
+    // next `useActiveLens` read (resolveLens defaults unknown ids) — no doc edit needed.
+    set((s) => ({ customManifests: next, lensVersion: s.lensVersion + 1 }))
   },
 
   connectElements(fromId, toId) {
@@ -684,9 +720,23 @@ export const useContainers = () => useStore((s) => s.doc?.containers ?? EMPTY_CO
 export const usePositions = () => useStore((s) => s.doc?.view?.positions ?? EMPTY_POSITIONS)
 
 // The active lens, derived from the document's `view.lens` tag (single source of truth — no
-// duplicated store state, so undo/redo/load stay in sync). `resolveLens` returns a stable
-// per-id reference, so this selector never churns.
-export const useActiveLens = () => useStore((s) => resolveLens(s.doc?.view?.lens))
+// duplicated store state, so undo/redo/load stay in sync). We subscribe to the (id, lensVersion)
+// pair as a primitive tuple — a stable shallow-comparable value — and resolve outside the equality
+// check. `lensVersion` bumps when a custom lens is imported/removed, so a doc tagged with a
+// just-imported lens id picks it up (and a removed lens falls back to general). `resolveLens`
+// returns a stable per-id reference, so the resolved spec is itself stable.
+export const useActiveLens = () => {
+  const id = useStore((s) => s.doc?.view?.lens)
+  useStore((s) => s.lensVersion) // re-render when the custom lens set changes
+  return resolveLens(id)
+}
+
+// Every registered lens, for the picker. Subscribes to `lensVersion`; the list is computed outside
+// the store selector so no fresh array flows through zustand's equality check (which would loop).
+export const useLensList = (): LensSpec[] => {
+  useStore((s) => s.lensVersion)
+  return listLenses()
+}
 
 // Re-export so components can import the doc type location conveniently.
 export type { ModelDoc, FlatElement } from './model/schema'

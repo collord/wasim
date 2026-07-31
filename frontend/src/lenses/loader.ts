@@ -130,18 +130,51 @@ function compile(m: LensManifest, reg: ElementRegistry): LensSpec {
   }
 }
 
-// ── Public surface — identical to the old registry.ts ────────────────────────────
+// ── Public surface — the same barrel the old registry.ts exposed, now with a mutable custom
+//    layer for user-imported lenses (§7: built-in → custom, merged by id). Built-ins are compiled
+//    once at load; custom lenses register/unregister at runtime. Every compiled spec is cached and
+//    returned stably per id, so `useActiveLens` (a per-render store selector) never churns. ──────
 
-/** Every built-in lens, compiled once, keyed by id. */
+const BUILTIN_IDS = new Set(BUILTIN_MANIFESTS.map((m) => m.id))
+
+/** Every registered lens, keyed by id. Built-ins first; customs layer on and can override a
+ *  built-in by id (spec §7.2 merge-by-id). Mutated by register/unregister. */
 export const LENSES: Record<string, LensSpec> = Object.fromEntries(
   BUILTIN_MANIFESTS.map((m) => [m.id, compile(m, REGISTRY)]),
 )
 
+/** Custom lens ids in registration order (built-ins are tracked separately, always first). */
+const customOrder: string[] = []
+
 export const DEFAULT_LENS: LensSpec = LENSES['general']
 
-/** Every registered lens, for the picker (manifest declaration order). */
+/**
+ * Compile + register a custom manifest (from an imported `.json`), overlaying the built-in
+ * registry. Throws on a bad manifest (unknown behavior, dangling palette ref) so the caller can
+ * surface a load error rather than register a broken lens. A custom manifest may re-theme but not
+ * supply behavior code — it may only *name* a built-in behavior (enforced by `resolveBehavior`).
+ */
+export function registerManifest(manifest: LensManifest): LensSpec {
+  const spec = compile(manifest, REGISTRY) // throws on invalid before we mutate anything
+  if (!(manifest.id in LENSES) && !BUILTIN_IDS.has(manifest.id)) customOrder.push(manifest.id)
+  LENSES[manifest.id] = spec
+  return spec
+}
+
+/** Remove a custom lens by id (no-op for built-ins). */
+export function unregisterManifest(id: string): void {
+  if (BUILTIN_IDS.has(id)) return
+  delete LENSES[id]
+  const i = customOrder.indexOf(id)
+  if (i >= 0) customOrder.splice(i, 1)
+}
+
+/** Every registered lens, for the picker: built-ins in manifest order, then customs in import
+ *  order (a custom that overrode a built-in id shows in the built-in slot, not twice). */
 export function listLenses(): LensSpec[] {
-  return BUILTIN_MANIFESTS.map((m) => LENSES[m.id])
+  const builtins = BUILTIN_MANIFESTS.map((m) => LENSES[m.id])
+  const customs = customOrder.map((id) => LENSES[id]).filter(Boolean)
+  return [...builtins, ...customs]
 }
 
 /** Resolve a (possibly absent or unknown) lens id to a concrete spec, defaulting to `general`.

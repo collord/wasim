@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { useStore, useActiveLens, type Mode } from '../../store'
+import { useStore, useActiveLens, useLensList, type Mode } from '../../store'
 import { SettingsDialog } from './SettingsDialog'
-import { listLenses } from '../../lenses/registry'
 import type { LensId } from '../../lenses/types'
 
 /** Top toolbar (spec §1.1): file ops, run, undo/redo, and the Edit│Result mode switch. */
@@ -22,8 +21,26 @@ export function Toolbar() {
   const hasDoc = useStore((s) => !!s.doc)
   const activeLens = useActiveLens()
   const setLens = useStore((s) => s.setLens)
+  const lenses = useLensList()
+  const importLens = useStore((s) => s.importLens)
+  const removeCustomLens = useStore((s) => s.removeCustomLens)
+  const customManifests = useStore((s) => s.customManifests) // stable array ref until it changes
+  const activeIsCustom = customManifests.some((m) => m.id === activeLens.id)
 
   const [showSettings, setShowSettings] = useState(false)
+
+  const onImportLens = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const err = importLens(ev.target?.result as string)
+      if (err) alert(`Could not import lens: ${err}`)
+      else setLens((JSON.parse(ev.target?.result as string).id) as LensId)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   const onOpen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -58,18 +75,37 @@ export function Toolbar() {
       <button className={btn} onClick={() => setShowSettings(true)}>Settings…</button>
 
       {hasDoc && (
-        <label className="flex items-center gap-1 text-[11px] text-slate-500" title="Authoring lens — reprograms the palette and validation for a domain">
-          <span className="text-slate-400">Lens</span>
-          <select
-            value={activeLens.id}
-            onChange={(e) => setLens(e.target.value as LensId)}
-            className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-medium text-slate-700"
+        <div className="flex items-center gap-1 text-[11px] text-slate-500">
+          <label className="flex items-center gap-1" title="Authoring lens — reprograms the palette and validation for a domain">
+            <span className="text-slate-400">Lens</span>
+            <select
+              value={activeLens.id}
+              onChange={(e) => setLens(e.target.value as LensId)}
+              className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-medium text-slate-700"
+            >
+              {lenses.map((l) => (
+                <option key={l.id} value={l.id} title={l.tagline}>{l.label}</option>
+              ))}
+            </select>
+          </label>
+          {activeIsCustom && (
+            <button
+              onClick={() => removeCustomLens(activeLens.id)}
+              aria-label="Remove this imported lens"
+              title="Remove this imported lens"
+              className="rounded border border-slate-200 px-1 py-1 text-slate-400 hover:border-red-300 hover:text-red-500"
+            >
+              <span aria-hidden>✕</span>
+            </button>
+          )}
+          <label
+            className="cursor-pointer rounded border border-slate-200 px-1.5 py-1 text-slate-500 hover:bg-slate-50"
+            title="Import a custom lens (.json) — re-themes the palette with no code"
           >
-            {listLenses().map((l) => (
-              <option key={l.id} value={l.id} title={l.tagline}>{l.label}</option>
-            ))}
-          </select>
-        </label>
+            + Lens
+            <input type="file" accept=".json" className="sr-only" onChange={onImportLens} />
+          </label>
+        </div>
       )}
 
       <button
