@@ -1,6 +1,7 @@
-import type { ChatAdapter, ChatMessage, LlmConfig, ProviderId } from './types'
-import { chatAnthropic } from './anthropic'
-import { chatOpenAI, chatAzure } from './openai'
+import type { ChatAdapter, ChatToolAdapter, ChatMessage, LlmConfig, ProviderId } from './types'
+import type { ToolDef, ChatResult } from './tools'
+import { chatAnthropic, chatAnthropicTools } from './anthropic'
+import { chatOpenAI, chatAzure, chatOpenAITools, chatAzureTools } from './openai'
 
 /**
  * Provider registry + the neutral `chat()` the copilot loop consumes (§17.1). Each provider carries
@@ -13,6 +14,8 @@ export interface ProviderMeta {
   id: ProviderId
   label: string
   adapter: ChatAdapter
+  /** Tool-aware adapter (§17.3). */
+  toolAdapter: ChatToolAdapter
   /** Fixed model choices, or null for a free-text model/deployment field. */
   models: string[] | null
   /** A blank config for this provider (used when the user switches providers in Settings). */
@@ -26,6 +29,7 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     id: 'anthropic',
     label: 'Anthropic',
     adapter: chatAnthropic,
+    toolAdapter: chatAnthropicTools,
     models: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
     blank: () => ({ provider: 'anthropic', model: 'claude-opus-4-8', apiKey: '' }),
     hasKey: (cfg) => cfg.provider === 'anthropic' && cfg.apiKey.trim().length > 0,
@@ -34,6 +38,7 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     id: 'openai',
     label: 'OpenAI',
     adapter: chatOpenAI,
+    toolAdapter: chatOpenAITools,
     models: null, // free-text model id (gpt-4o, gpt-4.1, …) — evolves faster than a fixed list
     blank: () => ({ provider: 'openai', model: 'gpt-4o', apiKey: '' }),
     hasKey: (cfg) => cfg.provider === 'openai' && cfg.apiKey.trim().length > 0,
@@ -42,6 +47,7 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     id: 'azure-openai',
     label: 'Azure OpenAI',
     adapter: chatAzure,
+    toolAdapter: chatAzureTools,
     models: null, // deployment name, not a model id
     blank: () => ({ provider: 'azure-openai', deployment: '', apiKey: '', resource: '', apiVersion: '2024-06-01' }),
     hasKey: (cfg) =>
@@ -52,9 +58,13 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
   },
 }
 
-/** Dispatch a chat completion to the config's provider adapter. */
+/** Dispatch a text completion to the config's provider adapter. */
 export const chat: ChatAdapter = (cfg, system, messages, signal) =>
   PROVIDERS[cfg.provider].adapter(cfg, system, messages, signal)
+
+/** Dispatch a tool-aware completion to the config's provider tool adapter (§17.3). */
+export const chatWithTools: ChatToolAdapter = (cfg, system, messages, tools, signal) =>
+  PROVIDERS[cfg.provider].toolAdapter(cfg, system, messages, tools, signal)
 
 /** Whether the given config can make a call (has its required credentials). */
 export function hasKey(cfg: LlmConfig): boolean {
@@ -81,4 +91,4 @@ export async function testConnection(cfg: LlmConfig, now: () => number = () => D
   }
 }
 
-export type { ChatMessage, LlmConfig, ProviderId }
+export type { ChatMessage, LlmConfig, ProviderId, ToolDef, ChatResult }

@@ -17,21 +17,40 @@ export type LlmConfig =
   | { provider: 'openai'; model: string; apiKey: string; baseUrl?: string }
   | { provider: 'azure-openai'; deployment: string; apiKey: string; resource: string; apiVersion: string }
 
-/** A neutral chat message. System is passed separately (not as a message) so each adapter can place
- *  it however its API expects (Anthropic top-level `system`; OpenAI/Azure a leading system message). */
+/** A content block within a message — text, or (for tool-calling turns) a tool call / tool result.
+ *  A tool-call turn preserves the raw `id`+`input` each provider needs to reconstruct its native
+ *  echo (Anthropic re-sends the `tool_use` block; OpenAI rebuilds `tool_calls` with `arguments`). */
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
+
+/** A neutral chat message. `content` is a plain string (text loop) or blocks (tool-calling turns).
+ *  System is passed separately so each adapter can place it however its API expects (Anthropic
+ *  top-level `system`; OpenAI/Azure a leading system message). */
 export interface ChatMessage {
   role: 'user' | 'assistant'
-  content: string
+  content: string | ContentBlock[]
 }
 
-/** One completion call. Returns the assistant's text. Throws with the provider's error message on a
- *  non-2xx or network failure — the loop treats that as fatal. */
+/** Text-only completion (the original interface). Returns the assistant's text; throws with the
+ *  provider's error message on a non-2xx or network failure. */
 export type ChatAdapter = (
   cfg: LlmConfig,
   system: string,
   messages: ChatMessage[],
   signal?: AbortSignal,
 ) => Promise<string>
+
+/** Tool-aware completion. Same as `ChatAdapter` plus a tool list; returns a normalized `ChatResult`
+ *  (text + tool calls + stop reason). See `tools.ts`. */
+export type ChatToolAdapter = (
+  cfg: LlmConfig,
+  system: string,
+  messages: ChatMessage[],
+  tools: import('./tools').ToolDef[],
+  signal?: AbortSignal,
+) => Promise<import('./tools').ChatResult>
 
 /** Shared max output tokens across adapters. */
 export const MAX_TOKENS = 8000

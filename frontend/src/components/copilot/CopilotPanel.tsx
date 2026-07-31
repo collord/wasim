@@ -1,17 +1,20 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../../store'
 import { serializeModel } from '../../model/edits'
-import { chat, hasKey } from '../../copilot/providers'
+import { chat, chatWithTools, hasKey } from '../../copilot/providers'
 import { validateCandidate } from '../../copilot/validateCandidate'
-import { propose, type ProposeResult } from '../../copilot/loop'
-import { coldStartPrompt, refinePrompt } from '../../copilot/systemPrompt'
+import { propose } from '../../copilot/loop'
+import { proposeWithTools, type AppliedEdit } from '../../copilot/toolLoop'
+import { TOOLS, executeTool } from '../../copilot/tools'
+import { coldStartPrompt, refineToolPrompt } from '../../copilot/systemPrompt'
 import type { Validation } from '../../worker/protocol'
 
 /**
  * The LLM-authoring copilot panel (WASIM_AUTHORING_ENVIRONMENT_SPEC.md §17). Two turn types:
- * **New model** (§17.7 Phase 1) — describe → draft → validate → Accept; and **Refine current
- * model** (Phase 2) — describe a change → the copilot returns the updated full model, validated the
- * same way. Nothing auto-applies; Accept is gated on the engine calling the model valid.
+ * **New model** (§17.7 Phase 1) — describe → draft the whole model as text → validate → Accept; and
+ * **Refine current model** (§17.3) — describe a change → the copilot calls `apply_edit` to make
+ * surgical edits, each validated through the engine → Accept. Nothing auto-applies; Accept is gated
+ * on the engine calling the final model valid.
  */
 
 type Mode = 'new' | 'refine'
@@ -19,6 +22,15 @@ type Mode = 'new' | 'refine'
 interface Status {
   attempt: number
   validation: Validation | null
+}
+
+/** Unified result the panel renders — cold-start (text) and refine (tools) share model/validation/
+ *  iterations; refine additionally carries an `edits` log. */
+interface PanelResult {
+  model: string
+  validation: Validation
+  iterations: number
+  edits?: AppliedEdit[]
 }
 
 export function CopilotPanel() {
@@ -33,7 +45,7 @@ export function CopilotPanel() {
   const [description, setDescription] = useState('')
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState<Status | null>(null)
-  const [result, setResult] = useState<ProposeResult | null>(null)
+  const [result, setResult] = useState<PanelResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -46,20 +58,31 @@ export function CopilotPanel() {
     setStatus({ attempt: 1, validation: null })
     const ctrl = new AbortController()
     abortRef.current = ctrl
+    const onIteration = (attempt: number, validation: Validation | null) => setStatus({ attempt, validation })
     try {
-      // Cold-start: the guide + exemplar, first message = the description.
-      // Refine: the guide + the *current* model, first message = the change instruction.
-      const refining = effectiveMode === 'refine' && doc
-      const systemPrompt = refining ? refinePrompt(serializeModel(doc)) : coldStartPrompt()
-      const firstMessage = refining ? `Change: ${description.trim()}` : description.trim()
-      const r = await propose(
-        firstMessage,
-        aiConfig.llm,
-        systemPrompt,
-        { call: chat, validate: validateCandidate },
-        { signal: ctrl.signal, onIteration: (attempt, validation) => setStatus({ attempt, validation }) },
-      )
-      setResult(r)
+      if (effectiveMode === 'refine' && doc) {
+        // Refine: the model calls apply_edit over the current doc; each edit is validated.
+        const r = await proposeWithTools(
+          `Change: ${description.trim()}`,
+          doc,
+          aiConfig.llm,
+          refineToolPrompt(serializeModel(doc)),
+          TOOLS,
+          { call: chatWithTools, validate: validateCandidate, execute: executeTool },
+          { signal: ctrl.signal, onIteration },
+        )
+        setResult({ model: r.model, validation: r.validation, iterations: r.iterations, edits: r.edits })
+      } else {
+        // Cold-start: draft the whole model as text.
+        const r = await propose(
+          description.trim(),
+          aiConfig.llm,
+          coldStartPrompt(),
+          { call: chat, validate: validateCandidate },
+          { signal: ctrl.signal, onIteration },
+        )
+        setResult({ model: r.model, validation: r.validation, iterations: r.iterations })
+      }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setError((e as Error).message)
     } finally {
@@ -154,6 +177,16 @@ export function CopilotPanel() {
               </span>
             )}
           </div>
+
+          {result.edits && result.edits.length > 0 && (
+            <ul className="mb-1 max-h-24 overflow-auto text-[10px]">
+              {result.edits.map((e, k) => (
+                <li key={k} className={e.error ? 'text-rose-600' : e.validation.ok ? 'text-emerald-600' : 'text-amber-600'}>
+                  {e.op}{e.id ? ` ${e.id}` : ''} · {e.error ? `rejected: ${e.error}` : e.validation.ok ? 'valid' : `${e.validation.issues.length} issue(s)`}
+                </li>
+              ))}
+            </ul>
+          )}
           {!result.validation.ok && result.validation.issues.length > 0 && (
             <ul className="mb-1 max-h-24 overflow-auto text-[10px]">
               {result.validation.issues.map((i, k) => (

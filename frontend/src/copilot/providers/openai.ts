@@ -1,5 +1,6 @@
-import type { ChatAdapter, ChatMessage } from './types'
+import type { ChatAdapter, ChatToolAdapter, ChatMessage, ContentBlock } from './types'
 import { MAX_TOKENS } from './types'
+import type { ChatResult, ToolCall } from './tools'
 
 /**
  * OpenAI Chat Completions + Azure OpenAI adapters (§17.1). Both use the same request body and
@@ -65,4 +66,100 @@ export const chatAzure: ChatAdapter = async (cfg, system, messages, signal) => {
   // Azure's body takes `deployment` implicitly via the URL, so `model` in the body is ignored — send
   // the deployment name as the model for clarity.
   return post(url, { 'api-key': cfg.apiKey }, buildBody(cfg.deployment, system, messages), signal, 'Azure OpenAI')
+}
+
+// ── Tool-aware variants (§17.3) ───────────────────────────────────────────────────
+// OpenAI/Azure represent tool turns differently from Anthropic: the assistant echo carries a
+// `tool_calls` array (arguments as a JSON string), and each tool result is its OWN `role:'tool'`
+// message keyed by `tool_call_id` — so one neutral tool-result turn FANS OUT to N messages.
+
+interface OpenAiMessage {
+  role: string
+  content: string | null
+  tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+  tool_call_id?: string
+}
+
+/** Serialize a neutral message to one or more OpenAI-family messages. A tool-result turn fans out. */
+function toOpenAiMessages(m: ChatMessage): OpenAiMessage[] {
+  if (typeof m.content === 'string') return [{ role: m.role, content: m.content }]
+
+  const toolResults = m.content.filter((b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result')
+  if (toolResults.length > 0) {
+    // A user turn of tool_result blocks → one `role:'tool'` message per result.
+    return toolResults.map((b) => ({ role: 'tool', tool_call_id: b.toolUseId, content: b.content }))
+  }
+
+  // An assistant turn: text (may be null) + a `tool_calls` array reconstructed from tool_use blocks.
+  const text = m.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('')
+  const toolUses = m.content.filter((b): b is Extract<ContentBlock, { type: 'tool_use' }> => b.type === 'tool_use')
+  const msg: OpenAiMessage = { role: m.role, content: text || null }
+  if (toolUses.length > 0) {
+    msg.tool_calls = toolUses.map((b) => ({
+      id: b.id,
+      type: 'function',
+      function: { name: b.name, arguments: JSON.stringify(b.input) },
+    }))
+  }
+  return [msg]
+}
+
+/** OpenAI-family tool body: prepend system, flat-map neutral messages, add `function`-typed tools. */
+function buildToolBody(model: string, system: string, messages: ChatMessage[], tools: import('./tools').ToolDef[]) {
+  const base: OpenAiMessage[] = system ? [{ role: 'system', content: system }] : []
+  const msgs = [...base, ...messages.flatMap(toOpenAiMessages)]
+  return {
+    model,
+    max_tokens: MAX_TOKENS,
+    messages: msgs,
+    tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } })),
+  }
+}
+
+/** Normalize an OpenAI-family response to a ChatResult. Malformed tool `arguments` become an empty
+ *  input rather than throwing (the loop feeds the resulting validation error back to the model). */
+function parseToolResult(data: unknown): ChatResult {
+  const d = data as {
+    choices?: {
+      message?: { content?: string | null; tool_calls?: { id: string; function: { name: string; arguments: string } }[] }
+      finish_reason?: string
+    }[]
+  }
+  const choice = d.choices?.[0]
+  const msg = choice?.message
+  const toolCalls: ToolCall[] = (msg?.tool_calls ?? []).map((tc) => {
+    let input: Record<string, unknown> = {}
+    try {
+      input = JSON.parse(tc.function.arguments || '{}')
+    } catch {
+      /* malformed args → empty input; validate will surface the resulting model error */
+    }
+    return { id: tc.id, name: tc.function.name, input }
+  })
+  return { text: msg?.content ?? '', toolCalls, stopReason: choice?.finish_reason === 'tool_calls' ? 'tool_use' : 'end' }
+}
+
+async function postTools(url: string, headers: Record<string, string>, body: unknown, signal: AbortSignal | undefined, label: string): Promise<ChatResult> {
+  const res = await fetch(url, {
+    method: 'POST',
+    signal,
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`${label} API error: ${await errorDetail(res)}`)
+  return parseToolResult(await res.json())
+}
+
+export const chatOpenAITools: ChatToolAdapter = async (cfg, system, messages, tools, signal) => {
+  if (cfg.provider !== 'openai') throw new Error('chatOpenAITools called with non-openai config')
+  const base = (cfg.baseUrl ?? 'https://api.openai.com/v1').replace(/\/$/, '')
+  return postTools(`${base}/chat/completions`, { authorization: `Bearer ${cfg.apiKey}` }, buildToolBody(cfg.model, system, messages, tools), signal, 'OpenAI')
+}
+
+export const chatAzureTools: ChatToolAdapter = async (cfg, system, messages, tools, signal) => {
+  if (cfg.provider !== 'azure-openai') throw new Error('chatAzureTools called with non-azure config')
+  const url =
+    `https://${cfg.resource}.openai.azure.com/openai/deployments/${cfg.deployment}` +
+    `/chat/completions?api-version=${encodeURIComponent(cfg.apiVersion)}`
+  return postTools(url, { 'api-key': cfg.apiKey }, buildToolBody(cfg.deployment, system, messages, tools), signal, 'Azure OpenAI')
 }

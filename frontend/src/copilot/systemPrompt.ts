@@ -43,3 +43,23 @@ export function refinePrompt(currentModelJson: string): string {
     'those and return the full model again. A fenced ```json block is fine; no commentary outside it.'
   )
 }
+
+/**
+ * Refine via the `apply_edit` tool (§17.3): the model makes surgical edits to the current model
+ * rather than re-emitting the whole thing. Used by the tool-dispatch loop (`toolLoop.ts`).
+ */
+export function refineToolPrompt(currentModelJson: string): string {
+  return (
+    authoringGuide +
+    "\n\nHere is the user's current WASiM v2 model:\n```json\n" +
+    currentModelJson +
+    '\n```\n\n' +
+    'Apply the requested change by calling the `apply_edit` tool once per change — add a new element, ' +
+    'modify fields of an existing element (by id), delete an element (by id), or rename an element ' +
+    'id. Do NOT re-emit the whole model; make only the edits the request calls for and leave ' +
+    'everything else untouched. New elements must follow the exact shapes in the guide above (e.g. an ' +
+    'expression `ref` uses `element_id`; stocks list flow ids in `inflows`/`outflows`). After each ' +
+    'edit the engine validates the result and reports back — if it reports an issue, call `apply_edit` ' +
+    'again to fix it. When the change is complete and valid, stop calling tools and briefly confirm.'
+  )
+}

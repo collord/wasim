@@ -112,3 +112,26 @@ The unanswered question is unchanged: the spike ran through `claude -p` (thinkin
 never isolated thinking-on vs -off on the raw API. To settle it, run the harness (needs
 `ANTHROPIC_API_KEY` + a built `wasim-validate`) — it drives the real loop over 3 prompts ×
 {thinking off, on} and reports validate-iterations to convergence.
+
+## Shipped — tool use at the adapter layer (§17.3 `apply_edit`)
+
+The spike's loop re-emitted the whole model each turn. That's the right shape for **cold-start** (New
+model), but on a large existing model it's wasteful and error-prone. The shipped **Refine** path now
+uses **tool calling** instead: the model calls `apply_edit` (op = add | modify | delete | rename) per
+change, the pure `edits.ts` transforms apply it to a working copy, and the engine validates after each
+edit — the per-edit diagnostics go back as a `tool_result` the model corrects. This is §17.3's
+`apply_edit` in its true incremental sense.
+
+Because tool calling was built **on top of the provider abstraction** (§17.1) rather than
+Anthropic-only, it's normalized across all three providers: `providers/tools.ts` defines a neutral
+`ToolDef`/`ToolCall`/`ChatResult` vocabulary, and each adapter shapes both the request *and the
+echo* natively — Anthropic `tool_use`/`tool_result` content blocks; OpenAI/Azure `tool_calls` +
+`role:'tool'` fan-out. The echo (re-sending the assistant tool-call turn before the tool result) was
+the design risk and is what the adapter unit tests cover for both providers.
+
+**Boundary (unchanged honesty).** Only the **Anthropic** tool round-trip is live-verified (e2e
+route-stub + real-key manual). OpenAI/Azure are built to the confirmed wire formats and unit-tested
+for shaping/parsing/echo, not live-called (no keys) — flagged in `providers/openai.ts`. **Cold-start
+stays text-based by design** (building a whole model via sequential add-calls is slower and more
+error-prone than one draft). More tools (`validate`, `run` via a stateless worker) remain follow-ons
+on this seam.
