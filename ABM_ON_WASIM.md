@@ -132,79 +132,176 @@ half, cleanly — and that half is the half that composes with the stock-and-flo
 metapopulation modeling.** The mobile-agent half it cannot do without sacrificing the moat, and
 should not try.
 
-## 5. Sketch: a Metapopulation lens (against the real frontend interface)
+## 5. Authoring an ABM lens: the Metapopulation lens as a `.json` manifest
 
 The frontend ships a working lens system (`frontend/src/lenses/`, `WASIM_LENS_MANIFEST_SPEC.md`).
+This section is grounded in that code as it stands — the manifest shape below is the one the loader
+(`loader.ts`) actually compiles and the JSON Schema (`schema/wasim-lens-manifest-v1.json`) actually
+validates — and it answers one concrete question: **how much of an ABM (metapopulation) lens can be
+authored as a `.json` file, and what genuinely needs first-party code?**
+
+### 5.1 The trust boundary: what a `.json` lens is, and is not
+
 A lens is **three parts across a trust boundary**:
 
-- a **manifest** `lenses/<id>.json` — *data*: `label`, `tagline`, `behavior` (names a code plugin,
-  never supplies code), `palette` (sections whose items `ref` an `element-registry.json` key and
-  stamp a `role`), `roleLabels`, `glyphByRole`, `templates` (ids), `preferredResult` (`roleOrder`).
-  Manifests re-theme and are safe to load from users/projects.
-- a **behavior** `behaviors/<id>.ts` — *code*: a `LensBehavior` = `{ id, invariants, connect,
+- a **manifest** `lenses/<id>.json` — *data*: `version`, `id`, `label`, `tagline`, `behavior` (names
+  a code plugin, never supplies code), `palette` (sections whose items `ref` an
+  `element-registry.json` key and stamp a `role`), `roleLabels`, `glyphByRole`, `templates` (ids),
+  `preferredResult` (`roleOrder`). Manifests re-theme and are safe to load from users/projects.
+- a **behavior** `behaviors/<id>.ts` — *code*: a `LensBehavior` = `{ id, invariants?, connect?,
   resultReadouts? }`, registered by name in `behaviors/index.ts`. This is the executable half.
 - **templates** (`<id>Templates.ts`) — canonical starting docs built through the real expression
   parser (`parseExpr`/`printAst`/`refsOf`), tagged `lens_role` per element so they open with zero
   warnings.
 
-Elements are authored from `element-registry.json` — a shared catalog of engine constructs
-(`stock`, `expression`, `constant`, `stochastic`, and, under the "transport" section, `cell` /
-`species`). A `metapop` lens is a new manifest + behavior + templates file in exactly this mold.
-What follows are hints, not an implementation.
+The boundary is load-bearing for authoring, and the current code enforces it in two places that a
+sketch must respect:
 
-**The key realization: MetaPop = the stock-flow lens, dimensioned over a patch axis, plus a coupling
-matrix and a mixing reduction.** Its manifest sets `"behavior": "stock-flow"`-*like* wiring and
-reuses the compartment/flow machinery wholesale (a compartment *is* a `stock`; a transition *is* a
-flow with the existing inflow/outflow `connect` gesture), adding exactly two new nouns — the network
-and the force-of-infection term. This is the thesis's "composes with stock-and-flow" claim made
-concrete: the second lens is mostly the first lens with an extra axis.
+1. **An imported `.json` is pure data.** `customLenses.ts`/`loader.ts` let a user import a manifest
+   at runtime, but `registerManifest` compiles it against the *existing* registry and behavior
+   registry. A manifest's `behavior` field may only **name** a built-in plugin (`stock-flow`,
+   `reliability`, `decision`) — `resolveBehavior` throws on an unknown id — and its `templates` are
+   **ids into a compiled-in map**, so a pure `.json` cannot ship a new `two-patch-sir` starting doc.
+   A dangling palette `ref` also throws. So an imported metapop `.json` can re-theme and reuse a
+   built-in behavior, but it cannot introduce metapop-specific checks, wiring, readouts, or
+   templates.
+2. **A built-in behavior binds to specific `lens_role` strings.** `stockFlowBehavior` checks and
+   wires elements whose `lens_role` is exactly `'stock'` or `'flow'`; `reliability` keys off
+   `'component'`/`'redundancy'`; `decision` off `'decision'`/`'objective'`. This is the hinge that
+   makes a data-only ABM lens genuinely useful: **relabel the surface, keep the underlying role**,
+   and the borrowed behavior still fires.
 
-**Manifest `palette` (`role` → `element-registry` `ref` → engine construct, all hidden):**
+**The key realization is unchanged and now precise: MetaPop = the stock-flow lens, dimensioned over
+a patch axis, plus a coupling matrix and a mixing reduction.** A compartment *is* a `stock`; a
+transition *is* a flow with the existing inflow/outflow `connect` gesture. The second lens is mostly
+the first lens with an extra axis — which is exactly why Tier 1 below works at all.
 
-| Domain noun (`role`) | `ref` (registry key) | Engine construct it scaffolds | `glyphByRole` |
-|---|---|---|---|
-| `compartment` (S / I / R) | `stock` | a `stock` dimensioned over the `Patch` axis (per-patch state vector) | box |
-| `coupling` (the network) | `expression` (or a new `matrix` registry entry) | a 2-D constant `[Patch, PatchB]` matrix `W` | hex |
-| `transition` (infection, recovery) | `expression` | a flow between compartments — reuses stock-flow inflow/outflow wiring | valve |
-| `mixing` (force of infection) | `expression` | **axis-selective reduction** of `W × prevalence` over the neighbor axis | circle |
-| `parameter` (β, γ, …) | `constant` / `stochastic` | fixed / sampled input | default |
+### 5.2 Tier 1 — the metapop lens as pure data (importable today, zero code, zero engine change)
 
-The manifest hides all the array bookkeeping the proof wrote by hand: the two equal-size dimensions
-(`Patch`, `PatchB`) behind "Coupling network," the `vector_map`+`index` reindex and the
-`sum_array(_, neighbor_axis)` behind "Force of infection." The author sees compartments, a network,
-and transitions — never `index_ref depth` or an axis number.
+Because a compartment is a stock and a transition is a flow, a metapop authoring surface can be
+built **entirely as a manifest** that reuses the shipped `stock-flow` behavior. The trick is to keep
+the two behavior-bearing roles canonical (`stock`, `flow`) while relabeling them, and to give the
+two *new* nouns (coupling, mixing) their own roles purely for glyphs — the stock-flow invariants
+ignore any role that is not `stock`/`flow`, so those extra roles cost nothing.
 
-**`behaviors/metapop.ts` — `invariants` (what makes it a lens, not a view; the metapopulation twin
-of the SFC checks already in `behaviors/stockFlow.ts`):**
-- **Population conservation.** Every `transition` must subtract from one compartment and add to
-  another (S→I→R); one that adds without a matching subtraction is a "leak" → warning. Per-patch
-  `Σ compartments` should be constant unless explicit birth/death transitions exist.
-- **Coupling well-formedness.** `W` must be square over two axes of the *same* patch dimension, and
-  the `mixing` term must reduce the neighbor axis, not the patch axis — a transposed reduction is
-  the classic silent bug, statically checkable from `dimensions`. Warn when a `mixing` term's
-  reduced axis ≠ the coupling's second axis.
-- **A `mixing` term must reference both a `coupling` matrix and a prevalence `compartment`** —
-  otherwise it is mean-field, not a network model. Negative coupling weights (mobility can't be
-  negative) → warning.
+```json
+{
+  "version": "1.0.0",
+  "id": "metapop",
+  "label": "Metapopulation",
+  "tagline": "Compartments on a coupling network — SIR/SEIR across patches, network-mediated mixing.",
+  "behavior": "stock-flow",
+  "palette": [
+    { "section": "Compartments", "items": [
+      { "ref": "stock", "label": "Compartment (S / I / R)", "role": "stock" }
+    ] },
+    { "section": "Transitions", "items": [
+      { "ref": "expression", "label": "Transition", "role": "flow" }
+    ] },
+    { "section": "Network", "items": [
+      { "ref": "expression", "label": "Coupling network (W)", "role": "coupling" },
+      { "ref": "expression", "label": "Force of infection", "role": "mixing" }
+    ] },
+    { "section": "Parameters", "items": [
+      { "ref": "constant", "label": "Parameter (β, γ …)", "role": "parameter" },
+      { "ref": "stochastic", "label": "Uncertain input", "role": "parameter" }
+    ] }
+  ],
+  "roleLabels": {
+    "stock": "Compartment", "flow": "Transition",
+    "coupling": "Coupling network", "mixing": "Force of infection", "parameter": "Parameter"
+  },
+  "glyphByRole": { "stock": "box", "flow": "valve", "coupling": "hex", "mixing": "circle" },
+  "preferredResult": { "roleOrder": ["stock"] }
+}
+```
 
-**`behaviors/metapop.ts` — `connect`:** dragging `compartment → compartment` scaffolds a
-`transition` (reusing stock-flow's `wireFlow`); dragging `coupling → compartment` sets that
-compartment's prevalence as the network's mixing source.
+Every field above is real: the palette `ref`s (`stock`, `expression`, `constant`, `stochastic`) are
+`element-registry.json` keys with `structured` editors; the glyphs (`box`/`valve`/`hex`/`circle`)
+are all in `NodeShape`, so **no new glyph is needed**; `preferredResult.roleOrder: ["stock"]` opens
+Results on a compartment's trajectory — the epidemic curve — the same simulate-first gesture
+stock-flow uses for a stock. `templates` is omitted deliberately (see below).
 
-**`behaviors/metapop.ts` — `resultReadouts` + manifest `preferredResult` (simulate-first, thesis
-§6):** open on the **epidemic curve** — total `I` over time — not a final number, the way stock-flow
-opens on the stock's trajectory. Readouts computed from result data with no engine change (like
-reliability's availability/MTTF): **peak prevalence** and **time-to-peak**, **attack rate** (final
-`ΣR` / total population), **epidemic duration**, and an **R₀** estimate (β/γ, or an
-early-exponential-growth fit).
+**What Tier 1 gives you, today, with no code:**
+- A correctly-themed palette (Compartments / Transitions / Network / Parameters) and inspector
+  headers ("Compartment", "Transition", …) via `roleLabels`.
+- The **stock-flow `connect` gesture**: because transitions carry `role: "flow"` and compartments
+  `role: "stock"`, dragging a transition onto a compartment wires it as an inflow, and a compartment
+  onto a transition as an outflow — real inflow/outflow accounting, for free.
+- The **conservation / reconciliation invariants** from `stockFlowInvariants`: a transition not
+  connected to any compartment warns ("a flow must move something in or out"); a compartment with no
+  transitions warns ("it can never change"). This is the population-conservation check, inherited.
+- Coupling and mixing render as hex / circle nodes and are authored as `expression`s.
 
-**`metapopTemplates.ts`:** `two-patch-sir` (two coupled cities — the minimal teaching
-metapopulation, the "bathtub" of this lens) and `sir-on-network` (the `network_sir_v2` graph
-promoted to a full SIR with recovery).
+**What Tier 1 does *not* give you (the honest gaps):**
+- **No metapop-specific invariants.** The coupling-squareness check, the transposed-reduction guard,
+  and "a mixing term must reference both a coupling matrix and a prevalence compartment" are not
+  expressible as data — they are graph/shape analysis, i.e. behavior code (Tier 2).
+- **Borrowed warning text leaks.** `stockFlowInvariants` emits the literal words "Flow" / "Stock",
+  so a mis-wired transition warns as *"Flow … is not connected to a stock"*, not *"Transition …"*.
+  Cosmetic, but a real tell that the behavior is stock-flow underneath.
+- **No shipped templates.** A pure `.json` can only reference *existing* template ids; it cannot add
+  `two-patch-sir`. The author starts from a blank canvas (or a stock-flow template).
+- **No metapop readouts** (R₀, attack rate) — those are `resultReadouts` code.
+- **The coupling matrix `W` is authored as a raw `matrix()`/`vector_map` expression.** The
+  dimensioning itself is supported today (declare a `Patch` dimension in Settings; the inspector's
+  "Array over" makes a compartment a per-patch vector), but there is no structured 2-D matrix
+  widget — `W` is typed as an array comprehension in the expression editor.
 
-**The one honest boundary to encode in the UI:** the `coupling` matrix is *topology, not geometry*
-(§4). Let the user author `W` as an adjacency/edge list or import a precomputed mobility/distance
-kernel, and say plainly that real coordinates are baked in upstream — the lens never pretends to
-hold geography. Everything else is a manifest relabel + a behavior plugin + templates over
-constructs the engine and the `network_sir_v2` proof already exercise; the only genuinely new
-authoring widget is a small matrix/graph editor for `W` (optionally a new `element-registry` entry).
+So Tier 1 is a **real, shippable, importable metapop lens** — it just borrows stock-flow's brain.
+For a teaching or exploratory surface over the constructs the `network_sir_v2` proof already
+exercises, it is enough.
+
+### 5.3 Tier 2 — the first-party additions that make it a true metapop lens
+
+Everything Tier 1 can't do reduces to **additive lens-layer code**, in exactly the mold of the three
+shipped behaviors. None of it touches the Rust engine (§5.4).
+
+- **`behaviors/metapop.ts` — a `LensBehavior`** registered in `behaviors/index.ts` (then set
+  `"behavior": "metapop"` in the manifest, and switch the roles back to domain terms since the code
+  now owns them):
+  - `invariants` — the metapopulation twin of `stockFlowInvariants`: (a) **population
+    conservation** — every transition subtracts from one compartment and adds to another; an
+    unmatched add is a leak → warning; (b) **coupling well-formedness** — `W` must be square over
+    two axes of the *same* patch dimension, and a `mixing` term must reduce the *neighbor* axis, not
+    the patch axis (the classic transposed-reduction silent bug), statically checkable from
+    `doc.dimensions` + the AST; (c) **mixing completeness** — a `mixing` term must reference both a
+    `coupling` matrix and a prevalence `compartment`, and coupling weights must be ≥ 0.
+  - `connect` — dragging `coupling → compartment` sets that compartment's prevalence as the
+    network's mixing source (compartment ↔ transition wiring can still delegate to stock-flow's
+    `wireFlow`).
+  - `resultReadouts` — derived from result data with no engine change, exactly like reliability's
+    availability/MTTF: **peak prevalence** and **time-to-peak**, **attack rate** (final `ΣR` / total
+    population), **epidemic duration**, and an **R₀** estimate (β/γ, or an early-exponential-growth
+    fit).
+- **`metapopTemplates.ts`** — `two-patch-sir` (two coupled cities: the minimal teaching
+  metapopulation, the "bathtub" of this lens) and `sir-on-network` (the `network_sir_v2` graph
+  promoted to a full SIR with recovery), built through `parseExpr`/`printAst`/`refsOf` and tagged
+  per-element `lens_role` so they open warning-clean. Wire both into the loader's `TEMPLATES` map and
+  list their ids in the manifest's `templates`.
+- **(Ship it built-in)** add the manifest to `BUILTIN_MANIFESTS` in `loader.ts` so it appears in the
+  picker without an import.
+
+### 5.4 Isolated changes required
+
+- **Rust engine: none.** §3's proof established that rows 1–2 of the interaction table (mean-field
+  and network/local) run on today's engine with **no new primitives**, and the metapop lens targets
+  exactly those two rows. The one open engine item on the ABM roadmap is the **within-step
+  relaxation loop** (row 3, genuine instantaneous simultaneity — market clearing, congestion
+  pricing), and SIR/SEIR metapopulation does not need it. The metapop lens is an engine-complete
+  problem.
+- **Shared registry / schema: one *optional* addition.** A new `element-registry.json` entry
+  (`matrix` / `coupling`) plus a structured 2-D editor for `W` would replace the raw-expression
+  authoring of the coupling matrix noted in §5.2. This is the single genuinely new *widget*, and it
+  is a frontend convenience, not a requirement — `W` is already authorable as a `matrix()`
+  comprehension. Everything else in Tier 2 (`behaviors/metapop.ts`, `metapopTemplates.ts`, the
+  `behaviors/index.ts` and `loader.ts` registrations) is **additive code isolated to
+  `frontend/src/lenses/`** — no change to the engine, the store, or the on-disk model schema.
+
+### 5.5 The one honest boundary to encode in the UI
+
+The `coupling` matrix is *topology, not geometry* (§4). Let the user author `W` as an
+adjacency/edge list or import a precomputed mobility/distance kernel, and say plainly that real
+coordinates are baked in upstream — the lens never pretends to hold geography. Everything else is a
+manifest relabel (Tier 1) plus a behavior plugin and templates (Tier 2) over constructs the engine
+and the `network_sir_v2` proof already exercise.
