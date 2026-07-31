@@ -12,7 +12,11 @@ import type { Issue } from '../worker/protocol'
  * The `general` lens is the least-restricted spec (palette = the full union of every entry, no
  * domain invariants), so "no lens selected" is not a special case — it is just the widest lens.
  */
-export type LensId = 'general' | 'stock-flow' | 'reliability' | 'decision'
+/** The four built-in lenses. */
+export type BuiltinLensId = 'general' | 'stock-flow' | 'reliability' | 'decision'
+/** A lens id. Open to arbitrary strings (manifest-defined lenses) while keeping autocomplete on
+ *  the built-ins via the `string & {}` trick. `view.lens` carries whichever id is active. */
+export type LensId = BuiltinLensId | (string & {})
 
 /** Canvas glyph shape for an element, chosen by its lens role (Forrester notation: a stock is a
  *  box, an auxiliary a circle, a flow a valve; an influence-diagram value/objective is a hexagon).

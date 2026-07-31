@@ -1,0 +1,66 @@
+{
+  "version": "1.0.0",
+  "sections": [
+    { "id": "inputs", "label": "Inputs" },
+    { "id": "functions", "label": "Functions" },
+    { "id": "accumulate", "label": "Accumulation & delay" },
+    { "id": "events", "label": "Events & switches" },
+    { "id": "processes", "label": "Stochastic processes", "advanced": true },
+    { "id": "transport", "label": "Resources & transport", "advanced": true }
+  ],
+  "entries": [
+    { "key": "constant", "section": "inputs", "label": "Constant", "construct": "fixed", "glyph": "default", "editor": "structured",
+      "doc": "A fixed, editable scalar value." },
+    { "key": "stochastic", "section": "inputs", "label": "Stochastic", "construct": "sample", "glyph": "circle", "editor": "structured",
+      "doc": "A random draw from a distribution, resampled per realization." },
+    { "key": "timeseries", "section": "inputs", "label": "Time Series", "construct": "series", "glyph": "default", "editor": "structured",
+      "doc": "A tabulated signal over time, interpolated between points." },
+    { "key": "lookup", "section": "inputs", "label": "Lookup Table", "construct": "lookup", "glyph": "default", "editor": "structured",
+      "doc": "A y = f(x) table, interpolated — maps one signal through a curve." },
+
+    { "key": "expression", "section": "functions", "label": "Expression", "construct": "expression", "glyph": "default", "editor": "structured",
+      "doc": "A formula over other elements, evaluated each step." },
+    { "key": "gate", "section": "functions", "label": "Logic Gate", "construct": "gate", "glyph": "box", "editor": "structured",
+      "doc": "Boolean AND / OR / at-least-k over referenced elements' states." },
+    { "key": "filter", "section": "functions", "label": "Smoothing / Filter", "construct": "filter", "glyph": "default", "editor": "raw",
+      "doc": "A rolling-window statistic (mean / min / max / sum / EMA) of an input." },
+    { "key": "pid", "section": "functions", "label": "PID Controller", "construct": "pid", "glyph": "default", "editor": "raw",
+      "doc": "A proportional-integral-derivative controller driving an input toward a setpoint." },
+    { "key": "terminal_expression", "section": "functions", "label": "Terminal Value", "construct": "terminal_expression", "glyph": "default", "editor": "raw",
+      "doc": "A value evaluated once at the end of the run (a terminal reduction)." },
+
+    { "key": "stock", "section": "accumulate", "label": "Stock / Reservoir", "construct": "stock", "glyph": "box", "editor": "structured",
+      "doc": "Accumulates its inflows minus outflows each step (an integrator)." },
+    { "key": "lag", "section": "accumulate", "label": "Previous Value (delay)", "construct": "lag", "glyph": "default", "editor": "structured",
+      "doc": "The value of an input one step ago (a unit delay)." },
+    { "key": "convolution", "section": "accumulate", "label": "Convolution", "construct": "convolution", "glyph": "default", "editor": "raw",
+      "doc": "Convolves an input with an impulse-response kernel (a distributed delay)." },
+    { "key": "queue", "section": "accumulate", "label": "Queue", "construct": "queue", "glyph": "default", "editor": "raw",
+      "doc": "A material delay: an input emerges after a transit time (conveyor / FIFO)." },
+
+    { "key": "event", "section": "events", "label": "Failure / Event", "construct": "event", "glyph": "box", "editor": "structured",
+      "doc": "A state machine that fires on a condition or schedule (0 = operating, 1 = failed)." },
+    { "key": "status", "section": "events", "label": "Status (latch)", "construct": "status", "glyph": "default", "editor": "raw",
+      "doc": "A latch flipped on/off by set and reset triggers." },
+    { "key": "milestone", "section": "events", "label": "Milestone", "construct": "milestone", "glyph": "default", "editor": "raw",
+      "doc": "Fires once when its trigger condition first becomes true." },
+    { "key": "hysteresis", "section": "events", "label": "Hysteresis", "construct": "hysteresis", "glyph": "default", "editor": "raw",
+      "doc": "A Schmitt trigger: switches between two outputs at high / low thresholds." },
+
+    { "key": "process", "section": "processes", "label": "Stochastic Process (GBM/OU)", "construct": "process", "glyph": "default", "editor": "raw",
+      "doc": "A geometric-Brownian / mean-reverting continuous process." },
+    { "key": "markov", "section": "processes", "label": "Markov Chain", "construct": "markov", "glyph": "default", "editor": "raw",
+      "doc": "A discrete-state chain with a transition matrix and per-state outputs." },
+
+    { "key": "resource", "section": "transport", "label": "Resource", "construct": "resource", "glyph": "box", "editor": "raw",
+      "doc": "A finite pool consumed and replenished by links." },
+    { "key": "cell", "section": "transport", "label": "Cell", "construct": "cell", "glyph": "box", "editor": "raw",
+      "doc": "A well-mixed compartment holding species in media." },
+    { "key": "species", "section": "transport", "label": "Species", "construct": "species", "glyph": "circle", "editor": "raw",
+      "doc": "A transported species, optionally decaying into daughters." },
+    { "key": "medium", "section": "transport", "label": "Medium", "construct": "medium", "glyph": "default", "editor": "raw",
+      "doc": "A phase (solid / fluid / gas) that species partition into." },
+    { "key": "link", "section": "transport", "label": "Link (transfer)", "construct": "link", "glyph": "valve", "editor": "raw",
+      "doc": "A transfer of mass between cells or resources." }
+  ]
+}

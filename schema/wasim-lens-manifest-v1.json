@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://wasim.dev/schema/lens-manifest/1.0",
+  "title": "WASiM Lens Manifest",
+  "description": "A declarative lens: a projection over the element registry (WASIM_LENS_MANIFEST_SPEC.md §6) plus re-theming (labels, glyphs, roles). Behavior (invariants / connect / readouts) stays as first-party code named by `behavior`; a manifest may only reference a built-in behavior id, never supply code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "label", "tagline", "palette"],
+  "properties": {
+    "version": { "type": "string" },
+    "id": { "type": "string", "description": "Lens id; persisted in view.lens." },
+    "label": { "type": "string" },
+    "tagline": { "type": "string" },
+    "extends": { "type": "string", "description": "Base manifest id to inherit + override (usually 'general')." },
+    "behavior": { "type": "string", "description": "Built-in behavior-plugin id. Absent = a purely declarative lens." },
+    "palette": {
+      "oneOf": [
+        { "const": "@registry", "description": "Identity projection: every registry entry, grouped by section." },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["section", "items"],
+            "properties": {
+              "section": { "type": "string" },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["ref"],
+                  "properties": {
+                    "ref": { "type": "string", "description": "A registry entry.key." },
+                    "label": { "type": "string" },
+                    "role": { "type": "string", "description": "Stamped onto the inserted element's lens_role." },
+                    "glyph": { "enum": ["box", "circle", "valve", "hex", "default"] },
+                    "advanced": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "roleLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "glyphByRole": { "type": "object", "additionalProperties": { "enum": ["box", "circle", "valve", "hex", "default"] } },
+    "templates": { "type": "array", "items": { "type": "string" } },
+    "preferredResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roleOrder"],
+      "properties": { "roleOrder": { "type": "array", "items": { "type": "string" } } }
+    }
+  }
+}

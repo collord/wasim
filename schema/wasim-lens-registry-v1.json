@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://wasim.dev/schema/lens-registry/1.0",
+  "title": "WASiM Element Registry",
+  "description": "The canonical catalog of buildable engine constructs that lens manifests project over (WASIM_LENS_MANIFEST_SPEC.md §4). An entry's `key` maps 1:1 to a frontend PALETTE key (model/edits.ts); a manifest palette item `ref`s that key. The General lens surfaces every entry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sections", "entries"],
+  "properties": {
+    "version": { "type": "string" },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "advanced": { "type": "boolean", "description": "Collapsed by default in the palette." }
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "section", "label", "construct", "editor"],
+        "properties": {
+          "key": { "type": "string", "description": "Stable id; a PALETTE key and a manifest `ref` target." },
+          "class": { "enum": ["element", "container"], "description": "Default 'element'; 'container' inserts an enclosing frame (deferred, §10)." },
+          "section": { "type": "string", "description": "A sections[].id." },
+          "label": { "type": "string" },
+          "construct": { "type": "string", "description": "Engine primitive or node value_rule this builds." },
+          "glyph": { "enum": ["box", "circle", "valve", "hex", "default"] },
+          "editor": { "enum": ["structured", "raw"], "description": "structured = a real inspector editor exists; raw = JSON escape hatch." },
+          "doc": { "type": "string" }
+        }
+      }
+    }
+  }
+}

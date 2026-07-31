@@ -353,6 +353,112 @@ export const PALETTE: PaletteEntry[] = [
       save_results: { time_history: true, final_value: true },
     }),
   },
+
+  // ── v2-only constructs surfaced by the General lens's §5 taxonomy (manifest spec §5). ──
+  // Each is a node value_rule or a primitive whose minimal scaffold parses standalone (verified
+  // against the v2 parser). No structured inspector editor yet — they route to the raw-JSON
+  // escape hatch (registry `editor: "raw"`). v2-only, so no `withKind`/v1 type.
+  {
+    // Rolling-window statistic over an input signal (mean/min/max/sum/ema). `input` defaults to
+    // an empty (0.0) signal until wired; `window: 0` is an expanding window.
+    key: 'filter', label: 'Smoothing / Filter', group: 'Functions', iconType: 'expression',
+    make: (id, name) => ({ id, name, primitive: 'node', value_rule: 'filter', statistic: 'mean' }),
+  },
+  {
+    // Proportional-integral-derivative controller. `input` is the controlled signal (wire it in
+    // the inspector); `setpoint` is a scalar target by default.
+    key: 'pid', label: 'PID Controller', group: 'Functions', iconType: 'expression',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'pid',
+      input: '', setpoint: { value: 0, unit: '1' },
+    }),
+  },
+  {
+    // A value evaluated once at the end of the run (a terminal reduction).
+    key: 'terminal_expression', label: 'Terminal Value', group: 'Functions', iconType: 'expression',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'terminal_expression',
+      expression: { ast: { op: 'literal', value: 0 }, display: '0' },
+    }),
+  },
+  {
+    // Convolves an input with an impulse response (inline response by default).
+    key: 'convolution', label: 'Convolution', group: 'accumulate', iconType: 'delay',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'convolution',
+      input: '', response: { times: [0], values: [0] },
+    }),
+  },
+  {
+    // A material-delay queue: an input flows in and emerges after `delay_time` (conveyor by default).
+    key: 'queue', label: 'Queue', group: 'accumulate', iconType: 'delay',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'queue',
+      input: '', delay_time: { value: 1, unit: '1' },
+    }),
+  },
+  {
+    // A latch: set/reset triggers flip it on/off. Empty triggers never fire until configured.
+    key: 'status', label: 'Status (latch)', group: 'events', iconType: 'event',
+    make: (id, name) => ({ id, name, primitive: 'node', value_rule: 'status', set: {}, reset: {} }),
+  },
+  {
+    // Fires once when its trigger condition first becomes true (a one-shot marker).
+    key: 'milestone', label: 'Milestone', group: 'events', iconType: 'event',
+    make: (id, name) => ({ id, name, primitive: 'node', value_rule: 'milestone', trigger: {} }),
+  },
+  {
+    // Schmitt-trigger hysteresis: switches between two outputs at high/low thresholds.
+    key: 'hysteresis', label: 'Hysteresis', group: 'events', iconType: 'event',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'hysteresis',
+      input: '',
+      high_threshold: { value: 1, unit: '1' }, low_threshold: { value: 0, unit: '1' },
+      output_above: { value: 1, unit: '1' }, output_below: { value: 0, unit: '1' },
+    }),
+  },
+  {
+    // Markov chain: states, an initial state, a row-stochastic transition matrix, per-state outputs.
+    key: 'markov', label: 'Markov Chain', group: 'processes', iconType: 'random_variable',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'markov',
+      states: ['ok', 'bad'], initial_state: 'ok',
+      transition_matrix: [[0.9, 0.1], [0, 1]], output_values: [0, 1],
+    }),
+  },
+  {
+    // Geometric Brownian motion / mean-reverting process (arithmetic-drift GBM by default).
+    key: 'process', label: 'Stochastic Process (GBM/OU)', group: 'processes', iconType: 'random_variable',
+    make: (id, name) => ({
+      id, name, primitive: 'node', value_rule: 'process',
+      process: { family: 'gbm', mean_type: 'arithmetic', mean: { value: 0, unit: '1' }, stddev: { value: 0, unit: '1' } },
+    }),
+  },
+  {
+    // A finite pool consumed/replenished by links (initial scalar level).
+    key: 'resource', label: 'Resource', group: 'transport', iconType: 'accumulator',
+    make: (id, name) => ({ id, name, primitive: 'resource', initial_value: { value: 0, unit: '1' } }),
+  },
+  {
+    // A well-mixed compartment holding species in media; links transfer mass between cells.
+    key: 'cell', label: 'Cell', group: 'transport', iconType: 'accumulator',
+    make: (id, name) => ({ id, name, primitive: 'cell', volume: { value: 1, unit: 'm^3' } }),
+  },
+  {
+    // A transported species (optionally with decay / molecular weight).
+    key: 'species', label: 'Species', group: 'transport', iconType: 'random_variable',
+    make: (id, name) => ({ id, name, primitive: 'species', molecular_weight: { value: 0.001, unit: 'kg/mol' } }),
+  },
+  {
+    // A medium (phase) that species partition into. `phase` is required.
+    key: 'medium', label: 'Medium', group: 'transport', iconType: 'constant',
+    make: (id, name) => ({ id, name, primitive: 'medium', phase: 'fluid' }),
+  },
+  {
+    // A transfer link between cells/resources. Source/target wired in the inspector.
+    key: 'link', label: 'Link (transfer)', group: 'transport', iconType: 'valve',
+    make: (id, name) => ({ id, name, primitive: 'link' }),
+  },
 ]
 
 // ── New / blank model scaffold (spec §13.4) ──────────────────────────────────────

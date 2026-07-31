@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "id": "stock-flow",
+  "label": "Stock & Flow",
+  "tagline": "Forrester stock-and-flow — stocks accumulate, flows are rates, guaranteed consistent.",
+  "behavior": "stock-flow",
+  "palette": [
+    { "section": "Stocks", "items": [
+      { "ref": "stock", "label": "Stock", "role": "stock" }
+    ] },
+    { "section": "Flows", "items": [
+      { "ref": "expression", "label": "Flow", "role": "flow" }
+    ] },
+    { "section": "Auxiliaries", "items": [
+      { "ref": "expression", "label": "Auxiliary", "role": "auxiliary" },
+      { "ref": "constant", "label": "Constant", "role": "auxiliary" },
+      { "ref": "stochastic", "label": "Uncertain input", "role": "auxiliary" }
+    ] }
+  ],
+  "roleLabels": { "stock": "Stock", "flow": "Flow", "auxiliary": "Auxiliary" },
+  "glyphByRole": { "stock": "box", "auxiliary": "circle", "flow": "valve" },
+  "templates": ["bathtub", "population"],
+  "preferredResult": { "roleOrder": ["stock"] }
+}

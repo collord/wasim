@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "id": "decision",
+  "label": "Decision",
+  "tagline": "Decisions, chance inputs, and an objective — optimize under uncertainty and price information (VOI).",
+  "behavior": "decision",
+  "palette": [
+    { "section": "Decisions", "items": [
+      { "ref": "constant", "label": "Decision", "role": "decision" }
+    ] },
+    { "section": "Uncertainty", "items": [
+      { "ref": "stochastic", "label": "Chance input", "role": "chance" }
+    ] },
+    { "section": "Objective", "items": [
+      { "ref": "expression", "label": "Objective", "role": "objective" }
+    ] }
+  ],
+  "roleLabels": { "decision": "Decision", "chance": "Chance input", "objective": "Objective" },
+  "glyphByRole": { "decision": "box", "chance": "circle", "objective": "hex" },
+  "templates": ["capacity-choice"],
+  "preferredResult": { "roleOrder": ["objective"] }
+}

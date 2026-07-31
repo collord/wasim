@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "id": "general",
+  "label": "General",
+  "tagline": "The full engine, unfiltered — every element type, no domain vocabulary.",
+  "palette": "@registry"
+}

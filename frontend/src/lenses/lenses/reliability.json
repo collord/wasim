@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "id": "reliability",
+  "label": "Reliability",
+  "tagline": "Repairable components and failure FSMs — simulate-first RAM, not static block arithmetic.",
+  "behavior": "reliability",
+  "palette": [
+    { "section": "Components", "items": [
+      { "ref": "event", "label": "Component", "role": "component" }
+    ] },
+    { "section": "Redundancy", "items": [
+      { "ref": "gate", "label": "Redundancy gate", "role": "redundancy" }
+    ] },
+    { "section": "State", "items": [
+      { "ref": "stock", "label": "Damage state", "role": "state" }
+    ] },
+    { "section": "Inputs", "items": [
+      { "ref": "constant", "label": "Parameter", "role": "parameter" },
+      { "ref": "stochastic", "label": "Uncertain input", "role": "parameter" }
+    ] }
+  ],
+  "roleLabels": { "component": "Component", "redundancy": "Redundancy", "state": "Damage state", "parameter": "Parameter" },
+  "glyphByRole": { "component": "box", "state": "box", "redundancy": "box" },
+  "templates": ["run-to-failure", "redundant"],
+  "preferredResult": { "roleOrder": ["redundancy", "component"] }
+}
