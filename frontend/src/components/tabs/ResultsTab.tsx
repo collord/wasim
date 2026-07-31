@@ -12,7 +12,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts'
-import { useStore } from '../../store'
+import { useStore, useActiveLens } from '../../store'
 import type { ElementResults, TimeHistoryStats } from '../../types'
 
 // ── Color palette ─────────────────────────────────────────────────────────────
@@ -355,6 +355,8 @@ export function ResultsTab() {
   const setSelected = useStore((s) => s.setSelectedResultId)
   const modelSummary = useStore((s) => s.modelSummary)
   const status = useStore((s) => s.status)
+  const lens = useActiveLens()
+  const doc = useStore((s) => s.doc)
 
   const [plotIds, setPlotIds] = useState<string[]>([])
 
@@ -380,6 +382,7 @@ export function ResultsTab() {
 
   const outputIds = results.output_ids
   const activeId = selectedId ?? outputIds[0]
+  const readouts = lens.resultReadouts && doc ? lens.resultReadouts(results, doc) : []
 
   // On first render after results arrive, default plotIds to first output
   const effectivePlotIds =
@@ -407,6 +410,28 @@ export function ResultsTab() {
 
   return (
     <div className="space-y-6">
+      {/* Lens readouts (e.g. reliability availability / MTTF) — derived from the run. */}
+      {readouts.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4" data-testid="lens-readouts">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{lens.label} readouts</h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {readouts.map((r) => (
+              <div key={r.id} className="rounded-md border border-slate-100 bg-slate-50 p-3">
+                <div className="mb-1.5 truncate text-sm font-semibold text-slate-700" title={r.label}>{r.label}</div>
+                <dl className="space-y-1">
+                  {r.metrics.map((m) => (
+                    <div key={m.name} className="flex items-baseline justify-between gap-2">
+                      <dt className="text-[11px] text-slate-400">{m.name}</dt>
+                      <dd className="font-mono text-xs font-semibold text-slate-700 tabular-nums">{m.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Series selector */}
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="mb-2 flex items-center justify-between">

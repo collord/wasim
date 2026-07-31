@@ -9,14 +9,19 @@ import type {
   SensitivitySpec,
   SimulationResults,
   StudyResults,
+  VoiResults,
+  VoiSpec,
 } from './types'
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
   addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId, replaceElement,
-  serializeModel, setContainer, setDimensions, setPosition, setPositions, updateElement, updateSettings, uniqueId,
+  serializeModel, setContainer, setDimensions, setLens as setDocLens, setPosition, setPositions,
+  updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
+import { resolveLens } from './lenses/registry'
+import type { LensId } from './lenses/types'
 
 const IDENTITY_DISP: QtyDisplay = { unit: '', factor: 1, offset: 0 }
 const RECONCILE_DEBOUNCE_MS = 250
@@ -91,6 +96,11 @@ interface State {
   optResults: StudyResults | null
   optError: string | null
 
+  // Value-of-information (runtime)
+  voiStatus: SimStatus
+  voiResults: VoiResults | null
+  voiError: string | null
+
   // Run config (user-controlled; mirrors doc.simulation_settings)
   nRealizations: number
   seed: number | null
@@ -109,6 +119,7 @@ interface Actions {
   // Files
   loadModel: (json: string, filename?: string) => void
   newModel: () => void
+  loadTemplate: (doc: ModelDoc, name?: string) => void
   saveModel: () => Promise<void>
   saveParameters: () => void
 
@@ -129,6 +140,8 @@ interface Actions {
   reparent: (id: string, container: string | null) => void
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
+  setLens: (id: LensId) => void
+  connectElements: (fromId: string, toId: string) => void
   editSettings: (patch: Partial<ModelDoc['simulation_settings']>) => void
   editDimensions: (dimensions: ModelDoc['dimensions']) => void
   undo: () => void
@@ -142,6 +155,7 @@ interface Actions {
   run: () => void
   runSensitivity: (spec: SensitivitySpec) => void
   runOptimization: (spec: OptimizationSpec) => void
+  runVoi: (spec: VoiSpec) => void
   setNRealizations: (n: number) => void
   setSeed: (s: number | null) => void
   setSimDuration: (v: number) => void
@@ -194,6 +208,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   optStatus: 'idle',
   optResults: null,
   optError: null,
+  voiStatus: 'idle',
+  voiResults: null,
+  voiError: null,
   nRealizations: 1000,
   seed: 42,
   simDuration: null,
@@ -249,6 +266,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   newModel() {
     const doc = blankModel()
     get().loadModel(serializeModel(doc), 'untitled.json')
+  },
+
+  loadTemplate(doc, name) {
+    get().loadModel(serializeModel(doc), name ?? 'template.json')
   },
 
   async saveModel() {
@@ -386,6 +407,23 @@ export const useStore = create<State & Actions>((set, get) => ({
     get().applyEdit(setPositions(doc, positions), { reconcile: false })
   },
 
+  setLens(id) {
+    const doc = get().doc
+    if (!doc) return
+    // Lens is engine-ignored view state (like positions): persist it, no reconcile. The active
+    // lens is derived from `doc.view.lens` (see `useActiveLens`), so this is the single source of
+    // truth — undo/redo and load reflect it automatically.
+    get().applyEdit(setDocLens(doc, id), { reconcile: false })
+  },
+
+  connectElements(fromId, toId) {
+    const doc = get().doc
+    if (!doc) return
+    const next = resolveLens(doc.view?.lens).connect?.(doc, fromId, toId)
+    // Structural (inflows/outflows changed) → reconcile so the engine redraws influence edges.
+    if (next) get().applyEdit(next)
+  },
+
   editSettings(patch) {
     const doc = get().doc
     if (!doc) return
@@ -498,6 +536,11 @@ export const useStore = create<State & Actions>((set, get) => ({
     postToWorker({ type: 'run_optimization', spec })
   },
 
+  runVoi(spec) {
+    set({ voiStatus: 'running', voiError: null, voiResults: null })
+    postToWorker({ type: 'run_voi', spec })
+  },
+
   setNRealizations: (n) => { set({ nRealizations: n }); get().editSettings({ n_realizations: n }) },
   setSeed: (s) => { set({ seed: s }); get().editSettings({ seed: s }) },
   setSimDuration: (v) => {
@@ -588,15 +631,22 @@ export const useStore = create<State & Actions>((set, get) => ({
         break
       }
 
-      case 'complete':
+      case 'complete': {
+        // Let the active lens choose which result to open on (stock-flow → a stock's trajectory);
+        // fall back to the first output.
+        const cdoc = get().doc
+        const outputs = msg.results.output_ids
+        const clens = resolveLens(cdoc?.view?.lens)
+        const preferred = cdoc && clens.preferredResultId ? clens.preferredResultId(cdoc, outputs) : null
         set({
           status: 'done',
           results: msg.results,
-          selectedResultId: msg.results.output_ids[0] ?? null,
+          selectedResultId: preferred ?? outputs[0] ?? null,
           activeTab: 'results',
           mode: 'result',
         })
         break
+      }
 
       case 'sensitivity_complete':
         set({ sensStatus: 'done', sensResults: msg.results })
@@ -606,9 +656,14 @@ export const useStore = create<State & Actions>((set, get) => ({
         set({ optStatus: 'done', optResults: msg.results })
         break
 
+      case 'voi_complete':
+        set({ voiStatus: 'done', voiResults: msg.results })
+        break
+
       case 'error':
         // A worker error can arrive for any in-flight job; surface it on whichever is running.
-        if (get().optStatus === 'running') set({ optStatus: 'error', optError: msg.message })
+        if (get().voiStatus === 'running') set({ voiStatus: 'error', voiError: msg.message })
+        else if (get().optStatus === 'running') set({ optStatus: 'error', optError: msg.message })
         else if (get().sensStatus === 'running') set({ sensStatus: 'error', sensError: msg.message })
         else set({ status: 'error', errorMessage: msg.message, reconciling: false })
         break
@@ -627,6 +682,11 @@ const EMPTY_POSITIONS: Record<string, NodeView> = {}
 export const useElements = () => useStore((s) => s.modelSummary?.elements ?? EMPTY_ELEMENTS)
 export const useContainers = () => useStore((s) => s.doc?.containers ?? EMPTY_CONTAINERS)
 export const usePositions = () => useStore((s) => s.doc?.view?.positions ?? EMPTY_POSITIONS)
+
+// The active lens, derived from the document's `view.lens` tag (single source of truth — no
+// duplicated store state, so undo/redo/load stay in sync). `resolveLens` returns a stable
+// per-id reference, so this selector never churns.
+export const useActiveLens = () => useStore((s) => resolveLens(s.doc?.view?.lens))
 
 // Re-export so components can import the doc type location conveniently.
 export type { ModelDoc, FlatElement } from './model/schema'

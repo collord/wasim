@@ -235,6 +235,14 @@ export function setPositions(doc: ModelDoc, positions: Record<string, NodeView>)
   return next
 }
 
+/** Set the active lens tag on the view block (engine-ignored, like positions). A pure view edit
+ *  — no reconcile needed. See `WASIM_LENS_IMPLEMENTATION_PLAN.md` Part A. */
+export function setLens(doc: ModelDoc, lens: string): ModelDoc {
+  const next = clone(doc)
+  ensureView(next).lens = lens
+  return next
+}
+
 // ── Simulation settings ──────────────────────────────────────────────────────────
 
 export function updateSettings(doc: ModelDoc, patch: Partial<ModelDoc['simulation_settings']>): ModelDoc {
@@ -330,6 +338,17 @@ export const PALETTE: PaletteEntry[] = [
       trigger: { mode: 'on_condition', condition: { ast: { op: 'literal', value: 0 }, display: '0' } },
       failure_process: { basis: 'condition', repair: { policy: 'none' } },
       effects: [],
+      inputs: [],
+      save_results: { time_history: true, final_value: true },
+    }),
+  },
+  {
+    // v2-native boolean logic gate (spec §gate). Composes referenced elements' states with
+    // AND / OR / at-least-k (NVote); a leaf is "active" when its value > 0. Output 0/1.
+    key: 'gate', label: 'Logic Gate', group: 'Reliability', iconType: 'event',
+    make: (id, name) => ({
+      id, name, primitive: 'gate', semantics: 'success',
+      root: { op: 'n_vote', threshold: 1, children: [] },
       inputs: [],
       save_results: { time_history: true, final_value: true },
     }),

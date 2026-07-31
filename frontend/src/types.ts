@@ -247,3 +247,24 @@ export interface StudyResults {
   evaluations: number
   converged: boolean
 }
+
+// ── Value of information (EVPPI) ─────────────────────────────────────────────────
+// Transient spec (mirrors the engine's VoiRequest): the optimization problem + which uncertain
+// elements to price information on.
+
+export interface VoiSpec {
+  optimization: OptimizationSpec
+  probes: string[]
+  scenarios?: number
+}
+
+export interface VoiProbeResult {
+  element_id: string
+  evppi: number
+  scenarios: number
+}
+
+export interface VoiResults {
+  baseline_objective: number
+  probes: VoiProbeResult[]
+}
