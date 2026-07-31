@@ -33,3 +33,5 @@ frontend/playwright-report/
 # Python bytecode
 __pycache__/
 *.pyc
+
+openai_test.txt

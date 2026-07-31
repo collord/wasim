@@ -15,7 +15,20 @@ export type ProviderId = 'anthropic' | 'openai' | 'azure-openai'
 export type LlmConfig =
   | { provider: 'anthropic'; model: string; apiKey: string }
   | { provider: 'openai'; model: string; apiKey: string; baseUrl?: string }
-  | { provider: 'azure-openai'; deployment: string; apiKey: string; resource: string; apiVersion: string }
+  | {
+      provider: 'azure-openai'
+      deployment: string
+      apiKey: string
+      resource: string
+      apiVersion: string
+      /** New /openai/v1/ surface: the full base URL (e.g. https://{host}/openai/v1/). When set it
+       *  overrides the classic {resource}.openai.azure.com/openai/deployments/… URL, and `model` (if
+       *  set) is sent in the body. Leave empty to use the classic deployment URL. */
+      endpoint?: string
+      /** Model id for the v1 surface body (e.g. gpt-5-mini). Ignored on the classic surface, where
+       *  the deployment name in the URL selects the model. */
+      model?: string
+    }
 
 /** A content block within a message — text, or (for tool-calling turns) a tool call / tool result.
  *  A tool-call turn preserves the raw `id`+`input` each provider needs to reconstruct its native

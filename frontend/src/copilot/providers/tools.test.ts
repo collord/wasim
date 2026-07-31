@@ -13,7 +13,7 @@ import { chatWithTools } from './index'
 interface Captured {
   url: string
   headers: Record<string, string>
-  body: { messages: unknown[]; tools?: unknown[] }
+  body: { messages: unknown[]; tools?: unknown[]; model?: string; max_completion_tokens?: number; max_tokens?: number }
 }
 
 function stubFetch(response: unknown, ok = true, status = 200): { captured: Captured | null } {
@@ -94,5 +94,18 @@ describe('OpenAI/Azure tool adapter', () => {
     await chatWithTools(AZURE, '', [{ role: 'user', content: 'hi' }], [TOOL])
     expect(box.captured!.url).toBe('https://r.openai.azure.com/openai/deployments/d/chat/completions?api-version=2024-06-01')
     expect(box.captured!.headers['api-key']).toBe('k')
+    // Reasoning models reject max_tokens — tool body uses max_completion_tokens too.
+    expect(box.captured!.body.max_completion_tokens).toBeGreaterThan(0)
+    expect(box.captured!.body.max_tokens).toBeUndefined()
+  })
+
+  it('Azure v1 endpoint override targets {endpoint}/chat/completions with the body model', async () => {
+    const box = stubFetch({ choices: [{ message: { content: 'x' }, finish_reason: 'stop' }] })
+    await chatWithTools(
+      { ...AZURE, endpoint: 'https://h.cognitiveservices.azure.com/openai/v1/', model: 'gpt-5-mini' },
+      '', [{ role: 'user', content: 'hi' }], [TOOL],
+    )
+    expect(box.captured!.url).toBe('https://h.cognitiveservices.azure.com/openai/v1/chat/completions')
+    expect(box.captured!.body.model).toBe('gpt-5-mini')
   })
 })

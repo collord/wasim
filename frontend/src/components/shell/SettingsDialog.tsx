@@ -157,11 +157,22 @@ function AiSettingsSection() {
 
         {llm.provider === 'azure-openai' && (
           <>
-            <Field label="Resource" hint="{resource}.openai.azure.com">
-              <TextInput value={llm.resource} mono onChange={(resource) => setLlm({ resource })} />
+            <Field label="Endpoint" hint="New v1 surface, e.g. https://{host}/openai/v1/ — overrides Resource/Deployment/API version below. Leave blank for the classic surface.">
+              <TextInput value={llm.endpoint ?? ''} mono onChange={(endpoint) => setLlm({ endpoint: endpoint || undefined })} />
             </Field>
-            <Field label="Deployment"><TextInput value={llm.deployment} mono onChange={(deployment) => setLlm({ deployment })} /></Field>
-            <Field label="API version"><TextInput value={llm.apiVersion} mono onChange={(apiVersion) => setLlm({ apiVersion })} /></Field>
+            {llm.endpoint?.trim() ? (
+              <Field label="Model" hint="e.g. gpt-5-mini (sent in the request body on the v1 surface).">
+                <TextInput value={llm.model ?? ''} mono onChange={(model) => setLlm({ model: model || undefined })} />
+              </Field>
+            ) : (
+              <>
+                <Field label="Resource" hint="{resource}.openai.azure.com">
+                  <TextInput value={llm.resource} mono onChange={(resource) => setLlm({ resource })} />
+                </Field>
+                <Field label="Deployment"><TextInput value={llm.deployment} mono onChange={(deployment) => setLlm({ deployment })} /></Field>
+                <Field label="API version"><TextInput value={llm.apiVersion} mono onChange={(apiVersion) => setLlm({ apiVersion })} /></Field>
+              </>
+            )}
             {keyField}
           </>
         )}

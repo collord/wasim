@@ -53,8 +53,8 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     hasKey: (cfg) =>
       cfg.provider === 'azure-openai' &&
       cfg.apiKey.trim().length > 0 &&
-      cfg.resource.trim().length > 0 &&
-      cfg.deployment.trim().length > 0,
+      // v1 surface: an endpoint is enough. Classic surface: needs resource + deployment.
+      (!!cfg.endpoint?.trim() || (cfg.resource.trim().length > 0 && cfg.deployment.trim().length > 0)),
   },
 }
 

@@ -129,9 +129,14 @@ echo* natively — Anthropic `tool_use`/`tool_result` content blocks; OpenAI/Azu
 `role:'tool'` fan-out. The echo (re-sending the assistant tool-call turn before the tool result) was
 the design risk and is what the adapter unit tests cover for both providers.
 
-**Boundary (unchanged honesty).** Only the **Anthropic** tool round-trip is live-verified (e2e
-route-stub + real-key manual). OpenAI/Azure are built to the confirmed wire formats and unit-tested
-for shaping/parsing/echo, not live-called (no keys) — flagged in `providers/openai.ts`. **Cold-start
-stays text-based by design** (building a whole model via sequential add-calls is slower and more
-error-prone than one draft). More tools (`validate`, `run` via a stateless worker) remain follow-ons
-on this seam.
+**Boundary.** **Anthropic** and **Azure OpenAI** tool round-trips are live-verified — Anthropic via
+e2e route-stub + real key; Azure against a real resource (`gpt-5-mini` on the new `/openai/v1/`
+surface), exercising the full echo cycle (turn 1 → `finish_reason:tool_calls`; turn 2 accepts the
+echoed assistant `tool_calls` turn + `role:'tool'` result → `stop`). That live pass surfaced two real
+adapter bugs, now fixed: the classic `{resource}.openai.azure.com/openai/deployments/…` URL didn't
+fit this resource's v1 surface (added an optional `endpoint` override that carries `model` in the
+body), and `max_tokens` is rejected by reasoning models (switched to `max_completion_tokens`). Plain
+**OpenAI** (`api.openai.com`) shares the same code path but is still built-to-format only (no key).
+**Cold-start stays text-based by design** (building a whole model via sequential add-calls is slower
+and more error-prone than one draft). More tools (`validate`, `run` via a stateless worker) remain
+follow-ons on this seam.

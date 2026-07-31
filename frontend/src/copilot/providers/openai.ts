@@ -1,4 +1,4 @@
-import type { ChatAdapter, ChatToolAdapter, ChatMessage, ContentBlock } from './types'
+import type { ChatAdapter, ChatToolAdapter, ChatMessage, ContentBlock, LlmConfig } from './types'
 import { MAX_TOKENS } from './types'
 import type { ChatResult, ToolCall } from './tools'
 
@@ -7,15 +7,34 @@ import type { ChatResult, ToolCall } from './tools'
  * response shape (Azure's REST surface is OpenAI's); they differ only in endpoint URL and auth
  * header — OpenAI: `Authorization: Bearer` at api.openai.com; Azure: `api-key` at a deployment URL.
  *
- * NOT LIVE-VERIFIED. Built to the confirmed wire formats and unit-tested for request-shaping and
- * response-parsing against synthetic payloads, but not called against a real OpenAI/Azure endpoint
- * (no keys available at build time). The Anthropic adapter is the only end-to-end-verified path.
+ * Azure (v1 surface) is LIVE-VERIFIED — the chat + tool round-trip was exercised against a real
+ * Azure OpenAI resource (gpt-5-mini on the /openai/v1/ endpoint), which is why the adapter sends
+ * `max_completion_tokens` (reasoning models reject `max_tokens`) and resolves both URL surfaces.
+ * The plain OpenAI (api.openai.com) path is still built-to-format only, not live-called (no key).
  */
 
-/** OpenAI-family request body. The system prompt becomes a leading `system` message. */
+/** OpenAI-family request body. The system prompt becomes a leading `system` message.
+ *  Uses `max_completion_tokens` (not the deprecated `max_tokens`, which the reasoning models
+ *  — gpt-5* etc. — reject with a 400). */
 function buildBody(model: string, system: string, messages: ChatMessage[]) {
   const withSystem = system ? [{ role: 'system' as const, content: system }, ...messages] : messages
-  return { model, max_tokens: MAX_TOKENS, messages: withSystem }
+  return { model, max_completion_tokens: MAX_TOKENS, messages: withSystem }
+}
+
+/** Resolve the Azure endpoint URL + body model for both surfaces (§17.1). New `/openai/v1/` surface
+ *  (when `endpoint` is set): `{endpoint}/chat/completions`, body model = cfg.model. Classic surface:
+ *  the deployment URL with `?api-version=`, body model = deployment name (URL selects the model). */
+function azureTarget(cfg: Extract<LlmConfig, { provider: 'azure-openai' }>): { url: string; model: string } {
+  if (cfg.endpoint && cfg.endpoint.trim()) {
+    const base = cfg.endpoint.trim().replace(/\/$/, '')
+    return { url: `${base}/chat/completions`, model: cfg.model?.trim() || cfg.deployment }
+  }
+  return {
+    url:
+      `https://${cfg.resource}.openai.azure.com/openai/deployments/${cfg.deployment}` +
+      `/chat/completions?api-version=${encodeURIComponent(cfg.apiVersion)}`,
+    model: cfg.deployment, // classic: the URL selects the model; body model is cosmetic
+  }
 }
 
 /** OpenAI-family response text: `choices[0].message.content`. */
@@ -60,12 +79,8 @@ export const chatOpenAI: ChatAdapter = async (cfg, system, messages, signal) => 
 
 export const chatAzure: ChatAdapter = async (cfg, system, messages, signal) => {
   if (cfg.provider !== 'azure-openai') throw new Error('chatAzure called with non-azure config')
-  const url =
-    `https://${cfg.resource}.openai.azure.com/openai/deployments/${cfg.deployment}` +
-    `/chat/completions?api-version=${encodeURIComponent(cfg.apiVersion)}`
-  // Azure's body takes `deployment` implicitly via the URL, so `model` in the body is ignored — send
-  // the deployment name as the model for clarity.
-  return post(url, { 'api-key': cfg.apiKey }, buildBody(cfg.deployment, system, messages), signal, 'Azure OpenAI')
+  const { url, model } = azureTarget(cfg)
+  return post(url, { 'api-key': cfg.apiKey }, buildBody(model, system, messages), signal, 'Azure OpenAI')
 }
 
 // ── Tool-aware variants (§17.3) ───────────────────────────────────────────────────
@@ -110,7 +125,7 @@ function buildToolBody(model: string, system: string, messages: ChatMessage[], t
   const msgs = [...base, ...messages.flatMap(toOpenAiMessages)]
   return {
     model,
-    max_tokens: MAX_TOKENS,
+    max_completion_tokens: MAX_TOKENS,
     messages: msgs,
     tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema } })),
   }
@@ -158,8 +173,6 @@ export const chatOpenAITools: ChatToolAdapter = async (cfg, system, messages, to
 
 export const chatAzureTools: ChatToolAdapter = async (cfg, system, messages, tools, signal) => {
   if (cfg.provider !== 'azure-openai') throw new Error('chatAzureTools called with non-azure config')
-  const url =
-    `https://${cfg.resource}.openai.azure.com/openai/deployments/${cfg.deployment}` +
-    `/chat/completions?api-version=${encodeURIComponent(cfg.apiVersion)}`
-  return postTools(url, { 'api-key': cfg.apiKey }, buildToolBody(cfg.deployment, system, messages, tools), signal, 'Azure OpenAI')
+  const { url, model } = azureTarget(cfg)
+  return postTools(url, { 'api-key': cfg.apiKey }, buildToolBody(model, system, messages, tools), signal, 'Azure OpenAI')
 }

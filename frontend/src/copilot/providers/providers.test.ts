@@ -67,6 +67,9 @@ describe('OpenAI adapter', () => {
       { role: 'system', content: 'SYS' },
       { role: 'user', content: 'hi' },
     ])
+    // Reasoning models reject max_tokens — the adapter sends max_completion_tokens.
+    expect(box.captured!.body.max_completion_tokens).toBeGreaterThan(0)
+    expect(box.captured!.body.max_tokens).toBeUndefined()
   })
 
   it('honors a baseUrl override', async () => {
@@ -95,6 +98,17 @@ describe('Azure OpenAI adapter', () => {
       { role: 'user', content: 'hi' },
     ])
   })
+
+  it('uses the v1 endpoint override + body model when endpoint is set', async () => {
+    const box = stubFetch({ choices: [{ message: { content: 'v1-out' } }] })
+    const cfg: LlmConfig = { ...AZURE, endpoint: 'https://host.cognitiveservices.azure.com/openai/v1/', model: 'gpt-5-mini' }
+    const out = await chat(cfg, 'SYS', [{ role: 'user', content: 'hi' }])
+    expect(out).toBe('v1-out')
+    // Endpoint wins over the classic {resource}.openai.azure.com deployment URL (trailing slash trimmed).
+    expect(box.captured!.url).toBe('https://host.cognitiveservices.azure.com/openai/v1/chat/completions')
+    expect(box.captured!.headers['api-key']).toBe('az-x')
+    expect(box.captured!.body.model).toBe('gpt-5-mini') // v1 surface carries the model in the body
+  })
 })
 
 describe('registry', () => {
@@ -102,7 +116,9 @@ describe('registry', () => {
     expect(hasKey(ANTHROPIC)).toBe(true)
     expect(hasKey({ ...ANTHROPIC, apiKey: '' })).toBe(false)
     expect(hasKey(AZURE)).toBe(true)
-    expect(hasKey({ ...AZURE, resource: '' })).toBe(false) // azure needs resource+deployment+key
+    expect(hasKey({ ...AZURE, resource: '' })).toBe(false) // classic azure needs resource+deployment+key
+    expect(hasKey({ ...AZURE, resource: '', deployment: '', endpoint: 'https://h/openai/v1/' })).toBe(true) // v1 surface: endpoint suffices
+    expect(hasKey({ ...AZURE, apiKey: '', endpoint: 'https://h/openai/v1/' })).toBe(false) // still needs a key
   })
 
   it('blank() produces a valid empty config per provider', () => {
