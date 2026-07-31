@@ -62,6 +62,33 @@ fn summary_exposes_v2_primitives_rules_and_traits() {
 }
 
 #[test]
+fn summary_exposes_stock_rate_drivers() {
+    // A stock whose rate is an expression referencing another node: the driver lives in the
+    // rate AST, not in `inputs`, so it must surface via `rate_inputs` for the frontend to draw
+    // the flow pipe. (Regression: haul_truck_overload_reliability's damage_rate_nom → damage_nom.)
+    let m = parse_v2(
+        r#"{"wasim_version": "0.8.0",
+        "simulation_settings": {"duration": {"value": 5, "unit": "d"}, "timestep": {"value": 1, "unit": "d"}},
+        "elements": [
+          {"id": "r", "name": "R", "primitive": "node", "value_rule": "fixed", "value": {"value": 2, "unit": "1/d"}},
+          {"id": "acc", "name": "Acc", "primitive": "stock", "initial_value": {"value": 0, "unit": "1"},
+           "rate": {"ast": {"op": "ref", "element_id": "r"}}},
+          {"id": "const_stock", "name": "Const", "primitive": "stock", "initial_value": {"value": 0, "unit": "1"},
+           "rate": {"value": 1, "unit": "1/d"}}
+        ]}"#,
+    )
+    .unwrap();
+    let s = summ(&m);
+
+    let acc = elem(&s, "acc");
+    assert_eq!(acc["rate_inputs"], json!(["r"]));
+    // A plain-constant rate contributes no driver edge.
+    assert_eq!(elem(&s, "const_stock")["rate_inputs"], json!([]));
+    // Non-stocks always get an empty list.
+    assert_eq!(elem(&s, "r")["rate_inputs"], json!([]));
+}
+
+#[test]
 fn summary_preserves_legacy_type_for_v1_imports() {
     let v1: WasimModel = serde_json::from_str(
         r#"{"wasim_version": "0.1.0",

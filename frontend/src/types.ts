@@ -95,6 +95,9 @@ export interface ElementSummary {
     y_unit?: string | null
   } | null
   inputs: string[]
+  /** Elements driving a stock's flow via its rate/return-rate/withdrawal expressions.
+   *  These live in the rate AST, not in `inputs`, and are drawn as flow pipes into the stock. */
+  rate_inputs?: string[]
   description: string | null
 }
 

@@ -63,6 +63,11 @@ pub fn summary_json(model: &Model) -> String {
         /// Interpolation data for `lookup`/`series` nodes.
         table: Option<TableSummary<'a>>,
         inputs: &'a [String],
+        /// Elements that drive a stock's flow via its `rate`/`return_rate`/withdrawal
+        /// expressions (and any AST-seeded `initial_expression`). These references live in
+        /// the rate AST, not in `inputs`, so the frontend draws them as flow pipes into the
+        /// stock. Empty for non-stocks and for stocks whose rate is a plain constant.
+        rate_inputs: Vec<&'a str>,
         description: Option<&'a str>,
     }
 
@@ -110,6 +115,7 @@ pub fn summary_json(model: &Model) -> String {
                 _ => None,
             },
             inputs: &e.base.inputs,
+            rate_inputs: rate_inputs_of(e),
             description: e.base.description.as_deref(),
         })
         .collect();
@@ -136,6 +142,34 @@ pub fn summary_json(model: &Model) -> String {
         },
     };
     serde_json::to_string(&summary).unwrap_or_default()
+}
+
+/// Elements driving a stock's flow. The rate/return-rate/withdrawal expressions (and any
+/// AST-seeded initial level) reference their drivers in an AST rather than in `base.inputs`,
+/// so they'd otherwise be invisible to the frontend graph. Dedup-preserving order; empty for
+/// non-stocks and constant-rate stocks. Mirrors the engine's own `collect_ast_refs` authority
+/// so the view can't drift from what the accumulator pass actually reads.
+fn rate_inputs_of(elem: &Element) -> Vec<&str> {
+    fn push_qof<'a>(qof: &'a Option<crate::model::QuantityOrFormula>, out: &mut Vec<&'a str>) {
+        if let Some(crate::model::QuantityOrFormula::Expression(ef)) = qof {
+            crate::graph_v2::collect_ast_refs(&ef.ast, out);
+        }
+    }
+    let Primitive::Stock(s) = &elem.primitive else { return Vec::new() };
+    let mut out: Vec<&str> = Vec::new();
+    push_qof(&s.rate, &mut out);
+    push_qof(&s.return_rate, &mut out);
+    if let Some(ie) = &s.initial_expression {
+        crate::graph_v2::collect_ast_refs(&ie.ast, &mut out);
+    }
+    for w in &s.withdrawals {
+        push_qof(&w.request, &mut out);
+        push_qof(&w.limit, &mut out);
+    }
+    // Preserve first-seen order while dropping duplicates.
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|id| seen.insert(*id));
+    out
 }
 
 pub fn primitive_name(p: &Primitive) -> &'static str {

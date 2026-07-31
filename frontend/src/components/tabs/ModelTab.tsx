@@ -76,8 +76,10 @@ export function ModelTab() {
     const deps = new Map<string, string[]>()
     const rdeps = new Map<string, string[]>()
     for (const e of summary?.elements ?? []) {
-      deps.set(e.id, e.inputs)
-      for (const dep of e.inputs) {
+      // Stock rate drivers live in the rate AST, not `inputs`; include them as dependencies.
+      const allDeps = [...e.inputs, ...(e.rate_inputs ?? [])]
+      deps.set(e.id, allDeps)
+      for (const dep of allDeps) {
         if (!rdeps.has(dep)) rdeps.set(dep, [])
         rdeps.get(dep)!.push(e.id)
       }

@@ -19,7 +19,11 @@ function autoLayout(elements: ElementSummary[]): Record<string, Pos> {
   g.setDefaultEdgeLabel(() => ({}))
   const ids = new Set(elements.map((e) => e.id))
   for (const e of elements) g.setNode(e.id, { width: NODE_W, height: NODE_H })
-  for (const e of elements) for (const src of e.inputs) if (ids.has(src) && src !== e.id) g.setEdge(src, e.id)
+  for (const e of elements) {
+    for (const src of e.inputs) if (ids.has(src) && src !== e.id) g.setEdge(src, e.id)
+    // Stock rate drivers are real edges for layout too (they live in the rate AST, not `inputs`).
+    for (const src of e.rate_inputs ?? []) if (ids.has(src) && src !== e.id) g.setEdge(src, e.id)
+  }
   dagre.layout(g)
   const out: Record<string, Pos> = {}
   for (const e of elements) { const n = g.node(e.id); if (n) out[e.id] = { x: n.x, y: n.y } }
@@ -198,8 +202,14 @@ export function EditableCanvas() {
       for (const f of e.inflows ?? []) if (ids.has(f)) out.push({ from: f, to: e.id })
       for (const f of e.outflows ?? []) if (ids.has(f)) out.push({ from: e.id, to: f })
     }
+    // A stock's rate expression references its drivers in the rate AST, not in `inputs`. The
+    // engine surfaces those as `rate_inputs`; each is a flow into the stock, drawn as a pipe.
+    const elemIds = new Set(elements.map((e) => e.id))
+    for (const e of elements)
+      for (const src of e.rate_inputs ?? [])
+        if (elemIds.has(src) && src !== e.id) out.push({ from: src, to: e.id })
     return out
-  }, [docEls])
+  }, [docEls, elements])
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-50" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>

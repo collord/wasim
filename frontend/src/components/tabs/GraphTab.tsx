@@ -284,11 +284,11 @@ function buildLayout(
     addedEdges.add(key)
     g.setEdge(from, to)
   }
-  // ── Edges from element.inputs ──
+  // ── Edges from element.inputs (+ stock rate drivers, which live in the rate AST) ──
   for (const e of elements) {
     const toNode = nodeOf.get(e.id)
     if (!toNode) continue
-    for (const src of e.inputs) {
+    for (const src of [...e.inputs, ...(e.rate_inputs ?? [])]) {
       let fromNode: string | undefined
       if (submodelIds.has(src)) {
         // A submodel_stat consumer lists the submodel *container* id in its inputs. Collapsed:
