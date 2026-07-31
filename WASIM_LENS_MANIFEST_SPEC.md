@@ -568,5 +568,8 @@ Each phase is independently shippable; parity with today is the gate between pha
   `frontend/src/components/{browser/ModelBrowser.tsx, inspector/Inspector.tsx}` (reparent only).
 - Prior lens docs: `WASIM_LENS_UI_DESIGN.md`, `WASIM_LENS_IMPLEMENTATION_PLAN.md`,
   `WASIM_VALUE_PROP_THESIS.md`, `FRONTEND_ASSESSMENT_2026-07.md`.
+- Downstream consumer: the LLM-assisted authoring copilot (`WASIM_AUTHORING_ENVIRONMENT_SPEC.md`
+  §17) sources its schema context from the element/function registries specified here — its
+  "authoring guide" (§17.2) and `get_schema_section` tool (§17.3) should project over them.
 - Pattern precedent: VS Code contribution points (declarative `package.json` + activation code),
   Grafana panel plugins, ESLint config + plugins.

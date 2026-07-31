@@ -662,7 +662,12 @@ raw JSON Schema on every turn. The context is layered, cheapest-first:
    function and time-ref list, the expression-AST shape, and the simulation-settings
    fields — each with a one-line description. This is far more token-efficient and
    semantically richer than raw JSON Schema, and regenerating it from the schema on
-   build keeps it honest.
+   build keeps it honest. **This catalog is the same one the lens-manifest spec
+   formalizes** as the **element registry** (constructs, incl. the container class for
+   submodels) and the **function registry** (builtins/time-refs) — see
+   `WASIM_LENS_MANIFEST_SPEC.md` §4–§5, §9, §10. Once those artifacts exist, the
+   authoring guide and `get_schema_section` (§17.3) should be a **projection over the
+   registries**, not a second generator that can drift from them.
 2. **A short set of few-shot exemplars** — 2–3 complete, engine-validated `model.json`
    documents (e.g. the repo's `retirement_planning.json` and `two_tank_hydraulic.json`)
    that show idiomatic structure end-to-end.
@@ -685,8 +690,9 @@ outgrows the context window, retrieve only the relevant slices per turn (a
 
 **Why not rely on structured-output/JSON-schema constraints?** Providers can constrain
 a response to a JSON Schema, but WASiM's schema is **recursive** (nested
-containers/submodels, a self-referential expression AST) and uses constructs those
-constrained-decoding features don't support. So the copilot does **not** lean on
+containers/submodels — the authoring surface for which is specified in
+`WASIM_LENS_MANIFEST_SPEC.md` §10 — and a self-referential expression AST) and uses
+constructs those constrained-decoding features don't support. So the copilot does **not** lean on
 one-shot constrained generation for the whole document — it relies on **tool-calling +
 engine validation** (§17.3), which handles recursion and gives precise, correctable
 errors. Constrained output is still useful for *small, flat* sub-tasks (e.g. emitting a
@@ -714,7 +720,7 @@ user: NL description ─▶ LLM ─▶ (tool call) propose_model / apply_edit
 
 | Tool | Purpose |
 |---|---|
-| `get_schema_section(topic)` | Retrieve the authoring-guide slice for a primitive/distribution/function on demand (keeps the base prompt small) |
+| `get_schema_section(topic)` | Retrieve the authoring-guide slice for a primitive/distribution/function on demand (keeps the base prompt small). Backed by the element/function registry (`WASIM_LENS_MANIFEST_SPEC.md` §4, §9.2) once it exists — one `doc`/`sig` lookup per registry entry |
 | `propose_model(model_json)` | Submit a full candidate model |
 | `apply_edit(patch)` | Submit an incremental change to the current model (add/modify/remove elements) — preferred for edits, cheaper and more precise than regenerating the whole doc |
 | `validate()` | Run the engine's parse + dimensional + graph validation → structured diagnostics (dangling refs, cycles, unit errors, unknown fields) |
