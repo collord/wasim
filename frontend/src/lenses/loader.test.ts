@@ -34,10 +34,25 @@ const fixtureDoc: ModelDoc = {
 const allIds = fixtureDoc.elements.map((e) => e.id)
 
 describe('manifest loader — parity with the hand-written specs', () => {
-  it.each(DOMAIN_IDS)('%s palette projection is byte-identical', (id) => {
-    const now = resolveLens(id).palette(PALETTE)
-    const was = LEGACY_LENSES[id].palette(PALETTE)
+  it.each(DOMAIN_IDS)('%s palette projection is byte-identical (pre-existing fields)', (id) => {
+    // The loader additively carries an `editor` hint per item and an `advanced` flag per section
+    // (P4). Parity is about the pre-existing fields — strip the additive ones before comparing.
+    const strip = (groups: ReturnType<typeof resolveLens>['palette'] extends (a: never) => infer R ? R : never) =>
+      groups.map((g) => ({
+        label: g.label,
+        items: g.items.map((i) => ({ key: i.key, label: i.label, iconType: i.iconType, lensRole: i.lensRole })),
+      }))
+    const now = strip(resolveLens(id).palette(PALETTE))
+    const was = strip(LEGACY_LENSES[id].palette(PALETTE))
     expect(now).toEqual(was)
+  })
+
+  it('domain-lens items carry the structured editor hint (all have real inspectors)', () => {
+    for (const id of DOMAIN_IDS) {
+      for (const g of resolveLens(id).palette(PALETTE)) {
+        for (const i of g.items) expect(i.editor).toBe('structured')
+      }
+    }
   })
 
   it.each(DOMAIN_IDS)('%s metadata (id/label/tagline/roleLabels) is identical', (id) => {
@@ -128,6 +143,18 @@ describe('General lens — §5 completeness', () => {
     for (const e of elementRegistry.entries) {
       expect(PALETTE.find((p) => p.key === e.key), `missing PALETTE entry for "${e.key}"`).toBeTruthy()
     }
+  })
+
+  it('advanced sections carry the flag; raw items carry the editor hint (P4)', () => {
+    const groups = resolveLens('general').palette(PALETTE)
+    // The two advanced registry sections surface as collapsible groups.
+    const advanced = groups.filter((g) => g.advanced).map((g) => g.label)
+    expect(advanced).toEqual(['Stochastic processes', 'Resources & transport'])
+    // Each item's editor hint matches its registry entry.
+    const byKey = new Map(elementRegistry.entries.map((e) => [e.key, e.editor]))
+    for (const g of groups) for (const i of g.items) expect(i.editor).toBe(byKey.get(i.key))
+    // At least one raw item exists (the newly-surfaced constructs).
+    expect(groups.some((g) => g.items.some((i) => i.editor === 'raw'))).toBe(true)
   })
 })
 

@@ -31,12 +31,17 @@ export interface PaletteItem {
   label: string
   iconType: string
   lensRole?: string
+  /** `raw` = no structured inspector editor yet; the item scaffolds a valid element that is
+   *  edited via the JSON escape hatch. Drives a hint in the palette. Defaults to `structured`. */
+  editor?: 'structured' | 'raw'
 }
 
 /** One labelled section of the palette, in the lens's terms and order. */
 export interface PaletteGroup {
   label: string
   items: PaletteItem[]
+  /** Rarely-used constructs; the palette collapses these sections by default. */
+  advanced?: boolean
 }
 
 /** A canonical starting model for a lens (bathtub, SIR, …) — offered on the empty canvas so a

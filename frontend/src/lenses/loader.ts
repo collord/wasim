@@ -43,10 +43,13 @@ function paletteEntry(ref: string): PaletteEntry {
   return entry
 }
 
-/** An explicit manifest palette → a stable `PaletteGroup[]`, deriving `iconType` from PALETTE. */
-function compileProjection(sections: ManifestPaletteSection[]): PaletteGroup[] {
+/** An explicit manifest palette → a stable `PaletteGroup[]`, deriving `iconType` from PALETTE and
+ *  `editor` (structured/raw) from the referenced registry entry. A section is `advanced` if any of
+ *  its items are flagged advanced (spec §6 item-level `advanced`). */
+function compileProjection(sections: ManifestPaletteSection[], reg: ElementRegistry): PaletteGroup[] {
   return sections.map((sec) => ({
     label: sec.section,
+    advanced: sec.items.some((it) => it.advanced) || undefined,
     items: sec.items.map((it): PaletteItem => {
       const entry = paletteEntry(it.ref)
       return {
@@ -54,6 +57,7 @@ function compileProjection(sections: ManifestPaletteSection[]): PaletteGroup[] {
         label: it.label ?? entry.label,
         iconType: entry.iconType, // reproduces accumulator / expression / random_variable icons
         lensRole: it.role,
+        editor: editorOf(reg, it.ref),
       }
     }),
   }))
@@ -61,17 +65,24 @@ function compileProjection(sections: ManifestPaletteSection[]): PaletteGroup[] {
 
 /** The `@registry` identity projection (General): every registry entry, grouped by its section in
  *  the registry's declared section order. Replaces the old `groupInOrder(PALETTE)` — driven by the
- *  registry's §5 taxonomy, not PALETTE's legacy `group` field. */
+ *  registry's §5 taxonomy, not PALETTE's legacy `group` field. Carries each section's `advanced`
+ *  flag and each item's `editor` so the palette can collapse advanced groups and hint raw items. */
 function compileRegistryProjection(reg: ElementRegistry): PaletteGroup[] {
   return reg.sections.map((sec) => ({
     label: sec.label,
+    advanced: sec.advanced || undefined,
     items: reg.entries
       .filter((e) => e.section === sec.id)
       .map((e): PaletteItem => {
         const entry = paletteEntry(e.key)
-        return { key: e.key, label: e.label, iconType: entry.iconType }
+        return { key: e.key, label: e.label, iconType: entry.iconType, editor: e.editor }
       }),
   }))
+}
+
+/** The registry entry's editor kind for a ref (`structured` if the ref isn't in the registry). */
+function editorOf(reg: ElementRegistry, ref: string): 'structured' | 'raw' {
+  return reg.entries.find((e) => e.key === ref)?.editor ?? 'structured'
 }
 
 function compile(m: LensManifest, reg: ElementRegistry): LensSpec {
@@ -79,7 +90,7 @@ function compile(m: LensManifest, reg: ElementRegistry): LensSpec {
 
   // palette: precompute a stable PaletteGroup[] once, then hand back a closure (the runtime shape
   // is `(all) => PaletteGroup[]`; the projection is fixed, so `all` is ignored).
-  const groups = m.palette === '@registry' ? compileRegistryProjection(reg) : compileProjection(m.palette)
+  const groups = m.palette === '@registry' ? compileRegistryProjection(reg) : compileProjection(m.palette, reg)
   const palette = (_all: PaletteEntry[]) => groups
 
   const glyphByRole = m.glyphByRole

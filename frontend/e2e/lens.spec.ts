@@ -278,3 +278,33 @@ test('reliability redundancy: gate editor, template run, and invariant', async (
   expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
     `console errors:\n${errors.join('\n')}`).toEqual([])
 })
+
+/** P4: the General lens surfaces the full §5 taxonomy. Advanced sections (stochastic processes,
+ *  resources & transport) collapse by default and expand on click; newly-surfaced raw constructs
+ *  are insertable and hinted as JSON-edited. */
+test('general lens §5 palette: advanced sections collapse and expand', async ({ page }) => {
+  const errors: string[] = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('pageerror', (e) => errors.push(String(e)))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /New blank model/ }).click()
+  await expect(page.getByRole('button', { name: /Run/ })).toBeVisible({ timeout: 15000 })
+  await page.getByRole('button', { name: 'Palette' }).click()
+
+  // The new functional-taxonomy sections are present.
+  await expect(page.getByText('Accumulation & delay', { exact: true })).toBeVisible()
+
+  // An advanced section's items are collapsed by default: Markov Chain (under Stochastic processes)
+  // is not visible until the section is expanded.
+  await expect(page.getByRole('button', { name: /^Markov Chain$/ })).toHaveCount(0)
+  await page.getByRole('button', { name: /Stochastic processes/ }).click()
+  await expect(page.getByRole('button', { name: /^Markov Chain$/ })).toBeVisible()
+
+  // Inserting the raw construct scaffolds a valid, reconciling element.
+  await page.getByRole('button', { name: /^Markov Chain$/ }).first().click()
+  await expect(page.getByText('1 elems').first()).toBeVisible({ timeout: 10000 })
+
+  expect(errors.filter((e) => !e.includes('404') && !e.includes('favicon')),
+    `console errors:\n${errors.join('\n')}`).toEqual([])
+})
