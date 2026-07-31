@@ -23,6 +23,9 @@ keyed by lens id. It also specifies a **browsable function/expression reference*
   authoring UI, grouped by a functional taxonomy (§5).
 - Add a **Functions reference** panel so the expression language's ~58 builtins are discoverable, not
   just autocomplete-on-type.
+- Extend the registry with a **container class** so **submodels** (nested simulations) — today
+  authorable only by hand-editing JSON — become first-class in the UI: created by grouping, wired
+  through an interface editor, and referenced via the same function/reference surface (§10).
 - Net effect: lenses (and the palette layout, and the function list) become **user-customizable,
   shareable, diffable JSON** — extending WaSim's models-as-data thesis to the authoring surface
   itself — without touching the engine and without a rules DSL.
@@ -56,7 +59,7 @@ the table above is presentation and parameterizes cleanly; the bottom half is be
 traversal, arithmetic, doc transforms — and does **not** reduce to static JSON without inventing a
 rules/predicate DSL. The most *valuable* part of a lens (checkable governance: "guaranteed
 stock-flow-consistent") is exactly the part that resists serialization. So this spec keeps behavior in
-code and parameterizes only presentation. **Non-goal:** an invariant/expression DSL (see §11).
+code and parameterizes only presentation. **Non-goal:** an invariant/expression DSL (see §12).
 
 ---
 
@@ -76,7 +79,7 @@ code and parameterizes only presentation. **Non-goal:** an invariant/expression 
 6. **Safe by construction.** Manifests are data — safe to load from a project or user. Behavior stays
    first-party code; user-supplied manifests can never execute code, only re-theme.
 7. **Backward-compatible.** The loader must reproduce the four shipped lenses byte-for-byte in
-   behavior (a parity acceptance test, §12).
+   behavior (a parity acceptance test, §13).
 
 ---
 
@@ -150,7 +153,8 @@ General-lens superset; every lens references a subset.
 | Field | Req | Meaning |
 |---|---|---|
 | `key` | ✓ | Stable id; manifests reference this. |
-| `construct` | ✓ | Engine target: a `Primitive` (`stock`, `event`, `gate`, `link`, `cell`, `species`, `medium`, `resource`) or a node `value_rule` (`fixed`, `sample`, `expression`, …). |
+| `class` |  | `element` (default) or `container` — a container entry inserts an enclosing *frame* and opens the container editor rather than dropping a node (§10). |
+| `construct` | ✓ | Engine target: a `Primitive` (`stock`, `event`, `gate`, `link`, `cell`, `species`, `medium`, `resource`) or a node `value_rule` (`fixed`, `sample`, `expression`, …). For `class: container`, the `ContainerDef.kind` (`container`\|`group`\|`submodel`) instead. |
 | `section` | ✓ | Default section id (from `sections`). |
 | `label` | ✓ | Default palette label. |
 | `glyph` |  | Default `NodeShape` (`box`\|`circle`\|`valve`\|`hex`\|`default`). |
@@ -202,8 +206,11 @@ Notes:
   `gate_logic` encoding is **not** in the palette — it stays reachable only when a loaded model already
   contains it.
 - 10 of 24 constructs have structured editors today; the other 14 scaffold to valid raw-JSON-editable
-  elements. Building structured editors for them is out of scope here (Phase 7, §10) — but surfacing
+  elements. Building structured editors for them is out of scope here (Phase 7, §11) — but surfacing
   them in the palette is not blocked on those editors.
+- These 24 are all **element-class** constructs (point constructs). **Containers** (Group, Submodel)
+  are structure *over* elements, not point constructs, and are catalogued separately in §10 — the
+  General palette surfaces them in a **Structure** section.
 
 ---
 
@@ -386,7 +393,102 @@ Finance 2, plus `TIME_REFS`) are surfaced only as type-to-filter autocomplete
 
 ---
 
-## 10. Implementation plan (phased)
+## 10. Containers & submodels
+
+### 10.1 Why this needs its own section
+
+Everything above catalogs **element-class** constructs — things that live at a point in the graph. A
+**container** is different: it is *structure over* elements (`ContainerDef`, `engine/src/model.rs`), and
+one container kind — `submodel` — is a nested Monte-Carlo simulation with its own settings, a boundary
+interface, and its own optimization. It is the single most capable construct the authoring UI does
+**not** expose today, so the manifest system has to account for it explicitly rather than let it fall
+through the element-only model above.
+
+### 10.2 Current state
+
+| Layer | Submodel support |
+|---|---|
+| **Engine** | Complete. `ContainerDef{kind:"submodel"}` = a nested run with its own `simulation_settings`, an `interface{ inputs:[{input,from}], outputs:[id] }`, and an optional inner `optimization`. Parent expressions read it via three AST nodes: `submodel_stat` (a marginal statistic of one output over the inner realizations), `submodel_stat2` (bivariate / control-variate), and `nested_stat` (the conditional `E_outer[stat(inner \| outer)]`, incl. `each_step` exposure profiles). |
+| **Graph view** *(read-only)* | Renders submodels — a collapsed aggregate box (interface outputs + a stats line) and an expanded frame around the interior nodes (`GraphTab.tsx`). |
+| **Authoring** | Almost none. You can reparent an element into an *existing* container (Inspector dropdown → `setContainer`) and browse "By container" (`ModelBrowser.tsx`). You **cannot** create a container, mark it a submodel, declare its interface, set nested settings, or author a `submodel_stat` reference — the FE expression parser treats `submodel_stat` as an **opaque placeholder** (`ast.ts`): it round-trips but is uneditable. The interesting half of a nested model is authored only by hand-editing raw JSON. |
+
+So this is a pure authoring-surface gap: the engine already runs all of it.
+
+### 10.3 Registry: a container class
+
+A submodel is domain-neutral structure, so it belongs in the **General lens**. The registry (§4) gains a
+small **container class** (`class: "container"`) alongside the element entries:
+
+```jsonc
+{ "key": "submodel",
+  "class": "container",              // vs the default "element"
+  "section": "structure",
+  "label": "Submodel",
+  "construct": "submodel",           // ContainerDef.kind: container | group | submodel
+  "glyph": "frame",                  // an enclosing frame, not a node
+  "editor": "container",             // the interface/settings editor, not a node inspector
+  "scaffold": { "kind": "submodel", "interface": { "inputs": [], "outputs": [] } },
+  "doc": "A nested Monte-Carlo simulation; parent expressions read a statistic of its outputs." }
+```
+
+This adds a **Structure** section to the General catalog (§5):
+
+| Section | Item | kind | glyph | Editor |
+|---|---|---|---|---|
+| **Structure** *(advanced)* | Group | `group` | frame | container |
+| | Submodel | `submodel` | frame | container |
+
+`class: "container"` is the one new concept the registry schema needs — it tells the palette/canvas this
+`ref` inserts a *frame* and opens the container editor rather than dropping a node.
+
+### 10.4 Manifest: lenses re-theme structure too
+
+A container entry is `ref`'d and re-themed exactly like an element entry, so lenses give submodels domain
+vocabulary:
+
+- **General** — "Submodel" / "Group" under Structure.
+- **Decision/VOI** — a submodel is a *scenario model*; its inner chance inputs are the uncertainty
+  `nested_stat` conditions on to price information (this is literally the VOI computation). Re-theme:
+  `{ "ref": "submodel", "label": "Scenario model", "role": "scenario" }`.
+- **Reliability** — a repairable *subsystem* whose availability reduces into the parent.
+
+Behavior specific to structure (interface validation, the group gesture) lives in the behavior plugin
+(§7), not the manifest.
+
+### 10.5 Authoring surface — five layers
+
+1. **Creation gesture.** A container is not a point construct, so it is authored by *grouping*, not a
+   click-drop. Marquee-select elements → "Group into submodel": create a `ContainerDef{kind}` and stamp
+   `container` on the selection (the engine's authoritative back-ref). An `edits.ts` transform
+   (`groupIntoContainer(doc, ids, kind)`) parallel to the existing `setContainer`.
+2. **Canvas frame.** Port the `GraphTab` collapsed/expanded submodel rendering into `EditableCanvas` so
+   containers are first-class in *authoring*, not just results — expand to edit the interior, collapse to
+   the aggregate box.
+3. **Interface editor** (the `editor: "container"` inspector). When a container is selected: pick
+   interior elements as `outputs`; wire `inputs` as `{ input ← from }` (an interior input element driven
+   by a parent element). This boundary contract is what `submodel_stat` references depend on.
+4. **Nested settings.** A sub-form for `simulation_settings` (n_realizations, seed, horizon) and,
+   optionally, the inner `optimization` spec.
+5. **Output reference — the load-bearing piece.** `submodel_stat(sub, output, statistic, arg?)` must
+   become authorable. It reuses §9's function/reference machinery as a structured **insert-reference**
+   flow — pick submodel → pick a declared `output` → pick `statistic` (mean / p95 / …) — rather than
+   typed syntax. Two prerequisites: `ast.ts` learns to parse/print these nodes (retire the opaque
+   placeholder), and the function registry (§9.2) lists `submodel_stat` / `submodel_stat2` /
+   `nested_stat` as **reference-kind** entries (their arguments are model refs + an enum, not plain
+   sub-expressions), so they render in the Functions panel with submodel/output pickers.
+
+### 10.6 Boundaries
+
+- **Not element-authoring reskinned.** Steps 1–3 are genuinely new canvas/inspector surfaces; only step
+  5 folds into the function-reference work. Sequence them after the element-palette phases.
+- **Interface wiring is behavior, not data.** Checking that every `interface.input` has a driver and
+  every `output` names a real interior element is a container invariant (a `behavior` check), not a
+  manifest field.
+- **No new engine work.** The engine already runs all of this.
+
+---
+
+## 11. Implementation plan (phased)
 
 Each phase is independently shippable; parity with today is the gate between phases.
 
@@ -410,10 +512,16 @@ Each phase is independently shippable; parity with today is the gate between pha
   (`process`, `pid`, `queue`, `status`, `milestone`, `hysteresis`, `convolution`, `terminal_expression`,
   and the `cell`/`species`/`medium`/`link`/`resource` family), promoting them from `raw` to
   `structured` one at a time.
+- **P8 — Containers & submodels (§10).** The registry container-class + the Structure section; the
+  `groupIntoContainer` edit and marquee "Group into submodel" gesture; the container frame in
+  `EditableCanvas`; the interface/nested-settings inspector; and — reusing P5 — the `submodel_stat` /
+  `nested_stat` structured reference insert (retiring the `ast.ts` opaque placeholder). Independent of
+  P2–P4; step 5 depends on P5. *Gate:* a submodel authored entirely in-editor round-trips and runs
+  identically to the same model authored by hand.
 
 ---
 
-## 11. Risks, boundaries & non-goals
+## 12. Risks, boundaries & non-goals
 
 - **No invariant/expression DSL.** Behavior stays code behind a `behavior` id. If limited declarative
   rules are ever wanted, add a *closed* vocabulary (`requiresRole`, `refMustResolve`, `countBounds`) —
@@ -428,7 +536,7 @@ Each phase is independently shippable; parity with today is the gate between pha
 
 ---
 
-## 12. Verification / acceptance
+## 13. Verification / acceptance
 
 - **Parity:** with the loader active, each shipped lens renders and validates identically to today —
   the existing `frontend/e2e/lens.spec.ts` (9 tests) passes unchanged.
@@ -440,6 +548,9 @@ Each phase is independently shippable; parity with today is the gate between pha
   appears in the picker, reprograms the palette, and round-trips — with zero TypeScript changes.
 - **Functions:** the Functions panel lists every `functions.json` entry grouped by category and
   click-inserts into an expression; a bad `ref` in a manifest fails the load with a clear error.
+- **Submodels:** a submodel created in-editor (group gesture → interface → `submodel_stat` reference)
+  saves to JSON that runs identically to a hand-authored equivalent, and re-opens with its interface and
+  reference intact — the `ast.ts` placeholder no longer round-trips `submodel_stat` opaquely (§10).
 
 ---
 
@@ -450,6 +561,11 @@ Each phase is independently shippable; parity with today is the gate between pha
   `frontend/src/components/{browser/Palette.tsx, inspector/{Inspector.tsx,ExpressionEditor.tsx},
   shell/StatusBar.tsx, canvas/EditableCanvas.tsx, tabs/{ResultsTab.tsx,OptimizationTab.tsx}}`.
 - Engine constructs: `engine/src/model_v2.rs` (`NodeRule`, `Primitive`).
+- Containers & submodels: `engine/src/model.rs` (`ContainerDef`, `ContainerKind`, `ContainerInterface`),
+  `engine/src/submodel_v2.rs` (nested run + `submodel_stat` pre-pass), `engine/src/model.rs`
+  (`SubmodelStat` / `SubmodelStat2` / `NestedStat` AST nodes);
+  `frontend/src/components/tabs/GraphTab.tsx` (render-only submodel boxes),
+  `frontend/src/components/{browser/ModelBrowser.tsx, inspector/Inspector.tsx}` (reparent only).
 - Prior lens docs: `WASIM_LENS_UI_DESIGN.md`, `WASIM_LENS_IMPLEMENTATION_PLAN.md`,
   `WASIM_VALUE_PROP_THESIS.md`, `FRONTEND_ASSESSMENT_2026-07.md`.
 - Pattern precedent: VS Code contribution points (declarative `package.json` + activation code),
