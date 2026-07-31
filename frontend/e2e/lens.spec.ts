@@ -127,8 +127,15 @@ test('decision lens: VOI computes a positive EVPPI through the engine', async ({
   await page.getByRole('button', { name: /Capacity choice/ }).click()
   await expect(page.getByText('3 elems').first()).toBeVisible({ timeout: 10000 })
 
+  // The objective renders as an influence-diagram value node (hexagon).
+  await expect(page.locator('g[data-shape="hex"]').first()).toBeAttached()
+
+  // A plain run surfaces the decision readout (the objective under uncertainty).
+  await page.getByRole('button', { name: /Run/ }).click()
+  await expect(page.getByRole('button', { name: 'Results' })).toBeVisible({ timeout: 20000 })
+  await expect(page.getByTestId('lens-readouts')).toContainText('Expected')
+
   // Configure the optimization problem in the Optimization tab.
-  await page.getByRole('button', { name: 'Result', exact: true }).click()
   await page.getByRole('button', { name: 'Optimization', exact: true }).click()
   await page.getByRole('combobox', { name: 'Element' }).selectOption({ label: 'Mismatch cost' })
   await page.getByRole('combobox', { name: 'Statistic' }).selectOption('mean')

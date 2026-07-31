@@ -260,25 +260,37 @@ export function EditableCanvas() {
             const sel = selectedIds.includes(e.id)
             const unit = unitLabel(e)
             const x = p.x - NODE_W / 2, y = p.y - NODE_H / 2
-            // Forrester glyph per lens role: a stock is a squared, filled box (an accumulator); an
-            // auxiliary is a pill (circle-like). Others render as the default rounded node.
+            // Glyph per lens role: a stock is a squared, filled box (an accumulator); an auxiliary
+            // is a pill; an objective/value node is a hexagon (influence-diagram notation). Others
+            // render as the default rounded node.
             const shape = shapeOf(e.id)
+            const isHex = shape === 'hex'
             const rx = shape === 'box' ? 3 : shape === 'circle' ? NODE_H / 2 : 7
-            const nodeStroke = sel ? 2.5 : shape === 'box' ? 2.25 : 1.5
-            const nodeFill = shape === 'box' ? '#eff6ff' : 'white'
+            const nodeStroke = sel ? 2.5 : shape === 'box' || isHex ? 2.25 : 1.5
+            const nodeFill = shape === 'box' ? '#eff6ff' : isHex ? '#f5f3ff' : 'white'
+            const hexPts = `13,0 ${NODE_W - 13},0 ${NODE_W},${NODE_H / 2} ${NODE_W - 13},${NODE_H} 13,${NODE_H} 0,${NODE_H / 2}`
             const showHandle = canLink && (shape === 'box' || shape === 'valve')
             return (
               <g key={e.id} data-shape={shape} data-testid={`node-${e.id}`} transform={`translate(${x},${y})`}
                 onMouseDown={(ev) => onNodeMouseDown(ev, e.id)} onClick={(ev) => onNodeClick(ev, e.id)}
                 onMouseUp={(ev) => onNodeMouseUp(ev, e.id)}
                 style={{ cursor: 'pointer' }}>
-                <rect x="1" y="2" width={NODE_W} height={NODE_H} rx={rx} fill="rgba(0,0,0,0.06)" />
-                <rect width={NODE_W} height={NODE_H} rx={rx} fill={nodeFill}
-                  stroke={sel ? '#2563eb' : color} strokeWidth={nodeStroke} />
-                <rect width="36" height={NODE_H} rx={rx} fill={bg} />
-                <rect x="29" width="7" height={NODE_H} fill={bg} />
-                <line x1="36" y1="2" x2="36" y2={NODE_H - 2} stroke={color} strokeWidth="0.75" strokeOpacity="0.4" />
-                <g transform={`translate(8,${(NODE_H - 20) / 2})`} style={{ color }}><TypeIcon type={t} /></g>
+                {isHex ? (
+                  <>
+                    <polygon points={hexPts} transform="translate(1,2)" fill="rgba(0,0,0,0.06)" />
+                    <polygon points={hexPts} fill={nodeFill} stroke={sel ? '#2563eb' : color} strokeWidth={nodeStroke} />
+                  </>
+                ) : (
+                  <>
+                    <rect x="1" y="2" width={NODE_W} height={NODE_H} rx={rx} fill="rgba(0,0,0,0.06)" />
+                    <rect width={NODE_W} height={NODE_H} rx={rx} fill={nodeFill}
+                      stroke={sel ? '#2563eb' : color} strokeWidth={nodeStroke} />
+                    <rect width="36" height={NODE_H} rx={rx} fill={bg} />
+                    <rect x="29" width="7" height={NODE_H} fill={bg} />
+                    <line x1="36" y1="2" x2="36" y2={NODE_H - 2} stroke={color} strokeWidth="0.75" strokeOpacity="0.4" />
+                  </>
+                )}
+                <g transform={`translate(${isHex ? 17 : 8},${(NODE_H - 20) / 2})`} style={{ color }}><TypeIcon type={t} /></g>
                 <text x="44" y={unit && unit !== '1' ? 22 : 30} fontSize="12" fontWeight="600" fill="#1e293b"
                   fontFamily="ui-sans-serif,system-ui,sans-serif">{trunc(e.name, 16)}</text>
                 <text x="44" y={unit && unit !== '1' ? 36 : 44} fontSize="10" fill="#94a3b8"

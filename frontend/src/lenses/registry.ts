@@ -239,10 +239,29 @@ const decisionLens: LensSpec = {
     return issues
   },
   roleLabels: { decision: 'Decision', chance: 'Chance input', objective: 'Objective' },
-  glyphOf: (role) => (role === 'decision' || role === 'objective' ? 'box' : role === 'chance' ? 'circle' : 'default'),
+  // Influence-diagram notation: decision = box, chance = oval, objective/value = hexagon.
+  glyphOf: (role) => (role === 'decision' ? 'box' : role === 'chance' ? 'circle' : role === 'objective' ? 'hex' : 'default'),
   templates: DECISION_TEMPLATES,
   preferredResultId: (doc, outputIds) =>
     doc.elements.find((e) => e.lens_role === 'objective' && outputIds.includes(e.id))?.id ?? null,
+  // On a run, surface the objective under uncertainty: its expected value and P05–P95 band
+  // (the decision context; the EVPPI for each chance input lives in the Optimization tab).
+  resultReadouts: (results, doc) => {
+    const obj = doc.elements.find((e) => e.lens_role === 'objective')
+    const fv = obj ? results.elements[obj.id]?.final_values : undefined
+    if (!obj || !fv || fv.length === 0) return []
+    const mean = fv.reduce((a, b) => a + b, 0) / fv.length
+    const sorted = [...fv].sort((a, b) => a - b)
+    const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
+    return [{
+      id: obj.id,
+      label: results.elements[obj.id]?.label ?? obj.name,
+      metrics: [
+        { name: 'Expected', value: fmtNum(mean) },
+        { name: 'P05–P95', value: `${fmtNum(q(0.05))} – ${fmtNum(q(0.95))}` },
+      ],
+    }]
+  },
 }
 
 const REGISTERED: LensSpec[] = [stockFlowLens, reliabilityLens, decisionLens, generalLens]

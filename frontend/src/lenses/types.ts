@@ -15,8 +15,9 @@ import type { Issue } from '../worker/protocol'
 export type LensId = 'general' | 'stock-flow' | 'reliability' | 'decision'
 
 /** Canvas glyph shape for an element, chosen by its lens role (Forrester notation: a stock is a
- *  box, an auxiliary a circle, a flow a valve). `default` is the standard node. */
-export type NodeShape = 'box' | 'circle' | 'valve' | 'default'
+ *  box, an auxiliary a circle, a flow a valve; an influence-diagram value/objective is a hexagon).
+ *  `default` is the standard node. */
+export type NodeShape = 'box' | 'circle' | 'valve' | 'hex' | 'default'
 
 /** One insertable palette control, in the active lens's vocabulary. `key` selects which
  *  `PALETTE` entry's `make()` scaffolds the element; `lensRole` is stamped onto the created
