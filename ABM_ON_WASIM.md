@@ -131,3 +131,68 @@ The answer to "how much of krABMaga's ABM can WaSim do" is: **the synchronous fi
 half, cleanly — and that half is the half that composes with the stock-and-flow thesis into
 metapopulation modeling.** The mobile-agent half it cannot do without sacrificing the moat, and
 should not try.
+
+## 5. Sketch: a Metapopulation lens (against the real frontend interface)
+
+The frontend already ships a working lens system (`frontend/src/lenses/`): a `LensSpec` — `palette`,
+`invariants`, `roleLabels`, `glyphOf`, `templates`, `preferredResultId`, `connect`, `resultReadouts`
+— with `general`, `stock-flow`, `reliability`, and `decision` registered, `lens_role` round-trip
+tags on elements, and templates built through the real expression parser. A `metapop` lens is a new
+spec file in exactly that mold. What follows are hints, not an implementation.
+
+**The key realization: MetaPop = the stock-flow lens, dimensioned over a patch axis, plus a coupling
+matrix and a mixing reduction.** It reuses the stock-and-flow compartment/flow machinery wholesale
+(a compartment *is* a stock; a transition *is* a flow with the existing inflow/outflow wiring) and
+adds exactly two new nouns — the network and the force-of-infection term. This is the "composes with
+stock-and-flow" thesis claim made concrete: the second lens is mostly the first lens with an extra
+axis.
+
+**Vocabulary (`lens_role` → engine construct, all hidden from the user):**
+
+| Domain noun (`lens_role`) | Engine construct it scaffolds | Glyph |
+|---|---|---|
+| `compartment` (S / I / R) | a `stock` dimensioned over the `Patch` axis (per-patch state vector) | box |
+| `coupling` (the network) | a 2-D constant `[Patch, PatchB]` matrix `W` (mobility/contact weights) | hex / matrix |
+| `transition` (infection, recovery) | a `flow` between compartments — reuses stock-flow inflow/outflow wiring | valve |
+| `mixing` (force of infection) | an auxiliary = **axis-selective reduction** of `W × prevalence` over the neighbor axis | circle |
+| `parameter` (β, γ, …) | `constant` / `stochastic` input | default |
+
+The lens hides all the array bookkeeping the proof had to write by hand: the two equal-size
+dimensions (`Patch`, `PatchB`) behind "Coupling network," the `vector_map`+`index` reindex and the
+`sum_array(_, neighbor_axis)` behind "Force of infection." The author sees compartments, a network,
+and transitions — never `index_ref depth` or an axis number.
+
+**`invariants` (what makes it a lens, not a view — the metapopulation analog of SFC):**
+- **Population conservation.** Every `transition` must subtract from one compartment and add to
+  another (S→I→R). A transition that adds without a matching subtraction is a "leak" → warning.
+  Per-patch `Σ compartments` should be constant unless explicit birth/death transitions exist. This
+  is the compartmental twin of the stock-flow conservation check already in `stockFlowInvariants`.
+- **Coupling well-formedness.** `W` must be square over two axes of the *same* patch dimension; the
+  `mixing` term must reduce the neighbor axis (not the patch axis) — a transposed reduction is the
+  classic silent bug, and it is statically checkable from the `dimensions`. Warn on a `mixing` term
+  whose reduced axis ≠ the coupling's second axis.
+- **A `mixing` term must reference both a `coupling` matrix and a prevalence `compartment`** —
+  otherwise it is mean-field, not a network model. Non-negative coupling weights (mobility can't be
+  negative) → warning.
+
+**`templates`:** `two-patch-sir` (two coupled cities — the minimal teaching metapopulation, the
+"bathtub" of this lens) and `sir-on-network` (the `network_sir_v2` graph promoted to a full SIR with
+recovery). Built through `parseExpr`/`printAst`/`refsOf` like `stockFlowTemplates.ts`, tagged with
+`lens: 'metapop'` and per-element `lens_role`, so opening one lands in the lens with zero warnings.
+
+**`preferredResultId` / `resultReadouts` (simulate-first, per thesis §6):** open on the **epidemic
+curve** — total `I` over time — not a final number, the same way stock-flow opens on the stock's
+trajectory. Readouts computed from result data with no engine change (like reliability's
+availability/MTTF): **peak prevalence** and **time-to-peak**, **attack rate** (final `ΣR` / total
+population), **epidemic duration**, and an **R₀** estimate (β/γ, or early-exponential-growth fit).
+
+**`connect` (on-canvas wiring):** dragging `compartment → compartment` scaffolds a `transition`
+between them (reusing stock-flow's `wireFlow`); dragging `coupling → compartment` sets that
+compartment's prevalence as the network's mixing source.
+
+**The one honest boundary to encode in the lens UI:** the `coupling` matrix is *topology, not
+geometry* (§4). The lens should let the user author `W` as an adjacency/edge list or import a
+precomputed mobility/distance kernel, and should say plainly that real coordinates are baked in
+upstream — the lens never pretends to hold geography. Everything else in the sketch is a relabel +
+template + invariant over constructs the engine and the `network_sir_v2` proof already exercise; the
+only genuinely new authoring widget is a small matrix/graph editor for `W`.
