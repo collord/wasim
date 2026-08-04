@@ -1,7 +1,9 @@
 import { PALETTE, type PaletteEntry } from '../model/edits'
+import type { ModelDoc } from '../model/schema'
 import type { NodeShape, LensSpec, ModelTemplate, PaletteGroup, PaletteItem } from './types'
 import type { ElementRegistry, LensManifest, ManifestPaletteSection } from './manifest-types'
 import { resolveBehavior } from './behaviors'
+import { withComputedRoles } from './hint'
 import { STOCK_FLOW_TEMPLATES } from './stockFlowTemplates'
 import { RELIABILITY_TEMPLATES } from './reliabilityTemplates'
 import { DECISION_TEMPLATES } from './decisionTemplates'
@@ -13,6 +15,8 @@ import stockFlowManifest from './lenses/stock-flow.json'
 import reliabilityManifest from './lenses/reliability.json'
 import decisionManifest from './lenses/decision.json'
 import metapopManifest from './lenses/metapop.json'
+import discreteEventManifest from './lenses/discrete-event.json'
+import controlManifest from './lenses/control-systems.json'
 
 /**
  * The lens **loader** (WASIM_LENS_MANIFEST_SPEC.md §3, §6): compiles a declarative JSON manifest
@@ -31,6 +35,8 @@ const BUILTIN_MANIFESTS: LensManifest[] = [
   reliabilityManifest as LensManifest,
   decisionManifest as LensManifest,
   metapopManifest as LensManifest,
+  discreteEventManifest as LensManifest,
+  controlManifest as LensManifest,
   generalManifest as LensManifest,
 ]
 
@@ -91,6 +97,13 @@ function editorOf(reg: ElementRegistry, ref: string): 'structured' | 'raw' {
 function compile(m: LensManifest, reg: ElementRegistry): LensSpec {
   const behavior = m.behavior ? resolveBehavior(m.behavior) : undefined
 
+  // Computed-role injection (EMITTER_LENS_TARGETING.md §2): the read-only behavior hooks see roles
+  // computed from structure, so a lens's invariants/readouts work on imported/untagged models, not
+  // only in-app-authored ones. `withComputedRoles` is a no-op when the doc already carries roles
+  // (authored docs pass through unchanged), so this is non-regressive. NOT applied to `connect` —
+  // it returns the doc, and injecting there would persist computed roles into the model.
+  const inject = (d: ModelDoc): ModelDoc => withComputedRoles(d, m.id)
+
   // palette: precompute a stable PaletteGroup[] once, then hand back a closure (the runtime shape
   // is `(all) => PaletteGroup[]`; the projection is fixed, so `all` is ignored).
   const groups = m.palette === '@registry' ? compileRegistryProjection(reg) : compileProjection(m.palette, reg)
@@ -127,9 +140,9 @@ function compile(m: LensManifest, reg: ElementRegistry): LensSpec {
     glyphOf,
     templates,
     preferredResultId,
-    invariants: behavior?.invariants,
+    invariants: behavior?.invariants ? (summary, d) => behavior.invariants!(summary, inject(d)) : undefined,
     connect: behavior?.connect,
-    resultReadouts: behavior?.resultReadouts,
+    resultReadouts: behavior?.resultReadouts ? (results, d) => behavior.resultReadouts!(results, inject(d)) : undefined,
   }
 }
 

@@ -432,13 +432,18 @@ export function GraphTab() {
 
   // Expanded submodel ids (click a submodel box to drill in / collapse).
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const setActiveContainer = useStore((s) => s.setActiveContainer)
   const toggleSub = useCallback((id: string) => {
+    const nowOpen = !expanded.has(id)
     setExpanded((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      nowOpen ? next.add(id) : next.delete(id)
       return next
     })
-  }, [])
+    // Drive the ephemeral lens hint: drilling into a submodel re-lenses to it; collapsing returns
+    // to the root lens. (Thin activation — active container = the toggled submodel, else root.)
+    setActiveContainer(nowOpen ? id : null)
+  }, [expanded, setActiveContainer])
 
   const layout = useMemo(() =>
     modelSummary

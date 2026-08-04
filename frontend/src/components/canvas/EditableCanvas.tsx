@@ -40,6 +40,7 @@ export function EditableCanvas() {
   const removeElement = useStore((s) => s.removeElement)
   const addNewElement = useStore((s) => s.addNewElement)
   const duplicate = useStore((s) => s.duplicateElement)
+  const groupIntoSubmodel = useStore((s) => s.groupIntoSubmodel)
   const format = useStore((s) => s.format)
   const lens = useActiveLens()
   const loadTemplate = useStore((s) => s.loadTemplate)
@@ -171,6 +172,11 @@ export function EditableCanvas() {
     } else if (e.key.toLowerCase() === 'd' && (e.metaKey || e.ctrlKey) && selectedIds.length === 1) {
       e.preventDefault()
       duplicate(selectedIds[0])
+    } else if (e.key.toLowerCase() === 'g' && (e.metaKey || e.ctrlKey) && selectedIds.length) {
+      // Wrap the selection in a Monte-Carlo submodel (the "loop" gesture, keyboard entry point;
+      // the lasso stroke is a later addition). Drills into the new submodel automatically.
+      e.preventDefault()
+      groupIntoSubmodel(selectedIds)
     }
   }
 
