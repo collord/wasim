@@ -26,6 +26,20 @@ problems the matcher model carried: the per-element multi-lens question (overlay
 and the fit-threshold question (advisory confidence needs none). See §5 for the full reversal
 log. The rest of this note is the *cost of getting there* given what's already shipped.
 
+**One framing point that governs everything below (type vs. instance).** When the specs say a
+construct "routinely coexists with" or "commonly surfaces as an overlay on" another lens, that is
+a statement about a *type* recurring across models — the `pid` type is the dominant paradigm in a
+control-heavy container in one model and a lone overlay on a stock-flow plant in another; the
+`event` type appears under reliability in one container and discrete-event in another. It is
+**never** a single element instance holding two lens memberships. Classification is
+**per-container and instance-singular**: `lensHint` picks one dominant lens for a container, and
+each element belongs to exactly that one. An **overlay** is a computed *view* — a highlight set
+joined from an owner element's refs (a `pid`'s `input`/`setpoint`) — that touches plant elements
+**without relabeling them**. Both `discrete-event` and `control-systems` are first-class lenses;
+"overlay" is a rendering mode for a non-dominant lens (or a non-topology facet like MC), not a
+separate registry and not a second membership. This is why the withdrawn "secondary roles" idea
+was correctly dropped, and why nothing below needs multi-lens plumbing.
+
 ---
 
 ## 1. The starting reality: the four shipped lenses persist their roles
@@ -78,22 +92,30 @@ Two honest limits fall out:
 
 ---
 
-## 3. The collision the consensus doc must resolve: reliability ⊂ discrete-event
+## 3. The discriminator the consensus doc still needs: reliability vs discrete-event, per container
 
-This is the substantive gap. The new discrete-event predicate is:
+This is a **container-classification** gap, not an element-level collision (see the type-vs-
+instance framing in §0). The `event` type legitimately recurs across paradigms — a reliability
+container and a discrete-event container each hold `event` instances, in *different* containers.
+No instance is ever both; the classifier picks one dominant lens per container. But *because* the
+same type recurs, the classifier **cannot score on element type alone**. The new discrete-event
+predicate is exactly that kind of type test:
 
 ```
 isDiscreteEvent(el) := el.primitive === "event" || (el.primitive === "node" && el.value_rule === "status")
 ```
 
-But **a reliability *component* is an `event`** (a failure FSM — that is exactly what
-`reliability.ts` reads as a status/survival time-history). Today `lens_role === 'component'`
-keeps reliability and discrete-event apart. Remove the tag, and — with `source_type`
-unread/absent (§2) — the discrete-event signature **claims every reliability container**. That is
-not "occasionally wrong"; it is *systematically* wrong on the one shipped lens that overlaps.
+A reliability *component* is itself an `event` (a failure FSM — exactly what `reliability.ts`
+reads as a survival time-history). Aggregate that predicate as "fraction of interior elements
+matching" and a reliability container earns a **high discrete-event score**, because its
+components are events. Today the stored `lens_role === 'component'` tag keeps the two paradigms
+apart; drop it — and with `source_type` unread/absent (§2) — and the container scorer
+**systematically mis-hints reliability containers as discrete-event**. Note this is the strongest
+argument *for* structural scoring: since the type recurs across containers, the surrounding
+structure, not the element's type, must drive the per-container score.
 
-The fix is structural and already in the model — reliability and discrete-event differ by what
-the events feed:
+The discriminating structure is already in the model — reliability and discrete-event differ by
+what the events feed:
 
 - **Reliability** = `event` components aggregated by a **fault tree of `gate` primitives**
   (`and`/`or`/`n_vote`). Presence of gates over events is the reliability signature.
@@ -114,8 +136,9 @@ gate-awareness before it's safe to ship alongside the existing reliability lens.
 
 (Note the parallel near-miss the consensus doc already caught: `controller_mode === "on_off"` is
 a hysteresis latch, structurally adjacent to a `status` latch — disambiguated by `value_rule`.
-The reliability/discrete-event overlap is the same *kind* of problem one level up, and needs the
-same explicit treatment.)
+The reliability/discrete-event case is the same *kind* of shared-construct disambiguation one
+level up — at the container score rather than a single field — and needs the same explicit
+treatment.)
 
 ---
 
