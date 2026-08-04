@@ -70,12 +70,22 @@ def load_reference(mdl_path: str):
     except ImportError:
         die("pysimlin not installed — `pip install pysimlin`")
 
-    model = simlin.load(mdl_path)
+    # xmutil (inside pysimlin) is the .mdl parser; a failure here is an UPSTREAM gap
+    # (the format construct isn't ingestible), distinct from a WaSiM-side gap. Surface it
+    # as such so the corpus sweep can bucket "xmutil can't load" separately.
+    try:
+        model = simlin.load(mdl_path)
+    except Exception as e:  # simlin.errors.SimlinError and friends
+        die(f"pysimlin/xmutil could not load model: {str(e).splitlines()[0][:180]}")
+
     xmile = model.project.to_xmile()
     if isinstance(xmile, bytes):
         xmile = xmile.decode("utf-8")
 
-    df = model.run().results  # pandas DataFrame indexed by time
+    try:
+        df = model.run().results  # pandas DataFrame indexed by time
+    except Exception as e:
+        die(f"pysimlin reference run failed: {str(e).splitlines()[0][:180]}")
     ref: dict[str, dict[float, float]] = {}
     times = [float(t) for t in df.index]
     for col in df.columns:
