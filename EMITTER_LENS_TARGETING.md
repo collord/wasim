@@ -1,7 +1,7 @@
 # Lens Hinting — Frontend Reconciliation
 
-**Status:** design note (no implementation). **Supersedes the stamping-matcher model** that
-earlier versions of this file described.
+**Status:** design note **+ implemented** (see §8 for what landed). **Supersedes the
+stamping-matcher model** that earlier versions of this file described.
 **What changed:** the consensus moved lenses from a *persisted classification* (a matcher that
 stamps `view.lens` / `lens_role` into the model at import) to a **pure, ephemeral UI hint** — a
 side-effect-free `lensHint(container, doc)` that reads only fields already in the emitted JSON
@@ -212,3 +212,46 @@ gate-aware fix (§3), and the A/B recommendation (§4).
 verified by grep. `event`/`status`/`pid`/`trigger` shapes verified in
 `schema/wasim-schema-v2.json`. Hint-model semantics per the consensus doc
 `WASIM_LENS_MODELING_TYPES.md`.*
+
+---
+
+## 8. Implementation status (landed on `claude/emitter-lens-targeting-t2r2s1`)
+
+Built to the agreed scope — **all six lenses (full classifier), thin activation, lens-first
+then Gap A** — in the frontend (`frontend/`). Every increment is committed green:
+`tsc -b` clean and the vitest suite passing (124 baseline → **170**). The only build step that
+fails is `vite build`, on a **pre-existing missing WASM artifact** (`engine/pkg/wasim_engine`,
+needs `npm run build:engine`) — unrelated to this work; all app modules, including the new
+manifests, transform cleanly.
+
+**Done**
+- **`src/lenses/hint/`** — the pure `lensHint(container, doc)` classifier over six structural
+  signatures + `activeLensId` priority resolver; `structure.ts` predicates; `scope.ts` container
+  interior; `roles.ts` computed roles + the `withComputedRoles` bridge (stored roles authoritative
+  when present → non-regressive; computed fills in only for untagged imports). 27 tests incl. the
+  migration parity gate (computed roles never contradict stamped ones; all four shipped lenses stay
+  warning-clean on their templates).
+- **Loader wiring** — `invariants`/`resultReadouts` see injected computed roles, so the shipped
+  lenses' governance works on imported/untagged models; `connect` deliberately un-injected (it
+  returns the doc; injecting would persist roles).
+- **Store wiring** — `useActiveLens` resolves via `activeLensId`: explicit `view.lens` wins
+  (non-regressive), else the hint for the drilled container; non-persisted `activeContainerId` +
+  `setActiveContainer`, wired to GraphTab's submodel drill → **per-submodel lenses**. Selectors
+  stay render-loop-safe.
+- **Two new lenses** — `discrete-event` and `control-systems` as manifest + behavior plugins
+  (structural invariants: broken `on_event` chain; open control loop), registered and picker-listed.
+- **Monte-Carlo loop** — `createSubmodelFromSelection` (submodel + `n_realizations` + auto-derived
+  interface), store `groupIntoSubmodel` (drills into the new submodel), and a **Cmd/Ctrl-G**
+  keyboard entry point on the current multi-select.
+
+**Deliberately deferred (documented, not silently dropped)**
+- The **lasso "loop" stroke** — a net-new canvas interaction that can't be unit-verified without a
+  running canvas; MC grouping ships via the keyboard gesture on the existing multi-select instead.
+- **Structured inspectors for `pid` / `status`** — the two new lenses classify and validate but
+  those constructs still edit via raw JSON (`Inspector.tsx` has no case yet).
+- **Inert-until-activated gating** and **sticky localStorage overrides** (thin activation only).
+- **Metapop computed-role precision on imports** — the scalar-`coupling` / `mixing` heuristic is
+  conservative; stored roles cover authored docs, but imported metapop role-tagging is rough.
+- **Gap A (`effects[]`) is emitter-side** (`re-gsm`/`emit.py`) — no schema change needed here
+  (`effect_spec` already exists); the discrete-event lens's effect-edge rendering lights up once it
+  lands.
