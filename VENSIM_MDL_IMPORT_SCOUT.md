@@ -136,20 +136,71 @@ against an independent engine on the same source models. Drop it over a corpus
 
 ---
 
-## 5. Recommended next steps (incremental, each independently useful)
+## 4a. Corpus sweep results — SDXorg/test-models (154 `.mdl`)
 
-1. **Corpus sweep.** Point `mdl_challenge.py` at all of SDXorg `samples/*/*.mdl`; the OFF
-   variables auto-triage which XMILE builtins/constructs to lower next (data-driven backlog).
-2. **Add canonical CSV as a third leg** for the models SDXorg ships output for, upgrading
-   "WaSiM == simlin" to "WaSiM == simlin == Vensim-canonical."
-3. **Lower the top-frequency OFF constructs** (likely `DELAY1/3`, `SMTH*`, `PULSE/RAMP`) in
-   `xmile_to_wasim.py` — each removes a whole class of models from the OFF column.
-4. **Document the stock/flow step-phase convention** (§2b) in `wasim-engine-semantics.md`.
-5. **Optional:** a thin `mdl_to_wasim.py` wrapper (`= pysimlin.to_xmile | xmile_to_wasim`) as
-   a one-shot importer CLI, separate from the diffing harness.
+Ran `tools/mdl_corpus_sweep.py` over the full SDXorg corpus (154 `.mdl`, samples + the
+Vensim conformance `tests/`). The raw counts are diluted by two buckets that say nothing
+about the WaSiM engine, so read them layered, not as one PASS rate:
+
+| Bucket | Count | What it means |
+|---|---:|---|
+| **Not benchmarkable — upstream** | **39** | pysimlin/xmutil *itself* can't load (17) or simulate (22) the model. The reference oracle doesn't exist, so WaSiM can't be scored. Not a WaSiM signal. |
+| **Not measured — harness** | **43** | WaSiM ran, but the harness couldn't align names: **39 array/subscript** models (dimensioned member ids vs `name[sub]` columns) + **4 constant-only** models (no saved trajectory). A measurement gap, not an engine gap. |
+| **Measurable dynamic-scalar** | **72** | the models where the comparison is meaningful ↓ |
+| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **44** | WaSiM reproduces pysimlin to floating-point precision |
+| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **27** | root-caused to a short builtin list below |
+| &nbsp;&nbsp;• **WaSiM engine reject** | **1** | `test_active_initial_circular` — see backlog #5 |
+
+**On the 72 measurable models, WaSiM matches an independent engine on 44 = 61%** — and the
+27 misses are not 27 different problems. They collapse to **six importer constructs**, all in
+`xmile_to_wasim.py` (the engine is not implicated):
+
+| # | Construct (Vensim/XMILE builtin) | FAIL models | Effort | Note |
+|---|---|---:|---|---|
+| 1 | **`<macro>`** user functions (`EXPRESSION_MACRO`) | 6 | hard | `macro_*` tests; inline-expand simple single-`<eqn>` macros (scout §2). Biggest single lever. |
+| 2 | **`LOOKUP(table,x)`** function form | 4 | **easy** | `test_lookups*`, `workforce`. WaSiM already has `lookup_call`; xmutil emits a bare `LOOKUP` call the importer doesn't map. In `workforce` one unmapped `LOOKUP` → `extern_call`→0 poisons all 15 downstream vars. High value. |
+| 3 | **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`SMTH3`/`TREND` | 4 | medium | `test_delay_fixed` (worst 4.7e6), `test_smooth_and_stock`, `test_trend` (already 0.084 — nearly passing). Known from scout §2 — each is a macro-expansion into stocks/EMAs. |
+| 4 | **Safe-divide** `XIDZ`/`ZIDZ`/`SAFEDIV` | 3 | **trivial** | `xidz_zidz`, `test_subscripted_xidz`. `xidz(a,b,x) = if b==0 then x else a/b`. |
+| 5 | **`INIT` / `ACTIVE INITIAL` / `RAMP`** | 3 | medium | `test_active_initial{,_circular}`, `test_initial`. `ACTIVE INITIAL(active,init)` breaks a t=0 init loop — unmapped, so the circular one is the lone **engine reject** (WaSiM correctly refuses the unbroken cycle). Mapping it fixes both the drift and the reject. |
+| 6 | **Rounding** `INTEGER`/`MODULO` | 1 | **trivial** | `test_rounding` → `int`/`mod`. |
+
+Plus `Single_Pendulum` (worst 1e3) — likely genuine **Euler-vs-RK numeric divergence**, not a
+builtin gap (the harness can't distinguish "wrong" from "Euler-approximated"; SDXorg canonical
+CSV would). Fixing constructs **1–4** clears ~17 of the 27 FAILs; **2, 4, 6** alone are a few
+hours and clear ~8.
+
+Reproduce: `python3 tools/mdl_corpus_sweep.py <clone-of-SDXorg/test-models>`.
+
+**Top harness improvement (unblocks the biggest unmeasured bucket):** teach `mdl_challenge.py`
+to align WaSiM dimensioned output (array members) to the reference's `name[subscript]` columns.
+That alone makes **39 array-conformance models** measurable — currently the largest blind spot,
+and exactly where the `XMILE_MAPPING_SCOUT.md §1` array-lowering work needs a scoreboard.
+
+## 5. Recommended next steps (incremental, each independently useful — now data-driven)
+
+Ordered by leverage per §4a:
+
+1. **`LOOKUP` + safe-divide + rounding** (`xmile_to_wasim.py`). The trivial/easy tail of the
+   backlog (#2, #4, #6) — a few hours, clears ~8 FAILs, and `LOOKUP` alone de-poisons
+   cascades like `workforce`. Do this first.
+2. **`ACTIVE INITIAL` / `INIT` / `RAMP`** (#5). Fixes the drift *and* the one engine-reject
+   (`test_active_initial_circular`), since mapping `ACTIVE INITIAL` breaks the init cycle.
+3. **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`SMTH3`/`TREND` (#3). Macro-expansions into
+   stocks/EMAs per `XMILE_MAPPING_SCOUT.md §2`; `test_trend` is already at 0.084.
+4. **Array-member alignment in the harness.** Unblocks the 39 unmeasured array models — the
+   largest blind spot — and gives the array-lowering work (`XMILE_MAPPING_SCOUT.md §1`) a
+   scoreboard. Higher effort than 1–3 but highest coverage payoff.
+5. **`<macro>` inlining** (#1). Hardest; 6 models. Inline single-`<eqn>` macros first.
+6. **Add SDXorg canonical CSV as a third leg** for models that ship output — upgrades
+   "WaSiM == simlin" to "WaSiM == simlin == Vensim-canonical" and separates true numeric
+   divergence (e.g. `Single_Pendulum`, Euler-vs-RK) from importer gaps.
+7. **Document the stock/flow step-phase convention** (§2b) in `wasim-engine-semantics.md`.
+8. **Optional:** a thin `mdl_to_wasim.py` one-shot importer CLI (`= pysimlin.to_xmile |
+   xmile_to_wasim`), separate from the diffing harness.
 
 ---
 
 *Grounded against a live run of pysimlin 0.7.0 + the WaSiM engine (`wasim-validate
---trajectories`) on SDXorg/test-models teacup, SIR, and Lotka-Volterra, 2026-08. See
-`tools/mdl_challenge.py` and `XMILE_MAPPING_SCOUT.md` for the underlying XMILE mapping.*
+--trajectories`) over the full SDXorg/test-models corpus (154 `.mdl`), 2026-08. §4a numbers
+reproduce via `tools/mdl_corpus_sweep.py`. See `tools/mdl_challenge.py` and
+`XMILE_MAPPING_SCOUT.md` for the underlying XMILE mapping.*

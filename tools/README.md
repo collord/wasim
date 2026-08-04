@@ -374,3 +374,21 @@ Prints a per-variable `max_abs_err` table and exits non-zero if any aligned vari
 every variable matches pysimlin to floating-point precision (worst ~1e-11). Fixtures
 `tools/fixtures/{teacup,SIR,Lotka_Volterra}.mdl` are from
 [SDXorg/test-models](https://github.com/SDXorg/test-models) (`samples/`).
+
+### Corpus triage — `mdl_corpus_sweep.py`
+
+Runs `mdl_challenge.py` over a whole `.mdl` tree and buckets outcomes into an actionable
+importer backlog, separating **upstream** gaps (xmutil/pysimlin can't ingest), **harness**
+gaps (array/constant names unaligned), and real **WaSiM** gaps, then ranks the unmapped
+builtins that root-cause the drift.
+
+```bash
+git clone --depth 1 https://github.com/SDXorg/test-models
+python3 tools/mdl_corpus_sweep.py test-models      # → mdl_sweep_results.json + summary
+```
+
+Latest run (154 `.mdl`): of the **72 measurable** dynamic-scalar models, WaSiM matches
+pysimlin on **44 (61%)** to floating-point precision; the 27 misses collapse to six importer
+constructs (`<macro>`, `LOOKUP`, delay/smooth, safe-divide, `ACTIVE INITIAL`, rounding). The
+other 82 models are upstream (39) or unaligned arrays/constants (43), not engine failures.
+Full breakdown + ranked backlog in `VENSIM_MDL_IMPORT_SCOUT.md §4a`.
