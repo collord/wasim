@@ -166,7 +166,7 @@ describe('General lens — §5 completeness', () => {
 
 describe('picker', () => {
   it('lists all built-in lenses in manifest declaration order', () => {
-    expect(listLenses().map((l) => l.id)).toEqual(['stock-flow', 'reliability', 'decision', 'metapop', 'general'])
+    expect(listLenses().map((l) => l.id)).toEqual(['stock-flow', 'reliability', 'decision', 'metapop', 'discrete-event', 'control-systems', 'general'])
   })
 })
 

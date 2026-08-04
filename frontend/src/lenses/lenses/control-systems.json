@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "id": "control-systems",
+  "label": "Control Systems",
+  "tagline": "Feedback control — a controller drives a measured variable toward a setpoint (on-off, proportional, PID) over a stock-flow plant.",
+  "behavior": "control",
+  "palette": [
+    { "section": "Control", "items": [
+      { "ref": "pid", "label": "Controller", "role": "controller" }
+    ] },
+    { "section": "Plant", "items": [
+      { "ref": "stock", "label": "Plant state" },
+      { "ref": "expression", "label": "Process" }
+    ] },
+    { "section": "Signals", "items": [
+      { "ref": "constant", "label": "Setpoint", "role": "setpoint" },
+      { "ref": "stochastic", "label": "Disturbance", "role": "disturbance" }
+    ] }
+  ],
+  "roleLabels": { "controller": "Controller", "setpoint": "Setpoint", "sensed_input": "Sensed input", "actuated_output": "Actuated output", "disturbance": "Disturbance" },
+  "glyphByRole": { "controller": "hex" },
+  "preferredResult": { "roleOrder": ["controller"] }
+}

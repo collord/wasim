@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "id": "discrete-event",
+  "label": "Discrete Event",
+  "tagline": "State changes driven by events firing — generators, triggers, effects and set-reset latches, not integrating rates.",
+  "behavior": "discrete-event",
+  "palette": [
+    { "section": "Events", "items": [
+      { "ref": "event", "label": "Event", "role": "event" },
+      { "ref": "milestone", "label": "Milestone", "role": "milestone" }
+    ] },
+    { "section": "State machines", "items": [
+      { "ref": "status", "label": "Latch (set / reset)", "role": "latch" },
+      { "ref": "hysteresis", "label": "Hysteresis", "role": "latch" }
+    ] },
+    { "section": "Inputs", "items": [
+      { "ref": "constant", "label": "Parameter", "role": "parameter" },
+      { "ref": "stochastic", "label": "Uncertain input", "role": "parameter" }
+    ] }
+  ],
+  "roleLabels": { "event": "Event", "generator": "Generator", "effect": "Effect", "branch": "Branch", "interrupt": "Interrupt", "milestone": "Milestone", "latch": "Latch" },
+  "glyphByRole": { "event": "box", "generator": "box", "effect": "box", "milestone": "box", "latch": "box" },
+  "preferredResult": { "roleOrder": ["latch", "event"] }
+}

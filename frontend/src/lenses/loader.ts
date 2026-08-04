@@ -15,6 +15,8 @@ import stockFlowManifest from './lenses/stock-flow.json'
 import reliabilityManifest from './lenses/reliability.json'
 import decisionManifest from './lenses/decision.json'
 import metapopManifest from './lenses/metapop.json'
+import discreteEventManifest from './lenses/discrete-event.json'
+import controlManifest from './lenses/control-systems.json'
 
 /**
  * The lens **loader** (WASIM_LENS_MANIFEST_SPEC.md §3, §6): compiles a declarative JSON manifest
@@ -33,6 +35,8 @@ const BUILTIN_MANIFESTS: LensManifest[] = [
   reliabilityManifest as LensManifest,
   decisionManifest as LensManifest,
   metapopManifest as LensManifest,
+  discreteEventManifest as LensManifest,
+  controlManifest as LensManifest,
   generalManifest as LensManifest,
 ]
 
