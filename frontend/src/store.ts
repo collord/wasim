@@ -15,9 +15,9 @@ import type {
 import type { FlatElement, ModelDoc, ModelFormat } from './model/schema'
 import { detectFormat } from './model/schema'
 import {
-  addElement, blankModel, deleteElement, duplicateElement, mutateElement, renameId, replaceElement,
-  serializeModel, setContainer, setDimensions, setLens as setDocLens, setPosition, setPositions,
-  updateElement, updateSettings, uniqueId,
+  addElement, blankModel, createSubmodelFromSelection, deleteElement, duplicateElement, mutateElement,
+  renameId, replaceElement, serializeModel, setContainer, setDimensions, setLens as setDocLens,
+  setPosition, setPositions, updateElement, updateSettings, uniqueId,
 } from './model/edits'
 import type { NodeView } from './model/schema'
 import { resolveLens, listLenses } from './lenses/registry'
@@ -159,6 +159,8 @@ interface Actions {
   removeElement: (id: string) => void
   renameElement: (oldId: string, newId: string) => void
   reparent: (id: string, container: string | null) => void
+  /** Wrap the given elements in a Monte-Carlo submodel (the "loop" gesture) and drill into it. */
+  groupIntoSubmodel: (ids: string[], nRealizations?: number) => void
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   setLens: (id: LensId) => void
@@ -427,6 +429,17 @@ export const useStore = create<State & Actions>((set, get) => ({
     const doc = get().doc
     if (!doc) return
     get().applyEdit(setContainer(doc, id, container))
+  },
+
+  groupIntoSubmodel(ids, nRealizations) {
+    const doc = get().doc
+    if (!doc || ids.length === 0) return
+    const next = createSubmodelFromSelection(doc, ids, nRealizations != null ? { nRealizations } : {})
+    if (next === doc) return
+    get().applyEdit(next)
+    // Drill into the new submodel so it opens in its own hinted lens.
+    const created = next.containers?.[next.containers.length - 1]
+    if (created) set({ activeContainerId: created.id, selectedId: null, selectedIds: [] })
   },
 
   moveNode(id, pos) {

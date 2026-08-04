@@ -3,6 +3,7 @@
 // them in a command stack for undo/redo. None mutate their argument — they return a new doc.
 
 import type { FlatElement, ModelDoc, ModelFormat, NodeView } from './schema'
+import type { ContainerDef, InterfaceBinding } from '../types'
 import { detectFormat } from './schema'
 import { printAst, type Ast } from './ast'
 
@@ -154,6 +155,72 @@ export function renameId(doc: ModelDoc, oldId: string, newId: string): ModelDoc 
 /** Re-parent an element into a container (or null for root) — `container` is authoritative. */
 export function setContainer(doc: ModelDoc, id: string, container: string | null): ModelDoc {
   return updateElement(doc, id, { container })
+}
+
+/**
+ * Wrap a selection of elements in a **Monte-Carlo submodel** — the "loop" gesture from
+ * `WASIM_LENS_MODELING_TYPES.md` §5. Creates a `container_def { kind:'submodel' }` with its own
+ * `simulation_settings` (where `n_realizations` is the ensemble size), re-parents the selected
+ * elements into it, and auto-derives the boundary `interface` from cross-boundary references
+ * (interior→exterior deps become inputs; interior elements read from outside become outputs). The
+ * bare wrapper case (no cross-boundary refs) yields a null interface — "run the inside N times".
+ * Pure; the store wraps it for undo/redo. Composes with the lens hint: the new submodel drills in
+ * and gets its own `lensHint`.
+ */
+export function createSubmodelFromSelection(
+  doc: ModelDoc,
+  ids: string[],
+  opts: { nRealizations?: number; name?: string } = {},
+): ModelDoc {
+  const present = new Set(doc.elements.map((e) => e.id))
+  const interior = new Set(ids.filter((id) => present.has(id)))
+  if (interior.size === 0) return doc
+
+  const name = opts.name ?? 'Monte Carlo'
+  const cid = uniqueId(doc, slugify(name))
+
+  const depsOf = (e: FlatElement): string[] => {
+    const d = [...(e.inputs ?? []), ...(e.inflows ?? []), ...(e.outflows ?? [])]
+    if (typeof e.input === 'string') d.push(e.input)
+    return d
+  }
+  const inputs: InterfaceBinding[] = []
+  const outputs = new Set<string>()
+  const seen = new Set<string>()
+  for (const e of doc.elements) {
+    const inInterior = interior.has(e.id)
+    for (const d of depsOf(e)) {
+      if (inInterior && !interior.has(d)) {
+        const key = `${e.id}<-${d}`
+        if (!seen.has(key)) { seen.add(key); inputs.push({ input: e.id, from: d }) }
+      } else if (!inInterior && interior.has(d)) {
+        outputs.add(d)
+      }
+    }
+  }
+
+  const base = doc.simulation_settings
+  const container: ContainerDef = {
+    id: cid,
+    name,
+    parent: null,
+    children: [],
+    elements: [...interior],
+    kind: 'submodel',
+    simulation_settings: {
+      duration: base.duration,
+      timestep: base.timestep,
+      n_realizations: opts.nRealizations ?? 100,
+      sampling_method: 'monte_carlo',
+      seed: base.seed ?? null,
+    },
+    interface: inputs.length || outputs.size ? { inputs, outputs: [...outputs] } : null,
+  }
+
+  const next = clone(doc)
+  next.containers = [...(next.containers ?? []), container]
+  next.elements = next.elements.map((e) => (interior.has(e.id) ? { ...e, container: cid } : e))
+  return next
 }
 
 /** Duplicate an element as a plain copy (parallel to GoldSim Clone-as-copy, §2.4). The copy
