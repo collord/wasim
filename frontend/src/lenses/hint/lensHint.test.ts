@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ModelDoc, FlatElement } from '../../model/schema'
 import type { ModelSummary } from '../../types'
-import { lensHint } from './lensHint'
+import { lensHint, activeLensId } from './lensHint'
 import { computeRolesForLens, withComputedRoles } from './roles'
 import { SIGNATURES } from './signatures'
 
@@ -146,6 +146,32 @@ describe('migration parity — computed roles are safe against the shipped templ
       })
     }
   }
+})
+
+describe('activeLensId — priority: explicit view.lens > hint > general', () => {
+  it('honors an explicit authored/picked view.lens (non-regressive)', () => {
+    const d = doc([node('c1', 'pid')], { view: { lens: 'reliability' } } as Partial<ModelDoc>)
+    expect(activeLensId(d, null)).toBe('reliability') // explicit wins over the pid hint
+  })
+
+  it('falls back to the computed hint when no view.lens (imported model)', () => {
+    const d = doc([stock('water', ['tap'], []), node('tap', 'fixed')])
+    expect(activeLensId(d, null)).toBe('stock-flow')
+  })
+
+  it('re-lenses to the drilled submodel container', () => {
+    const d = doc([
+      stock('water', ['tap'], []), node('tap', 'fixed'),
+      { ...node('c1', 'pid'), container: 'sub' } as FlatElement,
+      { ...node('c2', 'pid'), container: 'sub' } as FlatElement,
+    ])
+    expect(activeLensId(d, null)).toBe('stock-flow')
+    expect(activeLensId(d, 'sub')).toBe('control-systems')
+  })
+
+  it('returns general for a null doc', () => {
+    expect(activeLensId(null, null)).toBe('general')
+  })
 })
 
 describe('withComputedRoles bridge', () => {

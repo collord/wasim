@@ -21,6 +21,7 @@ import {
 } from './model/edits'
 import type { NodeView } from './model/schema'
 import { resolveLens, listLenses } from './lenses/registry'
+import { activeLensId } from './lenses/hint'
 import type { LensId, LensSpec } from './lenses/types'
 import type { LensManifest } from './lenses/manifest-types'
 import { importManifest, removeManifest, registerPersisted } from './lenses/customLenses'
@@ -77,6 +78,9 @@ interface State {
   // LENSES map is mutable; components subscribe to this counter to see it change).
   customManifests: LensManifest[]
   lensVersion: number
+  /** The drilled-into container id (null = root); scopes the ephemeral lens hint. Not persisted,
+   *  not part of the doc — see `useActiveLens` / `activeLensId`. */
+  activeContainerId: string | null
   // LLM-authoring copilot config (§17). Doc-independent; the API key is memory-only unless the
   // user opts into remembering it (see copilot/aiConfig.ts).
   aiConfig: AiConfig
@@ -158,6 +162,9 @@ interface Actions {
   moveNode: (id: string, pos: NodeView) => void
   tidyPositions: (positions: Record<string, NodeView>) => void
   setLens: (id: LensId) => void
+  /** The container the user has drilled into (null = model root). Scopes the ephemeral lens hint —
+   *  drilling into a submodel re-lenses to that container's dominant paradigm. Not persisted. */
+  setActiveContainer: (id: string | null) => void
   /** Import a custom lens from raw JSON: validate, register, persist. Returns an error string on
    *  failure (invalid JSON / dangling ref / unknown behavior), or null on success. */
   importLens: (json: string) => string | null
@@ -214,6 +221,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   modelFilename: null,
   customManifests: PERSISTED_LENSES,
   lensVersion: 0,
+  activeContainerId: null,
   aiConfig: PERSISTED_AI,
   past: [],
   future: [],
@@ -441,6 +449,10 @@ export const useStore = create<State & Actions>((set, get) => ({
     // lens is derived from `doc.view.lens` (see `useActiveLens`), so this is the single source of
     // truth — undo/redo and load reflect it automatically.
     get().applyEdit(setDocLens(doc, id), { reconcile: false })
+  },
+
+  setActiveContainer(id) {
+    set({ activeContainerId: id })
   },
 
   importLens(json) {
@@ -734,16 +746,18 @@ export const useElements = () => useStore((s) => s.modelSummary?.elements ?? EMP
 export const useContainers = () => useStore((s) => s.doc?.containers ?? EMPTY_CONTAINERS)
 export const usePositions = () => useStore((s) => s.doc?.view?.positions ?? EMPTY_POSITIONS)
 
-// The active lens, derived from the document's `view.lens` tag (single source of truth — no
-// duplicated store state, so undo/redo/load stay in sync). We subscribe to the (id, lensVersion)
-// pair as a primitive tuple — a stable shallow-comparable value — and resolve outside the equality
-// check. `lensVersion` bumps when a custom lens is imported/removed, so a doc tagged with a
-// just-imported lens id picks it up (and a removed lens falls back to general). `resolveLens`
-// returns a stable per-id reference, so the resolved spec is itself stable.
+// The active lens. An explicit authored/picked `view.lens` stays the single source of truth
+// (undo/redo/load reflect it, the manual picker sets it — unchanged behavior); when absent (an
+// imported/untagged model) the ephemeral hint for the drilled container drives it, so imports open
+// in their inferred lens and drilling into a submodel re-lenses to that container (`activeLensId`).
+// Subscriptions are all stable-comparable primitives/refs (`doc` ref, `activeContainerId`,
+// `lensVersion`); the hint is computed outside the equality check and `resolveLens` returns a
+// stable per-id reference, so the resolved spec stays stable and render-loop-safe.
 export const useActiveLens = () => {
-  const id = useStore((s) => s.doc?.view?.lens)
+  const doc = useStore((s) => s.doc)
+  const container = useStore((s) => s.activeContainerId)
   useStore((s) => s.lensVersion) // re-render when the custom lens set changes
-  return resolveLens(id)
+  return resolveLens(activeLensId(doc, container))
 }
 
 // Every registered lens, for the picker. Subscribes to `lensVersion`; the list is computed outside

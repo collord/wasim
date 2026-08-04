@@ -25,6 +25,20 @@ export interface LensHint {
   overlays: OverlayId[]
 }
 
+/**
+ * Resolve the *active* lens id for the drilled container, the single place the priority is decided:
+ * an explicit authored/picked `view.lens` wins (so authored docs and the manual picker are
+ * unchanged — non-regressive); otherwise the computed hint for the active container drives it (so
+ * imported/untagged models open in their inferred lens, and drilling into a submodel re-lenses to
+ * that container). Pure — the store hook (`useActiveLens`) wraps this with `resolveLens`.
+ */
+export function activeLensId(doc: ModelDoc | null | undefined, activeContainerId: string | null): LensId {
+  const explicit = doc?.view?.lens
+  if (explicit) return explicit
+  if (!doc) return 'general'
+  return lensHint(activeContainerId, doc).lens
+}
+
 /** Compute the lens hint for the container the user has drilled into (null = root). */
 export function lensHint(containerId: string | null, doc: ModelDoc): LensHint {
   const interior = interiorOf(containerId, doc)

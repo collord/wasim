@@ -4,7 +4,7 @@
  * computed-role bridge that lets the existing `lens_role`-reading behaviors work on untagged
  * models. Nothing here is persisted into the model.
  */
-export { lensHint, type LensHint, type OverlayId } from './lensHint'
+export { lensHint, activeLensId, type LensHint, type OverlayId } from './lensHint'
 export { computeRolesForLens, withComputedRoles, type RoleMap } from './roles'
 export { SIGNATURES, HINT_FLOOR, type ScoreFn } from './signatures'
 export { interiorOf } from './scope'
