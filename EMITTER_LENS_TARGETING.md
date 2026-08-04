@@ -244,14 +244,29 @@ manifests, transform cleanly.
   interface), store `groupIntoSubmodel` (drills into the new submodel), and a **Cmd/Ctrl-G**
   keyboard entry point on the current multi-select.
 
-**Deliberately deferred (documented, not silently dropped)**
-- The **lasso "loop" stroke** — a net-new canvas interaction that can't be unit-verified without a
-  running canvas; MC grouping ships via the keyboard gesture on the existing multi-select instead.
-- **Structured inspectors for `pid` / `status`** — the two new lenses classify and validate but
-  those constructs still edit via raw JSON (`Inspector.tsx` has no case yet).
-- **Inert-until-activated gating** and **sticky localStorage overrides** (thin activation only).
-- **Metapop computed-role precision on imports** — the scalar-`coupling` / `mixing` heuristic is
-  conservative; stored roles cover authored docs, but imported metapop role-tagging is rough.
-- **Gap A (`effects[]`) is emitter-side** (`re-gsm`/`emit.py`) — no schema change needed here
-  (`effect_spec` already exists); the discrete-event lens's effect-edge rendering lights up once it
+**Follow-up round — the previously-deferred items (landed except where noted)**
+- **Lasso "loop" stroke** — *landed.* Shift+drag on the canvas draws a rubber-band that selects the
+  enclosed nodes; a floating "Group into submodel" button (and ⌘/Ctrl-G) routes the multi-select to
+  the existing `groupIntoSubmodel`. The enclosure geometry is extracted as a pure `nodesInLasso`
+  (unit-tested); only the mouse wiring around it needs a live canvas.
+- **Structured inspectors for `pid` / `status`** — *landed.* `Inspector.tsx` now routes `pid` →
+  `PidEditor` (mode / measured input / setpoint / gains / clamps / deadband, and the on-off band +
+  ON output) and `status` → `StatusEditor` (independent set / reset triggers reusing the event
+  trigger modes). Both flipped off the raw-JSON escape hatch in the element registry.
+  **Still raw:** `hysteresis` (no structured editor yet).
+- **Per-container lens overrides** — *landed, in-memory (not localStorage).* A manual pick while
+  drilled into a submodel overrides *that container only* (the picker was clobbering every container
+  via the whole-doc `view.lens`); `activeLensId` resolves per-container override → `view.lens` →
+  hint. localStorage stickiness was **dropped on purpose**: the app has no model-session persistence
+  (no autosave / recent-files / URL load), so a reload drops the model that the container ids key
+  against — there is nothing to anchor a persisted override to. Revisit if model-session persistence
+  lands.
+- **Metapop computed-role precision on imports** — *investigated; the gap is irreducible from
+  structure.* A scalar coupling weight is byte-identical to a scalar `parameter` (both `fixed` leaves
+  with `editable`/`bounds`; see the two-patch-sir template's `mix` vs `beta`), so computing either
+  role necessarily mis-tags the other — the migration parity gate rejects it. The conservative
+  fallback-to-stored is correct; documented in `roles.ts` and locked with a test so it isn't
+  re-attempted. Square-matrix couplings are still computed unambiguously.
+- **Gap A (`effects[]`) is emitter-side** (`re-gsm`/`emit.py`) — unchanged; no frontend/schema work
+  (`effect_spec` already exists). The discrete-event lens's effect-edge rendering lights up once it
   lands.

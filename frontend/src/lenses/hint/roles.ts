@@ -33,7 +33,8 @@ function stockFlowRoles(els: FlatElement[]): RoleMap {
 
 /** metapop: the stock-flow substrate re-read as compartments/transitions, plus the two nouns that
  *  make it a network — a square coupling matrix (`coupling`) and a term reaching both a coupling
- *  and a compartment (`mixing`). The subtle scalar-coupling / mixing cases fall back to stored. */
+ *  and a compartment (`mixing`). Scalar couplings / mixing weights are intentionally left unroled
+ *  (structurally indistinguishable from parameters) and rely on a stored role. */
 function metapopRoles(doc: ModelDoc, els: FlatElement[]): RoleMap {
   const flows = flowIds(els)
   const m: RoleMap = new Map()
@@ -49,6 +50,10 @@ function metapopRoles(doc: ModelDoc, els: FlatElement[]): RoleMap {
     if (m.has(e.id)) continue
     if (reaches(doc, e.id, isCoupling) && reaches(doc, e.id, isCompartment)) m.set(e.id, 'mixing')
   }
+  // NB: a *scalar* coupling weight is deliberately left unroled here — it is structurally identical
+  // to a scalar `parameter` (both are `fixed` leaves with `editable`/`bounds`; see the two-patch-sir
+  // template's `mix` vs `beta`), so guessing either would mis-tag the other. That subtle case relies
+  // on a stored role; `withComputedRoles` fills only where structure is *unambiguous* (see below).
   return m
 }
 

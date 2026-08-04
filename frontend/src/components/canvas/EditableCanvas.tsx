@@ -12,6 +12,17 @@ const NODE_H = 52
 
 interface Pos { x: number; y: number }
 
+/** Ids of nodes whose center lies inside a lasso rect (world coords). Pure — extracted so the
+ *  enclosure geometry is unit-testable without a live canvas (the mouse wiring around it isn't). */
+export function nodesInLasso(
+  nodes: { id: string; pos: Pos }[],
+  rect: { x0: number; y0: number; x1: number; y1: number },
+): string[] {
+  const minX = Math.min(rect.x0, rect.x1), maxX = Math.max(rect.x0, rect.x1)
+  const minY = Math.min(rect.y0, rect.y1), maxY = Math.max(rect.y0, rect.y1)
+  return nodes.filter((n) => n.pos.x >= minX && n.pos.x <= maxX && n.pos.y >= minY && n.pos.y <= maxY).map((n) => n.id)
+}
+
 /** Compute a Dagre layout for elements lacking a stored position (seeds free placement). */
 function autoLayout(elements: ElementSummary[]): Record<string, Pos> {
   const g = new dagre.graphlib.Graph()
@@ -35,6 +46,7 @@ export function EditableCanvas() {
   const positions = usePositions()
   const selectedIds = useStore((s) => s.selectedIds)
   const select = useStore((s) => s.select)
+  const selectMany = useStore((s) => s.selectMany)
   const moveNode = useStore((s) => s.moveNode)
   const tidyPositions = useStore((s) => s.tidyPositions)
   const removeElement = useStore((s) => s.removeElement)
@@ -64,6 +76,11 @@ export function EditableCanvas() {
   // down→move→up event sequence); `link` state drives the ghost line's render.
   const linkFrom = useRef<string | null>(null)
   const [link, setLink] = useState<{ fromId: string; x: number; y: number } | null>(null)
+  // Lasso rubber-band (Shift+drag on the background): a world-space rect; on release its enclosed
+  // nodes become the selection (from which ⌘G / the floating button wraps them in an MC submodel).
+  // The live rect drives the render; a ref mirrors it so mouseup reads the final box synchronously.
+  const lasso = useRef<{ sx: number; sy: number } | null>(null)
+  const [lassoRect, setLassoRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
 
   // Auto-layout seeds any element without a stored position.
   const auto = useMemo(() => autoLayout(elements), [elements])
@@ -108,11 +125,24 @@ export function EditableCanvas() {
 
   const onBgMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return
+    // Shift+drag on the background draws a lasso rubber-band instead of panning.
+    if (e.shiftKey) {
+      const w = toWorld(e.clientX, e.clientY)
+      lasso.current = { sx: w.x, sy: w.y }
+      setLassoRect({ x0: w.x, y0: w.y, x1: w.x, y1: w.y })
+      return
+    }
     pan.current = { sx: e.clientX, sy: e.clientY, ox: view.tx, oy: view.ty }
     select(null)
   }
 
   const onMouseMove = (e: React.MouseEvent) => {
+    if (lasso.current) {
+      const w = toWorld(e.clientX, e.clientY)
+      const l = lasso.current
+      setLassoRect({ x0: l.sx, y0: l.sy, x1: w.x, y1: w.y })
+      return
+    }
     if (linkFrom.current) {
       const w = toWorld(e.clientX, e.clientY)
       const from = linkFrom.current
@@ -130,7 +160,25 @@ export function EditableCanvas() {
     if (pan.current) setView((v) => ({ ...v, tx: pan.current!.ox + e.clientX - pan.current!.sx, ty: pan.current!.oy + e.clientY - pan.current!.sy }))
   }
 
-  const endDrag = () => { pan.current = null; nodeDrag.current = null; linkFrom.current = null; setLink(null) }
+  // Finish a lasso stroke: select every node whose center lies inside the rubber-band rect. A tiny
+  // box (a stray Shift-click) selects nothing and just clears the band.
+  const finishLasso = () => {
+    const l = lasso.current
+    lasso.current = null
+    const rect = lassoRect
+    setLassoRect(null)
+    if (!l || !rect) return
+    const minX = Math.min(rect.x0, rect.x1), maxX = Math.max(rect.x0, rect.x1)
+    const minY = Math.min(rect.y0, rect.y1), maxY = Math.max(rect.y0, rect.y1)
+    if (maxX - minX < 4 && maxY - minY < 4) return // no real drag
+    const inside = nodesInLasso(elements.map((e) => ({ id: e.id, pos: posOf(e.id) })), rect)
+    selectMany(inside)
+  }
+
+  const endDrag = () => {
+    if (lasso.current) finishLasso()
+    pan.current = null; nodeDrag.current = null; linkFrom.current = null; setLink(null)
+  }
 
   // Draw-flow: start a link from a node's connection handle (no node drag / pan).
   const onHandleMouseDown = (e: React.MouseEvent, id: string) => {
@@ -173,8 +221,9 @@ export function EditableCanvas() {
       e.preventDefault()
       duplicate(selectedIds[0])
     } else if (e.key.toLowerCase() === 'g' && (e.metaKey || e.ctrlKey) && selectedIds.length) {
-      // Wrap the selection in a Monte-Carlo submodel (the "loop" gesture, keyboard entry point;
-      // the lasso stroke is a later addition). Drills into the new submodel automatically.
+      // Wrap the selection in a Monte-Carlo submodel (the "loop" gesture). Reachable three ways —
+      // this keyboard shortcut, the floating "Group into submodel" button, and the Shift+drag lasso
+      // that builds the multi-selection. Drills into the new submodel automatically.
       e.preventDefault()
       groupIntoSubmodel(selectedIds)
     }
@@ -190,6 +239,20 @@ export function EditableCanvas() {
     const el = entry.make(slugify(entry.label), entry.label, format)
     addNewElement(el, w)
   }
+
+  // Floating "group" affordance: screen-space anchor above the current multi-selection's bounding
+  // box. Shown only for ≥2 selected nodes and while no lasso is being drawn.
+  const groupAnchor = useMemo(() => {
+    if (selectedIds.length < 2 || lassoRect) return null
+    let minX = Infinity, minY = Infinity, maxX = -Infinity
+    for (const id of selectedIds) {
+      const p = posOf(id)
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y)
+    }
+    if (!isFinite(minX)) return null
+    const cx = (minX + maxX) / 2
+    return { left: cx * view.scale + view.tx, top: (minY - NODE_H / 2) * view.scale + view.ty }
+  }, [selectedIds, lassoRect, posOf, view])
 
   const edges = useMemo(() => {
     const ids = new Set(elements.map((e) => e.id))
@@ -268,6 +331,14 @@ export function EditableCanvas() {
               stroke="#2563eb" strokeWidth="2" markerEnd="url(#ec-arrow-b)" pointerEvents="none" />
           )}
 
+          {/* Lasso rubber-band (Shift+drag): a translucent selection rect in world space. */}
+          {lassoRect && (
+            <rect x={Math.min(lassoRect.x0, lassoRect.x1)} y={Math.min(lassoRect.y0, lassoRect.y1)}
+              width={Math.abs(lassoRect.x1 - lassoRect.x0)} height={Math.abs(lassoRect.y1 - lassoRect.y0)}
+              fill="rgba(37,99,235,0.08)" stroke="#2563eb" strokeWidth="1" strokeDasharray="4 3"
+              pointerEvents="none" />
+          )}
+
           {elements.map((e) => {
             const p = posOf(e.id)
             const t = iconTypeOf(e)
@@ -325,6 +396,19 @@ export function EditableCanvas() {
           })}
         </g>
       </svg>
+
+      {/* Floating group affordance — a discoverable one-click entry to the same MC-grouping path as
+          ⌘G, anchored above the multi-selection (which the Shift+drag lasso produces). */}
+      {groupAnchor && (
+        <button
+          onClick={() => groupIntoSubmodel(selectedIds)}
+          style={{ left: groupAnchor.left, top: groupAnchor.top }}
+          className="absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-full border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-medium text-blue-600 shadow-sm hover:bg-blue-50"
+          title="Wrap the selected elements in a Monte-Carlo submodel (⌘/Ctrl-G)"
+        >
+          Group into submodel ({selectedIds.length}) ⌘G
+        </button>
+      )}
 
       {elements.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center p-6">

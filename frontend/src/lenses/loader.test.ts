@@ -55,6 +55,16 @@ describe('manifest loader — parity with the hand-written specs', () => {
     }
   })
 
+  it('pid / status gained structured inspectors; hysteresis is still raw', () => {
+    // Inspector.tsx now routes `pid` and `status` to structured editors (PidEditor / StatusEditor),
+    // so the registry flips them off the raw-JSON escape hatch (drops the palette "raw" badge).
+    // Hysteresis has no structured editor yet and must stay raw.
+    const editorOf = (key: string) => elementRegistry.entries.find((e) => e.key === key)?.editor
+    expect(editorOf('pid')).toBe('structured')
+    expect(editorOf('status')).toBe('structured')
+    expect(editorOf('hysteresis')).toBe('raw')
+  })
+
   it.each(DOMAIN_IDS)('%s metadata (id/label/tagline/roleLabels) is identical', (id) => {
     const now = resolveLens(id)
     const was = LEGACY_LENSES[id]

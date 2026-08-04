@@ -21,7 +21,7 @@ import {
 } from './model/edits'
 import type { NodeView } from './model/schema'
 import { resolveLens, listLenses } from './lenses/registry'
-import { activeLensId } from './lenses/hint'
+import { activeLensId, type LensOverrides } from './lenses/hint'
 import type { LensId, LensSpec } from './lenses/types'
 import type { LensManifest } from './lenses/manifest-types'
 import { importManifest, removeManifest, registerPersisted } from './lenses/customLenses'
@@ -81,6 +81,11 @@ interface State {
   /** The drilled-into container id (null = root); scopes the ephemeral lens hint. Not persisted,
    *  not part of the doc — see `useActiveLens` / `activeLensId`. */
   activeContainerId: string | null
+  /** Per-container manual lens overrides (keyed by container id; root = `ROOT_OVERRIDE_KEY`). The
+   *  user's one-click correction when a container's hint is wrong — overrides *that* container only,
+   *  unlike the whole-doc `view.lens`. In-memory (container ids are model-local): reset on model
+   *  load. See `activeLensId`. */
+  lensOverrides: LensOverrides
   // LLM-authoring copilot config (§17). Doc-independent; the API key is memory-only unless the
   // user opts into remembering it (see copilot/aiConfig.ts).
   aiConfig: AiConfig
@@ -148,6 +153,8 @@ interface Actions {
   setMode: (m: Mode) => void
   setActiveTab: (tab: Tab) => void
   select: (id: string | null, additive?: boolean) => void
+  /** Replace the whole selection with `ids` (the lasso rubber-band result). Empty clears it. */
+  selectMany: (ids: string[]) => void
 
   // Editing (structural → reconcile; value → fast path)
   applyEdit: (next: ModelDoc, opts?: { reconcile?: boolean }) => void
@@ -167,6 +174,14 @@ interface Actions {
   /** The container the user has drilled into (null = model root). Scopes the ephemeral lens hint —
    *  drilling into a submodel re-lenses to that container's dominant paradigm. Not persisted. */
   setActiveContainer: (id: string | null) => void
+  /** Override the active lens for the *currently drilled container only* (root writes the whole-doc
+   *  `view.lens` via `setLens` instead — this is for non-root containers). Records the pick
+   *  unconditionally, so an explicit choice survives later content changes that would re-hint.
+   *  In-memory, per model. */
+  setContainerLens: (id: LensId) => void
+  /** Drop the drilled container's manual override so it returns to automatic (hint / authored)
+   *  lens detection. No-op at root. */
+  clearContainerLens: () => void
   /** Import a custom lens from raw JSON: validate, register, persist. Returns an error string on
    *  failure (invalid JSON / dangling ref / unknown behavior), or null on success. */
   importLens: (json: string) => string | null
@@ -224,6 +239,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   customManifests: PERSISTED_LENSES,
   lensVersion: 0,
   activeContainerId: null,
+  lensOverrides: {},
   aiConfig: PERSISTED_AI,
   past: [],
   future: [],
@@ -279,6 +295,10 @@ export const useStore = create<State & Actions>((set, get) => ({
       past: [],
       future: [],
       mode: 'edit',
+      // Container drill + per-container lens overrides are model-local view state — reset them so a
+      // new model opens at root with automatic hinting, no stale override keyed to an old container.
+      activeContainerId: null,
+      lensOverrides: {},
       selectedId: null,
       selectedIds: [],
       status: 'idle',
@@ -355,6 +375,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       }
       return { selectedId: id, selectedIds: [id] }
     }),
+
+  selectMany: (ids) => set({ selectedIds: ids, selectedId: ids[ids.length - 1] ?? null }),
 
   // ── Editing ──────────────────────────────────────────────────────────────────
   _pushHistory(prev) {
@@ -466,6 +488,30 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   setActiveContainer(id) {
     set({ activeContainerId: id })
+  },
+
+  setContainerLens(id) {
+    const { activeContainerId } = get()
+    // At the model root, a lens pick is the authored whole-doc default — keep it round-tripping
+    // through `view.lens` (unchanged behavior), not the in-memory override map.
+    if (activeContainerId == null) { get().setLens(id); return }
+    // An explicit pick is an explicit pick: record it unconditionally, even when it matches the
+    // current hint. Otherwise a later content change would silently re-detect *over* the user's
+    // choice (the "detection runs after selection" bug). Returning to automatic is a separate,
+    // deliberate action — see `clearContainerLens`.
+    const key = activeContainerId
+    set((s) => ({ lensOverrides: { ...s.lensOverrides, [key]: id } }))
+  },
+
+  clearContainerLens() {
+    const key = get().activeContainerId
+    if (key == null) return // root has no per-container override to clear
+    set((s) => {
+      if (!(key in s.lensOverrides)) return {}
+      const next = { ...s.lensOverrides }
+      delete next[key]
+      return { lensOverrides: next }
+    })
   },
 
   importLens(json) {
@@ -769,8 +815,9 @@ export const usePositions = () => useStore((s) => s.doc?.view?.positions ?? EMPT
 export const useActiveLens = () => {
   const doc = useStore((s) => s.doc)
   const container = useStore((s) => s.activeContainerId)
+  const overrides = useStore((s) => s.lensOverrides) // stable ref; changes only on a manual override
   useStore((s) => s.lensVersion) // re-render when the custom lens set changes
-  return resolveLens(activeLensId(doc, container))
+  return resolveLens(activeLensId(doc, container, overrides))
 }
 
 // Every registered lens, for the picker. Subscribes to `lensVersion`; the list is computed outside

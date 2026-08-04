@@ -24,7 +24,7 @@
       "doc": "Boolean AND / OR / at-least-k over referenced elements' states." },
     { "key": "filter", "section": "functions", "label": "Smoothing / Filter", "construct": "filter", "glyph": "default", "editor": "raw",
       "doc": "A rolling-window statistic (mean / min / max / sum / EMA) of an input." },
-    { "key": "pid", "section": "functions", "label": "PID Controller", "construct": "pid", "glyph": "default", "editor": "raw",
+    { "key": "pid", "section": "functions", "label": "PID Controller", "construct": "pid", "glyph": "default", "editor": "structured",
       "doc": "A proportional-integral-derivative controller driving an input toward a setpoint." },
     { "key": "terminal_expression", "section": "functions", "label": "Terminal Value", "construct": "terminal_expression", "glyph": "default", "editor": "raw",
       "doc": "A value evaluated once at the end of the run (a terminal reduction)." },
@@ -40,7 +40,7 @@
 
     { "key": "event", "section": "events", "label": "Failure / Event", "construct": "event", "glyph": "box", "editor": "structured",
       "doc": "A state machine that fires on a condition or schedule (0 = operating, 1 = failed)." },
-    { "key": "status", "section": "events", "label": "Status (latch)", "construct": "status", "glyph": "default", "editor": "raw",
+    { "key": "status", "section": "events", "label": "Status (latch)", "construct": "status", "glyph": "default", "editor": "structured",
       "doc": "A latch flipped on/off by set and reset triggers." },
     { "key": "milestone", "section": "events", "label": "Milestone", "construct": "milestone", "glyph": "default", "editor": "raw",
       "doc": "Fires once when its trigger condition first becomes true." },

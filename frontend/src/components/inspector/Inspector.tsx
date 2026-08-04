@@ -96,6 +96,8 @@ function DefinitionSection({ el, flat }: { el: ElementSummary; flat: FlatElement
   if (prim === 'stock') body = <StockEditor el={el} flat={flat} />
   else if (prim === 'event') body = <EventEditor el={el} flat={flat} />
   else if (prim === 'gate') body = <GateEditor el={el} flat={flat} />
+  else if (rule === 'pid') body = <PidEditor el={el} flat={flat} />
+  else if (rule === 'status') body = <StatusEditor el={el} flat={flat} />
   else if (rule === 'fixed') body = <FixedEditor el={el} flat={flat} />
   else if (rule === 'sample') body = <SampleEditor el={el} flat={flat} />
   else if (rule === 'expression') body = <ExpressionRuleEditor el={el} />
@@ -168,6 +170,158 @@ function GateEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
     </>
   )
 }
+
+// ── PID / controller (spec §2.15) ─────────────────────────────────────────────
+
+const CONTROLLER_MODES = [
+  { value: 'pid', label: 'PID (kp / ki / kd)' },
+  { value: 'proportional', label: 'Proportional (kp only)' },
+  { value: 'on_off', label: 'On-off (bang-bang hysteresis)' },
+]
+
+/** Structured editor for the `pid` value-rule: a controller driving `input` toward `setpoint`.
+ *  `pid`/`proportional` expose gains + output clamps + deadband; `on_off` is a hysteresis latch
+ *  (band + ON output). The measured `input` is a single element ref — a dangling one opens the
+ *  loop (the control lens flags it). */
+function PidEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const elements = useElements()
+  const mode = (flat.controller_mode as string | undefined) ?? 'pid'
+  const others = elements.filter((e) => e.id !== el.id)
+  // setpoint is a scalar quantity by default but may be a dynamic expression ref; edit the scalar
+  // here and drop to raw JSON for a formula setpoint.
+  const sp = flat.setpoint as { value?: number; ast?: Ast } | undefined
+  const spDynamic = sp != null && 'ast' in (sp as object)
+
+  return (
+    <div className="space-y-3">
+      <Field label="Mode" hint="PID / proportional use the control law; on-off is a bang-bang latch around the setpoint.">
+        <Select value={mode} onChange={(m) => mutate(el.id, (e) => { e.controller_mode = m })} options={CONTROLLER_MODES} />
+      </Field>
+      <Field label="Measured input" hint="The signal the controller drives toward the setpoint.">
+        <Select value={(flat.input as string | undefined) ?? ''}
+          onChange={(v) => mutate(el.id, (e) => { e.input = v; e.inputs = v ? [v] : [] })}
+          options={[{ value: '', label: '— none —' }, ...others.map((e) => ({ value: e.id, label: e.name }))]} />
+      </Field>
+      <Field label="Setpoint" hint={spDynamic ? 'A dynamic (expression) setpoint — edit the formula in raw JSON.' : 'Target value.'}>
+        {spDynamic ? (
+          <p className="text-[11px] text-slate-400">Formula setpoint — use the raw-JSON fallback to edit.</p>
+        ) : (
+          <NumInput value={sp?.value ?? 0} unit={el.unit}
+            onChange={(v) => mutate(el.id, (e) => { e.setpoint = { value: v, unit: (e.setpoint as { unit?: string } | undefined)?.unit ?? el.unit } })} />
+        )}
+      </Field>
+
+      {mode !== 'on_off' ? (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="kp"><NumInput value={flat.kp ?? 0} onChange={(v) => mutate(el.id, (e) => { e.kp = v })} /></Field>
+            {mode === 'pid' && <Field label="ki"><NumInput value={flat.ki ?? 0} onChange={(v) => mutate(el.id, (e) => { e.ki = v })} /></Field>}
+            {mode === 'pid' && <Field label="kd"><NumInput value={flat.kd ?? 0} onChange={(v) => mutate(el.id, (e) => { e.kd = v })} /></Field>}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Output min"><NumInput value={flat.output_min ?? NaN} onChange={(v) => mutate(el.id, (e) => { e.output_min = isNaN(v) ? null : v })} /></Field>
+            <Field label="Output max"><NumInput value={flat.output_max ?? NaN} onChange={(v) => mutate(el.id, (e) => { e.output_max = isNaN(v) ? null : v })} /></Field>
+          </div>
+          <Field label="Deadband" hint="Error magnitude treated as zero (anti-chatter).">
+            <NumInput value={flat.deadband ?? 0} onChange={(v) => mutate(el.id, (e) => { e.deadband = v })} />
+          </Field>
+        </>
+      ) : (
+        <>
+          <Field label="Hysteresis band" hint="ON above setpoint + band/2, OFF below setpoint − band/2.">
+            <NumInput value={flat.deadband ?? 0} onChange={(v) => mutate(el.id, (e) => { e.deadband = v })} />
+          </Field>
+          <Field label="ON output" hint="Value emitted while latched ON. Absent → a 0 / 1 gate signal.">
+            <NumInput value={(flat.output_cap as { value?: number } | undefined)?.value ?? NaN}
+              onChange={(v) => mutate(el.id, (e) => {
+                if (isNaN(v)) delete e.output_cap
+                else e.output_cap = { value: v, unit: (e.output_cap as { unit?: string } | undefined)?.unit ?? el.unit }
+              })} />
+          </Field>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Status latch (spec §2: set / reset triggers) ──────────────────────────────
+
+/** Structured editor for the `status` value-rule: a boolean latch flipped ON by its `set` trigger
+ *  and OFF by its independent `reset` trigger (set wins on a step where both fire). Each trigger
+ *  reuses the same modes as an event; `on_event` chains to another element by id. */
+function StatusEditor({ el, flat }: { el: ElementSummary; flat: FlatElement }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-slate-400">Output latches to 1 on <span className="font-medium">set</span>, back to 0 on <span className="font-medium">reset</span>. Set takes precedence when both fire.</p>
+      <LatchTrigger el={el} flat={flat} field="set" label="Set (→ 1)" />
+      <LatchTrigger el={el} flat={flat} field="reset" label="Reset (→ 0)" />
+    </div>
+  )
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** One of a status latch's two triggers (`set` / `reset`). Mirrors the trigger sub-editor in
+ *  `EventEditor` but writes to the named field and keeps `inputs` in sync for influence edges. */
+function LatchTrigger({ el, flat, field, label }: { el: ElementSummary; flat: FlatElement; field: 'set' | 'reset'; label: string }) {
+  const mutate = useStore((s) => s.mutateEl)
+  const elements = useElements()
+  const tsUnit = useStore((s) => s.doc?.simulation_settings.timestep.unit) ?? 's'
+  const trig = (flat[field] as any) ?? {}
+  const mode: string = trig.mode ?? 'on_condition'
+  const others = elements.filter((e) => e.id !== el.id)
+
+  // Recompute the union of both triggers' `on_event` sources into `inputs` after a patch, so
+  // influence edges and topo see the referenced elements regardless of which field changed.
+  const patch = (fn: (t: any) => void) =>
+    mutate(el.id, (e) => {
+      const t = { ...((e[field] as any) ?? {}) }
+      fn(t)
+      e[field] = t
+      const srcs = (['set', 'reset'] as const)
+        .map((k) => (e[k] as any)?.source)
+        .filter((s): s is string => typeof s === 'string' && s.length > 0)
+      e.inputs = [...new Set(srcs)]
+    })
+
+  return (
+    <div className="space-y-2 rounded border border-slate-200 bg-slate-50/50 p-2">
+      <Field label={label} hint="What flips the latch this way.">
+        <Select value={mode} onChange={(m) => patch((t) => {
+          t.mode = m
+          if (m === 'on_condition' && !t.condition) t.condition = { ast: { op: 'literal', value: 0 }, display: '0' }
+          if (m === 'on_schedule' && !t.schedule) t.schedule = []
+        })} options={TRIGGER_MODES} />
+      </Field>
+      {mode === 'on_condition' && (
+        <Field label="Condition" hint="Flips the step this becomes true.">
+          <ExpressionEditor ast={(trig.condition as any)?.ast}
+            onCommit={(a) => patch((t) => { t.condition = { ast: a, display: printAst(a) } })} />
+        </Field>
+      )}
+      {mode === 'on_schedule' && (
+        <Field label={`Times (${tsUnit})`} hint="Comma-separated instants.">
+          <TextInput mono value={((trig.schedule as any[]) ?? []).map((s) => s.value).join(', ')}
+            onChange={(v) => patch((t) => {
+              t.schedule = v.split(',').map((s) => Number(s.trim())).filter((n) => !isNaN(n)).map((n) => ({ value: n, unit: tsUnit }))
+            })} />
+        </Field>
+      )}
+      {mode === 'on_event' && (
+        <Field label="Source event">
+          <Select value={(trig.source as string) ?? ''} onChange={(v) => patch((t) => { t.source = v || null })}
+            options={[{ value: '', label: '— none —' }, ...others.map((e) => ({ value: e.id, label: e.name }))]} />
+        </Field>
+      )}
+      {mode === 'periodic' && (
+        <Field label={`Period (${tsUnit})`}>
+          <NumInput value={(trig.period as any)?.value ?? 1} onChange={(v) => patch((t) => { t.period = { value: v, unit: tsUnit } })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ── Fixed (constant) ──────────────────────────────────────────────────────────
 

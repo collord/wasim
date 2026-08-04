@@ -25,14 +25,26 @@ export interface LensHint {
   overlays: OverlayId[]
 }
 
+/** The override-map key for a drilled container (null = the model root). Container ids are
+ *  model-local, so this map is in-memory and reset on model load (see the store). */
+export const ROOT_OVERRIDE_KEY = '__root__'
+export type LensOverrides = Record<string, LensId>
+
 /**
  * Resolve the *active* lens id for the drilled container, the single place the priority is decided:
- * an explicit authored/picked `view.lens` wins (so authored docs and the manual picker are
- * unchanged — non-regressive); otherwise the computed hint for the active container drives it (so
- * imported/untagged models open in their inferred lens, and drilling into a submodel re-lenses to
- * that container). Pure — the store hook (`useActiveLens`) wraps this with `resolveLens`.
+ * a **per-container override** (the user's one-click correction for *this* container) wins first, so
+ * a wrong hint on one submodel is fixed without clobbering the others; then an explicit authored
+ * whole-doc `view.lens` (so authored docs and the root picker stay non-regressive); otherwise the
+ * computed hint for the active container drives it (imports open in their inferred lens, drilling
+ * re-lenses per container). Pure — the store hook (`useActiveLens`) wraps this with `resolveLens`.
  */
-export function activeLensId(doc: ModelDoc | null | undefined, activeContainerId: string | null): LensId {
+export function activeLensId(
+  doc: ModelDoc | null | undefined,
+  activeContainerId: string | null,
+  overrides?: LensOverrides,
+): LensId {
+  const override = overrides?.[activeContainerId ?? ROOT_OVERRIDE_KEY]
+  if (override) return override
   const explicit = doc?.view?.lens
   if (explicit) return explicit
   if (!doc) return 'general'

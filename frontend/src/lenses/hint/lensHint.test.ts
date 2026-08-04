@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ModelDoc, FlatElement } from '../../model/schema'
 import type { ModelSummary } from '../../types'
-import { lensHint, activeLensId } from './lensHint'
+import { lensHint, activeLensId, ROOT_OVERRIDE_KEY } from './lensHint'
 import { computeRolesForLens, withComputedRoles } from './roles'
 import { SIGNATURES } from './signatures'
 
@@ -174,6 +174,38 @@ describe('activeLensId — priority: explicit view.lens > hint > general', () =>
   })
 })
 
+describe('activeLensId — per-container overrides win over view.lens and the hint', () => {
+  const drilled = () => doc([
+    stock('water', ['tap'], []), node('tap', 'fixed'),
+    { ...node('c1', 'pid'), container: 'sub' } as FlatElement,
+    { ...node('c2', 'pid'), container: 'sub' } as FlatElement,
+  ])
+
+  it('a container override beats the computed hint for that container only', () => {
+    const d = drilled()
+    // The `sub` container hints control-systems; override it to reliability for `sub` alone.
+    expect(activeLensId(d, 'sub', { sub: 'reliability' })).toBe('reliability')
+    // Root is untouched by the `sub` override — still its own hint.
+    expect(activeLensId(d, null, { sub: 'reliability' })).toBe('stock-flow')
+  })
+
+  it('a container override beats an authored whole-doc view.lens', () => {
+    const d = doc([node('c1', 'pid')], { view: { lens: 'reliability' } } as Partial<ModelDoc>)
+    expect(activeLensId(d, null, {})).toBe('reliability') // no override → view.lens
+    expect(activeLensId(d, 'sub', { sub: 'metapop' })).toBe('metapop') // override wins
+  })
+
+  it('an absent override key falls through to the normal resolution', () => {
+    const d = drilled()
+    expect(activeLensId(d, 'sub', { other: 'reliability' })).toBe('control-systems')
+  })
+
+  it('the root override key is honored (defensive; the picker routes root to view.lens)', () => {
+    const d = doc([stock('water', ['tap'], []), node('tap', 'fixed')])
+    expect(activeLensId(d, null, { [ROOT_OVERRIDE_KEY]: 'decision' })).toBe('decision')
+  })
+})
+
 describe('withComputedRoles bridge', () => {
   it('fills in roles on a fully-untagged (imported-style) doc', () => {
     const d = doc([stock('water', ['tap'], []), node('tap', 'fixed')])
@@ -185,6 +217,28 @@ describe('withComputedRoles bridge', () => {
   it('leaves an already-tagged (authored) doc untouched — stored roles authoritative', () => {
     const tagged = doc([{ ...stock('water', ['tap'], []), lens_role: 'stock' } as FlatElement, node('tap', 'fixed')])
     expect(withComputedRoles(tagged, 'stock-flow')).toBe(tagged) // same reference: no clone
+  })
+})
+
+describe('metapop role precision — the scalar-coupling ambiguity is left to stored roles', () => {
+  const dims: ModelDoc['dimensions'] = [{ id: 'Node', name: 'Node', size: 2 }, { id: 'NodeB', name: 'NodeB', size: 2 }]
+  const arr = (id: string, over: string[]): FlatElement =>
+    ({ id, name: id, primitive: 'node', value_rule: 'expression', outputs: [{ name: id, unit: '1', dimensions: over }] } as unknown as FlatElement)
+
+  it('a square 2-D array is computed as `coupling`; a scalar weight is NOT (would collide with parameter)', () => {
+    // Untagged import: a matrix coupling is unambiguous, a scalar mixing weight is indistinguishable
+    // from β/γ — so the matrix gets `coupling` and the scalar is deliberately left unroled.
+    const d = doc([
+      stock('I', [], []),
+      arr('W', ['Node', 'NodeB']),        // square matrix → coupling
+      node('mix', 'fixed'),                // scalar weight → left to stored, not guessed
+      node('beta', 'fixed'),               // a plain parameter, also a scalar `fixed`
+    ], { dimensions: dims } as Partial<ModelDoc>)
+    const roles = computeRolesForLens(d, 'metapop')
+    expect(roles.get('W')).toBe('coupling')
+    expect(roles.get('I')).toBe('compartment')
+    expect(roles.has('mix')).toBe(false)   // structurally identical to `beta` — cannot be guessed
+    expect(roles.has('beta')).toBe(false)
   })
 })
 

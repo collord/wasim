@@ -3,6 +3,10 @@ import { useStore, useActiveLens, useLensList, type Mode } from '../../store'
 import { SettingsDialog } from './SettingsDialog'
 import type { LensId } from '../../lenses/types'
 
+// Sentinel <option> value for "return this container to automatic detection" — distinct from any
+// real (kebab-case) lens id.
+const AUTO_DETECT = '__auto__'
+
 /** Top toolbar (spec §1.1): file ops, run, undo/redo, and the Edit│Result mode switch. */
 export function Toolbar() {
   const newModel = useStore((s) => s.newModel)
@@ -21,6 +25,13 @@ export function Toolbar() {
   const hasDoc = useStore((s) => !!s.doc)
   const activeLens = useActiveLens()
   const setLens = useStore((s) => s.setLens)
+  const setContainerLens = useStore((s) => s.setContainerLens)
+  const clearContainerLens = useStore((s) => s.clearContainerLens)
+  const activeContainerId = useStore((s) => s.activeContainerId)
+  // Whether the drilled container has a manual override (vs. following auto-detection). Drives the
+  // "Auto-detect" affordance and the picker's ● marker.
+  const hasContainerOverride = useStore((s) =>
+    s.activeContainerId != null && s.activeContainerId in s.lensOverrides)
   const lenses = useLensList()
   const importLens = useStore((s) => s.importLens)
   const removeCustomLens = useStore((s) => s.removeCustomLens)
@@ -76,13 +87,27 @@ export function Toolbar() {
 
       {hasDoc && (
         <div className="flex items-center gap-1 text-[11px] text-slate-500">
-          <label className="flex items-center gap-1" title="Authoring lens — reprograms the palette and validation for a domain">
-            <span className="text-slate-400">Lens</span>
+          <label className="flex items-center gap-1"
+            title={activeContainerId != null
+              ? 'Authoring lens — applies to this drilled submodel only (root sets the doc default). Pick "Auto-detect" to follow the inferred lens.'
+              : 'Authoring lens — reprograms the palette and validation for a domain'}>
+            <span className="text-slate-400">
+              Lens{activeContainerId != null ? ' (here)' : ''}
+              {hasContainerOverride ? <span title="Manually set for this submodel (not auto-detected)"> ●</span> : ''}
+            </span>
             <select
               value={activeLens.id}
-              onChange={(e) => setLens(e.target.value as LensId)}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === AUTO_DETECT) clearContainerLens()
+                else setContainerLens(v as LensId)
+              }}
               className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs font-medium text-slate-700"
             >
+              {/* Only meaningful inside a drilled container: return it to automatic hinting. */}
+              {activeContainerId != null && (
+                <option value={AUTO_DETECT}>Auto-detect{hasContainerOverride ? '' : ` (${activeLens.label})`}</option>
+              )}
               {lenses.map((l) => (
                 <option key={l.id} value={l.id} title={l.tagline}>{l.label}</option>
               ))}
