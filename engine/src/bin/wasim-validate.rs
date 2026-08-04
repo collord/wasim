@@ -7,11 +7,16 @@
 //! because that module is `#[cfg(target_arch = "wasm32")]`-gated and unavailable off-wasm.
 //!
 //! Usage:
-//!   wasim-validate <model.json>          # validate; exit 0 if clean, 1 if errors
-//!   wasim-validate <model.json> --run    # also run a quick sim + print a compact summary
-//!   cat model.json | wasim-validate -    # read from stdin
+//!   wasim-validate <model.json>            # validate; exit 0 if clean, 1 if errors
+//!   wasim-validate <model.json> --run      # also run a quick sim + print a compact summary
+//!   wasim-validate <model.json> --trajectories  # --run + full per-step mean series
+//!   cat model.json | wasim-validate -      # read from stdin
 //!
-//! Always prints a JSON report to stdout: { ok, errors[], warnings[], topo[], run? }.
+//! Always prints a JSON report to stdout: { ok, errors[], warnings[], topo[], run?, trajectories? }.
+//! `--trajectories` adds `{ time_axis, time_unit, series: { <id>: [mean per step] } }` — the
+//! per-timestep mean of each history-saved element. For a deterministic import (n_realizations
+//! collapses to a single trajectory) the mean IS the trajectory, which is what the Vensim/XMILE
+//! differential harness (tools/mdl_challenge.py) compares against a reference simulator.
 
 use std::io::Read;
 use wasim_engine::{parse_v2, run_v2, units, ModelGraphV2, RunConfig, TimebaseMode, UnitsMode};
@@ -48,7 +53,8 @@ fn main() {
         eprintln!("usage: wasim-validate <model.json|-> [--run]");
         std::process::exit(2);
     }
-    let want_run = args.iter().any(|a| a == "--run");
+    let want_traj = args.iter().any(|a| a == "--trajectories");
+    let want_run = want_traj || args.iter().any(|a| a == "--run");
 
     let json = match read_input(&args[1]) {
         Ok(s) => s,
@@ -62,6 +68,7 @@ fn main() {
     let mut warnings: Vec<String> = Vec::new();
     let mut topo: Vec<String> = Vec::new();
     let mut run_summary: Option<String> = None;
+    let mut trajectories: Option<serde_json::Value> = None;
 
     match parse_v2(&json) {
         Ok(model) => {
@@ -71,7 +78,12 @@ fn main() {
                     topo = graph.topo_order.clone();
                     if want_run {
                         match run_v2(&model, &graph, &quick_config()) {
-                            Ok(results) => run_summary = Some(summarize_run(&results)),
+                            Ok(results) => {
+                                run_summary = Some(summarize_run(&results));
+                                if want_traj {
+                                    trajectories = Some(dump_trajectories(&results));
+                                }
+                            }
                             Err(e) => errors.push(format!("run error: {e}")),
                         }
                     }
@@ -104,6 +116,7 @@ fn main() {
         "warnings": warnings,
         "topo": topo,
         "run": run_summary.map(|s| serde_json::from_str::<serde_json::Value>(&s).unwrap_or(serde_json::Value::Null)),
+        "trajectories": trajectories,
     });
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
     std::process::exit(if ok { 0 } else { 1 });
@@ -135,4 +148,23 @@ fn summarize_run(results: &wasim_engine::SimulationResults) -> String {
         "final_value_summary": outputs,
     }))
     .unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Full per-timestep mean series for every history-saved element, plus the time axis.
+/// For a deterministic import the mean over realizations equals the single trajectory, so this
+/// is the panel the differential harness (tools/mdl_challenge.py) diffs against a reference
+/// simulator such as pysimlin. Elements without a saved time history (e.g. fixed scalars) are
+/// omitted; the harness matches on the intersection of names it can align.
+fn dump_trajectories(results: &wasim_engine::SimulationResults) -> serde_json::Value {
+    let mut series = serde_json::Map::new();
+    for (id, er) in &results.elements {
+        if let Some(th) = &er.time_history {
+            series.insert(id.clone(), serde_json::json!(th.mean));
+        }
+    }
+    serde_json::json!({
+        "time_axis": results.time_axis,
+        "time_unit": results.time_unit,
+        "series": series,
+    })
 }

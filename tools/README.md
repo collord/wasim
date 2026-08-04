@@ -345,3 +345,32 @@ element-producing builtins, and apply-to-all arrays.
 python3 tools/test_xmile_to_wasim.py            # parser + emitter + lowering + schema (stdlib + jsonschema)
 cargo test -p wasim-engine --test xmile_teacup_v2   # numeric acceptance in the engine
 ```
+
+---
+
+# `mdl_challenge.py` — Vensim `.mdl` → WaSiM, diffed against pysimlin
+
+Challenges the WaSiM engine with a real Vensim `.mdl` (or XMILE) model by round-tripping it
+through the XMILE importer and diffing the resulting WaSiM trajectory against a reference
+simulator — the way simlin's `build_notebook.py` exercises the simlin engine. **No native
+`.mdl` parser**: `pysimlin.load()` converts `.mdl → XMILE` (via `xmutil`, exactly as simlin
+does) and also serves as the reference oracle. See `VENSIM_MDL_IMPORT_SCOUT.md` for the full
+pathway analysis.
+
+```
+.mdl ─pysimlin─▶ XMILE ─xmile_to_wasim.py─▶ model.json ─wasim-validate --trajectories─▶ diff vs pysimlin
+```
+
+```bash
+pip install pysimlin
+(cd engine && cargo build --release --bin wasim-validate)   # adds --trajectories mode
+python3 tools/mdl_challenge.py tools/fixtures/teacup.mdl --tol 1e-3
+python3 tools/mdl_challenge.py tools/fixtures/SIR.mdl
+python3 tools/mdl_challenge.py tools/fixtures/Lotka_Volterra.mdl
+```
+
+Prints a per-variable `max_abs_err` table and exits non-zero if any aligned variable exceeds
+`--tol` (CI-ready over a corpus). On the SDXorg canonical models teacup/SIR/Lotka-Volterra,
+every variable matches pysimlin to floating-point precision (worst ~1e-11). Fixtures
+`tools/fixtures/{teacup,SIR,Lotka_Volterra}.mdl` are from
+[SDXorg/test-models](https://github.com/SDXorg/test-models) (`samples/`).
