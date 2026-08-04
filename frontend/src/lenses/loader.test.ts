@@ -169,3 +169,29 @@ describe('picker', () => {
     expect(listLenses().map((l) => l.id)).toEqual(['stock-flow', 'reliability', 'decision', 'metapop', 'general'])
   })
 })
+
+describe('computed-role injection (imported/untagged models)', () => {
+  const SUMMARY = {} as unknown as import('../types').ModelSummary
+  // A reliability model with NO stored lens_role — as an emitter would produce it.
+  const untaggedReliability = (): ModelDoc =>
+    ({
+      wasim_version: '0.1.0',
+      simulation_settings: { duration: { value: 20, unit: 's' }, timestep: { value: 1, unit: 's' } },
+      elements: [
+        { id: 'damage', name: 'Damage', primitive: 'stock', initial_value: { value: 0, unit: '1' }, inflows: ['wear'], outflows: [] },
+        { id: 'wear', name: 'Wear', primitive: 'node', value_rule: 'fixed', value: { value: 0.1, unit: '1' } },
+        { id: 'fail', name: 'Failure', primitive: 'event', trigger: { mode: 'on_condition' }, inputs: ['damage'] },
+      ],
+    } as unknown as ModelDoc)
+
+  it("reliability invariants pass on an untagged model (roles injected, no 'no components' warning)", () => {
+    const warnings = resolveLens('reliability').invariants!(SUMMARY, untaggedReliability())
+    expect(warnings).toEqual([])
+  })
+
+  it('does not mutate the input doc (injection is on a transient clone)', () => {
+    const d = untaggedReliability()
+    resolveLens('reliability').invariants!(SUMMARY, d)
+    expect(d.elements.every((e) => e.lens_role === undefined)).toBe(true)
+  })
+})
