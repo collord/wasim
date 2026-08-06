@@ -147,27 +147,35 @@ about the WaSiM engine, so read them layered, not as one PASS rate:
 | **Not benchmarkable — upstream** | **39** | pysimlin/xmutil *itself* can't load (17) or simulate (22) the model. The reference oracle doesn't exist, so WaSiM can't be scored. Not a WaSiM signal. |
 | **Not measured — harness** | **43** | WaSiM ran, but the harness couldn't align names: **39 array/subscript** models (dimensioned member ids vs `name[sub]` columns) + **4 constant-only** models (no saved trajectory). A measurement gap, not an engine gap. |
 | **Measurable dynamic-scalar** | **72** | the models where the comparison is meaningful ↓ |
-| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **44** | WaSiM reproduces pysimlin to floating-point precision |
-| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **27** | root-caused to a short builtin list below |
-| &nbsp;&nbsp;• **WaSiM engine reject** | **1** | `test_active_initial_circular` — see backlog #5 |
+| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **50** | WaSiM reproduces pysimlin to floating-point precision |
+| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **21** | root-caused to a short list below |
+| &nbsp;&nbsp;• **WaSiM engine reject** | **1** | `test_active_initial_circular` — see backlog #3 |
 
-**On the 72 measurable models, WaSiM matches an independent engine on 44 = 61%** — and the
-27 misses are not 27 different problems. They collapse to **six importer constructs**, all in
-`xmile_to_wasim.py` (the engine is not implicated):
+**On the 72 measurable models, WaSiM matches an independent engine on 50 = 69%** (was 44/61%
+before the builtin work below). The remaining 21 misses are not 21 different problems — they
+collapse to a **short importer-construct list**, all in `xmile_to_wasim.py` (the engine is not
+implicated except where noted):
 
 | # | Construct (Vensim/XMILE builtin) | FAIL models | Effort | Note |
 |---|---|---:|---|---|
-| 1 | **`<macro>`** user functions (`EXPRESSION_MACRO`) | 6 | hard | `macro_*` tests; inline-expand simple single-`<eqn>` macros (scout §2). Biggest single lever. |
-| 2 | **`LOOKUP(table,x)`** function form | 4 | **easy** | `test_lookups*`, `workforce`. WaSiM already has `lookup_call`; xmutil emits a bare `LOOKUP` call the importer doesn't map. In `workforce` one unmapped `LOOKUP` → `extern_call`→0 poisons all 15 downstream vars. High value. |
-| 3 | **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`SMTH3`/`TREND` | 4 | medium | `test_delay_fixed` (worst 4.7e6), `test_smooth_and_stock`, `test_trend` (already 0.084 — nearly passing). Known from scout §2 — each is a macro-expansion into stocks/EMAs. |
-| 4 | **Safe-divide** `XIDZ`/`ZIDZ`/`SAFEDIV` | 3 | **trivial** | `xidz_zidz`, `test_subscripted_xidz`. `xidz(a,b,x) = if b==0 then x else a/b`. |
-| 5 | **`INIT` / `ACTIVE INITIAL` / `RAMP`** | 3 | medium | `test_active_initial{,_circular}`, `test_initial`. `ACTIVE INITIAL(active,init)` breaks a t=0 init loop — unmapped, so the circular one is the lone **engine reject** (WaSiM correctly refuses the unbroken cycle). Mapping it fixes both the drift and the reject. |
-| 6 | **Rounding** `INTEGER`/`MODULO` | 1 | **trivial** | `test_rounding` → `int`/`mod`. |
+| 1 | **`<macro>`** user functions (`EXPRESSION_MACRO`/`SECOND_MACRO`) | 6 | hard | `test_macro_*`; inline-expand simple single-`<eqn>` macros (scout §2). Now the biggest single lever. |
+| 2 | **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`SMTH3`/`TREND` | 4 | medium | `test_delay_fixed` (worst 4.7e6), `test_smooth_and_stock`, `test_delay_parentheses`, `test_trend` (already 0.084 — nearly passing). Each is a macro-expansion into stocks/EMAs (scout §2). |
+| 3 | **`INIT` / `ACTIVE INITIAL` / `RAMP`** | 3 | medium | `test_active_initial{,_circular}`, `test_initial`, `test_inputs`. `ACTIVE INITIAL(active,init)` breaks a t=0 init loop — unmapped, so the circular one is the lone **engine reject** (WaSiM correctly refuses the unbroken cycle). Mapping it fixes both the drift and the reject. |
+| — | array/subscript semantics | ~4 | (see harness note) | `test_elm_count` (`ELMCOUNT`), `test_except`, `test_subscript_definition`, `test_repeated_subscript` — array-side, tied to `XMILE_MAPPING_SCOUT.md §1`. |
+| — | `SAMPLE IF TRUE`, `Single_Pendulum` | 2 | mixed | `sample_if_true` = per-step sample-and-hold (unmapped). `Single_Pendulum` (worst 1e3) is likely genuine **Euler-vs-RK numeric divergence**, not a builtin gap — SDXorg canonical CSV would confirm. |
 
-Plus `Single_Pendulum` (worst 1e3) — likely genuine **Euler-vs-RK numeric divergence**, not a
-builtin gap (the harness can't distinguish "wrong" from "Euler-approximated"; SDXorg canonical
-CSV would). Fixing constructs **1–4** clears ~17 of the 27 FAILs; **2, 4, 6** alone are a few
-hours and clear ~8.
+**✅ Done (this branch):** `LOOKUP` (+ the bare `<aux><gf/></aux>` no-`<eqn>` table shape it
+calls), safe-divide `ZIDZ`/`XIDZ`/`SAFEDIV`, and `INTEGER`/`MODULO`. Six models flipped
+FAIL→PASS with zero regressions: `workforce` (one `LOOKUP`→0 was poisoning all 15 downstream
+vars), `test_lookups`, `test_lookups_without_range`, `test_subscripted_lookups`,
+`test_subscripted_xidz`, `xidz_zidz`.
+
+**⚠️ Oracle divergence, not a WaSiM bug — `test_rounding`.** The sweep lists it as FAIL, but
+the SDXorg **canonical Vensim output** (`output.tab`) shows WaSiM is *correct* and the pysimlin
+oracle is the one that's wrong: Vensim `INT` truncates toward zero (`INT(-9.9) = -9`) and `MOD`
+is C-style (`-10 MOD 3 = -1`) — exactly what WaSiM produces — whereas simlin floors both
+(`-10`, `2`). Left as-is; this is the concrete case that motivates adding the canonical CSV as
+a third comparison leg (§5 step 6), and a live demonstration that "== simlin" ≠ "== Vensim".
 
 Reproduce: `python3 tools/mdl_corpus_sweep.py <clone-of-SDXorg/test-models>`.
 
@@ -180,13 +188,14 @@ and exactly where the `XMILE_MAPPING_SCOUT.md §1` array-lowering work needs a s
 
 Ordered by leverage per §4a:
 
-1. **`LOOKUP` + safe-divide + rounding** (`xmile_to_wasim.py`). The trivial/easy tail of the
-   backlog (#2, #4, #6) — a few hours, clears ~8 FAILs, and `LOOKUP` alone de-poisons
-   cascades like `workforce`. Do this first.
-2. **`ACTIVE INITIAL` / `INIT` / `RAMP`** (#5). Fixes the drift *and* the one engine-reject
-   (`test_active_initial_circular`), since mapping `ACTIVE INITIAL` breaks the init cycle.
-3. **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`SMTH3`/`TREND` (#3). Macro-expansions into
-   stocks/EMAs per `XMILE_MAPPING_SCOUT.md §2`; `test_trend` is already at 0.084.
+1. ~~**`LOOKUP` + safe-divide + rounding**~~ — **done this branch** (+6 models, 61%→69%). See §4a
+   "Done". `LOOKUP` de-poisoned `workforce`; `INTEGER`/`MODULO` were already Vensim-correct
+   (the `test_rounding` FAIL is an oracle bug, not ours).
+2. **`ACTIVE INITIAL` / `INIT` / `RAMP`** (backlog #3). Fixes the drift *and* the one
+   engine-reject (`test_active_initial_circular`), since mapping `ACTIVE INITIAL` breaks the
+   init cycle. Next easiest win.
+3. **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`SMTH3`/`TREND` (backlog #2). Macro-expansions
+   into stocks/EMAs per `XMILE_MAPPING_SCOUT.md §2`; `test_trend` is already at 0.084.
 4. **Array-member alignment in the harness.** Unblocks the 39 unmeasured array models — the
    largest blind spot — and gives the array-lowering work (`XMILE_MAPPING_SCOUT.md §1`) a
    scoreboard. Higher effort than 1–3 but highest coverage payoff.

@@ -35,3 +35,4 @@ __pycache__/
 *.pyc
 
 openai_test.txt
+mdl_sweep_results.json
