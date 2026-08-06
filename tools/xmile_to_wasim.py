@@ -752,6 +752,16 @@ def _const_arg(node: Any) -> Optional[float]:
     return None
 
 
+def _safe_div(a: Any, b: Any, default: Any) -> dict:
+    """Guarded division `b==0 ? default : a/b` — the shared body of ZIDZ/XIDZ/SAFEDIV.
+    The divisor AST `b` is referenced twice (guard + quotient); harmless for the ref/const
+    args these builtins take in practice."""
+    return {"op": "if",
+            "cond": {"op": "eq", "left": b, "right": _lit(0.0)},
+            "then": default,
+            "else": {"op": "divide", "left": a, "right": b}}
+
+
 def lower_ast(node: Any, ctx: LowerCtx) -> Any:
     """Resolve `Call` sentinels to WaSiM AST, recursing into children first. May
     append sibling elements to `ctx.extras`. Non-Call nodes are walked so nested
@@ -819,6 +829,30 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
                          "right": {"op": "lt", "left": _elapsed(),
                                    "right": {"op": "add", "left": first, "right": _lit(ctx.dt)}}},
                 "then": area, "else": _lit(0.0)}
+
+    # --- rounding ---
+    if name == "integer" and len(args) == 1:    # Vensim INTEGER(x) → truncate toward zero
+        return {"op": "call", "fn": "int", "args": args}
+    if name in ("modulo", "mod") and len(args) == 2:  # MODULO(a, b)
+        return {"op": "call", "fn": "mod", "args": args}
+
+    # --- safe divide (Vensim ZIDZ/XIDZ, sometimes surfaced as SAFEDIV) ---
+    # ZIDZ(a,b)   = b==0 ? 0 : a/b
+    # XIDZ(a,b,x) = b==0 ? x : a/b   (SAFEDIV(a,b[,x]) — x defaults to 0)
+    if name == "zidz" and len(args) == 2:
+        return _safe_div(args[0], args[1], _lit(0.0))
+    if name in ("xidz", "safediv") and len(args) >= 2:
+        default = args[2] if len(args) >= 3 else _lit(0.0)
+        return _safe_div(args[0], args[1], default)
+
+    # --- graphical-function call: LOOKUP(table, x) → lookup_call on the table node ---
+    if name in ("lookup", "lookup_extrapolate", "with_lookup") and len(args) == 2:
+        tbl = args[0]
+        if isinstance(tbl, dict) and tbl.get("op") == "ref":
+            return {"op": "lookup_call", "element_id": tbl["element_id"], "input": args[1]}
+        warn(ctx.who, "XMILE-UNMAPPED-BUILTIN: LOOKUP's first argument is not a table "
+                      "reference; extern_call fallback.")
+        return {"op": "extern_call", "fn": name_raw, "args": args}
 
     # --- element-producing builtins ---
     if name == "previous" and len(args) >= 1:   # PREVIOUS(x[, init]) → lag node
@@ -1028,7 +1062,13 @@ def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
         base["save_results"] = {"final_value": True, "time_history": True}
         return base, extras
 
-    if v.kind == "gf":
+    # A standalone named graphical function → a `lookup` node. This covers both an explicit
+    # `v.kind == "gf"` and the shape xmutil emits for a bare Vensim lookup table: an
+    # `<aux name=…><gf>…</gf></aux>` with NO `<eqn>` (so `ast is None`). Without this second
+    # case the table would fall through to an empty aux (literal 0) and any `LOOKUP(table, x)`
+    # calling it would read 0. It must have a `<gf>` payload — a no-eqn/no-gf aux is a real
+    # empty variable, not a table.
+    if v.kind == "gf" or (v.gf is not None and ast is None):
         # Standalone named graphical function → lookup node.
         base["primitive"] = "node"
         base["value_rule"] = "lookup"
