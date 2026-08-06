@@ -388,9 +388,10 @@ python3 tools/mdl_corpus_sweep.py test-models      # → mdl_sweep_results.json 
 ```
 
 Latest run (154 `.mdl`): of the **72 measurable** dynamic-scalar models, WaSiM matches
-pysimlin on **50 (69%)** to floating-point precision; the remaining 21 misses collapse to a
-short list of importer constructs (`<macro>`, delay/smooth, `ACTIVE INITIAL`, some arrays).
-The other 82 models are upstream (39) or unaligned arrays/constants (43), not engine failures.
-`LOOKUP` + safe-divide are now mapped (+6 models vs the prior run); `test_rounding`'s FAIL is a
-simlin-vs-Vensim oracle divergence, not a WaSiM bug. Full breakdown + backlog in
+pysimlin on **53 (73%)** to floating-point precision; the remaining 18 misses collapse to a
+short list of importer constructs (`<macro>`, the delay/smooth family, some arrays). The other
+82 models are upstream (39) or unaligned arrays/constants (43), not engine failures. Mapped on
+this branch (+9 models): `LOOKUP`, safe-divide (`ZIDZ`/`XIDZ`/`SAFEDIV`), `INTEGER`/`MODULO`,
+`INIT`, `ACTIVE INITIAL`, 3-arg `RAMP`. `test_rounding`'s FAIL is a simlin-vs-Vensim oracle
+divergence (WaSiM matches the Vensim canonical), not a WaSiM bug. Full breakdown + backlog in
 `VENSIM_MDL_IMPORT_SCOUT.md §4a`.
