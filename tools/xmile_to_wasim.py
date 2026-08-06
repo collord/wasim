@@ -97,6 +97,7 @@ class IRVar:
     raw_name: str                   # XMILE name attribute (may contain spaces)
     scope: tuple[str, ...]          # module path, e.g. ("Main",)
     eqn: Optional[str] = None
+    init_eqn: Optional[str] = None  # ACTIVE INITIAL: distinct t=0 equation (xmutil <init_eqn>)
     inflows: list[str] = field(default_factory=list)   # raw (possibly quoted) names
     outflows: list[str] = field(default_factory=list)
     gf: Optional["IRGf"] = None     # embedded or standalone graphical function
@@ -230,6 +231,7 @@ def _parse_variables(vars_elem: ET.Element, scope: tuple[str, ...],
             raw_name=name,
             scope=scope,
             eqn=_text(_find(child, "eqn")) or None,
+            init_eqn=_text(_find(child, "init_eqn")) or None,
             inflows=[_text(e) for e in _findall(child, "inflow")],
             outflows=[_text(e) for e in _findall(child, "outflow")],
             non_negative=_find(child, "non_negative") is not None,
@@ -814,12 +816,20 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
         return {"op": "if",
                 "cond": {"op": "gte", "left": _elapsed(), "right": t0},
                 "then": height, "else": _lit(0.0)}
-    if name == "ramp" and len(args) >= 2:       # RAMP(slope, t0)
+    if name == "ramp" and len(args) == 2:       # RAMP(slope, start) — open-ended ramp
         slope, t0 = args[0], args[1]
         return {"op": "multiply", "left": slope,
                 "right": {"op": "call", "fn": "max",
                           "args": [_lit(0.0),
                                    {"op": "subtract", "left": _elapsed(), "right": t0}]}}
+    if name == "ramp" and len(args) >= 3:       # RAMP(slope, start, end) — ramp then hold
+        slope, start, end = args[0], args[1], args[2]
+        # slope * max(0, min(elapsed, end) - start): 0 before start, ramps between, flat after.
+        clamped = {"op": "call", "fn": "min", "args": [_elapsed(), end]}
+        return {"op": "multiply", "left": slope,
+                "right": {"op": "call", "fn": "max",
+                          "args": [_lit(0.0),
+                                   {"op": "subtract", "left": clamped, "right": start}]}}
     if name == "pulse" and len(args) >= 2:      # PULSE(magnitude, first) — one-step spike
         mag, first = args[0], args[1]
         area = {"op": "divide", "left": mag, "right": _lit(ctx.dt)}
@@ -855,6 +865,8 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
         return {"op": "extern_call", "fn": name_raw, "args": args}
 
     # --- element-producing builtins ---
+    if name == "init" and len(args) == 1:       # INIT(x) → value of x at t=0, held constant
+        return _emit_init(args[0], ctx)
     if name == "previous" and len(args) >= 1:   # PREVIOUS(x[, init]) → lag node
         return _emit_lag(args, ctx)
     if name in ("smth1", "smooth", "smooth1") and len(args) >= 2:  # SMTH1(in, τ[, init])
@@ -866,6 +878,20 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
     warn(ctx.who, f"XMILE-UNMAPPED-BUILTIN: '{name_raw}' has no mapping; emitted as "
                   f"extern_call (engine evaluates 0.0, args preserved).")
     return {"op": "extern_call", "fn": name_raw, "args": args}
+
+
+def _emit_init(inp: Any, ctx: LowerCtx) -> dict:
+    """INIT(x) → the value of x at t=0, held for the whole run. Modeled as a flow-free stock
+    whose `initial_value` expression is x: WaSiM evaluates it once at t=0 (in initialization
+    order) and, with no inflows/outflows, the level never changes. Exact for INIT."""
+    node = {"id": ctx.synth_id("init"), "name": "init", "primitive": "stock",
+            "initial_value": {"ast": inp, "source": "inferred"},
+            "inflows": [], "outflows": [],
+            "save_results": {"final_value": True, "time_history": True}}
+    if ctx.container():
+        node["container"] = ctx.container()
+    ctx.extras.append(node)
+    return {"op": "ref", "element_id": node["id"]}
 
 
 def _emit_lag(args: list[Any], ctx: LowerCtx) -> dict:
@@ -1004,9 +1030,21 @@ def _const_value(ast: Any) -> Optional[float]:
     return None
 
 
+def _subst_refs(ast: Any, repl: dict[str, Any]) -> Any:
+    """Deep-copy `ast`, replacing every `ref{element_id in repl}` with repl[element_id]."""
+    if isinstance(ast, dict):
+        if ast.get("op") == "ref" and ast.get("element_id") in repl:
+            return json.loads(json.dumps(repl[ast["element_id"]]))
+        return {k: _subst_refs(x, repl) for k, x in ast.items()}
+    if isinstance(ast, list):
+        return [_subst_refs(x, repl) for x in ast]
+    return ast
+
+
 def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
                  interior: Optional[dict[str, str]] = None,
-                 dimensioned: Optional[set[str]] = None) -> tuple[dict, list[dict]]:
+                 dimensioned: Optional[set[str]] = None,
+                 active_initial_inits: Optional[dict[str, Any]] = None) -> tuple[dict, list[dict]]:
     """Emit the WaSiM element(s) for one IRVar. Returns (primary, extras).
     `interior` (interior-id -> submodel-id) lets cross-submodel reads become
     `submodel_stat` (see resolve_refs). `dimensioned` is the set of qualified ids
@@ -1042,6 +1080,12 @@ def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
 
     if v.kind == "stock":
         base["primitive"] = "stock"
+        # ACTIVE INITIAL(active, init): a stock initialized from such a variable must see the
+        # variable's INIT equation, not its active value at t=0 (Vensim initializes stocks with
+        # the init equation, while the variable itself reports `active`). Substitute those refs
+        # inside the stock's initial-value expression only.
+        if active_initial_inits and ast is not None:
+            ast = _subst_refs(ast, active_initial_inits)
         init = _const_value(ast) if ast is not None else None
         if init is not None:
             base["initial_value"] = _q(init, unit)          # constant initial
@@ -1259,10 +1303,26 @@ def convert(xml_text: str, model_name: Optional[str] = None) -> dict:
     # Qualified ids of dimensioned (array) variables — used to decide vector_map wrap.
     dimensioned = {v.qual_id for v in model.variables if v.dims}
 
+    # ACTIVE INITIAL variables: qualified id → lowered init equation. A stock initialized from
+    # one of these must use the init equation (Vensim seeds stocks with it); the variable itself
+    # still reports its active `<eqn>`. Collected up front so stock emission can substitute.
+    active_initial_inits: dict[str, Any] = {}
+    for v in model.variables:
+        if v.init_eqn is None:
+            continue
+        iast, ierr = parse_eqn(v.init_eqn)
+        if ierr is not None:
+            warn(v.qual_id, f"XMILE-ACTIVE-INITIAL: could not parse init_eqn "
+                            f"'{v.init_eqn}': {ierr}; init ignored.")
+            continue
+        iast = resolve_refs(iast, v.scope, resolver, v.qual_id, interior)
+        active_initial_inits[v.qual_id] = lower_ast(iast, LowerCtx(who=v.qual_id, dt=model.sim.dt, scope=v.scope))
+
     elements: list[dict] = []
     for v in model.variables:
         try:
-            primary, extras = emit_element(v, resolver, model.sim, interior, dimensioned)
+            primary, extras = emit_element(v, resolver, model.sim, interior, dimensioned,
+                                           active_initial_inits)
         except Exception as e:  # noqa: BLE001
             warn(v.qual_id or v.raw_name, f"internal error emitting element: {e}; skipped.")
             continue
