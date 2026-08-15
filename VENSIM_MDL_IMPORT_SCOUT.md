@@ -173,16 +173,37 @@ implicated except where noted):
   in stock initial-value expressions), 3-arg `RAMP(slope, start, end)`: flipped `test_initial`,
   `test_active_initial`, `test_inputs`.
 
-**⏳ Deferred — delay/smooth family (backlog #2).** Doing this *correctly* means replacing the
-current approximate EMA-`filter` `SMTH1` (which also has a unit test locking it in, and only
-handles constant τ + a ref input) with exact **stock-based** expansions: first-order info
-smooth `SMTH1` = a stock with rate `(input−S)/τ`; `SMTH3` = three in series at τ/3; material
-delays `DELAY1`/`DELAY3` = level stocks with `outflow=L/D`; and the FIXED `DELAY(in, d, init)`
-= a transit delay (`convolution`), including cases with a *variable* delay time
-(`DELAY(x, 2+2·SIN(TIME), …)`) that a fixed offset can't express. These are numerically
-sensitive (init conventions, cascade τ-splitting, material-vs-information semantics), so they
-belong in a dedicated, per-model-validated pass rather than rushed — the scout's "never silent
-wrong numbers" bar applies most sharply here.
+**⏳ Deferred — delay/smooth family (backlog #2), blocked by an engine first-step behavior.**
+The right mapping is exact **stock-based** expansions (per `XMILE_MAPPING_SCOUT.md §2`):
+first-order info smooth `SMTH1` = a stock with rate `(input−S)/τ`; `SMTH3` = three in series at
+τ/3; material delays `DELAY1`/`DELAY3` = level stocks with `outflow=L/D`. This was prototyped
+and **works exactly for constant inputs** (`SMTH1(100,2)` → worst 0), and the stock-based
+`SMTH1` even makes `test_active_initial_circular` *run* instead of cycle-rejecting. But for a
+smooth/delay driven by another **stock**, it is wrong at t=0, and the cause is an engine
+behavior, not the importer:
+
+> **Engine finding (minimal repro).** A flow/rate node that references the stock it feeds
+> (a self-referential rate — which *every* first-order smooth/delay is) has its **entire input
+> subgraph evaluated at the previous step**. At t=0 those "previous" values are 0 — *except* the
+> flow's own stock, which is correctly seeded with its initial. So a rate `(input − S)/τ` reads
+> `input` as 0 on the first step whenever `input` is another stock (or depends on one),
+> producing a one-step initialization error that then decays. Teacup is immune only because its
+> one non-self input (`Room Temperature`) is a constant.
+>
+> Repro (`wasim-validate --trajectories`): stock `A=4` (constant), aux `m = A`, stock `S` init
+> 4 with inflow `rate=(m−S)/2`. Expected `S≡4`; the engine gives `S = 2, 1, 2.5, …` because `m`
+> reads 0 at t=0. A plain `rate = A` used as an inflow shows the same `[0, 4, 4]` first step.
+>
+> **Fix (engine-side):** seed the first-step "previous" value of every stock reference inside a
+> deferred (self-referential) flow with that stock's initial value — the same seeding the
+> flow's own stock already gets. This unblocks the whole delay/smooth family *and* is a
+> correctness fix for any real SD model whose flow reads a second stock on the first step.
+
+Because shipping the importer expansion without that engine fix would emit silent wrong numbers
+(the one bar the converter must never cross), the stock-based mapping is **held** until the
+engine seeds cross-stock first-step values. The FIXED `DELAY(in, d, init)` (transit delay, incl.
+*variable* delay times like `DELAY(x, 2+2·SIN(TIME), …)`) and `TREND` are separate items on top
+of that fix.
 
 **⚠️ Oracle divergence, not a WaSiM bug — `test_rounding`.** The sweep lists it as FAIL, but
 the SDXorg **canonical Vensim output** (`output.tab`) shows WaSiM is *correct* and the pysimlin
@@ -210,11 +231,12 @@ Ordered by leverage per §4a:
    engine cycle-reject: an algebraic loop through a first-order `SMTH1` that needs the smooth's
    input excluded from the topo order — folded into the delay/smooth rework (next), since a
    stock-based `SMTH1` is exactly what breaks that loop.
-3. **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`DELAY3`/`SMTH1`/`SMTH3`/`TREND` (backlog #2).
-   Replace the approximate EMA-`filter` `SMTH1` with exact stock-based expansions per
-   `XMILE_MAPPING_SCOUT.md §2`; validate each against the reference (and canonical CSV). A
-   stock-based `SMTH1` also resolves the circular `ACTIVE INITIAL` reject. `test_trend` is
-   already at 0.084. **Deferred as a dedicated pass — see §4a "Deferred".**
+3. **Engine fix, then delay/smooth family** (backlog #2). First seed cross-stock first-step
+   values inside self-referential flows (the engine finding in §4a "Deferred" — a small, well-
+   scoped engine change with a minimal repro). *Then* the stock-based `SMTH1`/`SMTH3`/
+   `DELAY1`/`DELAY3` expansions (already prototyped) become exact and can land, also resolving
+   the circular `ACTIVE INITIAL` reject. FIXED `DELAY` (transit/convolution) and `TREND` follow.
+   **Held until the engine fix — see §4a "Deferred".**
 4. **Array-member alignment in the harness.** Unblocks the 39 unmeasured array models — the
    largest blind spot — and gives the array-lowering work (`XMILE_MAPPING_SCOUT.md §1`) a
    scoreboard. Higher effort than 1–3 but highest coverage payoff.
