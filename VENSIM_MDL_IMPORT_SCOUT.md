@@ -173,37 +173,30 @@ implicated except where noted):
   in stock initial-value expressions), 3-arg `RAMP(slope, start, end)`: flipped `test_initial`,
   `test_active_initial`, `test_inputs`.
 
-**⏳ Deferred — delay/smooth family (backlog #2), blocked by an engine first-step behavior.**
-The right mapping is exact **stock-based** expansions (per `XMILE_MAPPING_SCOUT.md §2`):
-first-order info smooth `SMTH1` = a stock with rate `(input−S)/τ`; `SMTH3` = three in series at
-τ/3; material delays `DELAY1`/`DELAY3` = level stocks with `outflow=L/D`. This was prototyped
-and **works exactly for constant inputs** (`SMTH1(100,2)` → worst 0), and the stock-based
-`SMTH1` even makes `test_active_initial_circular` *run* instead of cycle-rejecting. But for a
-smooth/delay driven by another **stock**, it is wrong at t=0, and the cause is an engine
-behavior, not the importer:
+**✅ Done — delay/smooth family (backlog #2), via exact stock-based expansions.** `SMTH1(input,
+τ[, init])` → a stock `S` with rate `(input − S)/τ`, Euler-integrated (identical to Vensim);
+`SMTH3`/`SMTHN` → N first-order smooths in series at τ/N; `DELAY1`/`DELAY3`/`DELAYN` →
+material-delay level stocks with `outflow = L/D`, cascaded. `test_smooth_and_stock` → **worst 0**,
+and the stock-based `SMTH1` also makes `test_active_initial_circular` *run* (was a cycle-reject).
+Unlike the old EMA-`filter` `SMTH1` this handles **dynamic τ and any input expression**, not just
+constant τ + a bare ref.
 
-> **Engine finding (minimal repro).** A flow/rate node that references the stock it feeds
-> (a self-referential rate — which *every* first-order smooth/delay is) has its **entire input
-> subgraph evaluated at the previous step**. At t=0 those "previous" values are 0 — *except* the
-> flow's own stock, which is correctly seeded with its initial. So a rate `(input − S)/τ` reads
-> `input` as 0 on the first step whenever `input` is another stock (or depends on one),
-> producing a one-step initialization error that then decays. Teacup is immune only because its
-> one non-self input (`Room Temperature`) is a constant.
->
-> Repro (`wasim-validate --trajectories`): stock `A=4` (constant), aux `m = A`, stock `S` init
-> 4 with inflow `rate=(m−S)/2`. Expected `S≡4`; the engine gives `S = 2, 1, 2.5, …` because `m`
-> reads 0 at t=0. A plain `rate = A` used as an inflow shows the same `[0, 4, 4]` first step.
->
-> **Fix (engine-side):** seed the first-step "previous" value of every stock reference inside a
-> deferred (self-referential) flow with that stock's initial value — the same seeding the
-> flow's own stock already gets. This unblocks the whole delay/smooth family *and* is a
-> correctness fix for any real SD model whose flow reads a second stock on the first step.
+> **False alarm, corrected.** An earlier version of this note reported an "engine first-step
+> initialization blocker" (a self-referential flow reading another stock as 0 at t=0). That was
+> wrong: the fault was in the *prototype importer*, whose synthesized rate/outflow nodes omitted
+> the `inputs` field. Without `inputs` the dependency graph can order a node **before** the
+> stocks it reads, so it saw a stale/zero value. Populating `inputs` (via `_collect_refs`, exactly
+> as the main emitter already does for every expression node) fixes it entirely — a **pure
+> importer change, no engine change**. The minimal "repro" fixture was itself an invalid model
+> (missing `inputs`) and has been removed. Lesson: every synthesized expression node must carry
+> `inputs`, or topo ordering silently breaks.
 
-Because shipping the importer expansion without that engine fix would emit silent wrong numbers
-(the one bar the converter must never cross), the stock-based mapping is **held** until the
-engine seeds cross-stock first-step values. The FIXED `DELAY(in, d, init)` (transit delay, incl.
-*variable* delay times like `DELAY(x, 2+2·SIN(TIME), …)`) and `TREND` are separate items on top
-of that fix.
+**Still open in this family** (separate items, not blockers): the FIXED `DELAY(in, d, init)`
+transit delay — especially with a *variable* delay time like `DELAY(x, 2+2·SIN(TIME), …)` that a
+fixed offset can't express — and `TREND` (composed from a smooth; `test_trend` sits at 0.084).
+Also `test_active_initial_circular` now runs but is off by exactly its `ACTIVE INITIAL` init
+value (1.0): a **cyclic non-stock** `ACTIVE INITIAL` needs the init to seed the variable's own
+t=0 value inside the loop, which the stock-only substitution (§4a "Done") doesn't cover.
 
 **⚠️ Oracle divergence, not a WaSiM bug — `test_rounding`.** The sweep lists it as FAIL, but
 the SDXorg **canonical Vensim output** (`output.tab`) shows WaSiM is *correct* and the pysimlin
