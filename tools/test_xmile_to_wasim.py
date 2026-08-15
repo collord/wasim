@@ -193,13 +193,32 @@ check("PREVIOUS → lag node emitted + host refs it",
       and _ctx.extras[0]["input"] == "Main/x"
       and _ctx.extras[0]["initial"]["value"] == 3.0)
 
-# SMTH1 → filter/ema with τ→steps window
+# SMTH1 → first-order stock with rate (input − S)/τ; the rate node carries `inputs`
 X.reset_warnings()
 _ctx = X.LowerCtx(who="Main/host", dt=0.25, scope=("Main",))
 res = X.lower_call("smth1", [ref, {"op": "literal", "value": 1.0}], _ctx)
-check("SMTH1 → filter/ema, window = round(τ/dt)",
-      res["op"] == "ref" and _ctx.extras[0]["value_rule"] == "filter"
-      and _ctx.extras[0]["statistic"] == "ema" and _ctx.extras[0]["window"] == 4)
+_stock = [e for e in _ctx.extras if e.get("primitive") == "stock"][0]
+_rate = [e for e in _ctx.extras if e.get("id") == _stock["inflows"][0]][0]
+check("SMTH1 → first-order stock, rate = (input − S)/τ with inputs populated",
+      res["op"] == "ref" and res["element_id"] == _stock["id"]
+      and _stock["primitive"] == "stock" and _rate["value_rule"] == "expression"
+      and _rate["expression"]["ast"]["right"]["value"] == 1.0
+      and _stock["id"] in _rate["inputs"] and ref["element_id"] in _rate["inputs"])
+
+# SMTH3 → three first-order smooth stocks in series
+X.reset_warnings()
+_ctx = X.LowerCtx(who="Main/host", dt=0.25, scope=("Main",))
+res = X.lower_call("smth3", [ref, {"op": "literal", "value": 3.0}], _ctx)
+check("SMTH3 → 3 first-order stocks in series",
+      res["op"] == "ref" and sum(e.get("primitive") == "stock" for e in _ctx.extras) == 3)
+
+# DELAY1 → material-delay level stock with one inflow + outflow=L/D
+X.reset_warnings()
+_ctx = X.LowerCtx(who="Main/host", dt=0.25, scope=("Main",))
+res = X.lower_call("delay1", [ref, {"op": "literal", "value": 2.0}], _ctx)
+_stock = [e for e in _ctx.extras if e.get("primitive") == "stock"][0]
+check("DELAY1 → material-delay stock (one inflow, one outflow=L/D)",
+      res["op"] == "ref" and len(_stock["inflows"]) == 1 and len(_stock["outflows"]) == 1)
 
 # per-step random → sample node with resampling always
 X.reset_warnings()

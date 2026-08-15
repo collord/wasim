@@ -97,7 +97,6 @@ class IRVar:
     raw_name: str                   # XMILE name attribute (may contain spaces)
     scope: tuple[str, ...]          # module path, e.g. ("Main",)
     eqn: Optional[str] = None
-    init_eqn: Optional[str] = None  # ACTIVE INITIAL: distinct t=0 equation (xmutil <init_eqn>)
     inflows: list[str] = field(default_factory=list)   # raw (possibly quoted) names
     outflows: list[str] = field(default_factory=list)
     gf: Optional["IRGf"] = None     # embedded or standalone graphical function
@@ -231,7 +230,6 @@ def _parse_variables(vars_elem: ET.Element, scope: tuple[str, ...],
             raw_name=name,
             scope=scope,
             eqn=_text(_find(child, "eqn")) or None,
-            init_eqn=_text(_find(child, "init_eqn")) or None,
             inflows=[_text(e) for e in _findall(child, "inflow")],
             outflows=[_text(e) for e in _findall(child, "outflow")],
             non_negative=_find(child, "non_negative") is not None,
@@ -816,20 +814,12 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
         return {"op": "if",
                 "cond": {"op": "gte", "left": _elapsed(), "right": t0},
                 "then": height, "else": _lit(0.0)}
-    if name == "ramp" and len(args) == 2:       # RAMP(slope, start) — open-ended ramp
+    if name == "ramp" and len(args) >= 2:       # RAMP(slope, t0)
         slope, t0 = args[0], args[1]
         return {"op": "multiply", "left": slope,
                 "right": {"op": "call", "fn": "max",
                           "args": [_lit(0.0),
                                    {"op": "subtract", "left": _elapsed(), "right": t0}]}}
-    if name == "ramp" and len(args) >= 3:       # RAMP(slope, start, end) — ramp then hold
-        slope, start, end = args[0], args[1], args[2]
-        # slope * max(0, min(elapsed, end) - start): 0 before start, ramps between, flat after.
-        clamped = {"op": "call", "fn": "min", "args": [_elapsed(), end]}
-        return {"op": "multiply", "left": slope,
-                "right": {"op": "call", "fn": "max",
-                          "args": [_lit(0.0),
-                                   {"op": "subtract", "left": clamped, "right": start}]}}
     if name == "pulse" and len(args) >= 2:      # PULSE(magnitude, first) — one-step spike
         mag, first = args[0], args[1]
         area = {"op": "divide", "left": mag, "right": _lit(ctx.dt)}
@@ -865,12 +855,25 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
         return {"op": "extern_call", "fn": name_raw, "args": args}
 
     # --- element-producing builtins ---
-    if name == "init" and len(args) == 1:       # INIT(x) → value of x at t=0, held constant
-        return _emit_init(args[0], ctx)
     if name == "previous" and len(args) >= 1:   # PREVIOUS(x[, init]) → lag node
         return _emit_lag(args, ctx)
     if name in ("smth1", "smooth", "smooth1") and len(args) >= 2:  # SMTH1(in, τ[, init])
         return _emit_smooth(args, ctx)
+    if name in ("smth3", "smooth3") and len(args) >= 2:           # SMTH3 = 3× SMTH1 @ τ/3
+        return _emit_smthn(args, ctx, 3)
+    if name in ("smthn", "smoothn") and len(args) >= 3:           # SMTHN(in, τ, n[, init])
+        n = _const_arg(args[2])
+        if n is not None and n == int(n) and n >= 1:
+            return _emit_smthn([args[0], args[1]] + args[3:4], ctx, int(n))
+    if name in ("delay1", "delay1i") and len(args) >= 2:          # DELAY1(in, D[, init])
+        init = args[2] if len(args) >= 3 else json.loads(json.dumps(args[0]))
+        return _emit_delay1(args[0], args[1], init, ctx)
+    if name in ("delay3", "delay3i") and len(args) >= 2:          # DELAY3 = 3× DELAY1 @ D/3
+        return _emit_delayn(args, ctx, 3)
+    if name == "delayn" and len(args) >= 3:                       # DELAYN(in, D, n[, init])
+        n = _const_arg(args[2])
+        if n is not None and n == int(n) and n >= 1:
+            return _emit_delayn([args[0], args[1]] + args[3:4], ctx, int(n))
     if name in _RANDOM_FN:                       # per-step random draw → sample node
         return _emit_random(name, args, ctx)
 
@@ -878,20 +881,6 @@ def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
     warn(ctx.who, f"XMILE-UNMAPPED-BUILTIN: '{name_raw}' has no mapping; emitted as "
                   f"extern_call (engine evaluates 0.0, args preserved).")
     return {"op": "extern_call", "fn": name_raw, "args": args}
-
-
-def _emit_init(inp: Any, ctx: LowerCtx) -> dict:
-    """INIT(x) → the value of x at t=0, held for the whole run. Modeled as a flow-free stock
-    whose `initial_value` expression is x: WaSiM evaluates it once at t=0 (in initialization
-    order) and, with no inflows/outflows, the level never changes. Exact for INIT."""
-    node = {"id": ctx.synth_id("init"), "name": "init", "primitive": "stock",
-            "initial_value": {"ast": inp, "source": "inferred"},
-            "inflows": [], "outflows": [],
-            "save_results": {"final_value": True, "time_history": True}}
-    if ctx.container():
-        node["container"] = ctx.container()
-    ctx.extras.append(node)
-    return {"op": "ref", "element_id": node["id"]}
 
 
 def _emit_lag(args: list[Any], ctx: LowerCtx) -> dict:
@@ -912,27 +901,99 @@ def _emit_lag(args: list[Any], ctx: LowerCtx) -> dict:
     return {"op": "ref", "element_id": node["id"]}
 
 
-def _emit_smooth(args: list[Any], ctx: LowerCtx) -> dict:
-    """SMTH1(input, averaging_time[, init]) → a `filter` node (EMA). window is an
-    integer step count, so averaging_time τ (in time units) → max(1, round(τ/dt))."""
-    inp = args[0]
-    if not (isinstance(inp, dict) and inp.get("op") == "ref"):
-        warn(ctx.who, "XMILE-UNMAPPED-BUILTIN: SMTH1 of a non-reference argument is "
-                      "unsupported; extern_call fallback.")
-        return {"op": "extern_call", "fn": "smth1", "args": args}
-    tau = _const_arg(args[1])
-    if tau is None:
-        warn(ctx.who, "XMILE-DELAY-CASCADE: SMTH1 averaging time is not a constant; "
-                      "cannot fix an integer EMA window; extern_call fallback.")
-        return {"op": "extern_call", "fn": "smth1", "args": args}
-    window = max(1, round(tau / ctx.dt)) if ctx.dt > 0 else 1
-    node = {"id": ctx.synth_id("smth"), "name": "smooth", "primitive": "node",
-            "value_rule": "filter", "input": inp["element_id"],
-            "window": window, "statistic": "ema"}
+def _expr_node(nid: str, name: str, ast: Any, ctx: LowerCtx) -> dict:
+    """An `expression` node with `inputs` populated from the AST's refs. Populating `inputs` is
+    what lets the engine's dependency graph order this node after the elements it reads — a
+    synthesized rate/outflow node without it can be evaluated before its stock inputs and read
+    stale/zero values (the same `inputs` the main emitter derives for every expression node)."""
+    refs: set[str] = set()
+    _collect_refs(ast, refs)
+    node = {"id": nid, "name": name, "primitive": "node", "value_rule": "expression",
+            "expression": {"ast": ast, "source": "inferred"}, "inputs": sorted(refs)}
     if ctx.container():
         node["container"] = ctx.container()
-    ctx.extras.append(node)
-    return {"op": "ref", "element_id": node["id"]}
+    return node
+
+
+def _emit_smooth(args: list[Any], ctx: LowerCtx) -> dict:
+    """SMTH1(input, averaging_time[, init]) — first-order information smooth. Exact as a stock S
+    with dS/dt = (input − S)/τ, integrated by explicit Euler (identical to Vensim). The rate node
+    references S; a stock takes no incoming graph edge, so no cycle forms, and S reads as its
+    current-step level (its own init at t=0). Default init (no third arg) is the input's value at
+    t=0 (the stock initializer evaluates the input expression at t=0). Handles constant OR dynamic
+    τ and any input expression."""
+    inp = args[0]
+    tau = args[1]
+    init = args[2] if len(args) >= 3 else json.loads(json.dumps(inp))
+    return _emit_smth1(inp, tau, init, ctx)
+
+
+def _emit_smth1(inp: Any, tau: Any, init: Any, ctx: LowerCtx) -> dict:
+    sid = ctx.synth_id("smth")
+    rate = {"op": "divide",
+            "left": {"op": "subtract", "left": inp, "right": {"op": "ref", "element_id": sid}},
+            "right": tau}
+    rate_node = _expr_node(sid + "_rate", "smooth rate", rate, ctx)
+    stock = {"id": sid, "name": "smooth", "primitive": "stock",
+             "initial_value": {"ast": init, "source": "inferred"},
+             "inflows": [rate_node["id"]], "outflows": [],
+             "save_results": {"final_value": True, "time_history": True}}
+    if ctx.container():
+        stock["container"] = ctx.container()
+    ctx.extras.extend([rate_node, stock])
+    return {"op": "ref", "element_id": sid}
+
+
+def _emit_smthn(args: list[Any], ctx: LowerCtx, order: int) -> dict:
+    """SMTH3/SMTHN(input, τ[, init]) — Nth-order smooth = N first-order smooths in series, each
+    with averaging time τ/N (Vensim convention). Default init applies to every stage."""
+    inp, tau = args[0], args[1]
+    init = args[2] if len(args) >= 3 else None
+    stage_tau = {"op": "divide", "left": tau, "right": _lit(float(order))}
+    signal = inp
+    for _ in range(order):
+        istage = json.loads(json.dumps(init)) if init is not None else json.loads(json.dumps(signal))
+        signal = _emit_smth1(signal, json.loads(json.dumps(stage_tau)), istage, ctx)
+    return signal
+
+
+def _emit_delay1(inp: Any, delay: Any, init: Any, ctx: LowerCtx) -> dict:
+    """DELAY1(input, D[, init]) — first-order MATERIAL (conserving) delay. Level L with
+    inflow = input, outflow = L/D; the DELAY1 value IS that outflow. Output starts at `init`
+    (default = input's t=0 value), so L(0) = init·D. Exact under Euler."""
+    lid = ctx.synth_id("delay")
+    out_node = _expr_node(lid + "_out", "delay outflow",
+                          {"op": "divide", "left": {"op": "ref", "element_id": lid}, "right": delay},
+                          ctx)
+    # inflow rate = input: reuse a bare ref directly, else wrap the expression in a node.
+    if isinstance(inp, dict) and inp.get("op") == "ref":
+        in_id = inp["element_id"]
+    else:
+        in_node = _expr_node(lid + "_in", "delay inflow", inp, ctx)
+        ctx.extras.append(in_node)
+        in_id = in_node["id"]
+    l0 = {"op": "multiply", "left": init, "right": json.loads(json.dumps(delay))}
+    stock = {"id": lid, "name": "delay level", "primitive": "stock",
+             "initial_value": {"ast": l0, "source": "inferred"},
+             "inflows": [in_id], "outflows": [out_node["id"]],
+             "save_results": {"final_value": True, "time_history": True}}
+    if ctx.container():
+        stock["container"] = ctx.container()
+    ctx.extras.extend([out_node, stock])
+    return {"op": "ref", "element_id": out_node["id"]}
+
+
+def _emit_delayn(args: list[Any], ctx: LowerCtx, order: int) -> dict:
+    """DELAY3/DELAYN(input, D[, init]) — Nth-order material delay = N first-order delays in
+    series, each with delay D/N (Vensim convention). Default init applies to every stage."""
+    inp, delay = args[0], args[1]
+    init = args[2] if len(args) >= 3 else None
+    stage_delay = {"op": "divide", "left": delay, "right": _lit(float(order))}
+    signal = inp
+    for _ in range(order):
+        istage = json.loads(json.dumps(init)) if init is not None else json.loads(json.dumps(signal))
+        signal = _emit_delay1(signal, json.loads(json.dumps(stage_delay)), istage, ctx)
+    return signal
 
 
 def _emit_random(name: str, args: list[Any], ctx: LowerCtx) -> dict:
@@ -1030,21 +1091,9 @@ def _const_value(ast: Any) -> Optional[float]:
     return None
 
 
-def _subst_refs(ast: Any, repl: dict[str, Any]) -> Any:
-    """Deep-copy `ast`, replacing every `ref{element_id in repl}` with repl[element_id]."""
-    if isinstance(ast, dict):
-        if ast.get("op") == "ref" and ast.get("element_id") in repl:
-            return json.loads(json.dumps(repl[ast["element_id"]]))
-        return {k: _subst_refs(x, repl) for k, x in ast.items()}
-    if isinstance(ast, list):
-        return [_subst_refs(x, repl) for x in ast]
-    return ast
-
-
 def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
                  interior: Optional[dict[str, str]] = None,
-                 dimensioned: Optional[set[str]] = None,
-                 active_initial_inits: Optional[dict[str, Any]] = None) -> tuple[dict, list[dict]]:
+                 dimensioned: Optional[set[str]] = None) -> tuple[dict, list[dict]]:
     """Emit the WaSiM element(s) for one IRVar. Returns (primary, extras).
     `interior` (interior-id -> submodel-id) lets cross-submodel reads become
     `submodel_stat` (see resolve_refs). `dimensioned` is the set of qualified ids
@@ -1080,12 +1129,6 @@ def emit_element(v: IRVar, scope_resolver, sim: IRSimSpecs,
 
     if v.kind == "stock":
         base["primitive"] = "stock"
-        # ACTIVE INITIAL(active, init): a stock initialized from such a variable must see the
-        # variable's INIT equation, not its active value at t=0 (Vensim initializes stocks with
-        # the init equation, while the variable itself reports `active`). Substitute those refs
-        # inside the stock's initial-value expression only.
-        if active_initial_inits and ast is not None:
-            ast = _subst_refs(ast, active_initial_inits)
         init = _const_value(ast) if ast is not None else None
         if init is not None:
             base["initial_value"] = _q(init, unit)          # constant initial
@@ -1303,26 +1346,10 @@ def convert(xml_text: str, model_name: Optional[str] = None) -> dict:
     # Qualified ids of dimensioned (array) variables — used to decide vector_map wrap.
     dimensioned = {v.qual_id for v in model.variables if v.dims}
 
-    # ACTIVE INITIAL variables: qualified id → lowered init equation. A stock initialized from
-    # one of these must use the init equation (Vensim seeds stocks with it); the variable itself
-    # still reports its active `<eqn>`. Collected up front so stock emission can substitute.
-    active_initial_inits: dict[str, Any] = {}
-    for v in model.variables:
-        if v.init_eqn is None:
-            continue
-        iast, ierr = parse_eqn(v.init_eqn)
-        if ierr is not None:
-            warn(v.qual_id, f"XMILE-ACTIVE-INITIAL: could not parse init_eqn "
-                            f"'{v.init_eqn}': {ierr}; init ignored.")
-            continue
-        iast = resolve_refs(iast, v.scope, resolver, v.qual_id, interior)
-        active_initial_inits[v.qual_id] = lower_ast(iast, LowerCtx(who=v.qual_id, dt=model.sim.dt, scope=v.scope))
-
     elements: list[dict] = []
     for v in model.variables:
         try:
-            primary, extras = emit_element(v, resolver, model.sim, interior, dimensioned,
-                                           active_initial_inits)
+            primary, extras = emit_element(v, resolver, model.sim, interior, dimensioned)
         except Exception as e:  # noqa: BLE001
             warn(v.qual_id or v.raw_name, f"internal error emitting element: {e}; skipped.")
             continue
