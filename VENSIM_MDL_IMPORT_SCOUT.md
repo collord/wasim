@@ -147,23 +147,23 @@ about the WaSiM engine, so read them layered, not as one PASS rate:
 | **Not benchmarkable — upstream** | **39** | pysimlin/xmutil *itself* can't load (17) or simulate (22) the model. The reference oracle doesn't exist, so WaSiM can't be scored. Not a WaSiM signal. |
 | **Not measured — harness** | **43** | WaSiM ran, but the harness couldn't align names: **39 array/subscript** models (dimensioned member ids vs `name[sub]` columns) + **4 constant-only** models (no saved trajectory). A measurement gap, not an engine gap. |
 | **Measurable dynamic-scalar** | **72** | the models where the comparison is meaningful ↓ |
-| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **53** | WaSiM reproduces pysimlin to floating-point precision |
-| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **18** | root-caused to a short list below |
-| &nbsp;&nbsp;• **WaSiM engine reject** | **1** | `test_active_initial_circular` — see below |
+| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **55** | WaSiM reproduces pysimlin to floating-point precision |
+| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **17** | root-caused to a short list below |
+| &nbsp;&nbsp;• **WaSiM engine reject** | **0** | (was 1: `test_active_initial_circular`, which now runs — see below) |
 
-**On the 72 measurable models, WaSiM matches an independent engine on 53 = 73%** (was 44/61%
-at the start of this branch). The remaining 18 misses are not 18 different problems — they
+**On the 72 measurable models, WaSiM matches an independent engine on 55 = 76%** (was 44/61%
+at the start of this branch). The remaining 17 misses are not 17 different problems — they
 collapse to a **short importer-construct list**, all in `xmile_to_wasim.py` (the engine is not
 implicated except where noted):
 
 | # | Construct (Vensim/XMILE builtin) | FAIL models | Effort | Note |
 |---|---|---:|---|---|
 | 1 | **`<macro>`** user functions (`EXPRESSION_MACRO`/`SECOND_MACRO`) | 6 | hard | `test_macro_*`; inline-expand simple single-`<eqn>` macros (scout §2). Now the biggest single lever. |
-| 2 | **Delay/smooth family** `DELAY FIXED`/`DELAY1`/`DELAY3`/`SMTH3`/`TREND` | 4 | medium | `test_delay_fixed` (fixed transit delay, some with *variable* delay time), `test_smooth_and_stock`, `test_delays`, `test_trend` (already 0.084). See "Deferred" below. |
+| 2 | **FIXED `DELAY` / `TREND`** | 2 | medium | `test_delay_fixed` (transit delay, some with *variable* delay time a fixed offset can't express), `test_trend` (composed from a smooth; already 0.084). `SMTH*`/`DELAY1/3` are **done** (§ below). |
 | — | array/subscript semantics | ~4 | (see harness note) | `test_elm_count` (`ELMCOUNT`), `test_except`, `test_subscript_definition`, `test_repeated_subscript` — array-side, tied to `XMILE_MAPPING_SCOUT.md §1`. |
-| — | `SAMPLE IF TRUE`, `Single_Pendulum` | 2 | mixed | `sample_if_true` = per-step sample-and-hold (unmapped). `Single_Pendulum` (worst 1e3) is likely genuine **Euler-vs-RK numeric divergence**, not a builtin gap — SDXorg canonical CSV would confirm. |
+| — | `SAMPLE IF TRUE`, cyclic `ACTIVE INITIAL`, `Single_Pendulum` | 3 | mixed | `sample_if_true` = per-step sample-and-hold (unmapped). `test_active_initial_circular` now runs but is off by its init value (cyclic non-stock `ACTIVE INITIAL`). `Single_Pendulum` (worst 1e3) is likely genuine **Euler-vs-RK numeric divergence**, not a builtin gap — SDXorg canonical CSV would confirm. |
 
-**✅ Done (this branch), +9 models, zero regressions:**
+**✅ Done (this branch), 44→55 of 72 measurable (61%→76%), zero regressions:**
 - `LOOKUP` (+ the bare `<aux><gf/></aux>` no-`<eqn>` table shape it calls), safe-divide
   `ZIDZ`/`XIDZ`/`SAFEDIV`, `INTEGER`/`MODULO`: flipped `workforce` (one `LOOKUP`→0 was poisoning
   all 15 downstream vars), `test_lookups`, `test_lookups_without_range`,
@@ -172,6 +172,8 @@ implicated except where noted):
   reports `active`; a stock initialized from it seeds from `init` via a targeted substitution
   in stock initial-value expressions), 3-arg `RAMP(slope, start, end)`: flipped `test_initial`,
   `test_active_initial`, `test_inputs`.
+- `SMTH1`/`SMTH3`/`SMTHN` and `DELAY1`/`DELAY3`/`DELAYN` via exact stock-based expansions
+  (next block): flipped `test_smooth_and_stock` and cleared the lone engine cycle-reject.
 
 **✅ Done — delay/smooth family (backlog #2), via exact stock-based expansions.** `SMTH1(input,
 τ[, init])` → a stock `S` with rate `(input − S)/τ`, Euler-integrated (identical to Vensim);
@@ -220,19 +222,17 @@ Ordered by leverage per §4a:
    `workforce`; `INTEGER`/`MODULO` were already Vensim-correct (the `test_rounding` FAIL is an
    oracle bug, not ours).
 2. ~~**`ACTIVE INITIAL` / `INIT` / `RAMP`**~~ — **done** (+3 models, 69%→73%). `test_active_initial`,
-   `test_initial`, `test_inputs`. The circular variant (`test_active_initial_circular`) stays an
-   engine cycle-reject: an algebraic loop through a first-order `SMTH1` that needs the smooth's
-   input excluded from the topo order — folded into the delay/smooth rework (next), since a
-   stock-based `SMTH1` is exactly what breaks that loop.
-3. **Engine fix, then delay/smooth family** (backlog #2). First seed cross-stock first-step
-   values inside self-referential flows (the engine finding in §4a "Deferred" — a small, well-
-   scoped engine change with a minimal repro). *Then* the stock-based `SMTH1`/`SMTH3`/
-   `DELAY1`/`DELAY3` expansions (already prototyped) become exact and can land, also resolving
-   the circular `ACTIVE INITIAL` reject. FIXED `DELAY` (transit/convolution) and `TREND` follow.
-   **Held until the engine fix — see §4a "Deferred".**
-4. **Array-member alignment in the harness.** Unblocks the 39 unmeasured array models — the
+   `test_initial`, `test_inputs`. The circular variant now *runs* (see #3) but is off by its init
+   value — a cyclic non-stock `ACTIVE INITIAL` still needs the init to seed the loop's t=0 value.
+3. ~~**Delay/smooth family** (`SMTH1`/`SMTH3`/`DELAY1`/`DELAY3`)~~ — **done** (73%→76%), via exact
+   stock-based expansions with `inputs` populated on every synthesized node. No engine change —
+   the earlier "engine blocker" was a prototype bug (missing `inputs`), see §4a. `test_smooth_and_stock`
+   → worst 0, and the stock-based `SMTH1` cleared the circular `ACTIVE INITIAL` cycle-reject.
+4. **FIXED `DELAY` + `TREND`** (backlog #2 remainder). Transit delay (`convolution`, incl. variable
+   delay time) and `TREND` (composed from a smooth; `test_trend` at 0.084).
+5. **Array-member alignment in the harness.** Unblocks the 39 unmeasured array models — the
    largest blind spot — and gives the array-lowering work (`XMILE_MAPPING_SCOUT.md §1`) a
-   scoreboard. Higher effort than 1–3 but highest coverage payoff.
+   scoreboard. Higher effort but highest coverage payoff.
 5. **`<macro>` inlining** (#1). Hardest; 6 models. Inline single-`<eqn>` macros first.
 6. **Add SDXorg canonical CSV as a third leg** for models that ship output — upgrades
    "WaSiM == simlin" to "WaSiM == simlin == Vensim-canonical" and separates true numeric
