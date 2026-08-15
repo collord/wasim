@@ -1,9 +1,0 @@
-{
-  "wasim_version": "0.9.8",
-  "simulation_settings": {"duration": {"value": 3, "unit": "1"}, "timestep": {"value": 1, "unit": "1"}},
-  "elements": [
-    {"id": "A", "name": "A", "primitive": "stock", "initial_value": {"value": 4.0, "unit": "1"}, "inflows": [], "outflows": [], "save_results": {"final_value": true, "time_history": true}},
-    {"id": "rate", "name": "rate", "primitive": "node", "value_rule": "expression", "expression": {"ast": {"op": "ref", "element_id": "A"}}},
-    {"id": "B", "name": "B", "primitive": "stock", "initial_value": {"value": 0.0, "unit": "1"}, "inflows": ["rate"], "outflows": [], "save_results": {"final_value": true, "time_history": true}}
-  ]
-}
