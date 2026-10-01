@@ -387,11 +387,13 @@ git clone --depth 1 https://github.com/SDXorg/test-models
 python3 tools/mdl_corpus_sweep.py test-models      # → mdl_sweep_results.json + summary
 ```
 
-Latest run (154 `.mdl`): of the **72 measurable** dynamic-scalar models, WaSiM matches
-pysimlin on **55 (76%)** to floating-point precision; the remaining 17 misses collapse to a
-short list of importer constructs (`<macro>`, FIXED `DELAY`/`TREND`, some arrays). The other
-82 models are upstream (39) or unaligned arrays/constants (43), not engine failures. Mapped on
-this branch (44→55, +11 net): `LOOKUP`, safe-divide (`ZIDZ`/`XIDZ`/`SAFEDIV`), `INTEGER`/`MODULO`,
-`INIT`, `ACTIVE INITIAL`, 3-arg `RAMP`, and the `SMTH*`/`DELAY1/3` family (exact stock-based
-expansions). `test_rounding`'s FAIL is a simlin-vs-Vensim oracle divergence (WaSiM matches the
-Vensim canonical), not a WaSiM bug. Full breakdown + backlog in `VENSIM_MDL_IMPORT_SCOUT.md §4a`.
+Latest run (154 `.mdl`): of the **73 measurable** dynamic-scalar models, WaSiM matches
+pysimlin on **61 (83%)** to floating-point precision; the remaining 12 misses are mostly
+array/subscript lowering (4), plus FIXED `DELAY`/`TREND`, a stock-containing macro, `SAMPLE IF
+TRUE`, and 3 non-WaSiM cases (an oracle bug, an Euler-vs-RK divergence, a cyclic ACTIVE INITIAL).
+The other 81 models are upstream (38) or unaligned arrays/constants (43), not engine failures.
+Mapped on this branch (44→61, +17 net): `LOOKUP`, safe-divide (`ZIDZ`/`XIDZ`/`SAFEDIV`),
+`INTEGER`/`MODULO`, `INIT`, `ACTIVE INITIAL`, 3-arg `RAMP`, the `SMTH*`/`DELAY1/3` family (exact
+stock-based expansions), and `<macro>` user functions (inlined). `test_rounding`'s FAIL is a
+simlin-vs-Vensim oracle divergence (WaSiM matches the Vensim canonical), not a WaSiM bug. Full
+breakdown + backlog in `VENSIM_MDL_IMPORT_SCOUT.md §4a`.

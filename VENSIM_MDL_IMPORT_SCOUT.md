@@ -146,24 +146,24 @@ about the WaSiM engine, so read them layered, not as one PASS rate:
 |---|---:|---|
 | **Not benchmarkable — upstream** | **39** | pysimlin/xmutil *itself* can't load (17) or simulate (22) the model. The reference oracle doesn't exist, so WaSiM can't be scored. Not a WaSiM signal. |
 | **Not measured — harness** | **43** | WaSiM ran, but the harness couldn't align names: **39 array/subscript** models (dimensioned member ids vs `name[sub]` columns) + **4 constant-only** models (no saved trajectory). A measurement gap, not an engine gap. |
-| **Measurable dynamic-scalar** | **72** | the models where the comparison is meaningful ↓ |
-| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **55** | WaSiM reproduces pysimlin to floating-point precision |
-| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **17** | root-caused to a short list below |
+| **Measurable dynamic-scalar** | **73** | the models where the comparison is meaningful ↓ |
+| &nbsp;&nbsp;• **PASS** (≤1e-2, mostly ≤1e-11) | **61** | WaSiM reproduces pysimlin to floating-point precision |
+| &nbsp;&nbsp;• **FAIL** (ran, drifted) | **12** | root-caused to a short list below |
 | &nbsp;&nbsp;• **WaSiM engine reject** | **0** | (was 1: `test_active_initial_circular`, which now runs — see below) |
 
-**On the 72 measurable models, WaSiM matches an independent engine on 55 = 76%** (was 44/61%
-at the start of this branch). The remaining 17 misses are not 17 different problems — they
-collapse to a **short importer-construct list**, all in `xmile_to_wasim.py` (the engine is not
-implicated except where noted):
+**On the 73 measurable models, WaSiM matches an independent engine on 61 = 83%** (was 44/61%
+at the start of this branch). The remaining 12 misses are not 12 different problems — they
+collapse to a **short list**, almost all in `xmile_to_wasim.py` (the engine is not implicated
+except where noted); and 3 of the 12 are not WaSiM faults at all (see below):
 
-| # | Construct (Vensim/XMILE builtin) | FAIL models | Effort | Note |
+| # | Construct / cause | FAIL models | Effort | Note |
 |---|---|---:|---|---|
-| 1 | **`<macro>`** user functions (`EXPRESSION_MACRO`/`SECOND_MACRO`) | 6 | hard | `test_macro_*`; inline-expand simple single-`<eqn>` macros (scout §2). Now the biggest single lever. |
-| 2 | **FIXED `DELAY` / `TREND`** | 2 | medium | `test_delay_fixed` (transit delay, some with *variable* delay time a fixed offset can't express), `test_trend` (composed from a smooth; already 0.084). `SMTH*`/`DELAY1/3` are **done** (§ below). |
-| — | array/subscript semantics | ~4 | (see harness note) | `test_elm_count` (`ELMCOUNT`), `test_except`, `test_subscript_definition`, `test_repeated_subscript` — array-side, tied to `XMILE_MAPPING_SCOUT.md §1`. |
-| — | `SAMPLE IF TRUE`, cyclic `ACTIVE INITIAL`, `Single_Pendulum` | 3 | mixed | `sample_if_true` = per-step sample-and-hold (unmapped). `test_active_initial_circular` now runs but is off by its init value (cyclic non-stock `ACTIVE INITIAL`). `Single_Pendulum` (worst 1e3) is likely genuine **Euler-vs-RK numeric divergence**, not a builtin gap — SDXorg canonical CSV would confirm. |
+| 1 | **array/subscript semantics** | 4 | high | `test_elm_count` (`ELMCOUNT`), `test_except` (`:EXCEPT:`), `test_subscript_definition`, `test_repeated_subscript` — array-side, tied to `XMILE_MAPPING_SCOUT.md §1`. Same lowering that unblocks the 39 unmeasured array models (harness note). |
+| 2 | **FIXED `DELAY` / `TREND`** | 2 | medium | `test_delay_fixed` (transit delay, some with *variable* delay time a fixed offset can't express), `test_trend` (composed from a smooth; already 0.084). `SMTH*`/`DELAY1/3` and user `<macro>`s are **done**. |
+| 3 | **stock-containing `<macro>`, `SAMPLE IF TRUE`** | 2 | medium | `test_macro_stock` (a macro with an internal stock — the inliner bails to `extern_call`), `test_sample_if_true` (per-step sample-and-hold, unmapped). |
+| — | **not a WaSiM fault** | 3 | — | `test_rounding` — **oracle bug**: WaSiM matches the Vensim canonical (`INT`/`MOD` truncate), simlin floors. `Single_Pendulum` — likely genuine **Euler-vs-RK divergence**. `test_active_initial_circular` — now runs, off by its init value (cyclic non-stock `ACTIVE INITIAL`). (`test_time`, worst 2, is a small TIME/SAVEPER alignment case to investigate.) |
 
-**✅ Done (this branch), 44→55 of 72 measurable (61%→76%), zero regressions:**
+**✅ Done (this branch), 44→61 of 73 measurable (61%→83%), zero regressions:**
 - `LOOKUP` (+ the bare `<aux><gf/></aux>` no-`<eqn>` table shape it calls), safe-divide
   `ZIDZ`/`XIDZ`/`SAFEDIV`, `INTEGER`/`MODULO`: flipped `workforce` (one `LOOKUP`→0 was poisoning
   all 15 downstream vars), `test_lookups`, `test_lookups_without_range`,
@@ -174,6 +174,10 @@ implicated except where noted):
   `test_active_initial`, `test_inputs`.
 - `SMTH1`/`SMTH3`/`SMTHN` and `DELAY1`/`DELAY3`/`DELAYN` via exact stock-based expansions
   (next block): flipped `test_smooth_and_stock` and cleared the lone engine cycle-reject.
+- `<macro>` user functions inlined (param substitution + recursive internal-var and nested-macro
+  expansion): flipped `test_macro_expression`, `test_macro_multi_expression`, `test_macro_multi_macros`,
+  `test_macro_trailing_definition`, `test_macro_cross_reference` (5 of 6; `test_macro_stock`,
+  a macro with an internal stock, bails to `extern_call`).
 
 **✅ Done — delay/smooth family (backlog #2), via exact stock-based expansions.** `SMTH1(input,
 τ[, init])` → a stock `S` with rate `(input − S)/τ`, Euler-integrated (identical to Vensim);
@@ -228,22 +232,25 @@ Ordered by leverage per §4a:
    stock-based expansions with `inputs` populated on every synthesized node. No engine change —
    the earlier "engine blocker" was a prototype bug (missing `inputs`), see §4a. `test_smooth_and_stock`
    → worst 0, and the stock-based `SMTH1` cleared the circular `ACTIVE INITIAL` cycle-reject.
-4. **FIXED `DELAY` + `TREND`** (backlog #2 remainder). Transit delay (`convolution`, incl. variable
+4. ~~**`<macro>` user functions**~~ — **done** (76%→83%, +5 models). Param substitution + recursive
+   internal-var and nested-macro expansion in `lower_call`; stock-containing macros bail to
+   `extern_call`. Only `test_macro_stock` remains in this family.
+5. **Array/subscript lowering** (now the biggest lever — 4 measured FAILs + the 39 unmeasured
+   array models). Covers `ELMCOUNT`, `:EXCEPT:`, subscript definitions/ranges per
+   `XMILE_MAPPING_SCOUT.md §1`, plus harness array-member alignment to make those 39 measurable.
+6. **FIXED `DELAY` + `TREND`** (backlog #2 remainder). Transit delay (`convolution`, incl. variable
    delay time) and `TREND` (composed from a smooth; `test_trend` at 0.084).
-5. **Array-member alignment in the harness.** Unblocks the 39 unmeasured array models — the
-   largest blind spot — and gives the array-lowering work (`XMILE_MAPPING_SCOUT.md §1`) a
-   scoreboard. Higher effort but highest coverage payoff.
-5. **`<macro>` inlining** (#1). Hardest; 6 models. Inline single-`<eqn>` macros first.
-6. **Add SDXorg canonical CSV as a third leg** for models that ship output — upgrades
+7. **Add SDXorg canonical CSV as a third leg** for models that ship output — upgrades
    "WaSiM == simlin" to "WaSiM == simlin == Vensim-canonical" and separates true numeric
-   divergence (e.g. `Single_Pendulum`, Euler-vs-RK) from importer gaps.
-7. **Document the stock/flow step-phase convention** (§2b) in `wasim-engine-semantics.md`.
-8. **Optional:** a thin `mdl_to_wasim.py` one-shot importer CLI (`= pysimlin.to_xmile |
+   divergence (e.g. `Single_Pendulum`, Euler-vs-RK; and confirms `test_rounding` is a simlin bug,
+   not ours) from importer gaps.
+8. **Document the stock/flow step-phase convention** (§2b) in `wasim-engine-semantics.md`.
+9. **Optional:** a thin `mdl_to_wasim.py` one-shot importer CLI (`= pysimlin.to_xmile |
    xmile_to_wasim`), separate from the diffing harness.
 
 ---
 
 *Grounded against a live run of pysimlin 0.7.0 + the WaSiM engine (`wasim-validate
---trajectories`) over the full SDXorg/test-models corpus (154 `.mdl`), 2026-08. §4a numbers
+--trajectories`) over the full SDXorg/test-models corpus (154 `.mdl`), 2026-08/09. §4a numbers
 reproduce via `tools/mdl_corpus_sweep.py`. See `tools/mdl_challenge.py` and
 `XMILE_MAPPING_SCOUT.md` for the underlying XMILE mapping.*
