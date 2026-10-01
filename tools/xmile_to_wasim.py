@@ -59,6 +59,19 @@ def reset_warnings() -> None:
     WARNINGS.clear()
 
 
+# User-function `<macro>` definitions, keyed by lowercased macro name. Each value is either
+# `(params, output_name, inner)` for an inlinable macro — `inner` maps each lowercased internal
+# aux/flow name to its raw <eqn> — or `None` for a macro we cannot inline (contains a stock,
+# dimensioned var, gf, or a missing output), which falls back to `extern_call`. Populated per
+# `convert()` from the top-level `<macro>` elements; a module global so `lower_call` can reach it
+# without threading it through every signature (mirrors WARNINGS).
+MACROS: dict[str, Optional[tuple[list[str], str, dict[str, str]]]] = {}
+
+
+def reset_macros() -> None:
+    MACROS.clear()
+
+
 # --------------------------------------------------------------------------- #
 # Stage 1 — XML parse: <sim_specs> and the <model>/<variables> block
 # --------------------------------------------------------------------------- #
@@ -778,10 +791,109 @@ def lower_ast(node: Any, ctx: LowerCtx) -> Any:
     return node
 
 
+def _parse_macros(root: ET.Element) -> None:
+    """Populate the module-global MACROS from top-level `<macro>` elements. A macro is inlinable
+    when its body is plain aux/flow equations (no stock, gf, or dimensioned var) and its declared
+    output name resolves to one of them; otherwise it is stored as None (→ extern_call)."""
+    reset_macros()
+    for mac in _findall(root, "macro"):
+        name = (mac.get("name") or "").lower()
+        if not name:
+            continue
+        out_name = _text(_find(mac, "eqn"))
+        params = [_text(p) for p in _findall(mac, "parm")]
+        vars_el = _find(mac, "variables")
+        if not out_name or vars_el is None:
+            MACROS[name] = None
+            continue
+        inner: dict[str, str] = {}
+        supported = True
+        for child in vars_el:
+            kind = _tag(child)
+            if kind not in ("aux", "flow"):
+                supported = False  # stock / module / gf-only → not inlinable
+                break
+            if _find(child, "gf") is not None or _find(child, "dimensions") is not None:
+                supported = False
+                break
+            vn = (child.get("name") or "").lower()
+            eqn = _text(_find(child, "eqn"))
+            if vn and eqn:
+                inner[vn] = eqn
+        if not supported or out_name.lower() not in inner:
+            MACROS[name] = None
+        else:
+            MACROS[name] = (params, out_name, inner)
+
+
+def _inline_macro(name: str, args: list[Any], ctx: LowerCtx) -> Optional[Any]:
+    """Inline-expand a macro call to a WaSiM AST, or return None if it can't be inlined (so the
+    caller falls back to extern_call). Substitutes params with the (already-lowered) call args and
+    recursively expands internal vars; nested macro/builtin calls in the body re-enter lower_call."""
+    mac = MACROS.get(name)
+    if mac is None:
+        return None
+    params, out_name, inner = mac
+    if len(args) != len(params):
+        warn(ctx.who, f"XMILE-MACRO: {name}() called with {len(args)} args but defines "
+                      f"{len(params)} parameter(s); extern_call fallback.")
+        return None
+    param_subst = {p.lower(): a for p, a in zip(params, args)}
+    try:
+        return _expand_macro_var(out_name.lower(), param_subst, inner, frozenset(), ctx)
+    except _MacroBail as e:
+        warn(ctx.who, f"XMILE-MACRO: cannot inline {name}() ({e}); extern_call fallback.")
+        return None
+
+
+class _MacroBail(Exception):
+    """Raised when a macro body uses a construct the inliner can't expand."""
+
+
+def _expand_macro_var(var: str, param_subst: dict[str, Any], inner: dict[str, str],
+                      stack: frozenset, ctx: LowerCtx) -> Any:
+    if var in stack:
+        raise _MacroBail("recursive internal reference")
+    if var not in inner:
+        raise _MacroBail(f"unknown internal var '{var}'")
+    body, err = parse_eqn(inner[var])
+    if err is not None:
+        raise _MacroBail(f"body parse error: {err}")
+    return _macro_subst(body, param_subst, inner, stack | {var}, ctx)
+
+
+def _macro_subst(node: Any, param_subst: dict[str, Any], inner: dict[str, str],
+                 stack: frozenset, ctx: LowerCtx) -> Any:
+    """Walk a parsed macro-body AST: IdentRefs become params (lowered args) or expanded internal
+    vars; Calls are lowered (handling builtins and nested macros); op-dicts recurse."""
+    if isinstance(node, IdentRef):
+        key = node.name.lower()
+        if key in param_subst:
+            return param_subst[key]
+        if key in inner:
+            return _expand_macro_var(key, param_subst, inner, stack, ctx)
+        raise _MacroBail(f"body references external identifier '{node.name}'")
+    if isinstance(node, Call):
+        new_args = [_macro_subst(a, param_subst, inner, stack, ctx) for a in node.args]
+        return lower_call(node.name, new_args, ctx)
+    if isinstance(node, dict):
+        return {k: _macro_subst(v, param_subst, inner, stack, ctx) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_macro_subst(x, param_subst, inner, stack, ctx) for x in node]
+    return node
+
+
 def lower_call(name_raw: str, args: list[Any], ctx: LowerCtx) -> Any:
     """Lower one XMILE builtin (args already lowered) to a WaSiM AST node,
     optionally emitting sibling elements into ctx.extras."""
     name = name_raw.lower()
+
+    # --- user-function macro (inline-expanded) ---
+    if name in MACROS:
+        inlined = _inline_macro(name, args, ctx)
+        if inlined is not None:
+            return inlined
+        # else: unsupported macro (stock/complex) — fall through to extern_call below.
 
     # --- array reducers (XMILE SUM/MEAN/SIZE over an arrayed var) ---
     if name in _ARRAY_REDUCER and len(args) >= 1:
@@ -1370,6 +1482,9 @@ def convert(xml_text: str, model_name: Optional[str] = None) -> dict:
     # ET keeps the namespace on tags; our _tag() strips it, so this works for both
     # namespaced and (rare) un-namespaced XMILE.
     model = parse_xmile(root)
+
+    # Parse top-level <macro> user functions so lower_call can inline their calls.
+    _parse_macros(root)
 
     # Expand module instances into submodel variables + container_defs (Phase 4).
     container_specs = _expand_modules(model)

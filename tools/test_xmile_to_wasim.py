@@ -220,6 +220,38 @@ _stock = [e for e in _ctx.extras if e.get("primitive") == "stock"][0]
 check("DELAY1 → material-delay stock (one inflow, one outflow=L/D)",
       res["op"] == "ref" and len(_stock["inflows"]) == 1 and len(_stock["outflows"]) == 1)
 
+# <macro> user functions: single-eqn, multi-expression, and cross-referencing macros inline
+X.reset_warnings()
+_macro_xml = '''<xmile xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <sim_specs><start>0</start><stop>1</stop><dt>1</dt></sim_specs>
+  <model><variables>
+    <aux name="a"><eqn>5</eqn></aux>
+    <aux name="b"><eqn>1.1</eqn></aux>
+    <aux name="out"><eqn>EXPRESSION_MACRO(a, b)</eqn></aux>
+    <aux name="xout"><eqn>CROSS_MACRO(a, b)</eqn></aux>
+  </variables></model>
+  <macro name="expression_macro"><eqn>expression_macro</eqn><parm>input</parm><parm>parameter</parm>
+    <variables><aux name="expression_macro"><eqn>input * intermediate</eqn></aux>
+      <aux name="intermediate"><eqn>parameter * 3</eqn></aux></variables></macro>
+  <macro name="cross_macro"><eqn>cross_macro</eqn><parm>input</parm><parm>parameter</parm>
+    <variables><aux name="cross_macro"><eqn>EXPRESSION_MACRO(input, parameter)</eqn></aux></variables></macro>
+</xmile>'''
+_m = X.convert(_macro_xml)
+_els = {e["id"]: e for e in _m["elements"]}
+_out = _els.get("Main/out")
+# EXPRESSION_MACRO(a,b) = a * (b*3): a multiply whose refs are only a and b (no extern_call)
+_out_refs = set()
+X._collect_refs(_out["expression"]["ast"], _out_refs)
+import json as _json
+_out_str = _json.dumps(_out["expression"]["ast"])
+check("macro inlines to a param-substituted expression (no extern_call)",
+      _out["expression"]["ast"]["op"] == "multiply"
+      and _out_refs == {"Main/a", "Main/b"} and "extern_call" not in _out_str)
+# cross-referencing macro expands through the nested macro too
+_xout_str = _json.dumps(_els["Main/xout"]["expression"]["ast"])
+check("cross-referencing macro inlines through the nested macro",
+      "extern_call" not in _xout_str and "Main/a" in _xout_str and "Main/b" in _xout_str)
+
 # per-step random → sample node with resampling always
 X.reset_warnings()
 _ctx = X.LowerCtx(who="Main/host", dt=1.0, scope=("Main",))
